@@ -38,7 +38,7 @@ private object WebStoreBackend : ArchiveStoreBackend {
     }
 }
 
-/** §6.3 web 行：`b`/`i`/`set`(逗号) 反推，其余是 `s`（与 `KeyValueStore.wasmJs.kt` 一致）。 */
+/** web：`b`/`i`/`set`(逗号) 反推，其余是 `s`（与 `KeyValueStore.wasmJs.kt` 一致）。 */
 private fun inferValue(raw: String): StoreValue {
     raw.toBooleanStrictOrNull()?.let { return StoreValue.B(it) }
     raw.toIntOrNull()?.let { return StoreValue.I(it) }

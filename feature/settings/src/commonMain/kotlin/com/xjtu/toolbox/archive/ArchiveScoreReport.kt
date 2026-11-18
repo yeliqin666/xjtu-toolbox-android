@@ -7,8 +7,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
 /**
- * 「成绩缓存」这一族的**档案形状 + 档案键名**（storage-layout §6.3 逐族迁移规则的一员：
- * 「Android `cache/data_cache<suffix>/<key>.json` → `files/schedule/<key>.json`，`mtime → at`」那一行）。
+ * 「成绩缓存」这一族的**档案形状 + 档案键名**（docs/archive-format.md）：
+ * Android `cache/data_cache<suffix>/<key>.json` → `files/schedule/<key>.json`，`mtime → at`。
  *
  * 为什么这一族要单独一条规则：三端**端内**是三种形状，档案要是原样搬运，就有两端读不出来 ——
  * - `:app`：`cache/data_cache<suffix>/score_report_<学号>.json`，内容是**裸数组**，年龄靠文件 mtime；
@@ -20,23 +20,23 @@ import kotlinx.serialization.json.longOrNull
  * 所以本族在档案里定成**一个**规范形状 + **一个**规范名：
  *
  * - **形状** `{"at":<ms>,"grades":[…]}`（＝ 桌面/web 的端内形状）：`at` 是这份成绩的采集时刻，
- *   端内的 mtime（`:app`）与端内的 `at`（桌面/web）都折进它（§6.3「mtime → `at`」）。
- *   `grades` 是端内那份 JSON 数组**逐字**搬过来，不重新建模（§2.3 总则：`files/` 只搬字节）。
+ *   端内的 mtime（`:app`）与端内的 `at`（桌面/web）都折进它。
+ *   `grades` 是端内那份 JSON 数组**逐字**搬过来，不重新建模（`files/` 只搬字节）。
  * - **名字** `accounts/<suffix>/files/schedule/score_report.json` —— **不含学号**：账号维度已经由
- *   `accounts/<suffix>/` 那一层承担，学号只是同一件事的第二种说法（§2.0 的唯一映射）。
+ *   `accounts/<suffix>/` 那一层承担，学号只是同一件事的第二种说法。
  *
  * 名字按**族**认（[FAMILY] 这条模式），不是只认某一个文件名：
  * - `schedule/score_report.json` —— 规范名，导出写它；
  * - `schedule/score_report_<学号>.json` —— 老档案里的名字、也是 `:app` 的端内原名，**照样认**
- *   （§6.1 第 2 条：老档案必须还能导入）。
+ *   （老档案必须还能导入）。
  *
  * **端内形状一个都不改**（C1 红线）：导出只在「写进档案」那一刻转成规范形状，导入只在「落进端内」
  * 那一刻转回本端形状（见 [ArchiveImportTarget.fileRelPath] / [ArchiveImportTarget.fileContent]）。
- * 转不动的条目由调用方**跳过并计数**，绝不抛（§8.6）。
+ * 转不动的条目由调用方**跳过并计数**，绝不抛。
  */
 object ArchiveScoreReport {
 
-    /** §2.3：这一族在 `files/` 之下的目录（档案与端内同名）。 */
+    /** 这一族在 `files/` 之下的目录（档案与端内同名）。 */
     const val REL_DIR = "schedule"
 
     /** 端内键名的公共前缀，也是桌面端内店名的前缀（`score_report<账号后缀>`）。 */
@@ -77,7 +77,7 @@ object ArchiveScoreReport {
      * `accounts/<suffix>` → 学号。
      *
      * `manifest.accounts` 里那一档的 `accountId` 最权威（安全化不可逆：`a-b` 与 `a_b` 会撞成同一个 suffix，
-     * §4 也只在那时判碰撞）；档案里查不到时才退一步剥掉后缀开头那个 `_`。
+     * 碰撞也只在那时判）；档案里查不到时才退一步剥掉后缀开头那个 `_`。
      * `global/`（没有账号维度）/ `default`（无账号）/ `_`（空账号）⇒ null（调用方跳过并计数）。
      */
     fun studentIdOf(suffix: String, accountId: String?): String? {
@@ -89,7 +89,7 @@ object ArchiveScoreReport {
     /**
      * 端内那份（裸数组 / 已经是规范形状）⇒ **档案里的规范形状**；转不动 ⇒ null。
      *
-     * [at] 是这份成绩的年龄：导出时给端内 mtime（§6.3「mtime → at」），导入端重建旧档案时给导入时刻。
+     * [at] 是这份成绩的年龄：导出时给端内 mtime，导入端重建旧档案时给导入时刻。
      * 裸数组按字节拼进去（不重新序列化 `grades`）；已经是 `{"at","grades"}` 的照原样（它自己带着更可信的 `at`）。
      */
     fun toCanonical(content: String, at: Long): String? {

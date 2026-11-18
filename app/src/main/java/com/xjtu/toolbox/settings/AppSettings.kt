@@ -365,7 +365,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
 
     var pendingExportArchive by remember { mutableStateOf<Map<String, String>?>(null) }
 
-    // §6.4 显式镜像档：导入那一刻先让用户选一次档位。默认恒为 MERGE（默认档行为一个字不变）。
+    // 显式镜像档：导入那一刻先让用户选一次档位。默认恒为 MERGE（默认档行为一个字不变）。
     // 镜像档只能由用户主动点出来，不会预先选中。
     var pendingImportFile by remember { mutableStateOf<File?>(null) }
     var pendingImportMode by remember { mutableStateOf(ArchiveImportMode.MERGE) }
@@ -459,7 +459,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
 
     val importFile = pendingImportFile
     if (importFile != null) {
-        // 换档位就重算一次：算的只是「会发生什么」，端内一个字节不动（§6.4）。
+        // 换档位就重算一次：算的只是「会发生什么」，端内一个字节不动。
         // 首次进这个块时档位是 MERGE ⇒ 先算的就是默认档那一次（行为与以前一致）。
         LaunchedEffect(importFile, pendingImportMode) {
             pendingImportPlan = null

@@ -29,7 +29,7 @@ import kotlinx.datetime.LocalDateTime
 
 /**
  * 排好序的考试列表：未结束的在前（正序，日期待定的排最后），已结束的单独收着，
- * 供调用方做成「已结束 N 场 ▾」的折叠行。见 plan2 §1.3④。
+ * 供调用方做成「已结束 N 场 ▾」的折叠行。
  */
 data class ExamListData(val active: List<ExamItem>, val ended: List<ExamItem>) {
     val total: Int get() = active.size + ended.size

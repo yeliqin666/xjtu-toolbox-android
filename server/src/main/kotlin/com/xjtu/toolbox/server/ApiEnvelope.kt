@@ -4,7 +4,7 @@ import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/** `/api/…` 的信封（`docs/api-contract.md` §4）：`{ code, data, message }`。 */
+/** `/api/…` 的信封（`docs/api-contract.md`「通用形状」）：`{ code, data, message }`。 */
 @Serializable
 data class ApiEnvelope<T>(
     val code: Int,
@@ -47,7 +47,7 @@ object ApiErrors {
     const val ACTION_REJECTED = 409
 
     /**
-     * 写账号要求在 HTTPS 下（`docs/parity-ledger.md` §6.1 #10 = 丙）。
+     * 写账号要求在 HTTPS 下。
      *
      * 与 [BAD_REQUEST] 分开单列：客户端靠这个码决定「把启用 HTTPS 的指引摆到用户面前」，
      * 而 400 只意味着「这次请求本身写错了」。

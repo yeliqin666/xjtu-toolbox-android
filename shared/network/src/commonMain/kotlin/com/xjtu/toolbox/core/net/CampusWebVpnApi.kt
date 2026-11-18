@@ -10,7 +10,7 @@ import kotlinx.serialization.json.put
 class CampusWebVpnApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份实现只认 serve 契约（§5.7）。 */
+    /** 见 [ApiMode]：这一份实现只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : WebVpnAsyncCodec {
 
@@ -46,7 +46,7 @@ class CampusWebVpnApi(
         val converted = data?.get("url").safeString().orEmpty()
         if (converted.isBlank()) {
             error(
-                "WebVPN 转换：服务端返回的 url 是空的（契约 §5.7 的 data.url —— $direction 这一向" +
+                "WebVPN 转换：服务端返回的 url 是空的（data.url ——$direction 这一向" +
                     "只该给一个地址，给不出就如实报错）",
             )
         }
@@ -67,5 +67,5 @@ private const val DIRECTION_TO_VPN = "to_vpn"
 /** 网关地址 → 原网址。 */
 private const val DIRECTION_FROM_VPN = "from_vpn"
 
-/** `400`：`from_vpn` 这一向的「你给的不是网关地址」（契约 §5.7）。 */
+/** `400`：`from_vpn` 这一向的「你给的不是网关地址」。 */
 private const val HTTP_BAD_REQUEST = 400

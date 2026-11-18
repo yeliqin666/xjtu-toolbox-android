@@ -14,7 +14,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/** serve 契约 §5.8 的客户端那一侧。 */
+/** `/api/jwapp/score-detail` 的客户端那一侧。 */
 class ServeJwappScoreDetailApiTest {
 
     private class Call(val path: String, val url: String)
@@ -51,7 +51,7 @@ class ServeJwappScoreDetailApiTest {
             ApiMode.SERVE,
         )
 
-        assertTrue(api.canFetchScoreDetail, "§5.8 端了分项成绩 ⇒ serve 形态下屏上那一格能展开")
+        assertTrue(api.canFetchScoreDetail, "有分项成绩端点 ⇒ serve 形态下屏上那一格能展开")
 
         val detail = api.getScoreDetail("S1")
         assertEquals("/api/jwapp/score-detail", calls.single().path)
@@ -69,7 +69,7 @@ class ServeJwappScoreDetailApiTest {
         assertEquals("98", detail.itemList.last().itemScore)
     }
 
-    /** 「这门课没有分项」是上游明确说没有（§4：`detail` 显式为 `null`） */
+    /** 「这门课没有分项」是上游明确说没有（`detail` 显式为 `null`） */
     @Test
     fun serveDetailNullMeansNoItemsNotAFailure() = runTest {
         val api = CampusJwappScoreApi(

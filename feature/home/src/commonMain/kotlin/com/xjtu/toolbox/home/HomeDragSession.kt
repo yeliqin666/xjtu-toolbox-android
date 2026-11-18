@@ -163,7 +163,7 @@ internal class HomeDragSession {
     var resizeStartContent = Offset.Zero
         private set
 
-    /** 拖拽起始于哪个组：接收高亮只在「拖进别的组」时画（§19）。 */
+    /** 拖拽起始于哪个组：接收高亮只在「拖进别的组」时画。 */
     var sourceGroupId by mutableStateOf<String?>(null)
         private set
 
@@ -438,12 +438,12 @@ internal class HomeBoardGeometry(
  * 命中与滚动、命中与落点之间都不存在反馈回路。
  *
  * [extraRows]（组 id → 多出来的行数）是唯一的例外，而且是**只增不减**的：卡片拖到某一组
- * 底端之外时给那一组开新行接住（§5）。它同时喂给渲染侧的行数预算（`HomeGroupSection` 的
+ * 底端之外时给那一组开新行接住。它同时喂给渲染侧的行数预算（`HomeGroupSection` 的
  * `budgetRows`），两边一起长，所以「命中 == 画出来的」仍然成立；因为只增不减，也不会出现
  * 「长出空行 → 手指落回组内 → 又收回去」的来回振荡。
  *
- * [headerlessIds] 是给「预测非编辑态版面」用的：非编辑态里**标题为空的组不画标题行**
- * （§6），要拿这套函数算出与真实渲染一致的高度，就得把这些组标出来。拖拽几何表永远不传
+ * [headerlessIds] 是给「预测非编辑态版面」用的：非编辑态里**标题为空的组不画标题行**，
+ * 要拿这套函数算出与真实渲染一致的高度，就得把这些组标出来。拖拽几何表永远不传
  * 它——编辑态每组都画标题行。
  */
 internal fun buildBoardGeometry(

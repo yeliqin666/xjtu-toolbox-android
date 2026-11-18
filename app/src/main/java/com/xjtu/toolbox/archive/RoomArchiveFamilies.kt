@@ -17,18 +17,18 @@ import kotlinx.serialization.json.put
 
 /** Room 三张表的行适配器（`:app` 侧接线点） */
 object RoomArchiveFamilies {
-    /** §2.3：`files/courses/custom_courses.json`。 */
+    /** `files/courses/custom_courses.json`。 */
     const val CUSTOM_COURSES_REL = "courses/custom_courses.json"
 
-    /** §2.3：`files/media/download_tasks.json`。 */
+    /** `files/media/download_tasks.json`。 */
     const val DOWNLOAD_TASKS_REL = "media/download_tasks.json"
 
-    /** §2.3：`files/jiaocai/jiaocai1_shelf.json`。 */
+    /** `files/jiaocai/jiaocai1_shelf.json`。 */
     const val JIAOCAI_SHELF_REL = "jiaocai/jiaocai1_shelf.json"
 
     // ── 纯函数：表行 → 档案文件（排序交给 ArchiveFileRows，可测） ──
 
-    /** `custom_courses` 表行 → `files/courses/custom_courses.json`（§2.3 六键升序）。 */
+    /** `custom_courses` 表行 → `files/courses/custom_courses.json`（六键升序）。 */
     fun customCoursesFile(rows: List<CustomCourseEntity>): ArchiveFile =
         ArchiveFile(
             suffix = "",
@@ -36,7 +36,7 @@ object RoomArchiveFamilies {
             content = ArchiveFileRows.sortCustomCourses(JsonArray(rows.map { it.toArchiveJson() })).toString(),
         )
 
-    /** `download_tasks` 表行 → `files/media/download_tasks.json`（§2.3 `(createTime desc, id)`）。 */
+    /** `download_tasks` 表行 → `files/media/download_tasks.json`（`(createTime desc, id)`）。 */
     fun downloadTasksFile(rows: List<DownloadTaskEntity>): ArchiveFile =
         ArchiveFile(
             suffix = "",
@@ -44,7 +44,7 @@ object RoomArchiveFamilies {
             content = ArchiveFileRows.sortDownloadTasks(JsonArray(rows.map { it.toArchiveJson() })).toString(),
         )
 
-    /** `jiaocai1_shelf` 表行 → `files/jiaocai/jiaocai1_shelf.json`（§2.3 `(addedAt desc, ssno)`）。 */
+    /** `jiaocai1_shelf` 表行 → `files/jiaocai/jiaocai1_shelf.json`（`(addedAt desc, ssno)`）。 */
     fun jiaocaiShelfFile(rows: List<Jiaocai1ShelfEntity>): ArchiveFile =
         ArchiveFile(
             suffix = "",
@@ -128,7 +128,7 @@ object RoomArchiveFamilies {
             )
         }
 
-    /** 导入前的行数组预检（§6.1 第 3 条）：解不开就直接抛，由调用方翻译成 [ImportResult.Failed]。 */
+    /** 导入前的行数组预检：解不开就直接抛，由调用方翻译成 [ImportResult.Failed]。 */
     fun checkRows(relPath: String, content: String) {
         when (relPath) {
             CUSTOM_COURSES_REL -> customCoursesFrom(content)

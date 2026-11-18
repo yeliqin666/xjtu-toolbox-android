@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonObject
 
-/** `/api/accounts` 的契约验收（`docs/api-contract.md` §5.10）。 */
+/** `/api/accounts` 的契约验收（`docs/api-contract.md`）。 */
 class ServeAccountsTest {
 
     @AfterTest
@@ -131,7 +131,7 @@ class ServeAccountsTest {
             assertEquals(AccountsFixture.MASKED_STUDENT_NO, fromSession.optString("id"))
             assertEquals("undergraduate", fromSession.optString("accountType"))
             assertEquals(true, fromSession.optBoolean("active"), "serve 这一侧当前会话就是它")
-            assertTrue(fromSession["lastUsedAt"] is JsonNull, "不在表里 ⇒ 明确说没有（§4：null ≠ 缺字段）")
+            assertTrue(fromSession["lastUsedAt"] is JsonNull, "不在表里 ⇒ 明确说没有（null ≠ 缺字段）")
             assertNull(fromSession.optString("lastUsedAt"))
 
             assertNoIdentity(
@@ -172,7 +172,7 @@ class ServeAccountsTest {
         }
     }
 
-    /** `lastUsedAt` 是 ISO-8601 带时区（§4）⇒ 解回 epoch 毫秒比对。 */
+    /** `lastUsedAt` 是 ISO-8601 带时区 ⇒ 解回 epoch 毫秒比对。 */
     private fun isoToEpochMs(raw: String?): Long =
-        OffsetDateTime.parse(requireNotNull(raw) { "这一格该有值（§4：null = 明确说没有）" }).toInstant().toEpochMilli()
+        OffsetDateTime.parse(requireNotNull(raw) { "这一格该有值（null = 明确说没有）" }).toInstant().toEpochMilli()
 }

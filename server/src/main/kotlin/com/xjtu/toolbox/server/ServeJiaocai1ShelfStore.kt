@@ -18,7 +18,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
 
 /**
- * serve 侧的教材书架（`docs/api-contract.md` §5.14）。
+ * serve 侧的教材书架（`docs/api-contract.md`）。
  *
  * ## 为什么书架在 serve 侧
  *

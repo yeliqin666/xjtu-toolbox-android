@@ -25,7 +25,7 @@ import kotlinx.serialization.json.jsonObject
 class CampusNoticeApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : NoticeSource {
 
@@ -38,7 +38,7 @@ class CampusNoticeApi(
         if (sources.isEmpty()) return MergedNotificationPage(emptyList(), emptySet(), false)
         val data = getList(sources, page)
         // 没拉到的源：campus-api 放在 degraded[]（每项一个对象，reason/error 是给人看的）；
-        // serve（§5.2）直接给一串源**代码**（与 [NotificationSource] 的枚举名同一套）
+        // serve直接给一串源**代码**（与 [NotificationSource] 的枚举名同一套）
         val skipped = if (mode == ApiMode.SERVE) {
             data.arr("skipped").orEmpty().mapNotNull { sourceOf(it.safeString()) }.toSet()
         } else {
@@ -59,8 +59,8 @@ class CampusNoticeApi(
         MergedNotificationPage(emptyList(), emptySet(), false)
 
     private suspend fun getList(sources: List<NotificationSource>, page: Int): JsonObject {
-        // serve（§5.2）：`sources` 逗号分隔 + `page`；它**没有** campus-api 那个「一次取几页」的 `pages`
-        //（契约 §4 的页大小由服务端定，客户端不传）
+        // serve：`sources` 逗号分隔 + `page`；它**没有** campus-api 那个「一次取几页」的 `pages`
+        //（页大小由服务端定，客户端不传）
         if (mode == ApiMode.SERVE) {
             return client.serveData(
                 "加载通知",

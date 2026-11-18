@@ -27,7 +27,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** serve 模式内置 HTTPS 的验收，契约见 `docs/api-contract.md` §3 / §3.2。 */
+/** serve 模式内置 HTTPS 的验收，契约见 `docs/api-contract.md`「运行」「安全口径」。 */
 class ServeHttpsTest {
 
     private var started: ServeHttps? = null

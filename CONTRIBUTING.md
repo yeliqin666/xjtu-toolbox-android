@@ -162,24 +162,11 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 - 新版本（该 `versionName` 还没有 tag）的 `versionCode` 不大于上一个正式版；或低于同核心版本已发布的 beta 包（正式版可以与 beta 同号，但不能更低）。CI 的 `Validate versionCode` 步骤执行这条；
 - 带 `[skip preview]` 的推送跳过了单元测试、版本号校验或更新日志校验。该标记只允许跳过预览包的构建与发布。
 
-### 1.8 从 `-dev.N` 迁移（已随 `6.0.1` 完成）
+### 1.8 预览号的生成
 
-本规范生效前的预览包形如 `X.Y.Z-dev.<CI 运行号>`；运行号跨版本持续累加，正是 §1.3 要废除的写法。迁移从 `6.0.1` 起生效，`-dev.N` 只作为历史版本存在，不再产生新的构建。
-
-**预览号怎么来**
-
-1. 核心版本号（`app/build.gradle.kts` 的 `versionName`）由人维护，`dev` 上必须严格大于最新正式版；
-2. `N` 由 CI 在每次构建时算出：查 GitHub 上同一核心版本已发布的预览 tag（`v<核心版本>-beta.N`），取最大 `N` 加 1，没有就取 `1`；
-3. `[skip preview]` 的推送不产生 release，因此不占号；同一个 run 重跑时按提交 SHA 找回上次发布的号，重发同一个 beta，不跳号；
-4. 版本号写法：APK 的 `versionName`、`preview.json`、Release 的 `name` 都是 `X.Y.Z-beta.N`，tag 是 `vX.Y.Z-beta.N`；同一核心版本的正式版仍是 `vX.Y.Z`。
-
-**升级路径（迁移时为什么必须抬核心版本号）**
-
-`beta` 在字符串比较里小于 `dev`，同一个核心版本内的 `X.Y.Z-dev.N` 用户不会把 `X.Y.Z-beta.1` 当成更新。因此迁移与核心版本号抬升在同一提交里完成：旧预览用户（`6.0.0-dev.384`）升到 `6.0.1-beta.1` 时核心版本号变大，按 §1.4 的 SemVer 顺序判定为新版本，客户端与安装器（`versionCode` 同步 +1）都能正常升级。
-
-**遗留**
-
-`-dev.N` 的 tag（`dev-<运行号>`）和 OSS 上的旧版本目录，都会和新的 `-beta.N` 一起进入「只保留最近 5 个预览」的清理，不单独处理。
+- `N` 由 CI 每次构建时算出：查 GitHub 上同一核心版本已发布的预览 tag（`v<核心版本>-beta.N`），取最大 `N` 加 1，没有就取 `1`；同一个 run 重跑时按提交 SHA 找回上次的号。
+- APK 的 `versionName`、`preview.json`、Release 的 `name` 都是 `X.Y.Z-beta.N`，tag 是 `vX.Y.Z-beta.N`。
+- `6.0.1` 之前的预览包是 `X.Y.Z-dev.<运行号>`，已停用；`beta` 在同一核心版本内小于 `dev`，所以迁移时一并抬了核心版本号。
 
 ---
 
@@ -197,7 +184,7 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 - 预览版的发与不发由 head commit 的 `[skip preview]` 或手动触发时的 `publish_preview` 输入决定；不要通过删除或修改已有 Release 来模拟跳过。
 - 不得直接向 `main` 推送日常开发提交；紧急热修复也应当通过分支与 PR 完成。
 - 不得手动创建或删除 CI 生成的 Release/tag，不得修改其版本号或安装包附件；发布记录的止血操作按预览渠道文档执行。
-- 预览渠道的止血与发布细节见 [`docs/preview-channel.md`](docs/preview-channel.md)。该文档中的版本号示例如与本文冲突，以本文为准。
+- 预览渠道的止血与分发细节见 [`docs/release.md`](docs/release.md)。该文档如与本文冲突，以本文为准。
 
 ## 3. 提交与 PR
 
@@ -218,7 +205,15 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
   ```
 
 - CI 会运行 `pr-gate`：`:app` 必须能编译，`:core` 与 `:web` 必须能编译到 wasmJs，所有 KMP 模块的 `jvmTest` 以及 `:server`、`:desktop` 的测试都要通过。不要把 Android/JVM 专属依赖带进 `:core` 的 `commonMain`。
+- `String.format`、`toSortedMap`、`java.time`、`Dispatchers.IO` 在 JVM 上能编译、在 wasmJs 上不能，只看 import 查不出来。改共享层后应当真编一次 wasmJs，例如 `./gradlew :shared:model:compileKotlinWasmJs :feature:home:compileKotlinWasmJs`。
 - 修改桌面端时运行 `./gradlew :desktop:test`；涉及安装包时确认 `desktopPackageVersion` 已同步。
+
+模块依赖方向（README 有模块总表）：
+
+- `:feature:*` 只依赖 `:shared:{model,navigation,designsystem,network}`，功能模块之间不得互相依赖；
+- 功能模块要的数据接口（`*Source`、`AgentTransport` 等）放 `:shared:model`，因为 `:shared:data` 没有 wasmJs 目标；实现由各平台壳注入（Android、桌面用 `:shared:data`，Web 用 `web/`）；
+- `:core`、`:data` 是拆分后的残留壳，只做聚合转发，不得往里加新代码；
+- `:thirdparty:backdrop` 是 vendor 的 kyant backdrop（加了 `sampling` 开关），根 `build.gradle.kts` 用 `dependencySubstitution` 顶替 Maven 坐标。
 - 不得提交构建产物、APK/AAB、`build/` 目录、签名文件或本地配置。
 
 ## 5. 凭据与本地文件
@@ -237,4 +232,15 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 
 - 本文件是开发规范的唯一入口。新增规则直接追加到对应章节，不要在多个文档里维护互相矛盾的副本。
 - 修改规则时，必须在同一个 PR 中更新负责执行该规则的 CI 检查、单元测试或脚本。规则与实现不一致时，以本文件为准，并尽快修正实现。
-- 模块专属的设计与实现细节放在 `docs/` 下，由本文件引用，不在本文件中重复。
+- 模块专属的设计与实现细节放在 `docs/` 下，只写现行行为与约束，不写开发过程记录；过时内容直接删除。
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/release.md`](docs/release.md) | 发版渠道、预览构建、止血、OSS / CDN 分发 |
+| [`docs/desktop.md`](docs/desktop.md) | 桌面端打包、CI、凭据存储 |
+| [`docs/api-contract.md`](docs/api-contract.md) | serve 模式运行方式与 `/api/*` 契约 |
+| [`docs/archive-format.md`](docs/archive-format.md) | 三端通用的存档格式 |
+| [`docs/agent.md`](docs/agent.md) | 屁岱：中断、结果卡、读文档、MCP |
+| [`docs/one-take-sharedview-kit.md`](docs/one-take-sharedview-kit.md) | 首页卡片「一镜到底」转场 |
+| [`docs/dynamic-schedule-notification.md`](docs/dynamic-schedule-notification.md) | 动态课程与日程通知 |
+| [`docs/miuix.md`](docs/miuix.md) | MIUIX 组件用法与本项目约定 |

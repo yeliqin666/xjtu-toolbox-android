@@ -28,7 +28,7 @@ import kotlinx.serialization.json.jsonObject
 class CampusSchoolCourseApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : SchoolCourseSource {
 
@@ -127,7 +127,7 @@ class CampusSchoolCourseApi(
     }
 
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
-        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        // serve 契约的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
         if (mode == ApiMode.SERVE) return client.serveData("全校课表", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> if (v.isNotEmpty()) parameter(k, v) }
@@ -140,9 +140,9 @@ class CampusSchoolCourseApi(
         return envelope["data"] as? JsonObject
             ?: error("campus-api 全校课表返回缺少 data：${text.take(120)}")
     }
-    // ─── serve 模式（契约 §5.3）────────────────────────────────────────────
+    // ─── serve 模式────────────────────────────────────────────
 
-    /** serve 模式（契约 §5.3） */
+    /** serve 模式 */
     private suspend fun serveQuery(query: SchoolCourseQuery, page: Int, pageSize: Int): SchoolCourseResult {
         val data = getData(
             "/api/jwxt/school-courses",

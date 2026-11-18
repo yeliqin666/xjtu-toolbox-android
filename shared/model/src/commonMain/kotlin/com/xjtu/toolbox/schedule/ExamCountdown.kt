@@ -21,7 +21,7 @@ object ExamCountdown {
      */
     const val SOON_DAYS = 3
 
-    /** 一场考试此刻所处的状态。决定卡片的颜色、标签和排序，见 plan2 §1.3。 */
+    /** 一场考试此刻所处的状态。决定卡片的颜色、标签和排序。 */
     enum class ExamPhase {
         /** 今天考，而且还没到结束时刻（或者结束时刻解析不出来）。 */
         TODAY,

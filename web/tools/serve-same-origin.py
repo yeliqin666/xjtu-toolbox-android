@@ -10,7 +10,7 @@
 | 后端 | 端口 | 谁在答 |
 |---|---|---|
 | campus-api（默认，现状） | `3099` | 只读的旧形状（`code == 0` 成功、非 0 是业务码） |
-| serve 模式的 :server | `8123` | `docs/api-contract.md` §4/§5 的新契约（`code == HTTP 状态码`），**同时托管 :web 产物** |
+| serve 模式的 :server | `8123` | `docs/api-contract.md` 的新契约（`code == HTTP 状态码`），**同时托管 :web 产物** |
 
 ⚠️ `--backend 8123` 这一档只在这个脚本当**反代**时有意义（例如 :server 换了端口、或你想把
 产物目录指到别处）。serve 模式的**正常用法**根本不用它：`:server` 自己就托管 `:web` 的产物

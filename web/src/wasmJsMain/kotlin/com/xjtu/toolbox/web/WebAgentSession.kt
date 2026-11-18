@@ -36,7 +36,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
-/** 浏览器侧的屁岱驱动（`docs/agent-web-spec.md` §4.2 的逐成员对应表）。 */
+/** 浏览器侧的屁岱驱动。 */
 internal class WebAgentSession(
     private val client: HttpClient,
     private val scope: CoroutineScope,
@@ -153,7 +153,7 @@ internal class WebAgentSession(
     }
 
     override fun stop() {
-        // 两条一起走（契约 §3.4：「停止」与「断开」是同一条路）：显式 stop 让服务端立刻回一句，
+        // 两条一起走（「停止」与「断开」是同一条路）：显式 stop 让服务端立刻回一句，
         // abort 保证本端这条流一定收摊（写帧失败 / 客户端断开也是同一条取消判据）。
         val target = turnSessionId
         scope.launch {
@@ -253,7 +253,7 @@ internal class WebAgentSession(
                     }
 
                     TurnSignal.Ended -> {
-                        // 见过 `done` / `error` 才算正常收摊；没见过 = 被停止 / 客户端断开（契约 §5.11）
+                        // 见过 `done` / `error` 才算正常收摊；没见过 = 被停止 / 客户端断开
                         if (sawTerminal) state.finishTurn() else state.stopped()
                     }
                 }
@@ -377,7 +377,7 @@ internal class WebAgentSession(
 
     // ── HTTP 那一层 ─────────────────────────────────────────────────────────
 
-    /** 一次 `/api/agent` 那一族的调用：读 §4 的信封（规矩与 `WebServeSession.call` 一字不差）。 */
+    /** 一次 `/api/agent` 那一族的调用：读契约的信封（规矩与 `WebServeSession.call` 一字不差）。 */
     private suspend fun agentCall(path: String, body: String?): Result<JsonObject> = try {
         val response = client.request {
             method = if (body == null) HttpMethod.Get else HttpMethod.Post
@@ -422,7 +422,7 @@ internal fun agentStreamFailureMessage(payload: String): String? {
     }
 }
 
-/** `GET /api/agent/config` 的那几格（契约 §5.11 第 1 条）。 */
+/** `GET /api/agent/config` 的那几格。 */
 internal data class AgentConfigView(
     val config: AgentConfig,
     val toolAllowlist: List<String>,
@@ -478,7 +478,7 @@ private sealed interface TurnSignal {
 /** 流式分片合并写入的间隔：与 `AgentViewModel.STREAM_FLUSH_MS` **同一个数**（约 3 帧）。 */
 private const val STREAM_FLUSH_MS = 50L
 
-// ── 端点路径（契约 §5.11 的十四条；`:server` 那几个常量是它模块内的，拿不到，所以这里照抄一份）──
+// ── 端点路径（`/api/agent/*`；`:server` 那几个常量是它模块内的，拿不到，所以这里照抄一份）──
 
 private const val AGENT_PATH = "$API_BASE/api/agent"
 private const val AGENT_CONFIG_PATH = "$AGENT_PATH/config"

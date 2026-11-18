@@ -6,7 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** 分类表（§2.4 / §8.10）的验收。 */
+/** 分类表的验收。 */
 class ArchiveRegistryTest {
 
     @Test

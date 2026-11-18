@@ -22,7 +22,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Clock
 
-/** 「SSE 帧 → 屏上的状态」这件事的本体（`docs/agent-web-spec.md` §4.2 的逐成员对应表）。 */
+/** 「SSE 帧 → 屏上的状态」这件事的本体。 */
 internal class AgentStreamState {
 
     /** 屏上的消息（`delta` / `reasoning` / `tool_call` / `tool_result` 都往这里写）。 */
@@ -203,7 +203,7 @@ internal class AgentStreamState {
                         storedToWidget(StoredWidget(wo["type"].safeString(), wo["json"].safeString()))
                     },
                     reasoningContent = o["reasoningContent"].safeString(),
-                    // 落盘里那一格是 epoch 毫秒（契约 §5.11 有意偏离 ISO 的那一处）；缺了就用现在
+                    // 落盘里那一格是 epoch 毫秒（有意偏离 ISO 的那一处）；缺了就用现在
                     timestamp = o.safeGet("timestamp")?.safeLong() ?: Clock.System.now().toEpochMilliseconds(),
                     // 落盘里的工具事件都是**已经收尾**的（`ToolCallNote` 按这个字段决定画不画转圈）
                     isToolCall = false,

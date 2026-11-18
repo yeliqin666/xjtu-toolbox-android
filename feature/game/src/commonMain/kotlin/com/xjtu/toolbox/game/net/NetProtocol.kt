@@ -3,7 +3,7 @@ package com.xjtu.toolbox.game.net
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.Serializable
 
-/** 协议里所有消息的类型标识，对应 plan.md §4.9 列出的那一份。 */
+/** 协议里所有消息的类型标识。 */
 object NetMsgType {
     const val HELLO = "hello"
     const val HELLO_ACK = "hello_ack"

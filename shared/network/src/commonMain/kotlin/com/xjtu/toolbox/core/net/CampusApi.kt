@@ -31,7 +31,7 @@ data class SessionStatus(
 class CampusApi(
     private val client: HttpClient,
     private val baseUrl: String,
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) {
     suspend fun status(): SessionStatus = client.get("$baseUrl/api/status").body()

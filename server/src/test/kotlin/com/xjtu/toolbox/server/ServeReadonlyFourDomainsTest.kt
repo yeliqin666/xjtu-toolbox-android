@@ -180,7 +180,7 @@ class ServeReadonlyFourDomainsTest {
                 "statusText",
             ),
             late.keys,
-            "`teacher` 是契约 §5.2 例外 ⑤（2026-10-19 批准）：门课的老师名可以投影，其它姓名/学号/手机号照旧不行",
+            "`teacher` 是隐私红线的例外：门课的老师名可以投影，其它姓名/学号/手机号照旧不行",
         )
         assertEquals("r-假-2", late.optString("id"))
         assertEquals(AttendanceFakeUpstream.COURSE_NAME, late.optString("courseName"))
@@ -364,7 +364,7 @@ class ServeReadonlyFourDomainsTest {
         assertEquals(
             setOf("filter", "page", "size", "total", "records"),
             data.keys,
-            "分页形状（§4）加上本次用的档",
+            "分页形状加上本次用的档",
         )
         assertEquals("usable", data.optString("filter"), "省略 filter ⇒ usable（ASCII 码，与请求参数同一套写法）")
         assertEquals(1, data.optInt("page"))
@@ -503,7 +503,7 @@ class ServeReadonlyFourDomainsTest {
         const val COUPON_LIST_PATH = "/api/coupon/list"
         const val COUPON_DETAIL_PATH = "/api/coupon/detail"
 
-        /** §5.2 红线的钉子组（编造值，非真人）：学号 / 姓名 / 令牌一律不许出现。 */
+        /** 隐私红线的钉子组（编造值，非真人）：学号 / 姓名 / 令牌一律不许出现。 */
         val IDENTITY = listOf(
             "username",
             "studentId",

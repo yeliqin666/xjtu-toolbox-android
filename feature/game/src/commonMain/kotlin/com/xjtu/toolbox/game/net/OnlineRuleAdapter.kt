@@ -25,7 +25,7 @@ sealed class OnlineMove {
  * 调用方不需要再调用第二个函数。
  *
  * 双方各自持有同一棋种的 [OnlineRuleAdapter]，收到对方发来的着法后本地重放一遍——
- * 这就是 plan.md §4.9 要求的「双方各自用同一规则引擎校验每一步」。
+ * 即「双方各自用同一规则引擎校验每一步」。
  */
 interface OnlineRuleAdapter<S> {
     val kind: GameKind

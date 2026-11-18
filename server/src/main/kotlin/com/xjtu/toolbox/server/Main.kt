@@ -126,7 +126,7 @@ private fun printStartupBanner(
         if (tls == null) {
             println("⚠️ HTTP + 非 localhost = 浏览器的**非安全上下文**：navigator.clipboard / crypto.subtle /")
             println("   Service Worker 会静默失效（点「复制」没反应也不报错）。要对外就得自己上 HTTPS；")
-            println("   见 docs/api-contract.md §3.5。")
+            println("   见 docs/api-contract.md「安全口径」。")
         } else {
             println("   这一步已经是 HTTPS（--https）：安全上下文成立，navigator.clipboard / crypto.subtle /")
             println("   Service Worker 都能用（这才是对外暴露时想要的那一种形态）。")

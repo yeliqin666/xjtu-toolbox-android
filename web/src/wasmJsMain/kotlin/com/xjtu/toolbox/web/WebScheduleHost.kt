@@ -46,7 +46,7 @@ internal class WebScheduleHost(
         // 调课/停课的气泡：一条自己的提醒写进 `:core` 的收纳（见类 KDoc 与 [postScheduleChange]）
         add(ScheduleCapability.SCHEDULE_CHANGE_BUBBLE)
         add(ScheduleCapability.SEAT_COUNT)
-        // serve 形态下多三档（2026-10-22 批5，契约 §5.12）：考勤那一档（角标 + 本次考勤）、思源下钻、作业截止。
+        // serve 形态下多三档：考勤那一档（角标 + 本次考勤）、思源下钻、作业截止。
         // 三条端点都只在 serve 契约里 ⇒ campus-api 形态照旧不画（不是「做不到」，是那一形态没有取数）。
         if (mode == ApiMode.SERVE) {
             add(ScheduleCapability.ATTENDANCE)
@@ -127,7 +127,7 @@ internal class WebScheduleHost(
     private val settings = SettingsStore()
 
     /**
-     * 详情里「N座」那一格的取数：serve 形态是 §5.8 的 `seat-count`；CAMPUS_API 形态从
+     * 详情里「N座」那一格的取数：serve 形态是 `/api/emptyroom/seat-count`；CAMPUS_API 形态从
      * 本次会话已经拉到的那一天教室行（`cachedRooms`）里按教室名查，查不到就是 null（那一格不画数字）。
      */
     private val emptyRoom = CampusEmptyRoomApi(client, API_BASE, mode)

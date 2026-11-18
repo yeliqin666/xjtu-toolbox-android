@@ -116,7 +116,7 @@ fun CampusCardScreen(
     /** 本端的取数 + 落盘（Android = `AppCampusCardSource`，Web = `CampusCardNetApi`）。 */
     source: CampusCardSource,
     onBack: () -> Unit,
-    // 「界面风格：经典」时传 false，顶栏退回不透明——玻璃开关接口，见 plan2 §16.1
+    // 「界面风格：经典」时传 false，顶栏退回不透明——玻璃开关接口
     // 第 5 条。默认 false，和 agent/ProactiveBubble.kt 的 glass 参数一个约定：
     // 接上设置项之前先按「经典」的不透明样式来，不在没接设置项的分支里提前显示玻璃。
     glass: Boolean = false,
@@ -264,7 +264,7 @@ fun CampusCardScreen(
             vm.errorMessage != null && transactions.isEmpty() && cardInfo == null ->
                 ErrorState(vm.errorMessage.orEmpty(), { vm.load() }, Modifier.fillMaxSize().padding(padding))
             else -> {
-                // 内容改成从顶栏下面穿过（plan2 §16.2）：不再用 Scaffold 的 padding 把整页
+                // 内容改成从顶栏下面穿过：不再用 Scaffold 的 padding 把整页
                 // 往下推，而是让横滑翻页器铺满整个 Box（从 y=0 开始），列表用
                 // contentPadding.top 把「顶栏 + 标签行 + 时间选择器」的高度让出来。这样
                 // 初始状态和以前看着一样，往上滚动时余额卡才能真的滚到顶栏下面、透出玻璃。
@@ -461,7 +461,7 @@ private fun OverviewTab(
     activeCampusDays: Int,
     rangeStart: LocalDate,
     rangeEnd: LocalDate,
-    // 顶栏 + 标签行 + 时间选择器的高度，给列表让出来（plan2 §16.2）。
+    // 顶栏 + 标签行 + 时间选择器的高度，给列表让出来。
     topContentPadding: Dp = 0.dp,
     /** 全部已加载流水，「今天吃啥」按它算就餐习惯。 */
     allTransactions: List<Transaction> = emptyList(),

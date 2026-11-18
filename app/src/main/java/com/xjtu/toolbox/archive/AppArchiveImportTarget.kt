@@ -27,7 +27,7 @@ class AppArchiveImportTarget(
 
     override fun readStore(rawName: String): StoreSnapshot? = storeBackend.readStore(rawName)
 
-    /** 把一个键写进端内 store：类型照 [StoreValue] 的标签（§8.6）。 */
+    /** 把一个键写进端内 store：类型照 [StoreValue] 的标签。 */
     override fun putKey(rawName: String, key: String, value: StoreValue, at: Long?) {
         val editor = prefsOf(rawName).edit()
         when (value) {
@@ -49,7 +49,7 @@ class AppArchiveImportTarget(
     }
 
     /**
-     * 键名归一（§6.3）：档案里那一族的名字**不含学号**，端内原名（`score_report_<学号>.json`）在这里拼回去。
+     * 键名归一：档案里那一族的名字**不含学号**，端内原名（`score_report_<学号>.json`）在这里拼回去。
      *
      * 档案里那一档账号先查（[ArchiveImportTarget.fileRelPath] 的 `accountId`）；档案里没有（`global/` /
      * `default` / `_`）时用本机当前登录的账号。两边都拼不出 ⇒ null（这一条跳过并计数，绝不抛）。
@@ -61,14 +61,14 @@ class AppArchiveImportTarget(
     }
 
     /**
-     * 形状归一（§6.3）：档案里是 `{"at","grades"}`，`:app` 端内是**裸数组**（年龄交给文件 mtime）。
+     * 形状归一：档案里是 `{"at","grades"}`，`:app` 端内是**裸数组**（年龄交给文件 mtime）。
      * 转不动 ⇒ null（跳过并计数；端内一个字节不改）。
      */
     override fun fileContent(suffix: String, accountId: String?, relPath: String, content: String): String? =
         if (!ArchiveScoreReport.isFamily(relPath)) content else ArchiveScoreReport.toBareGrades(content)
 
     /**
-     * 删键（镜像档，§6.4）：Android 的 store 就是一份 SharedPreferences，`remove` + `commit` 就是删掉。
+     * 删键（镜像档）：Android 的 store 就是一份 SharedPreferences，`remove` + `commit` 就是删掉。
      *
      * 红线清单（[ArchiveRedLines]）上的店在共享层就被挡下了，走不到这里。
      */
@@ -109,20 +109,20 @@ class AppArchiveImportTarget(
     }
 }
 
-/** 端内 `files/` 那一层的写侧（§8.8）。 */
+/** 端内 `files/` 那一层的写侧。 */
 interface AppArchiveFileWriter {
     /**
-     * 镜像档（§6.4）：这一族在本端**真有的**相对路径。默认空 = 这一端不可枚举 ⇒ 这一族一个都不删
+     * 镜像档：这一族在本端**真有的**相对路径。默认空 = 这一端不可枚举 ⇒ 这一族一个都不删
      * （保守口径：枚举不出来就是“拿不准”，拿不准就不删）。
      */
     fun list(suffix: String, family: String): List<String> = emptyList()
 
-    /** 镜像档（§6.4）：删掉一条。默认 `false` = 这一端不删。 */
+    /** 镜像档：删掉一条。默认 `false` = 这一端不删。 */
     fun delete(suffix: String, relPath: String): Boolean = false
-    /** 本端这一个 `files/` 相对路径现在的内容；**本端没有这一族 ⇒ null**（§6.4 文件层：本端有 ⇒ 保持不变）。 */
+    /** 本端这一个 `files/` 相对路径现在的内容；**本端没有这一族 ⇒ null**（文件层：本端有 ⇒ 保持不变）。 */
     fun read(suffix: String, relPath: String): String?
 
-    /** 把一个 `files/` 条目写回端内（先写临时文件再换名，§8.8）。 */
+    /** 把一个 `files/` 条目写回端内（先写临时文件再换名）。 */
     fun write(suffix: String, relPath: String, content: String)
 }
 
@@ -132,7 +132,7 @@ interface RoomRowWriter {
     /** 这一个相对路径现在的行数组；空表 ⇒ null（本端没有这一族）。 */
     fun read(relPath: String): String?
 
-    /** 把档案里的行数组写回三张表之一（只走既有 DAO 的既有 insert/upsert，§8.3）。 */
+    /** 把档案里的行数组写回三张表之一（只走既有 DAO 的既有 insert/upsert）。 */
     fun write(relPath: String, content: String)
 }
 
@@ -202,7 +202,7 @@ class AndroidArchiveFileWriter(
 
     private fun scheduleDir(suffix: String): File? = cacheRoot?.let { File(it, "data_cache$suffix") }
 
-    /** 先写 `<name>.tmp` 再原子换名：任一步失败都不留下半个文件（§8.8）。 */
+    /** 先写 `<name>.tmp` 再原子换名：任一步失败都不留下半个文件。 */
     private fun writeAtomically(target: File, content: String) {
         target.parentFile?.mkdirs()
         val tmp = File(target.parentFile, target.name + ".tmp")
@@ -235,7 +235,7 @@ class AndroidArchiveFileWriter(
     }
 }
 
-/** Room 三张表的写侧实现：读走行适配器，写走既有 DAO 的 insert/upsert（§8.3）。 */
+/** Room 三张表的写侧实现：读走行适配器，写走既有 DAO 的 insert/upsert。 */
 class AppRoomRows(
     private val db: AppDatabase,
     private val accountIdsOf: () -> List<String>,

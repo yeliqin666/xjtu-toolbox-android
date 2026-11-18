@@ -293,7 +293,7 @@ fun ScheduleScreen(
                 Icon(Icons.Default.Add, contentDescription = "添加日程")
             }
         }
-        // 周视图/全部周叠加的切换在标签行「第 N 周」那一格的选周里（§1.4），
+        // 周视图/全部周叠加的切换在标签行「第 N 周」那一格的选周里，
         // 这里不再放一个意思含糊的按钮。
         Box {
             // 主菜单
@@ -382,7 +382,7 @@ fun ScheduleScreen(
             // 分段控件按等分排，「第 N 周」那一格就是选周菜单的锚点
             BoxWithConstraints {
                 AppSegmentedTabs(
-                    // 今日 / 周 / 学期三格，见 plan2 §1.5；非本学期去掉今日
+                    // 今日 / 周 / 学期三格；非本学期去掉今日
                     tabs = listOf("今日", if (selectedTab == 1) "$weekLabel ▾" else weekLabel, "学期").drop(firstTab),
                     selectedTabIndex = (selectedTab - firstTab).coerceAtLeast(0),
                     // 原版分段控件不重复回调已选中项；选周要靠「第 N 周」二次点击，这里打开

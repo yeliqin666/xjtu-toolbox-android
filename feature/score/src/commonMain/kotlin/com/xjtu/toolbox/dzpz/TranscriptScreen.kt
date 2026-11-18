@@ -44,9 +44,9 @@ import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
  * 流程：加载表单 → 选择学校提供的类型 → 一键申请 → 自动提交 → 下载 PDF
  * UI 风格遵循项目 Miuix 风格，使用步骤进度条展示处理状态
  *
- * ## 两端各一份取数，屏自己不区分（2026-10-22 批6 改写）
+ * ## 两端各一份取数，屏自己不区分
  *
- * 能走完七步的端（Android / 桌面 / **serve 模式下的 `:web`**——它在契约 §5.12 里是**两段式**，
+ * 能走完七步的端（Android / 桌面 / **serve 模式下的 `:web`**——它在 serve 契约里是**两段式**，
  * 七步里有几步是「同一发 HTTP」或空壳，见 `CampusTranscriptApi` 的 KDoc 表格）⇒
  * [TranscriptSource.canRunWorkflow] 为 `true`，画「一键申请成绩单」与那五步的步骤预览。
  *
@@ -184,7 +184,7 @@ enum class WorkflowState {
     ERROR       // 失败
 }
 
-/** serve 模式下替代 [WorkflowProgressCard] 的那张卡（见屏的 KDoc）：契约§5.5 只端了七步里的第一步，第 2~7 步没有端点——这里把哪几步没有、为什么没有写在屏幕上，而不是画一个点了会失败的按钮。 */
+/** serve 模式下替代 [WorkflowProgressCard] 的那张卡（见屏的 KDoc）：契约只端了七步里的第一步，第 2~7 步没有端点——这里把哪几步没有、为什么没有写在屏幕上，而不是画一个点了会失败的按钮。 */
 @Composable
 private fun TranscriptWorkflowGapCard() {
     Card(

@@ -185,7 +185,7 @@ internal fun ActivityListPage(
                             Icon(Icons.Default.Palette, contentDescription = "课程颜色", tint = lmsAccent(course))
                         }
                         // 批量下载要能把文件落下来（`source.saveDownload` = 取字节 + 写下载位置）：
-                        // serve 形态两样都没有（契约 §5.6）⇒ 这一档整个不出现 —— 与「课堂回放」那一行
+                        // serve 形态两样都没有 ⇒ 这一档整个不出现 —— 与「课堂回放」那一行
                         // 按 `supportsVideoQueue` 收口同一条规矩（点了会失败的东西不摆出来）。
                         if (activities.any { it.type in BATCH_TYPES } && source.supportsDownload && filter !is CourseContentFilter.Bulletin) {
                             CouiToolbarActionButton(onClick = {

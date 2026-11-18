@@ -35,7 +35,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** `/api/session*` 四个端点的契约测试（`docs/api-contract.md` §5 的「P0（新）」那一行）。 */
+/** `/api/session*` 的契约测试（`docs/api-contract.md`「会话」）。 */
 class ServeSessionTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -56,7 +56,7 @@ class ServeSessionTest {
         assertEquals(false, authenticatedField(response), "还没登录过 ⇒ 没会话")
         assertNoIdentity(response.body(), "未登录的 GET $SESSION_PATH")
 
-        // 令牌换 cookie：形状逐项钉住（§3.2 的第二种形态）。断言里**不打印**这一行的值（令牌不进输出）。
+        // 令牌换 cookie：形状逐项钉住。断言里**不打印**这一行的值（令牌不进输出）。
         val setCookie = response.headers().allValues("Set-Cookie")
             .singleOrNull { it.startsWith("${AccessToken.COOKIE_NAME}=") }
         assertNotNull(setCookie, "GET $SESSION_PATH 应当把访问令牌换成一枚 cookie")
@@ -160,7 +160,7 @@ class ServeSessionTest {
         assertEquals(false, authenticatedField(serve.http.get(SESSION_PATH)))
     }
 
-    /** 短信二验的完整往返（契约 §5 里那条轮询形态的验收）。 */
+    /** 短信二验的完整往返（轮询形态的验收）。 */
     @Test
     fun `短信二验：挂起时其它端点照常，错码 rejections 递增，对码完成登录`() = withServeSession { serve ->
         fake.jwxt.requireSafetyVerify.set(true)
@@ -338,7 +338,7 @@ class ServeSessionTest {
         )
     }
 
-    /** §3.4 那条红线的实现：`/api/session*` 的响应体**绝不许**出现学号/姓名。 */
+    /** 隐私红线的实现：`/api/session*` 的响应体**绝不许**出现学号/姓名。 */
     private fun assertNoIdentity(body: String, where: String) {
         for (forbidden in listOf("username", "studentId", "学号", "姓名")) {
             assertFalse(body.contains(forbidden), "$where 的响应体里不该出现「$forbidden」")

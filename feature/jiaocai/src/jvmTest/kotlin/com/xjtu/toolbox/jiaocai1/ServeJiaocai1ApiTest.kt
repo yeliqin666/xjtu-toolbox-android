@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 /**
- * serve 契约 §5.14 的客户端那一侧（[ServeJiaocai1Api]）：形状、参数、页表那一档。
+ * `/api/jiaocai1` 的客户端那一侧（[ServeJiaocai1Api]）：形状、参数、页表那一档。
  *
  * 夹具一律编造（示例书目号 / 示例书名 / 示例字节），不打真实站点。
  */
@@ -228,7 +228,7 @@ class ServeJiaocai1ApiTest {
         assertEquals("https://jiaocai1.lib.xjtu.edu.cn/jpath/cover/990001.jpg", row.coverUrl)
         assertEquals(34, row.totalPages)
         assertEquals(12, row.lastReadIndex)
-        // 契约 §5.14：这一族的两格是 epoch 毫秒（不是 ISO-8601）⇒ 原样读，不许转
+        // 这一族的两格是 epoch 毫秒（不是 ISO-8601）⇒ 原样读，不许转
         assertEquals(1_792_548_000_000L, row.lastReadAt)
         assertEquals(1_792_450_000_000L, row.addedAt)
     }

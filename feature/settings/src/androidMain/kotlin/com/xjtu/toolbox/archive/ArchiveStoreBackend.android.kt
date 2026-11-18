@@ -24,7 +24,7 @@ class AndroidPrefsBackend(
                 is Long -> StoreValue.L(value)
                 is Float -> StoreValue.F(value)
                 is Set<*> -> StoreValue.SetValue(value.map { it as String })
-                // §2.2：v 不可为 null，三端 putString(key, null) 都等于删键 ⇒ null 值不会出现在 keys 里
+                // v 不可为 null，三端 putString(key, null) 都等于删键 ⇒ null 值不会出现在 keys 里
                 else -> return@forEach
             }
         }

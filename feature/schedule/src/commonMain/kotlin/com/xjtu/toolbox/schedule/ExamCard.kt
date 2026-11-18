@@ -26,8 +26,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlinx.datetime.LocalDateTime
 
 /**
- * 一张考试卡片，按 [ExamCountdown.ExamPhase] 决定底色、强调色、状态标签和座位号角标，
- * 见 plan2 §1.3 的对照表。
+ * 一张考试卡片，按 [ExamCountdown.ExamPhase] 决定底色、强调色、状态标签和座位号角标。
  *
  * 取代旧版的两份实现：学期栏的 `ExamRowCard`（一律红色、排序也没管已结束）和
  * 经典布局的 `ExamCard`（有状态判断但没人跟学期栏共用），统一成这一份，

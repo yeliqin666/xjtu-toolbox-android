@@ -6,7 +6,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 
-/** serve 模式的访问令牌：浏览器侧的唯一一道门（`docs/api-contract.md` §3.2）。 */
+/** serve 模式的访问令牌：浏览器侧的唯一一道门（`docs/api-contract.md`「安全口径」）。 */
 object AccessToken {
 
     /** `:data` 侧的文件名 = `serve.properties`。 */
@@ -15,7 +15,7 @@ object AccessToken {
     /** 存储里的键名。改它等于让所有已发的令牌失效。 */
     const val KEY = "access_token"
 
-    /** 令牌换 cookie 之后随请求带的那个 cookie 名（`docs/api-contract.md` §3.2 的第二种形态）。 */
+    /** 令牌换 cookie 之后随请求带的那个 cookie 名。 */
     const val COOKIE_NAME = "serve_token"
 
     /** 32 字节 ≈ 256 位熵，Base64URL 之后 43 个字符。 */

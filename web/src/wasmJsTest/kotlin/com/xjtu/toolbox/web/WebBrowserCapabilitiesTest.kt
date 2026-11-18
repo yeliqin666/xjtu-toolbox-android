@@ -32,7 +32,7 @@ class WebBrowserCapabilitiesTest {
         assertFalse(
             WebBrowserCapabilities.qrDetector,
             "这条红了 = 这台机器上的 Chrome 有了 BarcodeDetector（相机扫码那一路的「另一半」）。" +
-                "那就该回去重读 docs/desktop-port-plan.md §16.11 与 WebBrowserCapabilities 的 KDoc，" +
+                "那就该回去重读 WebBrowserCapabilities 的 KDoc，" +
                 "评估把匹配交友那一屏的扫码档接起来 —— 不是把这条断言删掉",
         )
     }

@@ -18,11 +18,11 @@ import kotlinx.coroutines.flow.flow
 /**
  * 下载管理（`AppRoute.DownloadManager`）在**浏览器这一端**的宿主。
  *
- * 屏是 `:core` 那份 [com.xjtu.toolbox.media.DownloadManagerScreen]，宿主走契约 §5.13 的 `/api/downloads`：
- * **队列、进度、落盘都真的发生在运行 serve 的那台机器上**，浏览器只是界面（会议 #9 = 丙「做法①」，
- * 所以这里**没有**影子引擎 —— 见 [DownloadsHost] 的 KDoc）。
+ * 屏是 `:core` 那份 [com.xjtu.toolbox.media.DownloadManagerScreen]，宿主走 `/api/downloads`：
+ * **队列、进度、落盘都真的发生在运行 serve 的那台机器上**，浏览器只是界面（所以这里**没有**影子引擎 ——
+ * 见 [DownloadsHost] 的 KDoc）。
  *
- * 三处如实差异（都写在契约 §5.13 与 [DownloadsHost] 的 KDoc 里）：
+ * 三处如实差异（[DownloadsHost] 的 KDoc 里也有）：
  *
  * 1. **没有推送** ⇒ [changes] 是轮询（契约给的就是「屏上轮询 `/progress`」那一档）；
  * 2. **[dirInfo] 要等第一次列表回来才有值**（它来自响应的 `dir` 那一格）；
@@ -74,7 +74,6 @@ internal class WebDownloadsHost(private val api: ServeDownloadsApi) : DownloadsH
      * 三个「全部」动作：serve 那一族**没有**批量端点（桌面那一屏是本机循环调的）⇒ 这里也循环。
      *
      * ⚠️ 逐条调的好处是**失败只影响那一条**（例如「已完成」那一条会回 409，其余照常）；坏处是 N 发请求。
-     * 批量端点要不要开，见契约 §5.13 末尾那条待拍项。
      */
     override suspend fun pauseAll() {
         val tasks = api.list().tasks

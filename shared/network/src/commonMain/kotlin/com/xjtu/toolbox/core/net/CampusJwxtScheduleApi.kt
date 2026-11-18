@@ -30,7 +30,7 @@ class CampusJwxtScheduleApi(
     suspend fun textbooks(term: String? = null): List<TextbookItem> =
         AppJson.decodeFromJsonElement(fetch(TEXTBOOKS_PATH, term, "books", "加载教材"))
 
-    /** 已合并调停补课的课表（`GET /api/jwxt/schedule?merged=1`，契约 §5.9）：同一个端点的另一种问法。 */
+    /** 已合并调停补课的课表（`GET /api/jwxt/schedule?merged=1`）：同一个端点的另一种问法。 */
     suspend fun mergedSchedule(term: String? = null): SourceSchedule {
         requireServe()
         val code = term?.trim().orEmpty()
@@ -74,7 +74,7 @@ class CampusJwxtScheduleApi(
         const val TEXTBOOKS_PATH = "/api/jwxt/textbooks"
         const val TERM_PARAM = "term"
 
-        /** `?merged=` 的两格（`/api/jwxt/schedule` 那一条）；值只有 `1` 算数（见 §5.9）。 */
+        /** `?merged=` 的两格（`/api/jwxt/schedule` 那一条）；值只有 `1` 算数。 */
         const val MERGED_PARAM = "merged"
         const val MERGED_VALUE = "1"
     }

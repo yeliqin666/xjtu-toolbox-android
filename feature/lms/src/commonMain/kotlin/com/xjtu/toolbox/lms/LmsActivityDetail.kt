@@ -82,7 +82,7 @@ internal fun ActivityDetailPage(
 ) {
     val authExpiry = LocalAuthExpiry.current
     // 本端能不能把附件落下来（见 `LmsSource.supportsDownload` 的 KDoc）：serve 形态的附件只有
-    // 元数据（三个地址都不投影，契约 §5.6）⇒ 附件卡只展示名字与大小，不画预览/下载那两个入口。
+    // 元数据（serve 契约不投影三个地址）⇒ 附件卡只展示名字与大小，不画预览/下载那两个入口。
     val uploadSource = if (source.supportsDownload) source else null
     val detail = cache.details[activity.id]
     var isLoading by remember { mutableStateOf(cache.details[activity.id] == null) }
@@ -701,7 +701,7 @@ internal fun UploadCard(
                 Icon(Icons.Default.OpenInNew, null, tint = Color(0xFF22C55E))
             } else if (source != null) {
                 // 只有真能取字节时才画那个图标：取不到还画一个下载/放大图标，就是许一个点了不会动的东西
-                // （serve 形态：契约 §5.6 不端附件的三个地址）
+                // （serve 形态不端附件的三个地址）
                 Icon(
                     if (isImage) Icons.Default.ZoomIn else Icons.Default.Download,
                     null, tint = MiuixTheme.colorScheme.primary

@@ -27,7 +27,7 @@ import kotlinx.serialization.Serializable
 
 /**
  * `/api/jiaocai1` —— 教材全文库（`jiaocai1.lib.xjtu.edu.cn`）在浏览器上的那一族
- * （`docs/api-contract.md` §5.14）。
+ * （`docs/api-contract.md`）。
  *
  * 与其余二十多族同一条做法：**`:data` 里早有取数实现**（`Jiaocai1Api` / `Jiaocai1PageLoader`，
  * Android 与桌面直连在用），本层只做投影。会话借的是**教材中心**那个站点（`jiaocai`）——
@@ -48,8 +48,8 @@ import kotlinx.serialization.Serializable
  *
  * ## 二进制那两条（`page` / `cover`）
  *
- * 这两条**成功时回字节**（`image/jpeg`）、**失败时仍回信封** —— 即契约 §4 的第四条例外
- * （前三条：`/api/status` 裸对象、`venue/pay` 302、成绩单的 `application/pdf`）。
+ * 这两条**成功时回字节**（`image/jpeg`）、**失败时仍回信封** —— 契约里不走信封的例外之一
+ * （其余：`/api/status` 裸对象、`venue/pay` 302、成绩单的 `application/pdf`、屁岱的 SSE）。
  * 为什么不塞 data URI（`venue/captcha` 那一条先例）：扫描页一张几百 KB，
  * base64 是体积乘 1.33 且整张进内存；而屏上就是一张位图，`serve_token` 是 `Path=/` 的 cookie
  * ⇒ 直接当图片取即可。
@@ -89,7 +89,7 @@ internal const val JIAOCAI1_SHELF_PROGRESS = "progress"
  * serve 侧的 jiaocai1 装配：**按账号一份**（取数源 + 阅读句柄缓存 + 书架店）。
  *
  * 与 [ServeDownloads] 那种进程级单例的区别：那一份把账号**写死在了构造那一刻**（店名与实例都跟着
- * 第一个账号走，见 `docs/parity-ledger.md` §6.4 记的那条账）。这一份不那样做 ——
+ * 第一个账号走）。这一份不那样做 ——
  * 账号一换（[AccountContext.switchEpoch] 变）就整份重建，因为：
  *
  * - 阅读句柄里的 `jpgPath` 是**会话令牌**，跨账号一定失效；
@@ -464,9 +464,9 @@ internal data class Jiaocai1ShelfData(val count: Int, val rows: List<Jiaocai1She
 /**
  * 书架里的一行。
  *
- * ⚠️ **两个时间是 epoch 毫秒，不是 ISO-8601**（§4 的通则在这一点上让位，与 `/api/agent/sessions`
+ * ⚠️ **两个时间是 epoch 毫秒，不是 ISO-8601**（契约通则在这一点上让位，与 `/api/agent/sessions`
  * 的 `createdAt` 同一条理由）：这两格是 `:core` 模型 `Jiaocai1ShelfRecord` 的 `Long` 字段，
- * 浏览器要把它们原样放回**同一个模型**（屏上自己算「3 天前」）。逐条记在契约 §5.14。
+ * 浏览器要把它们原样放回**同一个模型**（屏上自己算「3 天前」）。
  */
 @Serializable
 internal data class Jiaocai1ShelfRowDto(

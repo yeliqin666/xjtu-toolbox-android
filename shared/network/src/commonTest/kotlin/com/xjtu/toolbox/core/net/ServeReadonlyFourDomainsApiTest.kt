@@ -32,7 +32,7 @@ class ServeReadonlyFourDomainsApiTest {
         }
     }
 
-    /** 契约 §5.5：`GET /api/dzpz/transcript` 只端七步里的第一步。 */
+    /** `GET /api/dzpz/transcript` 只端七步里的第一步。 */
     @Test
     fun serveTranscriptReadsFirstStepOnly() = runTest {
         val body = """
@@ -62,15 +62,14 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("", form.signatureAttributesStr)
         assertEquals("", form.signatureSecretKey)
 
-        // 出 PDF 那条链在 2026-10-22（批6）起**真接上了**（两段式，契约 §5.12）：
-        // 逐发的校在 `ServeTranscriptWorkflowApiTest` 里；这一例只看「屏会不会画那个按钮」。
+        // 出 PDF 走两段式，逐发的校在 `ServeTranscriptWorkflowApiTest` 里；这一例只看「屏会不会画那个按钮」。
         assertTrue(api.canRunWorkflow, "serve 的两段式能走完七步 ⇒ 屏上那个按钮真画")
         assertTrue(api.getLinkageData(form, 0).studentId.isEmpty(), "第 2 步是空壳（服务端在建单那一发里自己做，返回值里有学号）")
         // 每一步的逐发校（两段式、幂等、票据过期、409）在 `ServeTranscriptWorkflowApiTest` 里 ——
         // 这一例只关心「表单那一半 + 屏会不会画按钮」，不在这里重做一遍。
     }
 
-    /** 契约 §4/§5.5 的错误信封：`code` 是 HTTP 状态码，失败文案只有 `message` 一处。 */
+    /** 契约的错误信封：`code` 是 HTTP 状态码，失败文案只有 `message` 一处。 */
     @Test
     fun serveTranscriptFailureReadsMessage() = runTest {
         val api = CampusTranscriptApi(
@@ -104,7 +103,7 @@ class ServeReadonlyFourDomainsApiTest {
                "date":"2026-10-10","week":4,"startSection":3,"endSection":4,"location":"中2-3201",
               "status":-1,"statusText":"未知"}]}}
         """.trimIndent()
-        // 统计那一栏（契约 §5.12，2026-10-22 批5）：服务端按整学期流水算出来的八格
+        // 统计那一栏：服务端按整学期流水算出来的八格
         val statsBody = """
             {"code":0,"data":{"term":"646","count":1,"stats":[
               {"courseName":"高等数学（上）","courseCode":"MATH1001","normalCount":12,
@@ -148,7 +147,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals(2, records[0].endTime)
         assertEquals(WaterType.NORMAL, records[0].status)
         assertEquals("正常", records[0].status.displayName)
-        // status=-1 必须落到「未知」那一档（不许悄悄算成正常），契约 §5.5 写死了这一条
+        // status=-1 必须落到「未知」那一档（不许悄悄算成正常）
         assertEquals(WaterType.UNKNOWN, records[1].status)
         assertEquals("未知", records[1].status.displayName)
         assertEquals("", records[0].teacher, "teacher 不投影（红线）⇒ 如实留空，屏上也不画")
@@ -156,7 +155,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("2026-09-01", calls[2]["from"])
         assertEquals("2026-09-30", calls[2]["to"])
 
-        // 三栏都在（2026-10-22 批5 补齐了统计与打卡流水两条端点，契约 §5.12）
+        // 三栏都在：统计、打卡流水与请假
         assertEquals(
             com.xjtu.toolbox.attendance.AttendanceCapabilities(stats = true, streams = true, leave = true),
             api.capabilities,
@@ -242,7 +241,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals(
             "李四（假）",
             preview.nextApprovers.single().name,
-            "审批人姓名在 §5.2 例外 ④ 里 ⇒ 真投影（屏上那个下拉框画的就是它）",
+            "审批人姓名在隐私红线的例外里 ⇒ 真投影（屏上那个下拉框画的就是它）",
         )
         assertTrue(preview.nodes.single().configured)
 
@@ -255,7 +254,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals(
             "张三（假）",
             record.courses.single().teacherNames,
-            "任课教师姓名在 §5.2 例外 ④ 里 ⇒ 真投影（例外的根据是「我自己的课」）",
+            "任课教师姓名在隐私红线的例外里 ⇒ 真投影（例外的根据是「我自己的课」）",
         )
 
         val leaveId = api.createLeave(

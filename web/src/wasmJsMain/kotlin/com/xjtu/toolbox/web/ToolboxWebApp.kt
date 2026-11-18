@@ -444,11 +444,11 @@ private fun AppPage(
             )
         }
 
-        // ── 只读四域（契约 §5.5）：非 serve 形态画 `WebServeOnlyScreen` ──
+        // ── 只在 serve 形态有的四域：非 serve 形态画 `WebServeOnlyScreen` ──
         AppRoute.Transcript -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(title = "电子成绩单")
         } else {
-            // serve 那边两段式（契约 §5.12）：submit 建申请单（真会在教务留待审批记录）→ preview 签章取票 → download 换 PDF
+            // serve 那边两段式：submit 建申请单（真会在教务留待审批记录）→ preview 签章取票 → download 换 PDF
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f)) {
                     // saveSink：浏览器的实现（Blob + 下载锚点，存到浏览器自己的下载目录）——
@@ -465,7 +465,7 @@ private fun AppPage(
         AppRoute.Attendance -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(title = "考勤")
         } else {
-            // 契约不投影流水里的上课教师名与本人姓名（§5.2 红线）；请假不支持附件
+            // 契约不投影流水里的上课教师名与本人姓名（隐私红线）；请假不支持附件
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f)) {
                     AttendanceScreen(
@@ -492,7 +492,7 @@ private fun AppPage(
         }
 
 
-        // ── 第二批只读域（契约 §5.6）：非 serve 形态画 `WebServeOnlyScreen` ── ⚠️ 必须写 `is AppRoute.Lms`。
+        // ── 第二批只读域：非 serve 形态画 `WebServeOnlyScreen` ── ⚠️ 必须写 `is AppRoute.Lms`。
         is AppRoute.Lms -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(title = "思源学堂")
         } else {
@@ -629,7 +629,7 @@ private fun AppPage(
         AppRoute.PaymentCode -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(title = "付款码")
         } else {
-            // ⚠️ 能付钱的东西：`--host 0.0.0.0` 部署要先解决鉴权（契约 §3.3）
+            // ⚠️ 能付钱的东西：`--host 0.0.0.0` 部署要先解决鉴权（用 --https 或反代）
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f)) {
                     PaymentCodeScreen(
@@ -687,7 +687,7 @@ private fun AppPage(
         } else {
             WebAccountsScreen(client = client, mode = mode, onBack = back)
         }
-        // 下载管理：屏是 `:core` 那份 `DownloadManagerScreen`，宿主走契约 §5.13 的 `/api/downloads`
+        // 下载管理：屏是 `:core` 那份 `DownloadManagerScreen`，宿主走 `/api/downloads`
         // —— 队列 / 进度 / 落盘都真的发生在**运行 serve 那台机器**上（会议 #9 = 丙「做法①」）。
         // 三处如实差异（见 `WebDownloadsHost` 的 KDoc）：没有推送（轮询）、目录那一格要等第一次列表、
         // **不画播放按钮**（文件在那台机器上，浏览器打不开它 ⇒ 传 `onPlayTask = null`）。

@@ -14,7 +14,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/** serve 契约 §5.7（付款码 / 反馈 / WebVPN）的客户端那一侧。 */
+/** serve 契约（付款码 / 反馈 / WebVPN）的客户端那一侧。 */
 
 /** 一发请求的快照：`路径 to 参数表`（与 `ServeReadonlyFourDomainsApiTest` 同一套读法）。 */
 private typealias ServeCall = Pair<String, Map<String, String>>

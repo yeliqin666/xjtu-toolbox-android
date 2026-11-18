@@ -16,11 +16,11 @@ import kotlinx.serialization.json.put
 class CampusPayApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.7）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : PaymentCodeSource {
 
-    /** 见类 KDoc：勾选同步端了（`POST /api/pay/vouchers/select`，契约 §5.7）⇒ 屏上那几行券照旧可勾。 */
+    /** 见类 KDoc：勾选同步端了（`POST /api/pay/vouchers/select`）⇒ 屏上那几行券照旧可勾。 */
     override val canSelectVouchers: Boolean get() = true
 
     /** 见类 KDoc：serve 这一端没有「本地会话」可查，真正的判据是 `/api/pay/code` 那一枪。 */
@@ -32,7 +32,7 @@ class CampusPayApi(
         val barCode = data["barCode"].safeString().trim()
         if (barCode.isEmpty()) {
             error(
-                "获取付款码：服务端返回的 barCode 是空的（契约 §5.7 的 data.barCode —— " +
+                "获取付款码：服务端返回的 barCode 是空的（data.barCode —— " +
                     "空码不能给用户扫，所以这里如实报错而不是画一张空卡）",
             )
         }
@@ -50,7 +50,7 @@ class CampusPayApi(
                 showCardId = showCardId,
                 voucherName = row["voucherName"].safeString(),
                 typeName = row["typeName"].safeString(),
-                // **分**（与 §5.5 的 `/api/coupon*` 同一个单位；除 100 是屏的事）
+                // **分**（与 `/api/coupon*` 同一个单位；除 100 是屏的事）
                 amountFen = row["amountFen"].safeLong(),
                 // 上游原文的「到哪天为止」（`2026-12-31`），不是 ISO-8601 的时刻
                 endDate = row["endDate"].safeString(),

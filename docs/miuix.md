@@ -237,15 +237,3 @@ Text styles used most in this app:
 「饱和度 × 明度」二维方块自己用两层渐变画（横铺白→纯色相色，竖压透明→黑），
 产出的 alpha 恒为 1。若要再改颜色相关的界面，沿用这个组件。
 
-## 0.9.2 Notes
-
-Important upstream changes in the 0.9.x line:
-
-- Module split: `miuix` became `miuix-ui` and `miuix-preference`.
-- `Super*` components were replaced/renamed into the current `Overlay*`,
-  `BasicComponent`, and preference APIs.
-- `TopAppBar` API was reworked; icon slot padding is handled internally and
-  parameter names differ from older snippets.
-- New optional modules exist upstream, including `miuix-blur`, `miuix-squircle`,
-  and `miuix-navigation3-ui`. This app currently does not depend on them.
-

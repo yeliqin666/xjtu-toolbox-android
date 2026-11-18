@@ -24,7 +24,7 @@ class AndroidFileBackend(
             ?.map { "agent_sessions/${it.name}" }
             ?.sorted()
             ?: emptyList()
-        // §2.3：`files/schedule/<key>.json` 的键名升序；`.tmp` 残片要忽略（§6.3）。
+        // `files/schedule/<key>.json` 的键名升序；`.tmp` 残片要忽略。
         "schedule" -> scheduleDir(suffix)
             ?.listFiles { f -> f.isFile && f.name.endsWith(".json") }
             ?.map { "schedule/${it.name}" }
@@ -46,7 +46,7 @@ class AndroidFileBackend(
         else -> null
     }
 
-    /** §6.3「mtime → `at`」：成绩缓存那一族的年龄就是文件 mtime（[ArchiveScoreReport]）。 */
+    /** mtime → `at`：成绩缓存那一族的年龄就是文件 mtime（[ArchiveScoreReport]）。 */
     override fun mtimeMs(suffix: String, relPath: String): Long? = when {
         relPath.startsWith("agent_sessions/") -> {
             val file = File(agentSessionsDir(suffix), relPath.removePrefix("agent_sessions/"))

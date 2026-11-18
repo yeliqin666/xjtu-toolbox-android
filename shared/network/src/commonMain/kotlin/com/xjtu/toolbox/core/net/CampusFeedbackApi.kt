@@ -14,14 +14,14 @@ import kotlinx.serialization.json.put
 class CampusFeedbackApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.7）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : FeedbackSource {
 
     /** 见类 KDoc：端点在这份契约里有（编译期定死）；「凭据配没配」是服务端运行期的事。 */
     override val isConfigured: Boolean get() = true
 
-    /** 见类 KDoc：提交端了（`POST /api/feedback/submit`，契约 §5.7）⇒ 屏上那块表单照旧画。 */
+    /** 见类 KDoc：提交端了（`POST /api/feedback/submit`）⇒ 屏上那块表单照旧画。 */
     override val canSubmit: Boolean get() = true
 
     override suspend fun replies(tickets: List<String>): Map<String, FeedbackReply> {
@@ -58,7 +58,7 @@ class CampusFeedbackApi(
         }
     }
 
-    /** 见类 KDoc：提交是写路径（真往多维表格里加一行），serve 契约 §5.7 不端 ⇒ 这里照旧抛错。 */
+    /** 提交是写路径：真往多维表格里加一行（`POST /api/feedback/submit`）。 */
     override suspend fun submit(
         ticket: String,
         category: String,

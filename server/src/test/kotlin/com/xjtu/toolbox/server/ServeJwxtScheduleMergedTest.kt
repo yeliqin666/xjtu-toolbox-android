@@ -10,7 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 
-/** `GET /api/jwxt/schedule?merged=1` 的契约测试（`docs/api-contract.md` §5.9） */
+/** `GET /api/jwxt/schedule?merged=1` 的契约测试（`docs/api-contract.md`） */
 class ServeJwxtScheduleMergedTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -47,7 +47,7 @@ class ServeJwxtScheduleMergedTest {
             val courses = data.arrOf("courses")
             assertEquals(4, courses.size)
 
-            // 每一条都是 `:core` `CourseItem` 的九格（那两格分钟级时间不投影 —— §4）
+            // 每一条都是 `:core` `CourseItem` 的九格（那两格分钟级时间不投影）
             for (row in courses) {
                 assertEquals(
                     setOf(
@@ -168,7 +168,7 @@ class ServeJwxtScheduleMergedTest {
 
         const val JWXT_SCHEDULE_PATH = "/api/jwxt/schedule"
 
-        /** §5.2 红线的钉子组（编造值，非真人）：学号 / 姓名 / 教师名一律不许出现。 */
+        /** 隐私红线的钉子组（编造值，非真人）：学号 / 姓名 / 教师名一律不许出现。 */
         val IDENTITY = listOf(
             "username",
             "studentId",

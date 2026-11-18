@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.emptyFlow
  * 的装配，**浏览器里造不出来**（`JvmDownloadEngine` / `JvmDownloadFileSystem` 都是 JVM 侧的实现）。
  * 会议 **#9 = 丙「做法①」** 又明确写了**不做影子版**（浏览器里不许造一个假引擎假装在下载）——
  * 所以这一端必须收一个**窄接口**：本机那份的实现就是 [DownloadManager] 自己（一字未改的语义），
- * web 那份走 `docs/api-contract.md` §5.13 的 `/api/downloads`（队列、进度、落盘都真的发生在 serve 那台机器上）。
+ * web 那份走 `docs/api-contract.md` 的 `/api/downloads`（队列、进度、落盘都真的发生在 serve 那台机器上）。
  *
  * ## 两个如实约定
  *
@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.emptyFlow
  *   - [videoDirPath]：本机那份是常量（`fileSystem.downloadRoot`）；serve 那份**要等第一次列表回来才知道**
  *     （`GET /api/downloads` 的 `dir.location`）⇒ web 的实现给的是**最近一次知道的值**（首次列表之前是空串，
  *     而屏进页就会拉一次列表，所以弹窗里实际不会看到空的）；
- *   - [changes]：本机那份是真进度流；serve 那份**没有推送**（契约 §5.13 只给了轮询用的 `/progress`）
+ *   - [changes]：本机那份是真进度流；serve 那份**没有推送**（只有轮询用的 `/progress`）
  *     ⇒ web 的实现是**定时拉一次列表**，语义仍是「有变化就重拉」。
  * - [resumeDownload] / [resumeAll] 声明成 `suspend` **不是为了等下载跑完**（本机那份仍然是丢一个协程就返回），
  *   而是因为 serve 那份要等一次 HTTP 往返。调用方按「这一发之后屏上自己会刷新」理解即可。
@@ -46,7 +46,7 @@ interface DownloadsHost {
      * 一次快照：任务全表 + 计数。
      *
      * ⚠️ **合成一发**（而不是分开两个方法）：任务与计数来自同一发才不会一前一后对不上；
-     * serve 那一份也因此只需要一次 HTTP（契约 §5.13 的 `GET /api/downloads` 本来就一次给齐）。
+     * serve 那一份也因此只需要一次 HTTP（`GET /api/downloads` 本来就一次给齐）。
      */
     suspend fun snapshot(): DownloadsSnapshot
 

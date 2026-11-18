@@ -1,93 +1,70 @@
-*.iml
-/.idea/
-.DS_Store
-/build
+# ── 构建产物 ──
+build/
+.gradle/
+/.gradle-user-home/
+.kotlin/
 /captures
 .externalNativeBuild
 .cxx
-local.properties
-/.vscode/
-/.github/copilot-instructions.md
-# Agent customization files added in this task
-/.github/AGENTS.md
-/.github/agents/
-/.github/instructions/*.md
-# 仓库根的 AI 代理约定：本地维护，不进仓库
-/AGENTS.md
-# ZCode 工作区状态（计划文件，含本地会话 ID，勿入库）
-/.zcode/
-# WorkBuddy 工作区记忆（本地笔记，不入库）
-/.workbuddy/
-# Signing
-release.jks
-release.jks.b64
-keystore.properties
-.kotlin/
-# Gradle
-.gradle/
-/.gradle-user-home/
-build/
-# APK
 *.apk
 *.ap_
 *.aab
-# Dex metadata
 *.dm
-# Generated files
 output.json
 output-metadata.json
-
-# Misc local artifacts
 build_output.txt
+__pycache__/
+*.pyc
 
-# Refactoring / planning docs (local only, not part of repo)
+# ── IDE 与系统 ──
+*.iml
+/.idea/
+/.vscode/
+.DS_Store
+
+# ── 本地配置与凭据（只存在于本机或 CI Secrets）──
+local.properties
+release.jks
+release.jks.b64
+keystore.properties
+# 反馈后端（飞书多维表格）凭据
+feedback.properties
+# 小游戏全服榜的服务端地址覆盖，只在本地联调时用
+leaderboard.properties
+# 榜单禁止词表与内容安全凭据，只放在服务器上（公开词表等于给绕过者一张清单）
+server/leaderboard/banned.txt
+server/leaderboard/aliyun.env
+
+# ── AI 代理与工作区的本地文件 ──
+/AGENTS.md
+/.github/AGENTS.md
+/.github/agents/
+/.github/instructions/*.md
+/.github/copilot-instructions.md
+/.zcode/
+/.workbuddy/
+# 屁岱皮肤制作 Skill 独立维护在 yeliqin666/pidai-skin-maker，本地 clone 到这里使用
+/.agents/skills/pidai-skin-maker/
+/.claude/skills/pidai-skin-maker/
+
+# ── 本地参考与草稿 ──
+# miuix 源码副本（152MB，仅供查实现，App 走 Maven 依赖）
+miuix-ref/
+# 开发期抓取的页面样本
+.probe-notices/
+.companion/
 REFACTORING_PLAN.md
 PROGRESS*.md
 NOTES*.md
 TODO*.md
 plan.md
-/tools/*
-# 二维码中日韩码表的生成器入库（维护者改了字符集口径才跑；见脚本头注释）
-!/tools/gen-qr-charset-tables.java
-# 校区简图数据生成（OpenStreetMap → CampusMapsGenerated.kt），见脚本头注释
-!/tools/gen-campus-map.py
-
-# 不纳入 App 仓库（保留本地）
 /update_api.py
+.git-commit-msg.tmp
 
-# 开发期抓取的页面样本，不入库
-.probe-notices/
-.companion/
-
-# announce 分支的 worktree（公告 bulletin.json），git worktree 管理，勿手动删除
+# announce 分支的 worktree（公告 bulletin.json），由 git worktree 管理
 /announce/
 
-# 反馈后端（飞书多维表格）凭据，不入库
-feedback.properties
-
-# 小游戏全服榜的服务端地址覆盖，只在本地联调时用（默认走正式环境，见 app/build.gradle.kts）
-leaderboard.properties
-
-# 榜单昵称的禁止词表：放服务端目录下按需增补，不进仓库
-# （公开一份词表等于给绕过它的人一张清单）
-server/leaderboard/banned.txt
-
-# 内容安全凭据，只该存在于服务器的 /opt/xjtu-games/
-server/leaderboard/aliyun.env
-
-# 屁岱皮肤制作 Skill：独立维护在 yeliqin666/pidai-skin-maker，本仓库不再内嵌一份拷贝
-# （曾经嵌过，两边一改就容易分叉）。本地想用就 clone 到这两个路径，不会被 git 跟踪。
-/.agents/skills/pidai-skin-maker/
-/.claude/skills/pidai-skin-maker/
-
-# miuix 的本地源码副本，查 MIUIX 组件实现时用的参考。App 走 Maven 依赖
-# （top.yukonga.miuix.kmp:miuix-*-android），并不编译这个目录——但它是整个仓库里
-# 最大的未跟踪目录（152MB / 7000+ 文件），不忽略的话一个 git add -A 就带进去了。
-miuix-ref/
-
-# Python 脚本（.github/scripts）在 CI 与本机跑过之后会留下字节码缓存
-__pycache__/
-*.pyc
-
-# �ύ��Ϣ��ʱ�ļ������� amend �ã�
-.git-commit-msg.tmp
+# tools/ 只收录维护者用的生成脚本，其余是本地工具
+/tools/*
+!/tools/gen-qr-charset-tables.java
+!/tools/gen-campus-map.py

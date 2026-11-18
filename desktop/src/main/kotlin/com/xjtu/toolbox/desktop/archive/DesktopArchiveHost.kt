@@ -32,7 +32,7 @@ import kotlin.time.Clock
 /** 桌面端的档案宿主装配：数据根扫描 + 一次性导入的闸门 + 导出到目录/zip。 */
 object DesktopArchiveHost {
 
-    /** 数据根下的档案落地目录（目录即档案本体，§2.0）。 */
+    /** 数据根下的档案落地目录（目录即档案本体）。 */
     const val ARCHIVE_DIR = "archive"
 
     /** 目录形态旁边的运输形态：`<数据根>/archive.zip`。 */
@@ -40,7 +40,7 @@ object DesktopArchiveHost {
 
     private const val TAG = "DesktopArchive"
 
-    /** 两个匿名档：未登录 / 登出中间态在档案里也占目录（§4）。 */
+    /** 两个匿名档：未登录 / 登出中间态在档案里也占目录。 */
     private val ANONYMOUS_SUFFIXES = listOf("default", "_")
 
     /**
@@ -49,7 +49,7 @@ object DesktopArchiveHost {
      */
     private val FILES_PREFIXES = listOf("agent_sessions", "schedule")
 
-    /** §2.1 `createdBy`：`desktop-linux` / `desktop-windows`。 */
+    /** `createdBy`：`desktop-linux` / `desktop-windows`。 */
     val createdBy: String
         get() = if ((System.getProperty("os.name") ?: "").lowercase().contains("win")) {
             "desktop-windows"
@@ -57,7 +57,7 @@ object DesktopArchiveHost {
             "desktop-linux"
         }
 
-    /** §2.1 `appVersion`：与 `DesktopSettingsHost.versionText` 同一个字面（桌面包的版本 + `(desktop)`）。 */
+    /** `appVersion`：与 `DesktopSettingsHost.versionText` 同一个字面（桌面包的版本 + `(desktop)`）。 */
     val appVersion: String get() = "v${DesktopBuildConfig.VERSION_NAME} (desktop)"
 
     /** 数据根（`archiveDataRoot()`；jvm 上恒非 null）。 */
@@ -71,7 +71,7 @@ object DesktopArchiveHost {
 
     // ── 装配（只读端内） ────────────────────────────────────────────────────
 
-    /** `manifest.accounts[]`（§2.1）的纯映射：账号表 → [ArchiveAccount]。 */
+    /** `manifest.accounts[]` 的纯映射：账号表 → [ArchiveAccount]。 */
     fun accountsFrom(accounts: List<Account>): List<ArchiveAccount> = accounts.map { a ->
         ArchiveAccount(
             accountId = a.accountId,
@@ -113,7 +113,7 @@ object DesktopArchiveHost {
     /**
      * 端内 → 完整档案字节映射（导出动作；只读端内，不写任何 store / 文件）。
      *
-     * §6.3 逐族迁移（「成绩缓存」与「课表缓存」两族）：这两族端内都是键值店、档案里都是 `files/` 下的文件
+     * 「成绩缓存」与「课表缓存」两族：这两族端内都是键值店、档案里都是 `files/` 下的文件
      * （`schedule/score_report.json`、`schedule/<key>.json`）⇒ **单一表示**：这两族的店**不进 `stores/`**
      * （否则同一份缓存会在档案里出现两遍，Android 那边还会把 `schedule_cache` 当 prefs 店落下来）。
      * 族名按 base 认，用的就是 [StoreArchive.export] 自己的拆分口径（[ArchiveNames.split]）。
@@ -154,12 +154,12 @@ object DesktopArchiveHost {
     ): List<ArchiveFile> = DesktopArchiveRows.filesOf(storeOf, accountId)
 
     /**
-     * §6.3 逐族迁移（「成绩缓存」那一族）：端内是键值店 `score_report<账号后缀>` 的 `score_report_<学号>`
+     * 「成绩缓存」那一族：端内是键值店 `score_report<账号后缀>` 的 `score_report_<学号>`
      * （报表页并入成绩查询后已无写入方，这里只搬旧数据），档案里是**文件** `schedule/score_report.json`，值是 `{"at":<ms>,"grades":[…]}`，
      * 名字里不带学号（账号维度由 `accounts/<suffix>/` 承担）。
      *
-     * 读不到这一族的缓存 ⇒ 不出这一条。旧端内形状（裸数组）用那份 properties 的 mtime 补 `at`（§6.3「mtime → at」）；
-     * 连 mtime 也没有 ⇒ 用导出时刻。转不动的那份跳过（导出不报错，§8.6）。
+     * 读不到这一族的缓存 ⇒ 不出这一条。旧端内形状（裸数组）用那份 properties 的 mtime 补 `at`；
+     * 连 mtime 也没有 ⇒ 用导出时刻。转不动的那份跳过（导出不报错）。
      */
     fun readScoreFiles(
         accountIds: List<String>,
@@ -193,9 +193,9 @@ object DesktopArchiveHost {
         return ExportOutcome(directory, zip, archive.size)
     }
 
-    // ── 数据根扫描 + 一次性导入的闸门（§6.2） ───────────────────────────────
+    // ── 数据根扫描 + 一次性导入的闸门 ───────────────────────────────
 
-    /** 数据根下的待导入档案：`<数据根>/archive/`（里面真有 `manifest.json` 的目录形态）与数据根下的`*.zip`（§6.2 桌面那一行的「有档案目录/zip」）。 */
+    /** 数据根下的待导入档案：`<数据根>/archive/`（里面真有 `manifest.json` 的目录形态）与数据根下的 `*.zip`。 */
     fun pendingArchives(): List<File> {
         val root = dataRoot()
         val dir = File(root, ARCHIVE_DIR)
@@ -208,7 +208,7 @@ object DesktopArchiveHost {
     }
 
     /**
-     * 第一步：找到待导入档案并**只算差异**（端内零改动，§6.4「显式镜像档」）。
+     * 第一步：找到待导入档案并**只算差异**（端内零改动，「显式镜像档」）。
      *
      * 设置页拿 [PendingArchivePlan] 弹窗（话术全用 [com.xjtu.toolbox.archive.ArchiveImportPrompt]），
      * 用户选完档位、点了确认之后调 [confirmImport] 落地。与 [maybeImportPendingArchive] 的区别只是多了一步
@@ -235,7 +235,7 @@ object DesktopArchiveHost {
     fun confirmImport(planned: DesktopArchivePlanOutcome.Planned): DesktopImportOutcome =
         DesktopArchiveImport.apply(planned)
 
-    /** §6.2 的触发点（`Main.kt` 启动时调一次，设置页那一行也走它）：有档案才跑，没有就静默返回 `null`。 */
+    /** 导入的触发点（`Main.kt` 启动时调一次，设置页那一行也走它）：有档案才跑，没有就静默返回 `null`。 */
     fun maybeImportPendingArchive(): PendingArchive? {
         val path = pendingArchives().firstOrNull() ?: return null
         val entries = runCatching { DesktopArchiveIo.read(path) }.getOrElse {
@@ -254,7 +254,7 @@ object DesktopArchiveHost {
         return PendingArchive(path, check, outcome)
     }
 
-    /** 自校验一份档案（§6.2 第 3 条的前半，纯读） */
+    /** 自校验一份档案（纯读） */
     fun checkArchive(path: File): ArchiveCheck {
         val entries = runCatching { DesktopArchiveIo.read(path) }.getOrElse {
             return ArchiveCheck.Failed("读不出来：${it.message ?: it::class.simpleName}")
@@ -283,21 +283,21 @@ object DesktopArchiveHost {
 /** 导出动作的结果（目录形态 + zip 形态 + 条目数）。 */
 data class ExportOutcome(val directory: File, val zip: File, val entries: Int)
 
-/** 数据根里发现的一份待导入档案 + 它的自校验结果 + 这一次合并的结论（§6.4）。 */
+/** 数据根里发现的一份待导入档案 + 它的自校验结果 + 这一次合并的结论。 */
 data class PendingArchive(
     val path: File,
     val check: ArchiveCheck,
     val outcome: DesktopImportOutcome,
 )
 
-/** 数据根里发现的一份待导入档案 + 自校验结果 + **只有差异、还没落地**的结论（§6.4 镜像档）。 */
+/** 数据根里发现的一份待导入档案 + 自校验结果 + **只有差异、还没落地**的结论（镜像档）。 */
 data class PendingArchivePlan(
     val path: File,
     val check: ArchiveCheck,
     val plan: DesktopArchivePlanOutcome,
 )
 
-/** 一份档案的自校验结果（§6.2 第 3 条的前半）。 */
+/** 一份档案的自校验结果。 */
 sealed interface ArchiveCheck {
 
     /** 自校验通过。 */

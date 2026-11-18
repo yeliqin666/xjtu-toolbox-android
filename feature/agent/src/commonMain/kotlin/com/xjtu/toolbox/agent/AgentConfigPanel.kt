@@ -165,7 +165,7 @@ internal fun ConfigPanel(
                     )
                     // API Key 那一行：默认 = 下面这个可输入的框（Android / 桌面逐字不变）。
                     // 浏览器那一端拿不到 key（它存在运行 serve 的那台机器上）⇒ 宿主交一格
-                    // 「只读徽标 + 一句指路」把整行换掉（`docs/agent-web-spec.md` §4.3 第 2 条）。
+                    // 「只读徽标 + 一句指路」把整行换掉。
                     if (apiKeySection != null) apiKeySection() else TextField(
                         value = apiKey,
                         onValueChange = {

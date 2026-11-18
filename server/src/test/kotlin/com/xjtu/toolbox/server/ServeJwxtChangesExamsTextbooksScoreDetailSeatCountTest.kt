@@ -328,7 +328,7 @@ class ServeJwxtChangesExamsTextbooksScoreDetailSeatCountTest {
         assertEquals(88.0, detail.optString("scoreValue")?.toDouble(), "`score` 解析出来的数字")
         assertEquals(JwappFakeUpstream.DETAIL_GPA, detail.optString("gpa")?.toDouble())
         assertEquals(true, detail.optBoolean("passFlag"))
-        assertNull(detail.optString("majorFlag"), "夹具那一格没给 ⇒ null（§4：null ≠ 字段缺失）")
+        assertNull(detail.optString("majorFlag"), "夹具那一格没给 ⇒ null（null ≠ 字段缺失）")
 
         val items = detail.arrOf("itemList")
         assertEquals(2, items.size)
@@ -377,7 +377,7 @@ class ServeJwxtChangesExamsTextbooksScoreDetailSeatCountTest {
             assertNoIdentity(missing.body(), "GET $JWAPP_SCORE_DETAIL_PATH（没有分项那一档）", IDENTITY)
             val data = envelopeData(missing)
             assertEquals(JwappFakeUpstream.DETAIL_MISSING_ID, data.optString("courseId"))
-            assertTrue(data.getValue("detail") is JsonNull, "detail 是显式的 null（§4：null ≠ 字段缺失）")
+            assertTrue(data.getValue("detail") is JsonNull, "detail 是显式的 null（null ≠ 字段缺失）")
             assertEquals(1, fake.jwapp.detailCalls.get())
         }
 
@@ -416,7 +416,7 @@ class ServeJwxtChangesExamsTextbooksScoreDetailSeatCountTest {
         assertEquals(UNKNOWN_ROOM, unknownData.optString("room"))
         assertTrue(
             unknownData.getValue("seats") is JsonNull,
-            "拿不到就是 null（§4：null = 上游明确说没有），不拿 0 冒充",
+            "拿不到就是 null（null = 上游明确说没有），不拿 0 冒充",
         )
     }
 
@@ -451,7 +451,7 @@ class ServeJwxtChangesExamsTextbooksScoreDetailSeatCountTest {
         /** 夹具那两份样本里都没有这间教室 ⇒ `seatCount` 查不到（编造值）。 */
         const val UNKNOWN_ROOM = "主楼Z-999"
 
-        /** §5.2 红线的钉子组（编造值，非真人）：学号 / 姓名 / 教师名一律不许出现。 */
+        /** 隐私红线的钉子组（编造值，非真人）：学号 / 姓名 / 教师名一律不许出现。 */
         val IDENTITY = listOf(
             "username",
             "studentId",

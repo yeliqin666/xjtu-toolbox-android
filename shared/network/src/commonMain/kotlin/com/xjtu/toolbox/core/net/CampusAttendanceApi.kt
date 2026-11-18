@@ -33,11 +33,11 @@ import kotlinx.serialization.json.put
 class CampusAttendanceApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.5）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : AttendanceSource {
 
-    /** 三栏都在（2026-10-22 批5：统计与打卡流水也端了，契约 §5.12）—— 请假那一栏更早就有。 */
+    /** 三栏都在：统计、打卡流水与请假。 */
     override val capabilities: AttendanceCapabilities = AttendanceCapabilities(
         stats = true,
         streams = true,
@@ -74,7 +74,7 @@ class CampusAttendanceApi(
         requireServe()
         currentTermBh?.let { return it }
         val term = client.serveData("加载当前学期", baseUrl, RECORDS_PATH)["term"].safeString().trim()
-        if (term.isEmpty()) error("加载当前学期：服务端返回缺少 term（契约 §5.5）")
+        if (term.isEmpty()) error("加载当前学期：服务端返回缺少 term")
         currentTermBh = term
         return term
     }
@@ -108,7 +108,7 @@ class CampusAttendanceApi(
                 sbh = id,
                 termString = row["term"].safeString(),
                 // 契约把 `:core` 那两个 `Time` 字段名改成了 `startSection` / `endSection`
-                // （它们其实是节次，1..11 —— §5.5），这里改回来就是原字段
+                // （它们其实是节次，1..11），这里改回来就是原字段
                 startTime = row["startSection"].safeInt(),
                 endTime = row["endSection"].safeInt(),
                 week = row["week"].safeInt(),
@@ -122,9 +122,7 @@ class CampusAttendanceApi(
         }
     }
 
-    // ── 统计 / 打卡流水：契约 §5.5 没有端点 ────────────────────────────
-
-    // ── 统计 / 打卡流水（契约 §5.12：两条端点都只认学期号）────────────────
+    // ── 统计 / 打卡流水（两条端点都只认学期号）────────────────
 
     override suspend fun getKqtjCurrentWeek(): List<CourseAttendanceStat> = statsOf(currentTermBh)
 
@@ -138,7 +136,7 @@ class CampusAttendanceApi(
      * 按课程统计那一栏。
      *
      * [records] **不参与**：算路在 `:data`（只有 JVM/Android 变体，浏览器里没有它），所以 serve 这一份
-     * 让服务端按**同一个学期**跑同一条算路（`/api/attendance/stats` 与 `/records` 同一口径，见契约 §5.12
+     * 让服务端按**同一个学期**跑同一条算路（`/api/attendance/stats` 与 `/records` 同一口径
      * 那句「缺勤按学期全量算」）。调用方总是刚拿完这个学期的流水（`currentTermBh` 于是已知），
      * 所以这里不会再发一次学期发现请求。
      */
@@ -147,7 +145,7 @@ class CampusAttendanceApi(
 
     override suspend fun getStreams(startDate: String, endDate: String): List<AttendanceStream> {
         requireServe()
-        // 同样只认学期号：日期窗由服务端按该学期的起止推（契约 §5.12）。
+        // 同样只认学期号：日期窗由服务端按该学期的起止推。
         val term = currentTermBh ?: getTermBh()
         val data = client.serveData("加载打卡流水", baseUrl, STREAMS_PATH, listOf("term" to term))
         return data.arr("streams").orEmpty().mapNotNull { element ->
@@ -155,7 +153,7 @@ class CampusAttendanceApi(
             AttendanceStream(
                 id = row["id"].safeString(),
                 location = row["location"].safeString(),
-                // 上游给的 `2026-09-16 08:05:00` 原样投影：本层不编一个时区（契约 §5.12）
+                // 上游给的 `2026-09-16 08:05:00` 原样投影：本层不编一个时区
                 collectTime = row["collectTime"].safeString(),
                 effective = row["effective"].safeBoolean(),
             )
@@ -252,7 +250,7 @@ class CampusAttendanceApi(
     /** 附件上传：这一端没有端点。 */
     override suspend fun uploadEvidence(fileName: String, contentType: String, bytes: ByteArray): JsonObject =
         throw UnsupportedOperationException(
-            "serve 契约没有「上传请假附件」的端点（multipart/form-data）：docs/api-contract.md §5.5.1 ——" +
+            "serve 契约没有「上传请假附件」的端点（multipart/form-data）：docs/api-contract.md ——" +
                 "这一端的 `AttendanceScreen.pickEvidenceFiles` 给的是空表，屏上不会调到这里",
         )
     /** 提交请假申请（写）。 */
@@ -279,7 +277,7 @@ class CampusAttendanceApi(
         // 不把它发出去（那会被读成「附件就是空的」）。
         val data = client.serveLeaveAction("提交请假申请", baseUrl, LEAVE_PATH, body)
         val leaveId = data["leaveId"].safeString().trim()
-        if (leaveId.isEmpty()) error("提交请假申请：服务端返回缺少 leaveId（契约 §5.5.1）")
+        if (leaveId.isEmpty()) error("提交请假申请：服务端返回缺少 leaveId")
         return leaveId
     }
 
@@ -328,13 +326,13 @@ private suspend fun HttpClient.serveLeaveAction(
 ): JsonObject {
     val outcome = serveAction(baseUrl, path, body)
     if (!outcome.ok) error("$what：${outcome.message}")
-    return outcome.data ?: error("$what：服务端返回缺少 data（契约 §5.4）")
+    return outcome.data ?: error("$what：服务端返回缺少 data")
 }
 
-/** 按课程的考勤统计（`?term=`，契约 §5.12）。 */
+/** 按课程的考勤统计（`?term=`）。 */
 private const val STATS_PATH = "/api/attendance/stats"
 
-/** 打卡原始流水（`?term=`，契约 §5.12）。 */
+/** 打卡原始流水（`?term=`）。 */
 private const val STREAMS_PATH = "/api/attendance/streams"
 
 /** 幂等键的字母表（与 `:data` 那边同为十六进制大写 —— 一眼看得出是键不是正文）。 */
@@ -420,7 +418,7 @@ private fun JsonObject.toLeaveRecord(leaveId: String) = LeaveRecord(
         )
     },
 )
-/** 学期列表（契约 §5.5）。 */
+/** 学期列表。 */
 private const val TERMS_PATH = "/api/attendance/terms"
 /** 某学期的考勤流水（`?term=` 学期号 / `?from=&to=` 日期，都可省略）。 */
 private const val RECORDS_PATH = "/api/attendance/records"

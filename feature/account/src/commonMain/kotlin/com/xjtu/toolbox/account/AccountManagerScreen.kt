@@ -97,7 +97,7 @@ fun AccountManagerScreen(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    // PR T（计划 §11）：登录失败的错误触感，见下面 onSubmit 的 onFailure/catch。
+    // 登录失败的错误触感，见下面 onSubmit 的 onFailure/catch。
     val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     val activeId = activeAccountId
     fun orderedAccounts(): List<Account> = accountManager.accountList()

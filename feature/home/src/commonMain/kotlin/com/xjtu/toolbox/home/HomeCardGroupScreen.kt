@@ -154,9 +154,9 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  *
  * 版面从「刊头 + 头卡 + 一堆分类卡」改成「刊头 + 头卡 + **可编辑的卡片组**」：
  * 每组是一片组件网格，组件的大小、位置、所属组都能在编辑态里拖。
- * 「常用功能」不再是特权区，它就是第一组（需求 §2.1）。
+ * 「常用功能」不再是特权区，它就是第一组。
  *
- * 合并时从小组件那套搬过来的能力：材质四态里的纯色 / 渐变薄底（§1）、
+ * 合并时从小组件那套搬过来的能力：材质四态里的纯色 / 渐变薄底、
  * 一镜到底接线（`HomeTileBoard` 的 `tileOpen`、本文件的 `rowOf` 里 `onSeamlessClick`）、
  * 付款码大卡的二维码（`HomeTileBoard` 的 `PaymentCodeOverlay`）。
  * 只剩「经典分类卡」作为回落，见 [HomeClassicScreen]；入口分派在 [HomeScreen]。
@@ -416,7 +416,7 @@ fun HomeCardGroupScreen(
     var idleGroups by remember { mutableStateOf<List<HomeGroup>>(emptyList()) }
     var editGroups by remember { mutableStateOf<List<HomeGroup>>(emptyList()) }
 
-    /** 非编辑态那份里**标题为空**的组 id：它们不画标题行（§6），预测高度必须扣掉。 */
+    /** 非编辑态那份里**标题为空**的组 id：它们不画标题行，预测高度必须扣掉。 */
     var idleHeaderless by remember { mutableStateOf<Set<String>>(emptySet()) }
     if (!editing.on) {
         // 内容相等时不会触发重组（List / Set 按结构比较），所以这里每帧赋值是安全的
@@ -1167,7 +1167,7 @@ fun HomeCardGroupScreen(
                                     paymentCode = { host.paymentCode() },
                                     session = session,
                                     budgetRows = rowBudget?.get(group.id),
-                                    // 接收高亮：手指把这一组当落点，且它不是拖拽源组（§19）
+                                    // 接收高亮：手指把这一组当落点，且它不是拖拽源组
                                     receiving = session.draggingTile &&
                                         targetGroup == group.id &&
                                         session.sourceGroupId != group.id,
@@ -1246,7 +1246,7 @@ fun HomeCardGroupScreen(
                 onSaveEdit = { saveAndQuitEdit() },
                 onHomeSettings = {
                     // 齿轮 = 在原地打开「主页设置」抽屉：不跳设置页、编辑态不关闭，
-                    // 手上的草稿原样留着，关掉抽屉接着摆（§31）
+                    // 手上的草稿原样留着，关掉抽屉接着摆
                     host.onOpenHomeSettings()
                 },
                 alignWithGreeting = masthead,
@@ -2025,7 +2025,7 @@ private val RainbowStops = listOf(
     Color(0xFF3F51B5), Color(0xFFE040FB), Color(0xFFFF5252),
 )
 
-/** 删除分组的二次确认（§2.4）：整组连同里面的组件一起删，没法撤销。 */
+/** 删除分组的二次确认：整组连同里面的组件一起删，没法撤销。 */
 @Composable
 private fun DeleteGroupDialog(group: HomeGroup, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     WindowDialog(show = true, title = "删除分组", onDismissRequest = onDismiss) {

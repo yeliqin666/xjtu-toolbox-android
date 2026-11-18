@@ -14,7 +14,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** 同一份档案夹具在本端 `import` 一次，读出的值与另外两端同一批（`docs/storage-layout.md` §7）。 */
+/** 同一份档案夹具在本端 `import` 一次，读出的值与另外两端同一批（`docs/archive-format.md`「测试」）。 */
 class ArchiveInteropTest {
 
     /** 与 `:core` 的 `StoreArchiveImportTest.sourceOfArchive` 同参：同一份夹具、同一个 `export` 调用。 */
@@ -44,7 +44,7 @@ class ArchiveInteropTest {
         assertEquals(StoreValue.L(ArchiveFixture.FIXED_NOW), appSettings.keys["last_auto_update_check_at"])
         assertEquals(StoreValue.F(12.5f), appSettings.keys["card_today_dinner_cache"])
 
-        // 账号档：端内名带后缀（§2.0），旁挂时间戳以 `at` 的形状进来（§5.2 第 5 条）
+        // 账号档：端内名带后缀，旁挂时间戳以 `at` 的形状进来
         val scheduleCache = assertNotNull(
             target.store("schedule_cache${ArchiveFixture.SUFFIX}"),
             "带后缀的账号档应当落下来了",
@@ -66,7 +66,7 @@ class ArchiveInteropTest {
 
         assertNull(target.store("xjtu_credentials"), "凭据族不进档案（A8），导入也不该写它")
 
-        // files 那一层：两条都带着自己的命名空间落下来（§2.3）
+        // files 那一层：两条都带着自己的命名空间落下来
         assertEquals(ArchiveFixture.files.map { it.relPath }.sorted(), target.filePaths().sorted())
     }
 
@@ -76,7 +76,7 @@ class ArchiveInteropTest {
         val archive = archiveFromFixture()
         StoreArchive.import(archiveSourceOf(archive), target)
 
-        // 再导出一遍（`createdBy` 换成 `web`：那是"谁导的"，本来就是各端自己写的，§2.1）
+        // 再导出一遍（`createdBy` 换成 `web`：那是"谁导的"，本来就是各端自己写的）
         val again = StoreArchive.export(
             ArchiveFixture.accounts,
             WebArchiveHost.CREATED_BY,

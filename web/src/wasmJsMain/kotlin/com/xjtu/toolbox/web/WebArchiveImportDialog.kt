@@ -20,7 +20,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 导入档位弹窗（§6.4「显式镜像档」）。
+ * 导入档位弹窗（「显式镜像档」）。
  *
  * 话术一个字都不在这里：标题、两档的名称与说明、差异那一行、提醒、两个按钮全从
  * `ArchiveImportPrompt` 取（三端逐字同一份）。这一层只负责把 [WebArchiveActions] 里那几

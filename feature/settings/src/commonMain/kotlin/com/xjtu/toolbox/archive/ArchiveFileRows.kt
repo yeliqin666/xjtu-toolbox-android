@@ -5,10 +5,10 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** `files` 层里「行数组」的排序纯函数（§2.3）。 */
+/** `files` 层里「行数组」的排序纯函数。 */
 object ArchiveFileRows {
 
-    /** §2.3：`files/courses/custom_courses.json` 按六键升序。 */
+    /** `files/courses/custom_courses.json` 按六键升序。 */
     fun sortCustomCourses(rows: JsonArray): JsonArray =
         reorder(rows,
             compareBy<JsonObject> { it.str("accountId") }
@@ -18,19 +18,19 @@ object ArchiveFileRows {
                 .thenBy { it.int("startMinuteOfDay") }
                 .thenBy { it.long("id") })
 
-    /** §2.3：`files/media/download_tasks.json` 按 `(createTime desc, id)`。 */
+    /** `files/media/download_tasks.json` 按 `(createTime desc, id)`。 */
     fun sortDownloadTasks(rows: JsonArray): JsonArray =
         reorder(rows,
             compareByDescending<JsonObject> { it.long("createTime") }
                 .thenBy { it.long("id") })
 
-    /** §2.3：`files/jiaocai/jiaocai1_shelf.json` 按 `(addedAt desc, ssno)`。 */
+    /** `files/jiaocai/jiaocai1_shelf.json` 按 `(addedAt desc, ssno)`。 */
     fun sortJiaocaiShelf(rows: JsonArray): JsonArray =
         reorder(rows,
             compareByDescending<JsonObject> { it.long("addedAt") }
                 .thenBy { it.str("ssno") })
 
-    /** §2.3：`files/agent_sessions/index.json` 按 `updatedAt` 降序。 */
+    /** `files/agent_sessions/index.json` 按 `updatedAt` 降序。 */
     fun sortAgentSessionsIndex(rows: JsonArray): JsonArray =
         reorder(rows, compareByDescending<JsonObject> { it.long("updatedAt") })
 

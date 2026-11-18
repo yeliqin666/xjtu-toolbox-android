@@ -5,7 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** 工具文案两端一致的钉子（`docs/agent-web-spec.md` §9 #3） */
+/** 工具文案两端一致的钉子 */
 class ServeAgentToolCopyDriftTest {
 
     /** 一对「`:app` 这么写 / serve 那么写」的行块（块内可以多行，逐行 trim 后比）。 */

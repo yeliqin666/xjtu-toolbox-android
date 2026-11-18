@@ -43,7 +43,7 @@ internal class DesktopScheduleHost(private val auth: DesktopAuth) : ScheduleHost
         ScheduleCapability.SHARE_FILE,
         // 课表落地后给首页发信号：桌面现在有首页了（`AppRoute.Main` → `DesktopHomeScreen`），
         // 它盯的版本号就是 `DesktopHomeSignals.scheduleVersion`（见 onScheduleSynced）。
-        // WIDGET_REFRESH 仍旧不列 —— 这一端没有桌面小组件。设计文档 §6 Stage C 说的
+        // WIDGET_REFRESH 仍旧不列 —— 这一端没有桌面小组件。原计划里
         // 「小组件用系统通知替代」现在**有了一半**：通知载体接上了（`notify/DesktopSystemTray`
         // + `notify/DesktopReminders`，接在 postScheduleChange 那一格），但没有周期排程，
         // 所以还是替代不了「小组件自己会刷新」这件事（见 `DesktopHomeScreen` 的 TODO #1）。

@@ -296,7 +296,7 @@ fun XiangqiScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
             onRestart = if (online) null else ::restart,
         )
 
-        // 终局提示。按 MIUIX-reference 的 Overlay Rules，必须留在 Scaffold 内容作用域里。
+        // 终局提示。按 docs/miuix.md 的 Overlay Rules，必须留在 Scaffold 内容作用域里。
         OverlayDialog(
             show = resultDialogOpen && status is XiangqiStatus.Over,
             title = "对局结束",

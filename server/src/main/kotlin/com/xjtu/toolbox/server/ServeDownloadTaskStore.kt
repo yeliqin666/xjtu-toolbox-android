@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * serve 侧的下载登记表（`docs/api-contract.md` §5.13）。
+ * serve 侧的下载登记表（`docs/api-contract.md`）。
  *
  * ## 为什么用**自己的店名**
  *

@@ -10,7 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** 成绩单两段式提交（契约 §5.2 例外 ①）：建申请单 → 出 PDF 票据 → 一次性下载。 */
+/** 成绩单两段式提交：建申请单 → 出 PDF 票据 → 一次性下载。 */
 class ServeTranscriptWorkflowTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -123,7 +123,7 @@ class ServeTranscriptWorkflowTest {
         const val PREVIEW_PATH = "$API_PREFIX/$DZPZ_SEGMENT/$DZPZ_TRANSCRIPT_PREVIEW"
         const val DOWNLOAD_PATH = "$API_PREFIX/$DZPZ_SEGMENT/$DZPZ_TRANSCRIPT_DOWNLOAD"
 
-        /** §3.4 红线的钉子组：键名 + 典型值（学号/姓名都来自夹具备份，不是真人）。 */
+        /** 隐私红线的钉子组：键名 + 典型值（学号/姓名都来自夹具备份，不是真人）。 */
         val IDENTITY = listOf(
             "username",
             "studentId",

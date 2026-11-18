@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 class WebRouteCoverageTest {
 
     /** 见文件头：每条失败信息都带上它。 */
-    private val criterion = "这条判据是 docs/desktop-port-plan.md §16.2 第 1 条" +
+    private val criterion = "Web 路由全覆盖" +
         "（路由全等：openableRouteTypes 与 AppRoute 的差集只允许剩「这一端永远做不到」的条目，且每条都有如实说明）"
 
     // ── 读源码（构建期生成的快照，见文件头） ──

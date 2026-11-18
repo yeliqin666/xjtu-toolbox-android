@@ -10,8 +10,8 @@ import kotlin.test.assertTrue
  * 第 11 节 21:40–22:30；冬令第 5 节 14:00–14:50，第 11 节 21:10–22:00。
  *
  * 原文件在 `app/src/test/java/com/xjtu/toolbox/schedule/WeekGridLayoutTest.kt`：`WeekGridLayout`
- * 与 `CourseItem` 搬进 commonMain 后，那边按旧签名调用、运行期 `NoSuchMethodError`
- * （交接文档 §1.1）。断言与注释原样搬来，只换了壳：
+ * 与 `CourseItem` 搬进 commonMain 后，那边按旧签名调用、运行期 `NoSuchMethodError`。
+ * 断言与注释原样搬来，只换了壳：
  * JUnit → kotlin.test；`assertEquals(message, expected, actual)` 的参数序在 kotlin.test 里
  * 是 `(expected, actual, message)`，两处带名字的断言已相应改写。
  */

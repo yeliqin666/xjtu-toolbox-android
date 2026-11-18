@@ -13,7 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/** serve 契约 §5.9 的客户端那一侧。 */
+/** `/api/jwxt/schedule?merged=1` 的客户端那一侧。 */
 class ServeJwxtScheduleMergedApiTest {
 
     /** 一条发出去的请求：路径 + 完整 URL（判参数有没有发出去靠它）。 */

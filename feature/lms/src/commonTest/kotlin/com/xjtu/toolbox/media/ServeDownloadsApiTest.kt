@@ -17,7 +17,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/** serve 契约 §5.13 的客户端那一侧（`ServeDownloadsApi`）：形状、动作、拒绕那一档。 */
+/** `/api/downloads` 的客户端那一侧（`ServeDownloadsApi`）：形状、动作、拒绕那一档。 */
 class ServeDownloadsApiTest {
 
     /** 一条发出去的请求：路径 + 方法 + 完整 URL（判参数 / 方法有没有对靠它）。 */
@@ -45,7 +45,7 @@ class ServeDownloadsApiTest {
         mode = ApiMode.SERVE,
     )
 
-    /** `GET /api/downloads` 的形状（契约 §5.13）：任务全表 + 三个计数 + 目录那一格。 */
+    /** `GET /api/downloads` 的形状：任务全表 + 三个计数 + 目录那一格。 */
     private val listBody = """
         {"code":0,"data":{"count":2,"downloading":1,"completed":1,"active":1,
          "dir":{"location":"/home/示例/Downloads","notes":["下载落在**运行 serve 的那台机器**上（不是浏览器所在的设备）",
@@ -81,7 +81,7 @@ class ServeDownloadsApiTest {
         // ⚠️ 直链不投影（serve 那台机器自己在用）⇒ 这一格必须是空串，不是编一个
         assertEquals("", first.videoUrl)
 
-        // `createTime` 是 ISO-8601（契约 §4），模型那一格是 epoch 毫秒
+        // `createTime` 是 ISO-8601，模型那一格是 epoch 毫秒
         assertEquals(1_792_548_000_000L, first.createTime, "2026-10-21T10:00:00+08:00 的毫秒数")
         assertEquals(null, first.errorMessage, "JSON null ⇒ 模型里也是 null（没失败过）")
         assertEquals("上一次失败过", list.tasks[1].errorMessage, "有失败原因就原样带上")

@@ -26,7 +26,7 @@ import kotlinx.serialization.json.jsonObject
 class CampusFacultyApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : FacultySource {
 
@@ -108,7 +108,7 @@ class CampusFacultyApi(
     }
 
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
-        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        // serve 契约的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
         if (mode == ApiMode.SERVE) return client.serveData("教师检索", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> if (v.isNotEmpty()) parameter(k, v) }
@@ -121,12 +121,12 @@ class CampusFacultyApi(
         return envelope["data"] as? JsonObject
             ?: error("campus-api 教师检索返回缺少 data：${text.take(120)}")
     }
-    // ─── serve 模式（契约 §5.2）────────────────────────────────────────────
+    // ─── serve 模式────────────────────────────────────────────
 
     /** 能力开关：本端这一次响应有没有投影联系方式（serve 恒为 `false`，见类 KDoc）。 */
     private var contactsAvailable = false
 
-    /** serve 模式（契约 §5.2） */
+    /** serve 模式 */
     private suspend fun serveSearch(query: FacultySearchQuery, page: Int): FacultySearchPage {
         val data = getData(
             "/api/info/faculty",

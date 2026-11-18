@@ -52,7 +52,7 @@ import io.ktor.server.routing.route
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
-/** P0 取数端点组一（免登录 / 轻登录六域） —— `docs/api-contract.md` §5 那批 P0 端点的实现。 */
+/** P0 取数端点组一（免登录 / 轻登录六域） —— `docs/api-contract.md` 端点表里这几族的实现。 */
 internal fun Route.serveEndpointRoutes(
     session: ServeSession,
     calendar: SchoolCalendarSource = SchoolCalendarApi(),
@@ -89,7 +89,7 @@ internal fun Route.calendarRoutes(source: SchoolCalendarSource = SchoolCalendarA
 @Serializable
 internal data class CalendarPayload(val terms: List<SchoolTermDto>)
 
-/** [SchoolTerm] 的线上形状。日期是 ISO-8601 日期字符串（契约 §4：时间一律 ISO 带时区）。 */
+/** [SchoolTerm] 的线上形状。日期是 ISO-8601 日期字符串（契约：时间一律 ISO 带时区）。 */
 @Serializable
 internal data class SchoolTermDto(
     val id: String,
@@ -412,7 +412,7 @@ internal data class NotificationSourcesPayload(
 @Serializable
 internal data class NotificationSourceDto(val code: String, val displayName: String, val category: String)
 
-/** `GET /api/notification/list` 的 `data`（分页形状照契约 §4，见 [NotificationListPayload] KDoc）。 */
+/** `GET /api/notification/list` 的 `data`（分页形状见 [NotificationListPayload] KDoc）。 */
 @Serializable
 internal data class NotificationListPayload(
     val page: Int,
@@ -423,7 +423,7 @@ internal data class NotificationListPayload(
     val hasMore: Boolean,
 )
 
-/** [Notification] 的线上形状；`date` 是 ISO 日期（契约 §4），`source` 是枚举名。 */
+/** [Notification] 的线上形状；`date` 是 ISO 日期，`source` 是枚举名。 */
 @Serializable
 internal data class NotificationDto(
     val title: String,
@@ -776,7 +776,7 @@ private fun queriedBuildings(campus: String, raw: String?): List<String> {
 // 小工具：失败码 / ISO 时间
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 取数失败 → 信封（契约 §4）：`401` = 需要先登录 / 登录态失效（重发没意义），`502` = 上游或网络的故障（稍后重试可能就成）。 */
+/** 取数失败 → 信封：`401` = 需要先登录 / 登录态失效（重发没意义），`502` = 上游或网络的故障（稍后重试可能就成）。 */
 private suspend fun ApplicationCall.respondFetchError(e: Throwable, action: String) {
     if (e is CancellationException) throw e
     val message = FriendlyError.of(e, action)

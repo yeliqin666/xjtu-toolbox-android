@@ -46,7 +46,7 @@ internal object WebSupport {
         AppRoute.Transcript::class,
         AppRoute.Attendance::class,
         AppRoute.Coupon::class,
-        // 第二批只读域（2026-10-14 接线，契约 §5.6）：思源学堂 / 教材查询 / 成绩 / 快速考勤流水。
+        // 第二批只读域：思源学堂 / 教材查询 / 成绩 / 快速考勤流水。
         // 与上面那四条同一条规矩：**「本端有没有这一屏」与「此刻后端是哪一形态」是两件事** ——
         // 取数只在 serve 形态下存在（campus-api 里没有这四族的端点），但那四屏就在 `:core`，
         // 所以门照旧列在这里，campus-api 形态下 `AppPage` 画的是「这一屏要 serve 模式」那张如实页。
@@ -54,13 +54,13 @@ internal object WebSupport {
         // `Lms` 的课程 / 活动深链同样支持；宫格是否展示入口仍由 AppServices 目录决定。
         AppRoute.Lms::class,
         AppRoute.Jiaocai::class,
-        // 教材全文库与阅读器：宿主走契约 §5.14 的 `/api/jiaocai1/*`，书架落在 serve 侧（见 `WebJiaocai1Source`）。
+        // 教材全文库与阅读器：宿主走 `/api/jiaocai1/*`，书架落在 serve 侧（见 `WebJiaocai1Source`）。
         // 阅读器的门在书架与检索结果里，目录里没有它。
         AppRoute.Jiaocai1::class,
         AppRoute.Jiaocai1Reader::class,
         AppRoute.JwappScore::class,
         AppRoute.Iclassface::class,
-        // 学业进度：取数走契约 §5.16 的 `/api/degree/*`，campus-api 形态下画「要 serve 模式」那张页。
+        // 学业进度：取数走 `/api/degree/*`，campus-api 形态下画「要 serve 模式」那张页。
         AppRoute.DegreeProgress::class,
         AppRoute.PaymentCode::class,
         AppRoute.Match::class,
@@ -74,14 +74,11 @@ internal object WebSupport {
         AppRoute.GameGo::class,
         AppRoute.GameXiangqi::class,
         AppRoute.GameMerge::class,
-        // 账号管理（D9 / 工单 S7a）：**屏就是 `:core` 那份 `AccountManagerScreen`**（三端同一套层级），
-        // 取数是 serve 的 `GET /api/accounts`（契约 §5.10）。这一端**只读** —— 切换 / 新增 / 删除 / 改密
-        // 要在 App 或桌面端做（serve 只端了读那一半），页顶那一行与动作失败的 toast 说的都是这件事
-        // （见 `WebAccountsScreen` / `WebGapNote`）。与 `AppRoute.Match` 同理：门照旧开着，
-        // 「点了会有个说法」——而且这一条能看见的是**真数据**（账号表与当前账号）。
+        // 账号管理：**屏就是 `:core` 那份 `AccountManagerScreen`**（三端同一套层级），走 serve 的
+        // `/api/accounts`。切换 / 新增 / 删除 / 改密要求 HTTPS；明文 HTTP 下只读，页顶那一行会说明（见 `WebAccountsHost`）。
         AppRoute.Accounts::class,
         AppRoute.Agent::class,
-        // 下载管理：宿主走契约 §5.13 的 `/api/downloads`，队列与落盘在 serve 那台机器上（见 `WebDownloadsHost`）。
+        // 下载管理：宿主走 `/api/downloads`，队列与落盘在 serve 那台机器上（见 `WebDownloadsHost`）。
         AppRoute.DownloadManager::class,
     )
 

@@ -9,7 +9,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * §6.4「显式镜像档」：先算差异（端内不动）→ 确认后一次性落地 → 中途失败整体回滚。
+ * 「显式镜像档」：先算差异（端内不动）→ 确认后一次性落地 → 中途失败整体回滚。
  *
  * 三条不许动的口径：
  * ① 红线清单上的店**永不删**；② 档案里没出现的店**一个字不动**；③ 默认档（MERGE）语义与以前逐字相同。
@@ -222,7 +222,7 @@ class StoreArchiveMirrorTest {
     }
 
     @Test
-    fun `红线清单守卫：§6 第 4 条的逐字名单与前后缀一个不少`() {
+    fun `红线清单守卫：逐字名单与前后缀一个不少`() {
         // 集合比较（不比较顺序）：`allNames()` 的迭代顺序不是契约，逐字名单才是。
         assertEquals(
             setOf("data_cache_meta", "github_community", "serve", "xjtu_accounts", "xjtu_credentials", "xjtu_cookies"),

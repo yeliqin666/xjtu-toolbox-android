@@ -59,7 +59,7 @@ val AppInsetColor: Color
     @Composable get() = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
 
 /**
- * 给 [AppCardColor] 卡片补的真实投影（PR W，计划 §14.1）。
+ * 给 [AppCardColor] 卡片补的真实投影。
  *
  * 卡片层级本来完全靠"卡片色比背景色亮一点"撑着，深色模式下两者差很小，几乎看不出卡片
  * 边界；投影负责把这层级找补回来。浅色模式背景本身够亮，投影调得很淡，避免过了头变成
@@ -70,8 +70,7 @@ val AppInsetColor: Color
  *
  * 目前只接进了 [ExpressivePanel] 这一个已有的通用卡片组件；应用里大多数卡片是各页面直接
  * 调 `top.yukonga.miuix.kmp.basic.Card(colors = CardDefaults.defaultColors(color =
- * AppCardColor))`（散在十几个非热点文件里，没有统一的卡片组件），逐个接入不属于"组件层
- * 统一加"，按计划 §0.2 第 9/10 条不在本 PR 里做，见收尾报告。
+ * AppCardColor))`（散在十几个非热点文件里，没有统一的卡片组件），尚未逐个接入。
  *
  * @param shape 要和卡片本身一致的形状，否则投影和卡片轮廓对不上。
  * @param strong 长列表里稀疏、重要的大卡片用 true（投影略重一点）；列表项这种密集小卡片

@@ -7,7 +7,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
-/** `/api/webvpn/convert` —— WebVPN 网址互转（`docs/api-contract.md` §5.7）的一个纯转换端点。 */
+/** `/api/webvpn/convert` —— WebVPN 网址互转的纯转换端点（`docs/api-contract.md`）。 */
 internal fun Route.webVpnRoutes() {
     route(WEBVPN_SEGMENT) {
 

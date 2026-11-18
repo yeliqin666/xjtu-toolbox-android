@@ -27,7 +27,7 @@ import kotlinx.serialization.json.decodeFromJsonElement
 class CampusLmsApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.6）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : LmsSource {
 
@@ -70,7 +70,7 @@ class CampusLmsApi(
         val courseId = brief?.courseId?.takeIf { it > 0 }
             ?: throw UnsupportedOperationException(
                 "serve 契约的详情端点要 courseId（GET $ACTIVITY_PATH?$COURSE_ID_PARAM=&$ACTIVITY_ID_PARAM=）：" +
-                    "它按 courseId 把列表里那条 `deadline` 并进来（docs/api-contract.md §5.6）——" +
+                    "它按 courseId 把列表里那条 `deadline` 并进来（docs/api-contract.md）——" +
                     "这一枪没有 brief，本端拿不到课程号，不猜一个",
             )
         val data = client.serveData(
@@ -88,7 +88,7 @@ class CampusLmsApi(
     /** 见类 KDoc：契约没有「单问已提交次数」的端点（那个值就在详情里）。 */
     override suspend fun userSubmitCount(activityId: Int): Int = throw UnsupportedOperationException(
         "serve 契约没有「已提交次数」这个端点：它就在详情的 `homework.userSubmitCount` 里" +
-            "（docs/api-contract.md §5.6 的 lms 那一节）—— 列表上那个「已提交」标签按详情里的数画，本端不单开一枪",
+            "（docs/api-contract.md）—— 列表上那个「已提交」标签按详情里的数画，本端不单开一枪",
     )
 
     override suspend fun htmlToPlainText(html: String): String = serveHtmlToPlainText(html)
@@ -96,14 +96,14 @@ class CampusLmsApi(
     /** 见类 KDoc：附件的三个地址都不投影 ⇒ 那一枪没有可打的地方（屏上也不画入口）。 */
     override suspend fun uploadBytes(upload: LmsUpload): ByteArray? = throw UnsupportedOperationException(
         "serve 契约不端附件的字节：三个地址（downloadUrl / previewUrl / attachmentUrl）都不投影" +
-            "（要站点会话，浏览器直接打开只会拿到登录页，docs/api-contract.md §5.6）——" +
+            "（要站点会话，浏览器直接打开只会拿到登录页，docs/api-contract.md）——" +
             "屏按 LmsSource.supportsDownload = false 不画预览入口",
     )
 
     /** 见类 KDoc：落盘是宿主的活（`saveDownload` = 取字节 + 写下载位置），serve 这一层两样都没有。 */
     override suspend fun saveDownload(job: LmsDownloadJob): LmsDownloadResult = throw UnsupportedOperationException(
         "serve 契约不端「下载到本端」：附件的地址与字节都没有端点，落盘位置更是宿主的活" +
-            "（docs/api-contract.md §5.6）—— 屏按 LmsSource.supportsDownload = false 不画下载入口",
+            "（docs/api-contract.md）—— 屏按 LmsSource.supportsDownload = false 不画下载入口",
     )
 
     /** 见类 KDoc：那是宿主的下载队列（Android 的下载管理）。 */
@@ -114,20 +114,20 @@ class CampusLmsApi(
         videos: List<LmsReplayVideo>,
     ): Int = throw UnsupportedOperationException(
         "serve 契约不端回放的下载队列：那是宿主的能力（Android 的 media.DownloadManager），" +
-            "本端的 `supportsVideoQueue = false` 已经把那一档挡在对话框外（docs/api-contract.md §5.6）",
+            "本端的 `supportsVideoQueue = false` 已经把那一档挡在对话框外（docs/api-contract.md）",
     )
 
     /** 见类 KDoc：没有落盘位置，就没有「下载到哪儿」这句话可显示。 */
     override fun publicPathLabel(): String = throw UnsupportedOperationException(
         "serve 契约没有落盘位置可报：本端不下载（LmsSource.supportsDownload = false，" +
-            "docs/api-contract.md §5.6）",
+            "docs/api-contract.md）",
     )
-    // ── B-5 / B-4：作业截止与思源课程配对（契约 §5.12）────────────────────
+    // ── 作业截止与思源课程配对 ────────────────────
 
     /**
      * `GET /api/lms/due`：日程页「接下来」那一档要的作业截止。
      *
-     * 服务端读的是它自己落盘的那一份（`LmsDueStore`）—— **本端不为此请求学堂**（契约 §5.12）。
+     * 服务端读的是它自己落盘的那一份（`LmsDueStore`）—— **本端不为此请求学堂**。
      * 读不到就是空表（服务端侧也是这套语义），不是错误。
      */
     suspend fun dueHomeworks(): List<LmsDue> {
@@ -143,7 +143,7 @@ class CampusLmsApi(
                 // 上游给的截止文本原样留（屏上自己按它排「接下来」的序，本层不编一个时刻）
                 deadline = row["deadline"].safeString(),
                 submitted = row["submitted"].safeBoolean(),
-                // 这一格是 ISO-8601（契约 §4 通则）；转不动就是 0（= 不知道什么时候拉的）
+                // 这一格是 ISO-8601；转不动就是 0（= 不知道什么时候拉的）
                 fetchedAt = row["fetchedAt"].safeString().trim().let { iso ->
                     if (iso.isEmpty()) 0L
                     else runCatching { Instant.parse(iso).toEpochMilliseconds() }.getOrDefault(0L)
@@ -288,13 +288,13 @@ private fun serveHtmlToPlainText(html: String): String {
 /** 见 [serveHtmlToPlainText]：标换行用的哨兵（HTML 正文里不会出现的控制字符）。 */
 private const val NEWLINE_MARK = "\u0000"
 
-/** 作业截止（B-5，契约 §5.12）：服务端读它自己落盘的那一份，不为此请求学堂。 */
+/** 作业截止：服务端读它自己落盘的那一份，不为此请求学堂。 */
 private const val DUE_PATH = "/api/lms/due"
 
-/** 思源课程配对（B-4，契约 §5.12）。 */
+/** 思源课程配对。 */
 private const val COURSE_MATCH_PATH = "/api/lms/course-match"
 
-/** 我的课程列表（契约 §5.6 的三个 lms 端点之一）。 */
+/** 我的课程列表（`/api/lms/courses`）。 */
 private const val COURSES_PATH = "/api/lms/courses"
 
 /** 某门课的活动列表。 */

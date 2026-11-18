@@ -35,7 +35,7 @@ import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
- * 教材合并入口（PR L，plan2 §3）：应用里原本有三个各管一摊的「教材」页
+ * 教材合并入口：应用里原本有三个各管一摊的「教材」页
  * （教材中心 `JiaocaiScreen`、教材全文库 `Jiaocai1Screen`），现在收进同一个页面，
  * 用 [AppTabPager] 横滑切三栏：
  *

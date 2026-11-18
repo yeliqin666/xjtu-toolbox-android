@@ -28,7 +28,7 @@ import kotlin.time.Instant
 class CampusInboxApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : InboxSource {
 
@@ -118,7 +118,7 @@ class CampusInboxApi(
     private fun raw(value: kotlinx.serialization.json.JsonElement?): String = value?.safeString().orEmpty()
 
 
-    /** serve 模式（契约 §5.2） */
+    /** serve 模式 */
     private suspend fun serveRefresh(account: String?) {
         val data = client.serveData("刷新消息收纳", baseUrl, "/api/inbox")
         val now = Clock.System.now().toEpochMilliseconds()
@@ -145,7 +145,7 @@ class CampusInboxApi(
                 source = item["source"].safeString(),
                 title = item["title"].safeString(),
                 body = item["body"].safeString(),
-                // 契约 §4：时间一律 ISO-8601 带时区；`null` = 没有（这里落 0，模型上就是「没有」）
+                // 契约：时间一律 ISO-8601 带时区；`null` = 没有（这里落 0，模型上就是「没有」）
                 time = isoEpochMs(item["time"].safeString()),
                 route = item["route"].safeString().takeIf { it.isNotBlank() },
                 expiresAt = isoEpochMs(item["expiresAt"].safeString()),

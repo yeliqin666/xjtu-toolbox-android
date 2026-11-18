@@ -26,7 +26,7 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
 
-/** 账号管理（`AppRoute.Accounts`）在浏览器这一端的宿主（契约 §5.10 / §5.19）。 */
+/** 账号管理（`AppRoute.Accounts`）在浏览器这一端的宿主（`/api/accounts`）。 */
 internal class WebAccountsController(private val api: CampusAccountsApi) : AccountsController {
 
     /** 首次加载中（屏上那张加载态）。 */
@@ -41,7 +41,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
     var activeAccountId by mutableStateOf<String?>(null)
         private set
 
-    /** 服务端答的能力开关（§5.10）；加载完成前按只读。 */
+    /** 服务端答的能力开关；加载完成前按只读。 */
     var readOnly by mutableStateOf(true)
         private set
 

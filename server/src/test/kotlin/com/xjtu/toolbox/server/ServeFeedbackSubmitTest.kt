@@ -14,7 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** `POST /api/feedback/submit` 的契约测试（`docs/api-contract.md` §5.7 的反馈写路径）。 */
+/** `POST /api/feedback/submit` 的契约测试（`docs/api-contract.md`）。 */
 class ServeFeedbackSubmitTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -24,7 +24,7 @@ class ServeFeedbackSubmitTest {
         started?.stop(gracePeriodMillis = 100, timeoutMillis = 500)
         started = null
         // 反馈凭据是**进程级**的（`:data` 的 `FeedbackApi.config`）：每个用例自己收拾干净，
-        // 免得同 JVM 里后面的用例看到上一个用例注入的那一份（与 §5.7 那一组同一条卫生）。
+        // 免得同 JVM 里后面的用例看到上一个用例注入的那一份（与反馈读侧那一组同一条卫生）。
         FeedbackApi.config = null
     }
 
@@ -169,7 +169,7 @@ class ServeFeedbackSubmitTest {
             ServeFeedback.ENV_TABLE_REPLY to FeedbackFakeUpstream.REPLY_TABLE,
         )
 
-        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人）。 */
+        /** 隐私红线的钉子组（全是夹具里的编造值，不是真人）。 */
         val IDENTITY = listOf(
             "studentId",
             "学号",

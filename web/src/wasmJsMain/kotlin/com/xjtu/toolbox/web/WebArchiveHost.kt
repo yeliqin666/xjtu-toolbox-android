@@ -24,10 +24,10 @@ import kotlin.time.Clock
 /** Web 这一端的档案宿主装配；没有文件系统，`files/` 里只有自建日程（[WebArchiveRows]）与成绩缓存那一族（[ArchiveScoreReport]）。 */
 internal object WebArchiveHost {
 
-    /** §2.1 `createdBy`：本端固定写 `web`。 */
+    /** `createdBy`：本端固定写 `web`。 */
     const val CREATED_BY = "web"
 
-    /** §2.1 `appVersion`：与 `WebSettingsHost.versionText` 同一个字面。 */
+    /** `appVersion`：与 `WebSettingsHost.versionText` 同一个字面。 */
     const val APP_VERSION = "Web 构建（wasm）"
 
     /** 读端内 store 投影（`localStorage` 的 `xjtu-toolbox.` 前缀）。 */
@@ -52,7 +52,7 @@ internal object WebArchiveHost {
     /** 端内 → 完整档案字节映射（只读端内，不写任何 store）。 */
     fun exportArchive(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): Map<String, String> {
         val stores = readStores()
-        // §6.3 逐族迁移（「成绩缓存」那一族）：端内是店、档案里是文件 ⇒ 这一族的店**不进 `stores/`**
+        // 「成绩缓存」那一族：端内是店、档案里是文件 ⇒ 这一族的店**不进 `stores/`**
         // （否则同一份缓存会在档案里出现两份；Android 那边还会把它当 prefs 店落下来）。
         return buildArchive(
             stores = stores.filterNot { it.rawName == ArchiveScoreReport.WEB_STORE },
@@ -62,7 +62,7 @@ internal object WebArchiveHost {
     }
 
     /**
-     * §6.3 逐族迁移（「成绩缓存」那一族）：端内是店 `score_report_cache` 的 `all` 键（已无写入方，只搬旧数据），
+     * 「成绩缓存」那一族：端内是店 `score_report_cache` 的 `all` 键（已无写入方，只搬旧数据），
      * 档案里是**文件** `schedule/score_report.json`，值是 `{"at":<ms>,"grades":[…]}`，名字里不带学号。
      *
      * 本端没有账号维度（全在 `global/`）。端内值已经带着 `at`；旧形状（裸数组）用导出时刻补上。
@@ -86,7 +86,7 @@ internal object WebArchiveHost {
             "浏览器把它存到默认下载位置"
     }
 
-    /** 自校验一份已解出来的档案（§6.2 第 3 条的前半，纯读） */
+    /** 自校验一份已解出来的档案（纯读） */
     fun checkArchive(entries: Map<String, String>): WebArchiveCheck {
         return when (val inspection = StoreArchive.inspect(archiveSourceOf(entries))) {
             is ArchiveInspection.Failed -> WebArchiveCheck.Failed(inspection.reason)
@@ -112,7 +112,7 @@ internal object WebArchiveHost {
     ): ImportResult = StoreArchive.import(archiveSourceOf(withoutUnlandedFiles(entries)), target)
 
     /**
-     * 第一步：解出来的档案只算差异，`localStorage` 一个字节不动（§6.4「显式镜像档」）。
+     * 第一步：解出来的档案只算差异，`localStorage` 一个字节不动（「显式镜像档」）。
      *
      * 屏上弹窗的话术全用 [com.xjtu.toolbox.archive.ArchiveImportPrompt]；差异那一行用
      * `ArchiveImportPrompt.diffSummary(mode, plan.diff)`（换档位重算一句就行，不用重新读 zip）。
@@ -216,7 +216,7 @@ internal class WebArchiveActions {
             .getOrElse { "导出失败：${it.message ?: it::class.simpleName}" }
     }
 
-    /** 导入：选 zip → 内存里解 → 自校验 → `StoreArchive.import`（§6.4）→ 结论文本。 */
+    /** 导入：选 zip → 内存里解 → 自校验 → `StoreArchive.import` → 结论文本。 */
     fun import() {
         WebArchiveIo.pick { picked -> status = WebArchiveHost.importStatusText(picked) }
     }

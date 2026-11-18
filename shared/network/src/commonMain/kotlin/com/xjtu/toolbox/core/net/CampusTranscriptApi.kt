@@ -21,29 +21,29 @@ import kotlinx.serialization.json.put
 /**
  * 电子成绩单（`dzpz.xjtu.edu.cn`）的 serve 版取数：给 `:web` 用，实现 [TranscriptSource]。
  *
- * serve 侧是**两段式**（契约 §5.12，与契约 §5.2 的第一条例外：成绩单只能「先建申请单、再出 PDF」）：
+ * serve 侧是**两段式**（成绩单只能「先建申请单、再出 PDF」）：
  *
  * | 屏上的步骤 | serve 里对应什么 |
  * |---|---|
- * | Step 1 加载表单 | `GET /api/dzpz/transcript`（§5.5） |
+ * | Step 1 加载表单 | `GET /api/dzpz/transcript` |
  * | Step 2 学籍联动 | **没有端点**（服务端在建单那一发里自己做；返回值里有学号 = 红线）⇒ 空壳，本端不读 |
  * | Step 3 保存申请 | `POST /api/dzpz/transcript/submit`（第一段，幂等） |
  * | Step 4 生成文件 | `POST /api/dzpz/transcript/preview`（第二段：生成 + 签章 + 取下载信息一口气做完） |
  * | Step 5 签章 / 第二次提交 | **没有单独的端点**（就在上面那一发里）⇒ 原样交回上一步的结果 |
  * | Step 6 取下载链接 | 交回 `preview` 存下的三格（文件名 / 大小 / 一次性票据路径） |
- * | Step 7 下载 PDF 字节 | `GET /api/dzpz/transcript/download?ticket=`（§5.12 的 `application/pdf` 例外） |
+ * | Step 7 下载 PDF 字节 | `GET /api/dzpz/transcript/download?ticket=`（`application/pdf`，不走信封） |
  *
  * 屏与 ViewModel 都不用改：它们按 `TranscriptSource` 那七步走，只是在这一端有几步是「同一发 HTTP」。
  */
 class CampusTranscriptApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.5）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : TranscriptSource {
 
     /**
-     * serve 形态下**整条链都走得通**（2026-10-22 批6：两段式 `submit` → `preview` → `download`，契约 §5.12）；
+     * serve 形态下**整条链都走得通**（两段式 `submit` → `preview` → `download`）；
      * campus-api 那一形态仍然只画得了「选类型」那一步（它没有写端点）。
      */
     override val canRunWorkflow: Boolean get() = mode == ApiMode.SERVE
@@ -51,9 +51,9 @@ class CampusTranscriptApi(
     override suspend fun loadCreateForm(workflowId: Int): FormContext {
         requireServe()
         val data = client.serveData("加载成绩单表单", baseUrl, TRANSCRIPT_PATH)
-        // `workflowId` 不是请求参数（§5.5：本端点只端成绩单，取 DzpzDocuments.TRANSCRIPT.workflowId）
+        // `workflowId` 不是请求参数（本端点只端成绩单，取 DzpzDocuments.TRANSCRIPT.workflowId）
         val served = data["workflowId"].safeIntOrNull()
-            ?: error("加载成绩单表单：服务端返回缺少 workflowId（契约 §5.5）")
+            ?: error("加载成绩单表单：服务端返回缺少 workflowId")
         if (served != workflowId) {
             throw UnsupportedOperationException(
                 "serve 契约只端成绩单（workflowId=$served）：$TRANSCRIPT_PATH 不收参数，" +
@@ -74,7 +74,7 @@ class CampusTranscriptApi(
                 val value = option["value"].safeIntOrNull()
                 // 名字或取值缺一个就不列这一项 —— 不拿 0 冒充它的取值（那会变成一个「选不出对类型」的选项）
                 if (name.isEmpty() || value == null) return@mapNotNull null
-                // `cancelled` 不投影：§5.5 —— `:data` 的 `parseTypeOptions` 已经把 cancel=1 的滤掉了
+                // `cancelled` 不投影：`:data` 的 `parseTypeOptions` 已经把 cancel=1 的滤掉了
                 TranscriptTypeOption(name = name, value = value)
             },
             defaultDate = data["defaultDate"].safeString(),
@@ -87,7 +87,7 @@ class CampusTranscriptApi(
     /**
      * Step 2（学籍联动）：serve **没有这一步的端点**，而且它刻意的：服务端在建申请单那一发里自己跑一遍
      * 联动（`DzpzRoutes` 的 `submit` 那一支就是 `source.getLinkageData(form, type)` 后再 `submitCreate`），
-     * 而它的返回值里有**学号** —— 契约 §5.2 的红线，例外清单里没有它。
+     * 而它的返回值里有**学号** —— 契约的隐私红线，例外清单里没有它。
      *
      * 所以这一格给的是**空壳**：本端后续几步都不读它（[submitCreate] 不看 `linkage`），屏上也一格都不画
      *（它只画进度文案与结果卡）。空串 = 「这一端拿不到」，不是编出来的学号。
@@ -101,7 +101,7 @@ class CampusTranscriptApi(
      * Step 3（第一段）：`POST /api/dzpz/transcript/submit` —— 建申请单。
      *
      * ⚠️ **真的会在教务留一条待审批记录**（消费方按钮文案必须写清）；幂等：10 分钟内重复点 ⇒
-     * `created:false` + 同一个 `requestId`（契约 §5.12）。两者都算成功。
+     * `created:false` + 同一个 `requestId`。两者都算成功。
      */
     override suspend fun submitCreate(
         ctx: FormContext,
@@ -117,7 +117,7 @@ class CampusTranscriptApi(
         )
         if (!outcome.ok) error("提交成绩单申请：${outcome.message}")
         val requestId = outcome.data?.get("requestId").safeIntOrNull()
-            ?: error("提交成绩单申请：服务端返回缺少 requestId（契约 §5.12）")
+            ?: error("提交成绩单申请：服务端返回缺少 requestId")
         return SubmitResult(requestId = requestId, sessionKey = "", submitToken = 0L)
     }
 
@@ -131,7 +131,7 @@ class CampusTranscriptApi(
         requireServe()
         val outcome = client.serveAction(baseUrl, PREVIEW_PATH, "{}")
         if (!outcome.ok) error("生成成绩单：${outcome.message}")
-        val data = outcome.data ?: error("生成成绩单：服务端返回缺少 data（契约 §5.12）")
+        val data = outcome.data ?: error("生成成绩单：服务端返回缺少 data")
         previewInfo = DownloadInfo(
             filename = data["filename"].safeString(),
             filesize = data["filesize"].safeString(),
@@ -184,7 +184,7 @@ class CampusTranscriptApi(
     }
 }
 
-/** 成绩单建单表单与两段式（契约 §5.5 的只读那一条 + §5.12 的写那两条）。 */
+/** 成绩单建单表单与两段式（一条只读 + 两条写）。 */
 private const val TRANSCRIPT_PATH = "/api/dzpz/transcript"
 
 /** 第一段：建申请单（幂等）。 */

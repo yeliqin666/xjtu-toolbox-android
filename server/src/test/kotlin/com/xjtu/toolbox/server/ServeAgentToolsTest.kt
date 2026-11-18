@@ -21,7 +21,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** serve 侧白名单工具层的逐档验收（`docs/agent-web-spec.md` §6）。 */
+/** serve 侧白名单工具层的逐档验收。 */
 class ServeAgentToolsTest {
 
     /** 白名单九件，逐条与 `/api/agent/config` 的 `toolAllowlist` 同一份定义。 */
@@ -220,7 +220,7 @@ class ServeAgentToolsTest {
         assertEquals(12, fake.jwxt.emptyRoomQueryCalls.get())
     }
 
-    /** 这条是设计稿 §6.2 那把尺子的落点：没开放的档一个字都不画（画了就得能用）。 */
+    /** 没开放的档一个字都不画（画了就得能用）。 */
     @Test
     fun `白名单之外的工具不会被下发，调过来也只会回 not_found`() = withFakeProxy(casEnabled = false) { _ ->
         wipeToolStores()

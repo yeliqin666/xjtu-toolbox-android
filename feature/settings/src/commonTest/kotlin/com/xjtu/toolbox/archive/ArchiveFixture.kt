@@ -13,7 +13,7 @@ object ArchiveFixture {
         ArchiveAccount(ACCOUNT_ID, SUFFIX, "UNDERGRADUATE", FIXED_NOW),
     )
 
-    /** 全局档，六种类型标签各一个（§2.2 示例的那一批键）。 */
+    /** 全局档，六种类型标签各一个。 */
     val appSettings = StoreSnapshot(
         rawName = "app_settings",
         keys = mapOf(
@@ -32,7 +32,7 @@ object ArchiveFixture {
         writtenAt = mapOf("schedule_current_term" to FIXED_NOW),
     )
 
-    /** 全局档，集合值故意乱序 + 重复，codec 要去重升序（§2.2）。 */
+    /** 全局档，集合值故意乱序 + 重复，codec 要去重升序。 */
     val libraryFavorites = StoreSnapshot(
         rawName = "library_favorites",
         keys = mapOf("favorite_seats" to StoreValue.SetValue(listOf("B-2", "A-1", "A-1"))),
@@ -46,7 +46,7 @@ object ArchiveFixture {
 
     val stores = listOf(appSettings, scheduleCache, libraryFavorites, credential)
 
-    /** `files/`：一事一文件原样搬运（§2.3）。账号档 + 全局档各一个。 */
+    /** `files/`：一事一文件原样搬运。账号档 + 全局档各一个。 */
     val files = listOf(
         ArchiveFile(
             SUFFIX,

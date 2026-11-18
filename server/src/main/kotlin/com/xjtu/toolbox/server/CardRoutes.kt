@@ -86,7 +86,7 @@ internal data class CardBalanceData(
     val department: String,
 )
 
-/** `GET /api/card/transactions` 的 `data`：分页形状（§4）。 */
+/** `GET /api/card/transactions` 的 `data`：分页形状。 */
 @Serializable
 internal data class TransactionsData(
     val page: Int,

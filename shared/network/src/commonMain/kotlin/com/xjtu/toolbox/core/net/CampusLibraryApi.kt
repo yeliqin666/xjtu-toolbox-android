@@ -32,7 +32,7 @@ import kotlinx.serialization.json.JsonObject
 class CampusLibraryApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : LibrarySource {
 
@@ -56,7 +56,7 @@ class CampusLibraryApi(
 
     override suspend fun campus(): LibraryCampus? {
         val data = getData("/api/library/campus")
-        // serve（§5.3）把两个能力开关放在同一个响应里（见 canBook / hasSeatPlan）：拉到就更新。
+        // serve把两个能力开关放在同一个响应里（见 canBook / hasSeatPlan）：拉到就更新。
         // campus-api 不投影这两项 ⇒ safeBoolean 给 false，与旧行为一致。
         serveCanBook = data["canBook"].safeBoolean()
         serveHasSeatPlan = data["hasSeatPlan"].safeBoolean()
@@ -83,7 +83,7 @@ class CampusLibraryApi(
         val data = getData("/api/library/seats", "area" to areaCode)
         val seats = data.arr("seats").orEmpty().mapNotNull { element ->
             val row = element as? JsonObject ?: return@mapNotNull null
-            // serve（§5.3）的行叫 `seatId`，campus-api 的行叫 `id`（同一件事）
+            // serve的行叫 `seatId`，campus-api 的行叫 `id`（同一件事）
             val id = row[if (mode == ApiMode.SERVE) "seatId" else "id"].safeString().trim()
             if (id.isEmpty()) return@mapNotNull null
             SeatInfo(seatId = id, available = row["available"].safeBoolean())
@@ -123,7 +123,7 @@ class CampusLibraryApi(
             else -> Result.failure(IllegalStateException("图书馆预约页面认不出来（state=$state），不敢当成「没有预约」"))
         }
     }
-    /** serve 模式（契约 §5.3）：`{my:{seatId,area,statusText,actionUrls}|null}`。 */
+    /** serve 模式：`{my:{seatId,area,statusText,actionUrls}|null}`。 */
     private suspend fun serveMyBooking(): Result<MyBookingInfo?> {
         val data = getData("/api/library/my")
         val my = data["my"] as? JsonObject ?: return Result.success(null)
@@ -188,7 +188,7 @@ class CampusLibraryApi(
     override suspend fun action(actionUrl: String): BookResult {
         if (mode != ApiMode.SERVE) return readOnly()
         // 地址 → 标签 → 动作码：地址必须是「我的预约」刚报出来的那一条（反表见 [serveMyBooking]），
-        // 标签在这四个里才有人画这个按钮（契约 §5.3.1 的动作表）。
+        // 标签在这四个里才有人画这个按钮（`/api/library/action` 的动作表）。
         val label = serveUrlToLabel[actionUrl]
             ?: throw IllegalStateException("这条动作地址不是「我的预约」页报出来的：$actionUrl")
         return postAction(SERVE_PAGE_ACTION_CODES[label]
@@ -239,7 +239,7 @@ class CampusLibraryApi(
 
     private fun blankToNull(value: String): String? = value.trim().takeIf { it.isNotEmpty() }
 
-    /** 打一发 `/api/library/action`（契约 §5.3.1），请求体手拼。 */
+    /** 打一发 `/api/library/action`，请求体手拼。 */
     private suspend fun postAction(action: String, vararg extra: Pair<String, String>): BookResult {
         val body = buildString {
             append("{\"action\":")
@@ -264,7 +264,7 @@ class CampusLibraryApi(
 
     /** 拆 `{code,data}` 信封；`code!=0` 按场馆/校园卡那套报法显式失败。 */
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
-        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        // serve 契约的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
         if (mode == ApiMode.SERVE) return client.serveData("图书馆", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> parameter(k, v) }
@@ -280,13 +280,13 @@ class CampusLibraryApi(
     }
 
     private companion object {
-        /** serve 契约里有没有图书馆的写端点（`/api/library/action`，契约 §5.3.1）。 */
+        /** serve 契约里有没有图书馆的写端点（`/api/library/action`）。 */
         const val SERVE_WRITE_ENDPOINTS_READY = true
 
-        /** serve 契约里 library 写端点的路径（§5.3.1）。 */
+        /** serve 契约里 library 写端点的路径。 */
         const val LIBRARY_ACTION_PATH = "/api/library/action"
 
-        /** 「我的预约」页上那四个动作的文案 → 动作码（契约 §5.3.1；服务端那张「动作码 → 文案」表的反表）。 */
+        /** 「我的预约」页上那四个动作的文案 → 动作码（服务端那张「动作码 → 文案」表的反表）。 */
         val SERVE_PAGE_ACTION_CODES = mapOf(
             "入馆签到" to "signin",
             "中途离开" to "leave",

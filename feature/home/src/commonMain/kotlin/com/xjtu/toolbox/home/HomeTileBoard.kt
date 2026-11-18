@@ -141,7 +141,7 @@ import com.xjtu.toolbox.settings.HomeSettingsOverlay
  *
  * 这个缝隙是**渲染时**保证的：每个块都在自己的格矩形里四面各内缩一半，
  * 所以两块在格坐标上紧挨着，画出来也一定隔着一条 [HomeTileGap]，
- * 不会出现「拖到一起挤成一条线」（需求 §3.4）。
+ * 不会出现「拖到一起挤成一条线」。
  */
 internal val HomeTileGap = 8.dp
 
@@ -163,7 +163,7 @@ private val BadgeEnter = scaleIn(TilePressIn, initialScale = 0.6f) + fadeIn(twee
 private val BadgeExit = scaleOut(tween(140)) + fadeOut(tween(120))
 
 /**
- * 右下角缩放把手的热区边长（§15），从格子边界（含格间距）往里量。格间距那一截占掉了一部分，
+ * 右下角缩放把手的热区边长，从格子边界（含格间距）往里量。格间距那一截占掉了一部分，
  * 30dp 时卡面上实际只剩二十来 dp，很难按准；44dp 是常规触控尺寸，卡面中部仍归移动。
  */
 internal val RESIZE_HANDLE_TOUCH = 44.dp
@@ -196,8 +196,8 @@ private fun groupEnterDelay(index: Int): Long = index.coerceIn(0, GROUP_ENTER_MA
 /**
  * 一个卡片组：标题行 + 组件网格。
  *
- * 组本身**不再是一张白卡**（需求 §2.1：取消「常用功能」的特殊样式、所有组平级），
- * 所以这里只画一行标题和一片毛玻璃组件；标题为空串时整行都不画（§2.3）。
+ * 组本身**不再是一张白卡**（「常用功能」没有特殊样式，所有组平级），
+ * 所以这里只画一行标题和一片毛玻璃组件；标题为空串时整行都不画。
  *
  * **渲染的输入是实时布局**（拖拽中 = 首页每帧按快照重算的那份，见 [HomeScreen]）：
  * - 被拖的那一块不画真身，改画一个弹簧跟随数据位置的**落点占位框**（[DropSlot]）；
@@ -224,7 +224,7 @@ internal fun HomeGroupSection(
     session: HomeDragSession,
     /** 拖动中锁定的行数；null = 跟随实时数据。 */
     budgetRows: Float?,
-    /** 手指当前把这一组当成落点（且不是拖拽源组）：画接收高亮（§19）。派生量，由首页算。 */
+    /** 手指当前把这一组当成落点（且不是拖拽源组）：画接收高亮。派生量，由首页算。 */
     receiving: Boolean,
     /** 被拖组的跟手位移（含松手后的归位补偿），只在绘制阶段读，逐帧变化不触发重组；null = 这一组不在被拖。 */
     reorderLift: (() -> Float)?,
@@ -271,7 +271,7 @@ internal fun HomeGroupSection(
     val animRows = animateFloatAsState(targetValue = rows, animationSpec = HomeTileMotion, label = "groupRows")
 
     // 组排序的让位：被拖组跟手（lift），其它组弹簧到让位目标；排序一结束立刻 snap 回 0——
-    // 那一刻布局已按新顺序就位，偏移只有立刻归零，视觉位置才连续（§16）
+    // 那一刻布局已按新顺序就位，偏移只有立刻归零，视觉位置才连续
     val reordering = session.mode == HomeDragMode.GROUP
     val shiftAnim = remember { Animatable(0f) }
     LaunchedEffect(reorderShift, reorderLift != null, reordering) {
@@ -341,7 +341,7 @@ internal fun HomeGroupSection(
                         layout(placeable.width, placeable.height) { placeable.place(0, 0) }
                     },
             ) {
-                // 手指当前认定的目标组画一圈接收高亮（§19）：松手会落到哪，按下那一刻就看得见
+                // 手指当前认定的目标组画一圈接收高亮：松手会落到哪，按下那一刻就看得见
                 if (receiving) {
                     Box(
                         Modifier
@@ -509,7 +509,7 @@ private fun GroupHeader(
 
 private val ROUND_BUTTON_SIZE = 30.dp
 
-/** 组标题行右侧的小圆钮（添加 / 删除）：玻璃（§2.4）。 */
+/** 组标题行右侧的小圆钮（添加 / 删除）：玻璃。 */
 @Composable
 private fun GroupRoundButton(
     icon: ImageVector,
@@ -757,7 +757,7 @@ private fun cellFrame(
 )
 
 /**
- * 一块组件。位置由格矩形算出，**位置变化用弹簧动画**（§6：挤开、重排都要 Q 弹）。
+ * 一块组件。位置由格矩形算出，**位置变化用弹簧动画**（挤开、重排都要 Q 弹）。
  *
  * 编辑态**不挂任何拖拽手势**——移动、缩放、组排序全部由顶层的 [homeDragLayer] 按快照
  * 几何命中并接管。这里只在两种情况挂手势：
@@ -942,7 +942,7 @@ private fun HomeTileItem(
                 }
             }
         }
-        // 右下角：缩放把手的视觉（§15），只画记号、手势在手势层。标的是这一格的右下角，
+        // 右下角：缩放把手的视觉，只画记号、手势在手势层。标的是这一格的右下角，
         // 与卡片圆角无关，括线只内缩 [RESIZE_GRIP_INSET] 保证描边不被裁
         AnimatedVisibility(
             visible = editing,
@@ -976,7 +976,7 @@ private fun HomeTileItem(
 }
 
 /**
- * 组件的材质与内容：尺寸决定排版（§3.3），材质由「主页卡片液态玻璃」开关决定（§5.2）。
+ * 组件的材质与内容：尺寸决定排版，材质由「主页卡片液态玻璃」开关决定。
  *
  * 排版这一套是从「小组件模式」的首页（`dev` 的 `HomeWidgetGrid`）搬过来的逐档设计：
  * 1×1 是「图标 + 名称」，横条是「图标 + 小号名称 + 主要数据 + 一行说明」，竖条是
@@ -1080,7 +1080,7 @@ internal fun HomeTileFaceBox(
     }
 
     Box(modifier.then(material)) {
-        // 形态按**实时**格数选（§10）：拖动把手缩放时逐帧判断，不等松手才重排。
+        // 形态按**实时**格数选：拖动把手缩放时逐帧判断，不等松手才重排。
         // 判据就是「几格宽 × 几格高」，阈值取半格（1.5）：一格见方是小块，一格高是横条，
         // 一格宽是竖条，两格都到是大方块——弹簧动画经过阈值也不会来回抖。
         val shape by remember(w, h, liveSpan) {

@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class DesktopRouteCoverageJvmTest {
 
     /** 见文件头：每条断言都带上它。 */
-    private val criterion = "这条判据是 docs/desktop-port-plan.md §12.3/§14.5 的验收项" +
+    private val criterion = "桌面路由全覆盖" +
         "（46 条 AppRoute 声明 ↔ 46 条 DesktopPage 顶层分支，兜底的 NotPortedScreen 不可命中）"
 
     // ── 读源码 ──

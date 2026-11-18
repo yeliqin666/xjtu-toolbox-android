@@ -54,7 +54,7 @@ fun WebVpnConverterScreen(
  *              `:data` 的 `WebVpnUtil`：那个对象要用 `javax.crypto` 的 AES-128-CFB 加密域名，
  *              而这一屏在 `:core` 的 commonMain（三个目标，含 wasmJs）⇒ 实现按平台的能力缝由宿主
  *              注入：Android / 桌面传同步那份 `WebVpnUtil`（走上面那个同名的重载），`:web` 传
- *              `CampusWebVpnApi`（转换在服务端，`POST /api/webvpn/convert`，契约 §5.7）。
+ *              `CampusWebVpnApi`（转换在服务端，`POST /api/webvpn/convert`）。
  * @param onOpenWithWebVpn 用户点击访问按钮时调用，参数为最终要访问的（已转为 WebVPN 域的）URL。
  *                        `:app` 那侧外层没连上 WebVPN 时会用已存账号自动登录，再进入 BrowserScreen；
  *                        桌面端没有内置浏览器，直接把地址交给系统浏览器。
@@ -207,7 +207,7 @@ fun WebVpnConverterScreen(
                                 if (converted.isNullOrBlank()) {
                                     convertedUrl = ""
                                     // 两种“没拿到”分开说：实现自己抛的错（401 闸门 / 网络那类）用它那句话，
-                                    // 而 from_vpn 解不出来那一档是取数实现**如实返回 null**（契约 §5.7 的 400），
+                                    // 而 from_vpn 解不出来那一档是取数实现**如实返回 null**（服务端回 400），
                                     // 屏上那句话正好说的是这件事。
                                     error = result.exceptionOrNull()?.let { FriendlyError.of(it, "转换") }
                                         ?: if (reversed) "无法解析此 WebVPN 网址，请确认格式正确"

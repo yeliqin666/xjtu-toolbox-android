@@ -134,7 +134,7 @@ class ServeInboxTest {
         assertEquals(category, obj.optString("category"))
         assertEquals(source, obj.optString("source"))
         assertEquals(title, obj.optString("title"))
-        assertNotNull(obj.optString("time"), "time 必须有（契约 §4：ISO-8601 带时区）")
+        assertNotNull(obj.optString("time"), "time 必须有（ISO-8601 带时区）")
     }
 
     private fun assertIsoRecent(iso: String, now: Long) {

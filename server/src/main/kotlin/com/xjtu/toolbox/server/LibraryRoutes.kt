@@ -149,7 +149,7 @@ internal fun Route.libraryRoutes(session: ServeSession) {
             }
         }
 
-        // ── 写：约座 / 换座 / 签到 / 中途离开 / 中途返回 / 退座 / 切校区，一个端点按 `data.action` 分（契约 §5.3.1）──
+        // ── 写：约座 / 换座 / 签到 / 中途离开 / 中途返回 / 退座 / 切校区，一个端点按 `data.action` 分 ──
         post(LIBRARY_ACTION) {
             if (!session.authenticated) return@post call.respondLoginRequired()
             val body = call.receiveOrNull<LibraryActionRequest>()
@@ -252,13 +252,13 @@ internal data class LibraryActionResult(
 
 // ── 写路径的小工具 ─────────────────────────────────────────────────────
 
-/** 一次写动作的结果 → 信封（契约 §5.3.1）。 */
+/** 一次写动作的结果 → 信封。 */
 private suspend fun ApplicationCall.respondBookResult(result: BookResult) {
     if (result.success) {
         return respond(ApiEnvelope.ok(LibraryActionResult(ok = true, message = result.message)))
     }
     // `:data` 的 BookResult 只有 `success` + `message`（业务拒绝与网络故障不分档），所以这里只分一处：
-    // 会话失效（那边把话吞进 message 里了）⇒ 401 指路先登录；其余一律 409 + 原文（§5.3.1）。
+    // 会话失效（那边把话吞进 message 里了）⇒ 401 指路先登录；其余一律 409 + 原文。
     if (LIBRARY_SESSION_EXPIRED_MARK in result.message) return respondLoginRequired()
     respondActionRejected(result.message)
 }
@@ -274,7 +274,7 @@ private suspend fun ApplicationCall.respondLibraryAction(what: String, action: s
 }
 
 
-// ── 动作码（契约 §5.3.1）────────────────────────────────────────────────
+// ── 动作码 ────────────────────────────────────────────────
 
 /** 四个 `/my/` 页面动作 → 「我的预约」页上那个按钮的文案。 */
 private val LIBRARY_PAGE_ACTION_LABELS = mapOf(
@@ -304,7 +304,7 @@ private val LIBRARY_ACTIONS = listOf(
 )
 
 private const val LIBRARY_ACTION_BODY_MESSAGE =
-    "请求体需要 JSON：{\"action\":\"seat\",\"seatId\":\"A01\",\"area\":\"north2east\"}（动作表见契约 §5.3.1）"
+    "请求体需要 JSON：{\"action\":\"seat\",\"seatId\":\"A01\",\"area\":\"north2east\"}（动作：seat / change / signin / leave / back / cancel / switch_campus）"
 
 /** 会话失效的判据 —— `:data` 把它吞进 `BookResult.message`（见 [respondBookResult]）。 */
 private const val LIBRARY_SESSION_EXPIRED_MARK = "登录"
@@ -364,7 +364,7 @@ internal data class SeatRow(val seatId: String, val available: Boolean)
 /** `GET /api/library/my` 的 `data`。 */
 @Serializable
 internal data class MyBookingData(
-    /** `null` = 页面明确说「没有预约」（§4）；`actionUrls` 是页面上那几个动作 → 上游地址（见文件头）。 */
+    /** `null` = 页面明确说「没有预约」；`actionUrls` 是页面上那几个动作 → 上游地址（见文件头）。 */
     val my: MyBookingInfoDto? = null,
 )
 

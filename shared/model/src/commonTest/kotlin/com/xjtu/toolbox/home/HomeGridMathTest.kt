@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 首页网格的挤开与吸附规则（需求 §4.3、§4.4）。
+ * 首页网格的挤开与吸附规则。
  *
  * 这一组测试是「重构拖动算法」时唯一能挡回归的东西：手势与渲染都在 Compose 里跑不起来，
  * 但落位规则是纯函数，任何一端的结果都该一样。
@@ -348,7 +348,7 @@ class HomeGridMathTest {
         assertEquals(0f to 1f, HomeGridMath.firstFreeSlot(tiles, 2f, 1f))
     }
 
-    // ── 行数预算（拖动中把组高钉死，见 §22b） ──
+    // ── 行数预算（拖动中把组高钉死） ──
 
     @Test
     fun `空位扫描被行数上界挡住`() {

@@ -14,7 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
-/** `POST /api/venue/book` / `POST /api/venue/cancel` / `GET /api/venue/captcha` 的契约测试（`docs/api-contract.md` §5.3.2 的写路径）…… */
+/** `POST /api/venue/book` / `POST /api/venue/cancel` / `GET /api/venue/captcha` 的契约测试（`docs/api-contract.md`）…… */
 class ServeVenueActionTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -132,7 +132,7 @@ class ServeVenueActionTest {
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(booked))
         assertNoIdentity(booked.body(), "POST $BOOK_PATH", IDENTITY)
         val data = envelopeData(booked)
-        assertEquals(setOf("ok", "orderId", "price", "message"), data.keys, "结果就是这四格（契约 §5.3.2）")
+        assertEquals(setOf("ok", "orderId", "price", "message"), data.keys, "结果就是这四格")
         assertEquals(true, data.optBoolean("ok"), "成功响应的 data.ok 恒为 true")
         assertEquals(VenueFakeUpstream.BOOKED_ORDER_ID, data.optString("orderId"))
         assertEquals(
@@ -255,7 +255,7 @@ class ServeVenueActionTest {
 
         // 真支付页地址 = `:data` 的 `VenueApi.paymentUrl`（夹具那个 `paymentPageUrl` 就是同一个拼法）
         val hop = http.get("$PAY_PATH?orderId=${VenueFakeUpstream.ORDER_PAID_ID}")
-        assertEquals(302, hop.statusCode(), "这一条是跳转，不是信封（契约 §4 的例外清单第二条）")
+        assertEquals(302, hop.statusCode(), "这一条是跳转，不是信封（契约里不走信封的例外）")
         assertEquals(
             VenueFakeUpstream.paymentPageUrl(VenueFakeUpstream.ORDER_PAID_ID),
             hop.headers().firstValue("Location").orElse(""),
@@ -294,7 +294,7 @@ class ServeVenueActionTest {
         const val STOCK_ID = 9101L
         const val AREA_DETAIL_ID = 5101L
 
-        /** §3.4 红线的钉子组（编造值，非真人）。 */
+        /** 隐私红线的钉子组（编造值，非真人）。 */
         val IDENTITY = listOf("username", "studentId", "学号", "姓名", LibraryFakeUpstream.USERNAME)
 
         /** 拖对了的那条轨迹（最终 x = 识别器会算出的那个位移）。 */

@@ -6,7 +6,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** `StoreArchive.import` 的逐键裁决（§6.4）与坏档案不动端。 */
+/** `StoreArchive.import` 的逐键裁决与坏档案不动端。 */
 class StoreArchiveImportTest {
 
     private val suffix = ArchiveFixture.SUFFIX
@@ -48,7 +48,7 @@ class StoreArchiveImportTest {
         assertEquals(ImportResult.Ok(keysWritten = 1, keysKept = 1, filesWritten = 0), result)
 
         // `favorite_seats` 两边都没有 at ⇒ 本端胜；`favorite_venue_ids` 端上没有 ⇒ 写入
-        //（§2.2：`set` 空数组是合法值，≠ 键不存在）
+        //（`set` 空数组是合法值，≠ 键不存在）
         assertEquals(
             StoreSnapshot(
                 "library_favorites",
@@ -165,7 +165,7 @@ class StoreArchiveImportTest {
 
     // ── 夹具 ────────────────────────────────────────────────────────────────
 
-    /** 一条合并用例：档案里那份 × 端内现状 ⇒ 期待端内变成什么样 + 两个计数（§6.4）。 */
+    /** 一条合并用例：档案里那份 × 端内现状 ⇒ 期待端内变成什么样 + 两个计数。 */
     private data class MergeCase(
         val name: String,
         val archive: StoreSnapshot,
@@ -332,7 +332,7 @@ class StoreArchiveImportTest {
             },
         ),
         BadArchive(
-            "两个 accountId 落在同一个 suffix（§4 必须明确失败，不许静默合并）",
+            "两个 accountId 落在同一个 suffix（必须明确失败，不许静默合并）",
             sourceOf(
                 StoreArchive.export(
                     accounts = listOf(

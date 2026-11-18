@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.account
 
-/** 多账号页那一族的夹具常量（`docs/api-contract.md` §5.10）。 */
+/** 多账号页那一族的夹具常量（`docs/api-contract.md`）。 */
 object AccountsFixture {
 
     /** 主账号（10 位，够长 ⇒ 打码时留前 4 后 4）。 */
@@ -15,7 +15,7 @@ object AccountsFixture {
     /** 第二个账号的密码（同上）。 */
     const val SECOND_PASSWORD = "fixture-account-password-2"
 
-    /** 姓名（`Account.nickname`）。**响应里绝不许出现它**（红线 §3.4）。 */
+    /** 姓名（`Account.nickname`）。**响应里绝不许出现它**（隐私红线）。 */
     const val NICKNAME = "夹具同学"
 
     /** 设备指纹（`Account.fpVisitorId`）：与密码同一条红线。 */

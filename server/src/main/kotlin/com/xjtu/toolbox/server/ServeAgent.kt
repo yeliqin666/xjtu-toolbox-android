@@ -451,7 +451,7 @@ class ServeAgent(
         return "[现在：$time $w" + (if (model.isBlank()) "" else " · $model") + "]"
     }
 
-    /** 把校园会话的 MFA 挂起状态变成 `mfa` 事件（只有站名，没有手机号 —— §5.1）。 */
+    /** 把校园会话的 MFA 挂起状态变成 `mfa` 事件（只有站名，没有手机号）。 */
     private suspend fun watchMfa(emit: (AgentStreamEvent) -> Unit) {
         var last: String? = null
         while (true) {
@@ -466,7 +466,7 @@ class ServeAgent(
 
     companion object {
 
-        /** SSE 保活注释帧的间隔（设计稿 §3.1：每 15 秒一个 `: ping`）。 */
+        /** SSE 保活注释帧的间隔（每 15 秒一个 `: ping`）。 */
         const val AGENT_SSE_PING_MS = 15_000L
 
         /** MFA 挂起状态轮询的间隔（见 [watchMfa]）。 */
@@ -484,7 +484,7 @@ class ServeAgent(
         /** serve 进程的默认装配。 */
         fun forServe(session: ServeSession): ServeAgent {
             // 非敏感半与记忆：serve 上必须用**真落盘**的那份（0600 properties），默认的
-            // `keyValueStore` 在 jvm 上按端而异，不能靠它（`docs/storage-layout.md` §0 第 3 条）。
+            // `keyValueStore` 在 jvm 上按端而异，不能靠它。
             val configStore = AgentConfigStore(
                 plainStoreOf = { secureKeyValueStore(it) },
                 secureStoreOf = { suffix ->
@@ -541,7 +541,7 @@ class ServeAgent(
     }
 }
 
-/** SSE 那一帧要说的十类事（`docs/agent-web-spec.md` §3.2 的表）+ 一类保活注释帧。 */
+/** SSE 那一帧要说的十类事（`docs/api-contract.md`「屁岱」）+ 一类保活注释帧。 */
 internal sealed interface AgentStreamEvent {
 
     /** 模型正文增量，逐段。 */
@@ -553,7 +553,7 @@ internal sealed interface AgentStreamEvent {
     /** 一次工具调用，聚合之后、开始执行之前。**只报名字**（文案在消费者那边按同一份表拼）。 */
     data class ToolCall(val name: String) : AgentStreamEvent
 
-    /** 一次工具执行结束。[error] 只在失败时有值（`null` = 明确说成功，见契约 §4）。 */
+    /** 一次工具执行结束。[error] 只在失败时有值（`null` = 明确说成功）。 */
     data class ToolResult(val name: String, val success: Boolean, val error: String?) : AgentStreamEvent
 
     /** 模型回报的累计 token（只用来显示/兜底；`contextExhausted` 由服务端判）。 */
@@ -577,7 +577,7 @@ internal sealed interface AgentStreamEvent {
         val totalTokens: Long?,
     ) : AgentStreamEvent
 
-    /** 一轮**异常结束**（唯一异常终止事件）。[kind] 见设计稿 §3.2 第 10 条。 */
+    /** 一轮**异常结束**（唯一异常终止事件）。 */
     data class Error(val kind: String, val message: String) : AgentStreamEvent
 
     /** 保活注释帧（`:` 开头那一行，客户端解析时必须忽略）。 */

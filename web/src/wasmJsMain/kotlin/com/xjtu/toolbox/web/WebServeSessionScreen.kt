@@ -33,7 +33,7 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** serve 模式的会话屏（契约 §5.1）：登录 / 短信二验 / 登出。 */
+/** serve 模式的会话屏：登录 / 短信二验 / 登出。 */
 @Composable
 fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
     val colors = MiuixTheme.colorScheme
@@ -57,7 +57,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
     }
 
     // 进屏先问一次「有没有会话」：带 cookie 的浏览器这里就答 true（冷启动从落盘凭据静默恢复）。
-    // 这一发同时也是「令牌换 cookie」的那一步（§5.1 第 1 条）。
+    // 这一发同时也是「令牌换 cookie」的那一步。
     LaunchedEffect(Unit) { refresh() }
 
     fun doLogin() {
@@ -164,7 +164,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
         Spacer(Modifier.height(8.dp))
     }
 
-    // ── 短信二验：挂起的那条询问（轮询来的快照，见 §5.1 第 3 条）──
+    // ── 短信二验：挂起的那条询问（轮询来的快照）──
     val pending = mfa?.takeIf { it.pending }
     if (pending != null) {
         OverlayDialog(

@@ -255,7 +255,7 @@ class DesktopAgentJvmTest {
         }
     }
 
-    /** 密钥那一半的落盘（`docs/agent-web-spec.md` §5.1）。 */
+    /** 密钥那一半的落盘。 */
     @Test
     fun `密钥那一半：旧明文读得回、文件名不变、有保护器时落信封`() {
         val secureFile = File(root, "agent_config_secure${AccountContext.safeSuffix()}.properties")

@@ -53,7 +53,7 @@
 
 ## 技术栈
 
-- Kotlin、Jetpack Compose、[MIUIX](https://github.com/compose-miuix-ui/miuix)（[版本策略](docs/MIUIX-reference.md)）
+- Kotlin、Jetpack Compose、[MIUIX](https://github.com/compose-miuix-ui/miuix)（[版本策略](docs/miuix.md)）
 - OkHttp、Ktor、Brotli、Jsoup、kotlinx.serialization
 - [multiplatform-markdown-renderer](https://github.com/mikepenz/multiplatform-markdown-renderer)、Coil（社区的 Markdown 与图片）
 - Room、KSP、Kotlin Coroutines
@@ -61,8 +61,6 @@
 - `minSdk 31`、`targetSdk 36`、`compileSdk 37`
 
 ### 模块划分（Kotlin Multiplatform）
-
-完整清单与文件数见 [`docs/kmp-module-map.md`](docs/kmp-module-map.md)：
 
 | 层 | 模块 | 目标 | 职责 |
 |---|---|---|---|
@@ -75,7 +73,7 @@
 | 过渡残留 | `:core` / `:data` | — | 拆分后的壳（应用外壳、场馆滑块验证码），聚合转发依赖，待并入共享层后移除 |
 | 测试 | `:testkit` | jvm（仅测试） | 假的校园上游（座位系统 + 统一认证 + 校历门户），不进任何交付物 |
 
-分层规矩：`:feature:*` 只依赖 `:shared:{model,navigation,designsystem,network}`；数据接口（`*Source`、`AgentTransport`）放 `:shared:model`，实现由各平台壳注入。serve 模式联调与 wasmJs 便携性检查见 [`docs/kmp-module-map.md`](docs/kmp-module-map.md)「备注」。
+分层规矩：`:feature:*` 只依赖 `:shared:{model,navigation,designsystem,network}`；数据接口（`*Source`、`AgentTransport`）放 `:shared:model`，实现由各平台壳注入（详见 [CONTRIBUTING.md](CONTRIBUTING.md) §4）。serve 模式的运行与联调见 [`docs/api-contract.md`](docs/api-contract.md)。
 
 ---
 
@@ -120,7 +118,7 @@ Release 会启用代码压缩与资源收缩。未提供签名配置时生成未
 
 ## 发版
 
-版本号、分支与发布流程见 [DEVELOP.md](DEVELOP.md)。校园系统临时故障或维护公告：对 `announce` 分支的 `bulletin.json` 提 PR，或开一个「校园系统状态」Issue。
+版本号、分支与发布流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，渠道与分发见 [`docs/release.md`](docs/release.md)。校园系统临时故障或维护公告：对 `announce` 分支的 `bulletin.json` 提 PR，或开一个「校园系统状态」Issue。
 
 ---
 
@@ -130,7 +128,7 @@ Release 会启用代码压缩与资源收缩。未提供签名配置时生成未
 
 欢迎 Issue 和 PR。提问题时请说明应用版本、机型系统、涉及模块与复现步骤；**不要粘贴账号、密码、Cookie 或 API Key**。
 
-参与开发前请先阅读 [DEVELOP.md](DEVELOP.md)，其中规定了版本号、分支、提交与测试要求。学校系统接口变动、维护是功能失效最主要的来源，遇到问题欢迎反馈。
+参与开发前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，其中规定了版本号、分支、提交与测试要求。学校系统接口变动、维护是功能失效最主要的来源，遇到问题欢迎反馈。
 
 ---
 

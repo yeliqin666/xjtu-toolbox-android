@@ -51,7 +51,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import com.xjtu.toolbox.util.formatOnCampus
-/** serve 侧的白名单工具层（`docs/agent-web-spec.md` §6） */
+/** serve 侧的白名单工具层 */
 internal class ServeAgentTools(
     private val session: ServeSession,
     private val memory: AgentMemory,

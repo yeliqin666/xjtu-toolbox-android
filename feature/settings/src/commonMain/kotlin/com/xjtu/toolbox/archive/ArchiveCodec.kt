@@ -7,16 +7,16 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** 档案的 codec：`manifest.json` 与 `stores/<store>.json` 的读写，以及 §2.2 的排序稳定性、§5.2 第 5 条的 `#written_at` 归一化。 */
+/** 档案的 codec：`manifest.json` 与 `stores/<store>.json` 的读写，以及排序稳定性与 `#written_at` 归一化（docs/archive-format.md）。 */
 object ArchiveCodec {
 
-    /** §3.3：桌面/web 的 `KeyValueScheduleCacheStore` 旁挂时间戳键的后缀。 */
+    /** 桌面/web 的 `KeyValueScheduleCacheStore` 旁挂时间戳键的后缀。 */
     const val WRITTEN_AT_SUFFIX = "#written_at"
 
     /** 解码一个 store 文件的完整结果（base/suffix 从文件内容取，rawName 据此重建）。 */
     data class StoreRecord(val base: String, val suffix: String, val snapshot: StoreSnapshot)
 
-    // ── 值 ↔ `{t, v, at?}`（§2.2） ──
+    // ── 值 ↔ `{t, v, at?}` ──
 
     /** 一个键的带类型值 + 可选 `at`。 */
     private fun encodeValue(value: StoreValue, at: Long?): JsonObject {
@@ -26,7 +26,7 @@ object ArchiveCodec {
             is StoreValue.I -> JsonPrimitive(value.v)
             is StoreValue.L -> JsonPrimitive(value.v)
             is StoreValue.F -> JsonPrimitive(value.v)
-            // §2.2：set 去重 + 升序
+            // set 去重 + 升序
             is StoreValue.SetValue -> JsonArray(value.v.distinct().sorted().map { JsonPrimitive(it) })
         }
         return if (at == null) {
@@ -55,7 +55,7 @@ object ArchiveCodec {
         return value to at
     }
 
-    // ── `stores/<store>.json`（§2.2） ──
+    // ── `stores/<store>.json` ──
 
     /** 把一个 store 快照编成 `stores/<store>.json` 的字节。 */
     fun encodeStore(snapshot: StoreSnapshot, base: String, suffix: String): String {
@@ -92,7 +92,7 @@ object ArchiveCodec {
         return StoreRecord(base, suffix, StoreSnapshot(base + suffix, keys, writtenAt))
     }
 
-    // ── `manifest.json`（§2.1） ──
+    // ── `manifest.json` ──
 
     /** 把一个 manifest 编成 `manifest.json` 的字节（可缺省字段缺省时省略）。 */
     fun encodeManifest(manifest: ArchiveManifest): String {
@@ -179,6 +179,6 @@ object ArchiveCodec {
         return StoreSnapshot(rawName, keys, writtenAt)
     }
 
-    /** §2.1：`createdAt` 用 ISO-8601 带时区（禁止 epoch）。 */
+    /** `createdAt` 用 ISO-8601 带时区（禁止 epoch）。 */
     fun formatTimestamp(epochMillis: Long): String = Instant.fromEpochMilliseconds(epochMillis).toString()
 }

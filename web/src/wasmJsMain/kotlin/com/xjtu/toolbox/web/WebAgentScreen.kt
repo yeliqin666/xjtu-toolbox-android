@@ -37,7 +37,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 小岱（`AppRoute.Agent`）在浏览器上的那一屏（设计真源 `docs/agent-web-spec.md` §4）。 */
+/** 小岱（`AppRoute.Agent`）在浏览器上的那一屏。 */
 @Composable
 internal fun WebAgentScreen(
     client: HttpClient,
@@ -102,7 +102,7 @@ internal fun WebAgentScreen(
     }
 }
 
-/** 浏览器这一端的宿主面（设计稿 §4.1 的逐槽位表；与 `DesktopAgentHost` 同形）。 */
+/** 浏览器这一端的宿主面（与 `DesktopAgentHost` 同形）。 */
 internal class WebAgentHost(
     private val session: WebAgentSession,
     private val scope: CoroutineScope,
@@ -277,10 +277,10 @@ internal fun agentToolLine(name: String): String {
     return if (label == "调用工具 $name…") "未知工具（$name）" else label.trimEnd('…')
 }
 
-/** 「为什么不开」的一组工具（设计稿 §6.2 的逐条理由，这里只留一句话级）。 */
+/** 「为什么不开」的一组工具（每条一句话理由）。 */
 internal class AgentClosedToolGroup(val title: String, val why: String, val names: List<String>)
 
-/** 白名单之外的那几档，按「为什么不开」分组（`docs/agent-web-spec.md` §6.2）。 */
+/** 白名单之外的那几档，按「为什么不开」分组。 */
 internal val AGENT_CLOSED_TOOL_GROUPS: List<AgentClosedToolGroup> = listOf(
     AgentClosedToolGroup(
         title = "闹钟和日程写入",

@@ -18,19 +18,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * 教材全文库的**书架**在浏览器这一端的宿主（契约 §5.14）—— 数据落在 **serve 侧、按账号**
- * （店名 `serve_jiaocai1_shelf<账号后缀>`）：口径照会议 #9 的先例「serve 装真的那一层、浏览器只当界面」，
+ * 教材全文库的**书架**在浏览器这一端的宿主 —— 数据落在 **serve 侧、按账号**
+ * （店名 `serve_jiaocai1_shelf<账号后缀>`）：serve 装真的那一层、浏览器只当界面，
  * 与桌面的 `DesktopJiaocai1ShelfStore` 同性质 —— **跟着账号、换浏览器还在**。
  *
  * 三处如实差异：
  *
  * 1. **取数与写都是一发 HTTP**（`observeAll()` 是冷流：收一次就先拉一份）；
- * 2. **写端点回整份书架**（契约 §5.14）⇒ 写完直接拿那一份覆盖本地这份，不必再读一次；
+ * 2. **写端点回整份书架** ⇒ 写完直接拿那一份覆盖本地这份，不必再读一次；
  * 3. **失败要说出来**：serve 那一侧会话过期 / 网络故障时，书架栏会显示「取不到」而不是
  *    「书架还是空的」（那是编事实）—— 走 [notices] 那条通道，屏上画 `ErrorState` + 重试。
  *
  * ⚠️ 档案导出读不到它（浏览器那一侧导出是同步的）：`files/jiaocai/jiaocai1_shelf.json` 这一族
- * 在 web 的档案里**仍不落地**，见契约 §5.14 与 `WebArchiveRows` 那句如实说明。
+ * 在 web 的档案里**仍不落地**，见 `WebArchiveRows` 那句如实说明。
  */
 internal class WebJiaocai1ShelfStore(
     private val api: ServeJiaocai1Api,
@@ -91,7 +91,7 @@ internal class WebJiaocai1ShelfStore(
         }
     }
 
-    /** 写一发；回的是整份书架（契约 §5.14：这一族每个端点都回整份）。 */
+    /** 写一发；回的是整份书架（这一族每个端点都回整份）。 */
     private suspend fun write(what: String, block: suspend () -> List<Jiaocai1ShelfRecord>) {
         runCatching { block() }
             .onSuccess { accept(it) }

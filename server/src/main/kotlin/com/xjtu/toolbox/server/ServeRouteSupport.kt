@@ -65,7 +65,7 @@ internal suspend inline fun <reified T : Any> ApplicationCall.receiveOrNull(): T
     null
 }
 
-/** epoch 毫秒 → ISO-8601 带时区字符串（契约 §4）；`<= 0`（没读过 / 没过期 / 本端不知道）→ null。 */
+/** epoch 毫秒 → ISO-8601 带时区字符串；`<= 0`（没读过 / 没过期 / 本端不知道）→ null。 */
 internal fun isoTime(epochMs: Long): String? {
     if (epochMs <= 0L) return null
     return Instant.ofEpochMilli(epochMs).atZone(CampusZoneId).format(ISO_FORMATTER)

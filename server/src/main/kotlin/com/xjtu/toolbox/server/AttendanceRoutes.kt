@@ -311,7 +311,7 @@ internal data class AttendanceRecordDto(
     /** 结束节次（`:core` 的 `endTime`）。 */
     val endSection: Int,
     val location: String,
-    /** 当堂上课的教师名（契约 §5.2 例外 ⑤，2026-10-19 会议批准：与我自己的那条记录同性质）。 */
+    /** 当堂上课的教师名（隐私红线的例外：我自己那条记录上的人名）。 */
     val teacher: String,
     /** `WaterType.value`：1 正常 / 2 迟到 / 3 缺勤 / 5 请假 / **-1 未识别**。 */
     val status: Int,
@@ -464,7 +464,7 @@ internal data class AttendanceLeaveFlowNodeDto(
     val approvers: List<AttendanceLeaveApproverDto>,
 )
 
-/** `GET /api/attendance/leave/records` 的 `data`：分页形状（§4）。 */
+/** `GET /api/attendance/leave/records` 的 `data`：分页形状。 */
 @Serializable
 internal data class AttendanceLeavePageData(
     /** 请求给的那个页码（上游回显的两个本层不回，与 `/api/coupon/list` 同一条）。 */
@@ -564,7 +564,7 @@ internal data class AttendanceLeaveWithdrawRequest(
 @Serializable
 internal data class AttendanceLeaveCancelRequest(val leaveId: String = "", val requestId: String = "")
 
-/** 两个写动作共用 `{ok, message}`（与 §5.3.1 / §5.3.2 同一个形状）。 */
+/** 两个写动作共用 `{ok, message}`（与图书馆、场馆的写端点同一个形状）。 */
 @Serializable
 internal data class AttendanceLeaveActionResult(val ok: Boolean, val message: String)
 

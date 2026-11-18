@@ -23,7 +23,7 @@ import kotlinx.serialization.json.jsonObject
 class CampusSchoolCalendarApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : SchoolCalendarSource {
 
@@ -37,7 +37,7 @@ class CampusSchoolCalendarApi(
         return (listOf(current) + others).distinctBy { it.id }.sortedBy { it.startDate }
     }
 
-    /** serve 模式（契约 §5.2） */
+    /** serve 模式 */
     private suspend fun serveTerms(): List<SchoolTerm> {
         val data = client.serveData("加载校历", baseUrl, "/api/calendar/school")
         return data.arr("terms").orEmpty().mapNotNull { element ->

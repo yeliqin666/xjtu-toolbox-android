@@ -23,7 +23,7 @@ internal class WebScheduleSource(
 
     private val api = CampusApi(client, API_BASE, mode)
 
-    /** §5.8 那三条只读端点（调停补课 / 考试 / 教材）+ §5.9 的 `?merged=1` —— 它们只存在于 serve 契约里。 */
+    /** 调停补课 / 考试 / 教材三条只读端点 + `schedule?merged=1` —— 它们只存在于 serve 契约里。 */
     private val jwxt = CampusJwxtScheduleApi(client, API_BASE, mode)
 
     /** 学期号 → 可读名（`/api/jwxt/terms`；serve 给名字，campus-api 只给号 ⇒ 由库里那份按号推）。 */
@@ -57,15 +57,15 @@ internal class WebScheduleSource(
         )
     }
 
-    /** 这一端的教材接口**不要学号**：`/api/jwxt/textbooks` 由服务端从会话里取（§5.8）。 */
+    /** 这一端的教材接口**不要学号**：`/api/jwxt/textbooks` 由服务端从会话里取。 */
     override val textbooksWithoutStudentId: Boolean get() = serve
 
     // 下面三条都先看 `serve`：`CampusJwxtScheduleApi` 只在 serve 形态答数（campus-api 里没有这三条）
-    /** 调停补课（`/api/jwxt/changes?term=`，§5.8）：说明面记录（`ScheduleChangeEvent`）。 */
+    /** 调停补课（`/api/jwxt/changes?term=`）：说明面记录（`ScheduleChangeEvent`）。 */
     override suspend fun changes(term: String): List<ScheduleChangeEvent> =
         if (serve) jwxt.changes(term) else emptyList()
 
-    /** 考试安排（`/api/jwxt/exams?term=`，§5.8）：六格原样，行序 = 上游序。 */
+    /** 考试安排（`/api/jwxt/exams?term=`）：六格原样，行序 = 上游序。 */
     override suspend fun examSchedule(term: String?): List<ExamItem> =
         if (serve) jwxt.examSchedule(term) else emptyList()
 
@@ -89,7 +89,7 @@ internal class WebScheduleSource(
         return names.keys.toList()
     }
 
-    /** 教材（`/api/jwxt/textbooks?term=`，§5.8） */
+    /** 教材（`/api/jwxt/textbooks?term=`） */
     override suspend fun textbooks(studentId: String, term: String?): List<TextbookItem> =
         if (serve) jwxt.textbooks(term) else emptyList()
 
@@ -98,7 +98,7 @@ internal class WebScheduleSource(
         names = CampusSchoolCourseApi(client, API_BASE, mode).terms().associate { it.code to it.name }
     }
 
-    /** 这一份取数在对谁说话：serve 契约里才有 §5.8 那三条端点（见类 KDoc）。 */
+    /** 这一份取数在对谁说话：serve 契约里才有那三条端点（见类 KDoc）。 */
     private val serve: Boolean get() = mode == ApiMode.SERVE
 }
 

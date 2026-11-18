@@ -228,7 +228,7 @@ class ServeP0Group2Test {
     // ── jwxt：school-courses ───────────────────────────────────────────
 
     @Test
-    fun `jwxt school-courses：契约 §5 要补的字段全投影 + 分页 + 筛选项开关`() = withServe { serve ->
+    fun `jwxt school-courses：全量字段投影 + 分页 + 筛选项开关`() = withServe { serve ->
         val http = serve.http
         assertEquals(200, serve.login().statusCode())
 
@@ -294,7 +294,7 @@ class ServeP0Group2Test {
         assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(badWeekday))
     }
 
-    // ── jwxt：evaluations / status（QMS，契约 §5.15）──────────────────────
+    // ── jwxt：evaluations / status（QMS）──────────────────────
 
     @Test
     fun `jwxt evaluations：QMS 投影逐字段 + finished 三档 + canSubmit 如实 true + status`() = withServe { serve ->
@@ -502,10 +502,10 @@ class ServeP0Group2Test {
         assertEquals(
             setOf("取消预约", "入馆签到"),
             booking.getValue("actionUrls").jsonObject.keys,
-            "夹具默认按钮；值是上游地址，客户端只当不透明句柄（见 §5.3.1）",
+            "夹具默认按钮；值是上游地址，客户端只当不透明句柄",
         )
 
-        // my：页面明确说没有预约 ⇒ my:null（§4：null = 明确说没有，≠ 空对象）
+        // my：页面明确说没有预约 ⇒ my:null（null = 明确说没有，≠ 空对象）
         serve.fake.library.cancelled.set(true)
         val none = http.get("/api/library/my")
         assertEquals(200, none.statusCode())
@@ -776,7 +776,7 @@ class ServeP0Group2Test {
         val LOGIN_BODY =
             """{"username":"${LibraryFakeUpstream.USERNAME}","password":"${LibraryFakeUpstream.PASSWORD}"}"""
 
-        /** §3.4 红线的钉子组：键名 + 典型值（学号/姓名都来自夹具备份，不是真人）。 */
+        /** 隐私红线的钉子组：键名 + 典型值（学号/姓名都来自夹具备份，不是真人）。 */
         val IDENTITY = listOf("username", "studentId", "学号", "姓名", LibraryFakeUpstream.USERNAME)
     }
 }

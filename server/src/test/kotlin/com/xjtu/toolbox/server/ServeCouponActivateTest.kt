@@ -9,7 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** `POST /api/coupon/activate` 的契约测试（`docs/api-contract.md` §5.5）。 */
+/** `POST /api/coupon/activate` 的契约测试（`docs/api-contract.md`）。 */
 class ServeCouponActivateTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -79,7 +79,7 @@ class ServeCouponActivateTest {
         assertNoIdentity(ok.body(), "POST $ACTIVATE_PATH", IDENTITY)
 
         val data = envelopeData(ok)
-        assertEquals(setOf("ok", "message"), data.keys, "写端点的形状与 §5.3.1 / §5.3.2 那两个一致")
+        assertEquals(setOf("ok", "message"), data.keys, "写端点的形状与图书馆、场馆的一致")
         assertEquals(true, data.optBoolean("ok"))
         assertTrue(!envelopeMessage(ok).isNullOrBlank(), "message 是给 curl / 排障看的中文短句")
 
@@ -138,7 +138,7 @@ class ServeCouponActivateTest {
         val LOGIN_BODY =
             """{"username":"${LibraryFakeUpstream.USERNAME}","password":"${LibraryFakeUpstream.PASSWORD}"}"""
 
-        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人）。 */
+        /** 隐私红线的钉子组（全是夹具里的编造值，不是真人）。 */
         val IDENTITY = listOf(
             "studentId",
             "学号",

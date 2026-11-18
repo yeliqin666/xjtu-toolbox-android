@@ -24,7 +24,7 @@ import kotlin.time.Clock
 class CampusCardNetApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : CampusCardSource {
 
@@ -119,9 +119,9 @@ class CampusCardNetApi(
     /** 本次会话里最后落盘的那一份；刷新页面即失效。 */
     private var session: CampusCardSnapshot? = null
 
-    // ─── serve 模式（契约 §5.3）────────────────────────────────────────────
+    // ─── serve 模式────────────────────────────────────────────
 
-    /** serve 模式（契约 §5.3） */
+    /** serve 模式 */
     private suspend fun serveCard(): CardInfo {
         val data = getData("/api/card/balance")
         return CardInfo(
@@ -138,7 +138,7 @@ class CampusCardNetApi(
         )
     }
 
-    /** serve 模式（契约 §5.3） */
+    /** serve 模式 */
     private suspend fun serveTransactions(
         from: LocalDate,
         to: LocalDate,
@@ -170,7 +170,7 @@ class CampusCardNetApi(
 
     /** 拆 `{code,data}` 信封；`code!=0` 按体测/校历那套报法显式失败。 */
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
-        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        // serve 契约的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
         if (mode == ApiMode.SERVE) return client.serveData("校园卡", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> parameter(k, v) }

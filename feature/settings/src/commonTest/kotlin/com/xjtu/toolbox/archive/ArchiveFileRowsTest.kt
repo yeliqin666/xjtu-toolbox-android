@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** `files` 层行数组排序的验收（§2.3）。 */
+/** `files` 层行数组排序的验收。 */
 class ArchiveFileRowsTest {
 
     private fun rowsOf(json: String): JsonArray = AppJson.parseToJsonElement(json) as JsonArray
@@ -17,7 +17,7 @@ class ArchiveFileRowsTest {
     private fun JsonArray.ssno(i: Int): String = (this[i] as JsonObject)["ssno"]?.let { (it as JsonPrimitive).content } ?: ""
 
     @Test
-    fun `§2_3 custom_courses 按六键升序`() {
+    fun `custom_courses 按六键升序`() {
         val rows = rowsOf(
             """[
               {"id":3,"accountId":"B","termCode":"2026-2027-1","dayOfWeek":1,"startSection":3,"startMinuteOfDay":-1,"courseName":"c"},
@@ -32,7 +32,7 @@ class ArchiveFileRowsTest {
     }
 
     @Test
-    fun `§2_3 custom_courses 列名逐字不变`() {
+    fun `custom_courses 列名逐字不变`() {
         val rows = rowsOf(
             """[
               {"id":1,"accountId":"A","courseName":"a","teacher":"t","location":"l","weekBits":"01",
@@ -54,7 +54,7 @@ class ArchiveFileRowsTest {
     }
 
     @Test
-    fun `§2_3 download_tasks 按 createTime desc 再 id 升序`() {
+    fun `download_tasks 按 createTime desc 再 id 升序`() {
         val rows = rowsOf(
             """[
               {"id":1,"createTime":100},{"id":2,"createTime":300},
@@ -66,7 +66,7 @@ class ArchiveFileRowsTest {
     }
 
     @Test
-    fun `§2_3 jiaocai1_shelf 按 addedAt desc 再 ssno 升序`() {
+    fun `jiaocai1_shelf 按 addedAt desc 再 ssno 升序`() {
         val rows = rowsOf(
             """[
               {"ssno":"b","addedAt":100},{"ssno":"a","addedAt":300},
@@ -78,7 +78,7 @@ class ArchiveFileRowsTest {
     }
 
     @Test
-    fun `§2_3 agent_sessions index 按 updatedAt 降序`() {
+    fun `agent_sessions index 按 updatedAt 降序`() {
         val rows = rowsOf(
             """[
               {"id":"s1","updatedAt":100},{"id":"s2","updatedAt":300},{"id":"s3","updatedAt":200}

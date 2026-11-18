@@ -15,7 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** Web 端导入写侧接到 [StoreArchive.import]（§6.4）后该成立的几条。 */
+/** Web 端导入写侧接到 [StoreArchive.import] 后该成立的几条。 */
 class WebArchiveImportTest {
 
     /** 与 `ArchiveInteropTest` 同参：同一份夹具、同一个 `export` 调用。 */
@@ -73,7 +73,7 @@ class WebArchiveImportTest {
     fun `A4 往返可读：SettingsStore 与 ScheduleCache 的原读法`() {
         cleanup()
         try {
-            // 端内的形状（§6.3 的 web 行）：`l`/`f` 在 web 上没有槽位 —— 夹具里那两条按字符串落，
+            // 端内的形状（web）：`l`/`f` 在 web 上没有槽位 —— 夹具里那两条按字符串落，
             // 读回来会被反推成 `s`（见 `WebArchiveImportTarget` 的 KDoc；桌面同一档，靠 toLongOrNull 反推）
             val archive = archiveOf(
                 StoreSnapshot(

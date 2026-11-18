@@ -61,19 +61,19 @@ class DesktopArchiveImportTarget(
             is StoreValue.F -> store.putString(key, value.v.toString())
             is StoreValue.SetValue -> store.putStringSet(key, value.v.toSet())
         }
-        // §5.2 第 5 条：`at` 落在旁挂键上（档案里那份时间戳就是从这里来的）
+        // `at` 落在旁挂键上（档案里那份时间戳就是从这里来的）
         if (at != null) store.putString(key + ArchiveCodec.WRITTEN_AT_SUFFIX, at.toString())
     }
 
     override fun readFile(suffix: String, relPath: String): String? {
         // 成绩缓存那一族在桌面端内是 KV 店（`score_report<suffix>` 的 `score_report_<学号>`）⇒ 现状从店里读：
-        // §6.4 文件层那条「本端有 ⇒ 保持不变」对 KV 载体一样成立。
+        // 文件层那条「本端有 ⇒ 保持不变」对 KV 载体一样成立。
         scoreReportValue(suffix, relPath)?.let { return it }
         return files?.read(suffix, relPath)
     }
 
     /**
-     * 键名归一（§6.3）：档案里那一族的名字**不含学号**，桌面端内名要它（键 `score_report_<学号>`）。
+     * 键名归一：档案里那一族的名字**不含学号**，桌面端内名要它（键 `score_report_<学号>`）。
      * 档案里那一档账号先查，没有时用本机当前账号；两边都拼不出 ⇒ null（这一条跳过并计数）。
      */
     override fun fileRelPath(suffix: String, accountId: String?, relPath: String): String? {
@@ -93,7 +93,7 @@ class DesktopArchiveImportTarget(
     }
 
     /**
-     * 形状归一（§6.3）：桌面端内本来就是 `{"at","grades"}`，旧档案里的裸数组用导入时刻重建 `at`。
+     * 形状归一：桌面端内本来就是 `{"at","grades"}`，旧档案里的裸数组用导入时刻重建 `at`。
      * 转不动 ⇒ null（跳过并计数）。
      */
     override fun fileContent(suffix: String, accountId: String?, relPath: String, content: String): String? =
@@ -113,8 +113,8 @@ class DesktopArchiveImportTarget(
     }
 
     /**
-     * 删键（镜像档，§6.4）：桌面店就是一份 `.properties`，[KeyValueStore.remove] 就是删掉；
-     * 连着侧挂时间戳（§5.2 第 5 条）一起删，回滚时 [putKey] 会把两者一起放回去。
+     * 删键（镜像档）：桌面店就是一份 `.properties`，[KeyValueStore.remove] 就是删掉；
+     * 连着侧挂时间戳一起删，回滚时 [putKey] 会把两者一起放回去。
      *
      * 红线清单（[ArchiveRedLines]）上的店在共享层就被挡下了，走不到这里。
      */
@@ -167,7 +167,7 @@ class DesktopArchiveImportTarget(
             null
         }
 
-    /** 端内店里那一族的现状（§6.4：本端有 ⇒ 保持不变）。 */
+    /** 端内店里那一族的现状（本端有 ⇒ 保持不变）。 */
     private fun scoreReportValue(suffix: String, relPath: String): String? {
         val key = scoreReportKey(relPath) ?: return null
         return runCatching { storeOf(scoreReportStoreName(suffix)).getString(key) }.getOrNull()
@@ -213,7 +213,7 @@ class DesktopArchiveImportTarget(
 }
 }
 
-/** 桌面端的一次性导入编排：自校验 → §6.4 合并 → 落「已导入」标记。 */
+/** 桌面端的一次性导入编排：自校验 → 合并 → 落「已导入」标记。 */
 object DesktopArchiveImport {
 
     /** 标记文件名（档案目录里的一份点文件；[DesktopArchiveIo.readDirectory] 读档案时会跳过点文件）。 */
@@ -230,7 +230,7 @@ object DesktopArchiveImport {
             File(archive.parentFile, archive.name + MARKER_SUFFIX)
         }
 
-    /** 档案的身份（§2.1）。 */
+    /** 档案的身份。 */
     fun identityOf(manifest: ArchiveManifest): String =
         "${manifest.createdAt}|${manifest.createdBy}|${manifest.version}"
 
@@ -239,7 +239,7 @@ object DesktopArchiveImport {
         if (!marker.isFile) null
         else runCatching { marker.readText().lineSequence().firstOrNull() }.getOrNull()
 
-    /** 跑一次导入（自校验 → §6.4 合并 → 标记）。 */
+    /** 跑一次导入（自校验 → 合并 → 标记）。 */
     fun run(
         archive: File,
         entries: Map<String, String>,
@@ -261,7 +261,7 @@ object DesktopArchiveImport {
     }
 
     /**
-     * 第一步：算差异，**端内一个字节不动**（§6.4「显式镜像档」）。
+     * 第一步：算差异，**端内一个字节不动**（「显式镜像档」）。
      *
      * 与 [run] 同一条链路（自校验 → 幂等标记 → [StoreArchive.plan]），只是把“合并”换成“先看后写”：
      * 设置页拿到 [DesktopArchivePlanOutcome.Planned] 弹窗（话术见 [ArchiveImportPrompt]），
@@ -329,7 +329,7 @@ sealed interface DesktopImportOutcome {
     /** 真的导了：写了几笔见 [result]。 */
     data class Imported(val archive: File, val identity: String, val result: ImportResult.Ok) : DesktopImportOutcome
 
-    /** 这份档案的身份与标记一致 ⇒ 什么都不做（§6.1 第 1 条：导入幂等）。 */
+    /** 这份档案的身份与标记一致 ⇒ 什么都不做（导入幂等）。 */
     data class AlreadyImported(val archive: File, val identity: String) : DesktopImportOutcome
 
     /** 明确失败，端内零改动。 */

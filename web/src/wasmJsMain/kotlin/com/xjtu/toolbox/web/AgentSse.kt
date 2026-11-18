@@ -9,7 +9,7 @@ import com.xjtu.toolbox.util.safeLong
 import com.xjtu.toolbox.util.safeString
 import kotlinx.serialization.json.JsonObject
 
-/** `POST /api/agent/chat` 那条 SSE 流的一帧（`docs/api-contract.md` §5.11 的十一类 + 一类「认不出」）。 */
+/** `POST /api/agent/chat` 那条 SSE 流的一帧（`docs/api-contract.md`「屁岱」的事件 + 一类「认不出」）。 */
 internal sealed interface AgentFrame {
 
     /** 模型正文增量，逐段。 */
@@ -102,7 +102,7 @@ internal class AgentSseParser {
                     data.append(raw)
                     sawData = true
                 }
-                // `id` / `retry` 与认不出的字段：契约里没有它们（断线重连明确不做，见 §5.11），照规范忽略
+                // `id` / `retry` 与认不出的字段：契约里没有它们（断线重连明确不做），照规范忽略
                 else -> Unit
             }
         }
@@ -144,7 +144,7 @@ internal class AgentSseParser {
                 sessionId = payload["sessionId"].safeString(),
                 title = payload["title"].safeString(),
                 contextExhausted = payload["contextExhausted"].safeBoolean(),
-                // 服务端 `explicitNulls = false` ⇒ 没有 usage 时这一格**不存在**（契约 §4：字段缺失 = 不投影）
+                // 服务端 `explicitNulls = false` ⇒ 没有 usage 时这一格**不存在**（字段缺失 = 不投影）
                 totalTokens = payload.safeGet("totalTokens")?.safeLong(),
             )
             "error" -> AgentFrame.Error(

@@ -74,7 +74,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
- * 「主页设置」抽屉（需求 §5 / 补充 §29）。
+ * 「主页设置」抽屉。
  *
  * 两套首页布局共用这一个抽屉，因为有三组设置是**跨布局共用**的——背景（壁纸 / 模糊）、
  * 卡片材质（液态玻璃）、顶栏排法，它们落在 [SettingsStore] 里；只有卡片组才有的几项
@@ -89,7 +89,7 @@ fun HomeSettingsSheet(
     show: Boolean,
     onDismiss: () -> Unit,
 ) {
-    // 返回键优先关抽屉（§31）：抽屉在前台时不把返回交给下面的页面
+    // 返回键优先关抽屉：抽屉在前台时不把返回交给下面的页面
     BackHandler(enabled = show) { onDismiss() }
     // 只有开着的那一份写这个标记：设置页里还挂着另一份（关着），别让它把标记冲掉
     DisposableEffect(show) {
@@ -105,7 +105,7 @@ fun HomeSettingsSheet(
         backgroundColor = MiuixTheme.colorScheme.surface,
         onDismissRequest = onDismiss,
     ) {
-        // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上（§29 补充）
+        // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上
         HomeSettingsBody(
             onDismiss = onDismiss,
             modifier = Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding(),

@@ -236,7 +236,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
      *
      * ⚠️ **不联网**：站点会话是懒的（第一次真取数时自己 ensure）—— 切账号这个动作不该等一次 CAS 往返，
      * 密码错会在下一次取数时报 401/502，而不是在这一刻。
-     * ⚠️ **不写** `AccountStore` 的激活指针（`active_account`）：那是桌面端的主键，见 `docs/api-contract.md` §5.10。
+     * ⚠️ **不写** `AccountStore` 的激活指针（`active_account`）：那是桌面端的主键。
      */
     internal fun adoptAccount(account: Account) {
         AccountContext.activeAccountId = account.accountId

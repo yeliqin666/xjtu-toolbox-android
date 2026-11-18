@@ -135,7 +135,7 @@ fun ProbeScreen() {
                 Text("浏览器能力（这一份部署的）", color = cs.onSurface, fontSize = 13.sp)
                 Text(
                     "这几条不是代码能决定的，而是**当前这个地址**决定的（安全上下文）：HTTPS 或 localhost " +
-                        "有，明文 HTTP + 非 localhost 没有（契约 §3.5；--https 见 D11）。",
+                        "有，明文 HTTP + 非 localhost 没有（可用 --https）。",
                     color = cs.onBackgroundVariant,
                     fontSize = 10.sp,
                 )

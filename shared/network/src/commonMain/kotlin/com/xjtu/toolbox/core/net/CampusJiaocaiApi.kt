@@ -14,7 +14,7 @@ import kotlinx.serialization.json.JsonPrimitive
 class CampusJiaocaiApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.6）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : JiaocaiSource {
 
@@ -67,7 +67,7 @@ private fun JsonObject.stringMap(key: String): Map<String, String> =
         .mapNotNull { (fieldKey, value) -> (value as? JsonPrimitive)?.let { fieldKey to it.content } }
         .toMap()
 
-/** 按关键词检索教材（契约 §5.6 的两个 jiaocai 端点之一）。 */
+/** 按关键词检索教材（`/api/jiaocai/search`）。 */
 private const val SEARCH_PATH = "/api/jiaocai/search"
 
 /** 一本书的全文库书目号。 */

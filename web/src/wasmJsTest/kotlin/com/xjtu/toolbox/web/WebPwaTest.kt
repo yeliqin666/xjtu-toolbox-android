@@ -25,7 +25,7 @@ class WebPwaTest {
         assertTrue(
             WebPwa.periodicSyncApi(),
             "Chrome 桌面把 `periodicSync` 挂在 `ServiceWorkerRegistration.prototype` 上（实测）；" +
-                "这条红了 = 它改形状了，回去重读 §16.12 里那一档的说明",
+                "这条红了 = 它改形状了，回去重读 `WebPwa.periodicSyncApi` 的说明",
         )
     }
 

@@ -17,7 +17,7 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
 
 /**
- * 教材全文库那一族的取数（`docs/api-contract.md` §5.14）—— **只在 serve 形态下存在**。
+ * 教材全文库那一族的取数（`docs/api-contract.md`）—— **只在 serve 形态下存在**。
  *
  * 为什么它住在 `:feature:jiaocai` 而不是像其余 `Campus*Api` 那样住 `:shared:network`：
  * 书架那一格（[Jiaocai1ShelfRecord]）与两屏的模型都在本模块里，而 `:shared:network` 看不见
@@ -28,7 +28,7 @@ import kotlinx.serialization.json.put
  *
  * ## 页图与封面不走这里
  *
- * `page` / `cover` 两条**成功时回 `image/jpeg` 字节**（契约 §4 第四条例外），失败时才是信封。
+ * `page` / `cover` 两条**成功时回 `image/jpeg` 字节**（契约里不走信封的例外），失败时才是信封。
  * 这一份只给**路径构造**（[pagePath] / [coverPath]），真取字节由宿主那一端做：浏览器那侧是
  * 同源 `fetch`（`serve_token` 是 `Path=/` 的 cookie，自动带上），Android / 桌面上这两条端点
  * 根本用不到（它们直连站点）。
@@ -46,7 +46,7 @@ class ServeJiaocai1Api(
         // `nodes` 不是数组 = 形状漂了（空分类树是 `[]`）：不给个空列表蒙混过去 —— 那会在屏上显示成
         // 「分类目录暂时取不到」而不是真因
         val nodes = data["nodes"] as? JsonArray
-            ?: error("取教材分类树：服务端没有给 nodes 数组（契约 §5.14 的形状变了）")
+            ?: error("取教材分类树：服务端没有给 nodes 数组（形状变了）")
         return runCatching {
             toolboxJson.decodeFromJsonElement<List<Jiaocai1Category>>(nodes)
         }.getOrElse { error ->
@@ -107,7 +107,7 @@ class ServeJiaocai1Api(
             from..to
         }
         if (ranges.size != Jiaocai1Paging.TYPE_COUNT) {
-            error("打开这本书：页表不是 ${Jiaocai1Paging.TYPE_COUNT} 组（拿到 ${ranges.size} 组）—— 契约 §5.14 的 pageRanges 变了")
+            error("打开这本书：页表不是 ${Jiaocai1Paging.TYPE_COUNT} 组（拿到 ${ranges.size} 组）—— pageRanges 的形状变了")
         }
         return Jiaocai1BookHandle(
             ssno = ssno,
@@ -200,7 +200,7 @@ class ServeJiaocai1Api(
     }
 }
 
-// ── 线上形状 → `:core` 模型（字段名与契约 §5.14 逐条对应）────────────────
+// ── 线上形状 → `:core` 模型（字段名与服务端逐条对应）────────────────
 
 /** 一本检索命中的书：八格逐字段（`ssno` 读不出来就丢掉这一行 —— 它是打开全文的句柄）。 */
 private fun JsonObject.toBook(): Jiaocai1Book? {
@@ -221,7 +221,7 @@ private fun JsonObject.toBook(): Jiaocai1Book? {
 /**
  * 书架那一族每个端点回的都是整份（`{count,rows}`）⇒ 四个方法共用这一处解析。
  *
- * ⚠️ 两个时间是 **epoch 毫秒**（契约 §5.14 里点明了这一族不走 ISO-8601），原样读 ——
+ * ⚠️ 两个时间是 **epoch 毫秒**（这一族不走 ISO-8601），原样读 ——
  * 屏上要自己算「3 天前」，换个单位就会整体飘。
  */
 private fun JsonObject.toShelfRows(): List<Jiaocai1ShelfRecord> =

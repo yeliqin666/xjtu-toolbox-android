@@ -226,7 +226,7 @@ internal data class AreaSlotDto(
     val isAvailable: Boolean,
 )
 
-/** `GET /api/venue/orders` 的 `data`：分页形状（§4）。 */
+/** `GET /api/venue/orders` 的 `data`：分页形状。 */
 @Serializable
 internal data class OrdersData(
     val page: Int,
@@ -274,7 +274,7 @@ internal data class CaptchaDataDto(
     val sliderHeight: Int,
 )
 
-/** `POST /api/venue/book` 的请求体（形状与例子见契约 §5.3.2）。 */
+/** `POST /api/venue/book` 的请求体。 */
 @Serializable
 internal data class VenueBookRequest(
     /** 场馆号（`/api/venue/products` 的 `id`）。 */
@@ -297,9 +297,9 @@ internal data class BookingSelectionDto(
 /** `POST /api/venue/book` 成功时的 `data`。 */
 @Serializable
 internal data class VenueBookResult(
-    /** 动作做成了没有。**成功响应里恒为 `true`** —— 失败走 4xx + 信封的 `message`（§4）。 */
+    /** 动作做成了没有。**成功响应里恒为 `true`** —— 失败走 4xx + 信封的 `message`。 */
     val ok: Boolean,
-    /** 上游给的订单号；没给就是 `null`（§4：不编）。 */
+    /** 上游给的订单号；没给就是 `null`（不编）。 */
     val orderId: String? = null,
     /** 上游给的应付金额（`:data` 的 `BookingResult.price` 原样）。 */
     val price: Double,
@@ -315,7 +315,7 @@ internal data class VenueCancelRequest(val orderId: String? = null)
 @Serializable
 internal data class VenueCancelResult(val ok: Boolean, val message: String)
 
-/** `GET /api/venue/status` 的 `data`：能力开关（§2）。 */
+/** `GET /api/venue/status` 的 `data`：能力开关。 */
 @Serializable
 internal data class VenueStatusData(
     /** true：写端点 `/captcha` `/book` 在本层已落地，滑块由浏览器端的宿主画（见文件头）。 */
@@ -402,6 +402,6 @@ internal const val VENUE_PAY = "pay"
 /** 请求体不是端点要的形状时的 400 文案（把合法形状写出来）。 */
 private const val VENUE_BOOK_BODY_MESSAGE =
     "请求体需要 JSON：{\"serviceId\":101,\"selections\":[{\"stockId\":9101,\"areaDetailId\":5101}]," +
-        "\"captchaId\":\"…\",\"sliderTrack\":\"{…}\"}（见契约 §5.3.2）"
+        "\"captchaId\":\"…\",\"sliderTrack\":\"{…}\"}"
 private const val VENUE_CANCEL_BODY_MESSAGE =
-    "请求体需要 JSON：{\"orderId\":\"VT20261013001\"}（见契约 §5.3.2）"
+    "请求体需要 JSON：{\"orderId\":\"VT20261013001\"}"

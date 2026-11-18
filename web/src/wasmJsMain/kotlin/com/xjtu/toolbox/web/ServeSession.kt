@@ -19,7 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
-/** `:web` 在 serve 模式下对 `:server` 的会话（`docs/api-contract.md` §5.1 的四个端点）。 */
+/** `:web` 在 serve 模式下对 `:server` 的会话（`docs/api-contract.md`「会话」）。 */
 class WebServeSession(private val client: HttpClient, private val holder: ServeTokenHolder) {
 
     /** 贴上的令牌（空串 = 清掉）。设一次就够 —— 所有客户端都读同一个 [holder]。 */
@@ -48,7 +48,7 @@ class WebServeSession(private val client: HttpClient, private val holder: ServeT
     suspend fun logout(): Result<Unit> =
         call { method = HttpMethod.Post; url("$API_BASE/api/session/logout") }.map { }
 
-    /** `GET /api/session/mfa`：挂起的那条询问（**轮询**，不是 SSE，见 §5.1 第 3 条）。 */
+    /** `GET /api/session/mfa`：挂起的那条询问（**轮询**，不是 SSE）。 */
     suspend fun mfa(): Result<MfaState> =
         call { method = HttpMethod.Get; url("$API_BASE/api/session/mfa") }.map { mfaStateOf(it) }
 
@@ -75,7 +75,7 @@ class WebServeSession(private val client: HttpClient, private val holder: ServeT
         attemptsLeft = data["attemptsLeft"].safeIntOrNull(),
     )
 
-    /** 一次 `/api/session*` 调用：读 §4 的信封。 */
+    /** 一次 `/api/session*` 调用：读契约的信封。 */
     private suspend fun call(block: HttpRequestBuilder.() -> Unit): Result<JsonObject> = try {
         val response = client.request(block)
         val text = response.bodyAsText()
@@ -95,7 +95,7 @@ class WebServeSession(private val client: HttpClient, private val holder: ServeT
     }
 }
 
-/** `/api/session/mfa` 的 `data`（§5.1 第 3 条） */
+/** `/api/session/mfa` 的 `data` */
 data class MfaState(
     val pending: Boolean,
     val siteName: String? = null,
@@ -105,7 +105,7 @@ data class MfaState(
     val attemptsLeft: Int? = null,
 )
 
-/** `POST /api/session/login` 的请求体：学号两侧的空白由 `:server` 去掉（§5.1）。 */
+/** `POST /api/session/login` 的请求体：学号两侧的空白由 `:server` 去掉。 */
 @Serializable
 private data class LoginBody(val username: String, val password: String)
 

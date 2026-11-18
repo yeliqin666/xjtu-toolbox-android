@@ -12,7 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
 
-/** 校车（契约 §5.18）：免登录，转发 `xjbus.xjtu.edu.cn` 的班次；乘客名单在 [BusApi] 里就丢了。 */
+/** 校车：免登录，转发 `xjbus.xjtu.edu.cn` 的班次；乘客名单在 [BusApi] 里就丢了。 */
 internal fun Route.busRoutes(source: BusSource = BusApi(createToolboxClient())) {
     get(BUS_RUNS_SEGMENT) {
         val raw = call.request.queryParameters["date"]?.trim().orEmpty()

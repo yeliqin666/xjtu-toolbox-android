@@ -36,7 +36,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * 桌面端与「三族行数组」接缝的验收（§2.3 / §6.3 / §6.4）。钉住两件跨端的事：
+ * 桌面端与「三族行数组」接缝的验收。钉住两件跨端的事：
  *  1. **导出**：三族键值店里**有行**的那几族投影成 `files/<相对路径>` 的行数组 —— 列名逐字照 Room
  *     那几张表、`id` 保持端内原值；**没行的那一族不写**（不拿一个空数组声称本端这一族是空的）。
  *  2. **导入**：档案里那几族按主键合并进端内键值店 —— 端内已有的主键**整行保留**、只追加端内没有的
@@ -212,7 +212,7 @@ class DesktopArchiveRowsJvmTest {
         put("addedAt", FIXED_NOW)
     }.toString()
 
-    // ── 导出（§2.3） ───────────────────────────────────────────────
+    // ── 导出 ───────────────────────────────────────────────
 
     @Test
     fun `导出 三族里有行的都进 files 行数组 列名逐字且 id 保持原值`() = withRoot { root ->
@@ -238,7 +238,7 @@ class DesktopArchiveRowsJvmTest {
         // 不补一个进去、也不把它删掉
         assertEquals(JsonNull, downloadRow["errorMessage"], "端内那份 JSON 里 errorMessage 是 null ⇒ 档案里也照它原样")
         // 只有一行 ⇒ 排序是恒等变换 ⇒ 档案里那一行的字节必须与端内那段 JSON 里那一行**逐字相同**
-        //（键名 / 值 / 字段集一个不改：这就是 §2.3 的「原样搬运」那一条）
+        //（键名 / 值 / 字段集一个不改：这就是「原样搬运」那一条）
         val localRow = (
             AppJson.parseToJsonElement(
                 props(root, DesktopDownloadTaskStore.storeName(null))
@@ -266,7 +266,7 @@ class DesktopArchiveRowsJvmTest {
         assertEquals(1, rowsOf(entries, ArchiveRowFamilies.JIAOCAI_SHELF_REL).size)
     }
 
-    // ── 导入（§6.4 合并） ───────────────────────────────────────────
+    // ── 导入合并 ───────────────────────────────────────────
 
     @Test
     fun `导入 三族分别合进三个键值店 端内已有主键整行保留 只追加新主键`() = withRoot { root ->

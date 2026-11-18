@@ -108,7 +108,7 @@ private fun DesktopDataPrivacySection() {
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
-    // §6.4 显式镜像档：先算差异、弹窗选档（默认恒为 MERGE），确认后才落地。
+    // 显式镜像档：先算差异、弹窗选档（默认恒为 MERGE），确认后才落地。
     var pendingPlan by remember { mutableStateOf<PendingArchivePlan?>(null) }
     var importMode by remember { mutableStateOf(ArchiveImportMode.MERGE) }
 

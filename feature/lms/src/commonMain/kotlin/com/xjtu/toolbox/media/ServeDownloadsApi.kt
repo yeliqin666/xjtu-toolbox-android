@@ -15,7 +15,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * 下载那一族的取数（`docs/api-contract.md` §5.13）—— **只在 serve 形态下存在**。
+ * 下载那一族的取数（`docs/api-contract.md`）—— **只在 serve 形态下存在**。
  *
  * 为什么它住在 `:feature:lms` 而不是像其余 `Campus*Api` 那样住 `:shared:network`：
  * 这一族的模型（[DownloadTask] / [DownloadStats] / [DownloadDirInfo]）就在本模块里，
@@ -130,7 +130,7 @@ data class ServeDownloadsList(
     val dir: DownloadDirInfo,
 )
 
-// ── 线上形状 → `:core` 模型（字段名与契约 §5.13 逐条对应）────────────────
+// ── 线上形状 → `:core` 模型（字段名与服务端逐条对应）────────────────
 
 /** 一行 → [DownloadTask]；`id` 读不出来就丢掉这一行（它是屏上的句柄，空值等于点了没反应的卡）。 */
 private fun JsonObject.toTask(): DownloadTask? {
@@ -149,7 +149,7 @@ private fun JsonObject.toTask(): DownloadTask? {
         fileSize = this["fileSize"].safeString().toLongOrNull() ?: -1L,
         downloadedSize = this["downloadedBytes"].safeString().toLongOrNull() ?: 0L,
         status = this["status"].safeString(),
-        // `createTime` 是 ISO-8601 字符串（契约 §4）：屏上只拿它排「最近」的序，这里换成毫秒；
+        // `createTime` 是 ISO-8601 字符串：屏上只拿它排「最近」的序，这里换成毫秒；
         // 转不动就是 0（= 本端不知道），不编一个时刻
         createTime = this["createTime"].safeString().let { iso ->
             if (iso.isBlank()) 0L

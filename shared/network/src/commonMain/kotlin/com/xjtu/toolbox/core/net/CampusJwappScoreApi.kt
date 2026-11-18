@@ -24,11 +24,11 @@ import kotlinx.serialization.json.decodeFromJsonElement
 class CampusJwappScoreApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.6）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : JwappScoreSource, JwxtScoreSupplement {
 
-    /** 本端能不能拿分项成绩：serve 形态能（§5.8 端了 `score-detail`），campus-api 形态不能（移动教务在 campus-api 里没有对应端点，那个上游就没有这条）⇒屏在那形态下不展开那一格。 */
+    /** 本端能不能拿分项成绩：serve 形态能（有 `score-detail`），campus-api 形态不能（移动教务在 campus-api 里没有对应端点，那个上游就没有这条）⇒屏在那形态下不展开那一格。 */
     override val canFetchScoreDetail: Boolean get() = mode == ApiMode.SERVE
 
     override suspend fun getGrade(termCode: String?): List<TermScore> {
@@ -55,7 +55,7 @@ class CampusJwappScoreApi(
         }
     }
 
-    /** 分项成绩（§5.8 的 `GET /api/jwapp/score-detail?courseId=`）。 */
+    /** 分项成绩（`GET /api/jwapp/score-detail?courseId=`）。 */
     override suspend fun getScoreDetail(courseId: String): ScoreDetail {
         requireServe()
         val id = courseId.trim()
@@ -66,14 +66,14 @@ class CampusJwappScoreApi(
             SCORE_DETAIL_PATH,
             listOf(COURSE_ID_PARAM to id),
         )
-        // 字段缺失 = 「形状没对上」；显式 null = 上游说这门课没有分项（两件事，§4）
+        // 字段缺失 = 「形状没对上」；显式 null = 上游说这门课没有分项（两件事）
         val detail = data["detail"] ?: error("serve 分项成绩响应缺少 detail（$id）")
         if (detail.isNull) throw NoScoreDetailException()
         return (detail as? JsonObject)?.toScoreDetail()
             ?: error("serve 分项成绩响应的 detail 不是对象（$id）")
     }
 
-    /** 成绩报表（`GET /api/jwxt/grades`）：学号由服务端按当前账号取，本端不传（§5.2 红线）。 */
+    /** 成绩报表（`GET /api/jwxt/grades`）：学号由服务端按当前账号取，本端不传（隐私红线）。 */
     override suspend fun reportedGrades(): List<ReportedGrade> {
         requireServe()
         val data = client.serveData("加载成绩报表", baseUrl, GRADES_PATH)
@@ -147,7 +147,7 @@ private const val SCORES_PATH = "/api/jwapp/scores"
 /** 教务的精确成绩（第二站点）。 */
 private const val PRECISE_SCORES_PATH = "/api/jwapp/precise-scores"
 
-/** 一门课的分项成绩（屏上「点开一门课」那一格；§5.8）。 */
+/** 一门课的分项成绩（屏上「点开一门课」那一格）。 */
 private const val SCORE_DETAIL_PATH = "/api/jwapp/score-detail"
 
 /** 教务成绩报表（最新学期未评教的课从这里补）。 */

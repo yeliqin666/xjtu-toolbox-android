@@ -428,7 +428,7 @@ class ServeLmsJiaocaiJwappIclassfaceTest {
                 "qmcj", "qmcjxs", "kch", "jxbid", "passFlag", "examProp", "kclbdm",
             ),
             score.keys,
-            "`:data` 的 CjcxScore 原样端出（字段名 = 教务列名，缩写对照在契约 §5.6）",
+            "`:data` 的 CjcxScore 原样端出（字段名 = 教务列名）",
         )
         assertEquals(JwxtFakeUpstream.CJCX_KCM, score.optString("courseName"))
         assertEquals(JwxtFakeUpstream.CJCX_TERM, score.optString("termCode"))
@@ -671,7 +671,7 @@ class ServeLmsJiaocaiJwappIclassfaceTest {
         const val JWAPP_PRECISE_SCORES_PATH = "/api/jwapp/precise-scores"
         const val ICLASSFACE_RECORDS_PATH = "/api/iclassface/records"
 
-        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人） */
+        /** 隐私红线的钉子组（全是夹具里的编造值，不是真人） */
         val IDENTITY = listOf(
             "username",
             "studentId",
