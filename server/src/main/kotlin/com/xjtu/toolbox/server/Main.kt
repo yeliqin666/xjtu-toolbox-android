@@ -106,7 +106,7 @@ private fun printStartupBanner(
         },
     )
     println("  访问令牌：    $token")
-    println("                （存在 ~/.local/share/xjtu-toolbox/${AccessToken.STORE_NAME}.properties（0600），每次启动都打印这一份；")
+    println("                （存在 ~/.local/share/xjtu-dzhz/${AccessToken.STORE_NAME}.properties（0600），每次启动都打印这一份；")
     println("                  别贴进提交 / 截图 / 聊天。换一枚：删掉那个文件再启动。）")
     println("  浏览器侧带上：Authorization: Bearer <令牌>（或 cookie ${AccessToken.COOKIE_NAME}=<令牌>）")
     println("                /api/status 是唯一免令牌端点。")

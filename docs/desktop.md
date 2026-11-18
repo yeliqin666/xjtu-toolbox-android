@@ -13,7 +13,7 @@ Linux 与 Windows 共用同一个 `:desktop` 模块（Compose Desktop + jpackage
 
 ## 配置要点
 
-- 应用名：Windows 为「岱宗盒子」，Linux 为 `xjtu-dzhz`（deb 包名、`/opt/xjtu-dzhz`、启动器）；发布资产统一用 `xjtu-dzhz-<版本>` 前缀。用户数据目录仍是 `xjtu-toolbox`，不随应用名改。
+- 应用名：Windows 为「岱宗盒子」，Linux 为 `xjtu-dzhz`（deb 包名、`/opt/xjtu-dzhz`、启动器）；发布资产统一用 `xjtu-dzhz-<版本>` 前缀。数据目录是 `~/.local/share/xjtu-dzhz`（凭据、设置、serve 令牌与证书），缓存在 `~/.cache/xjtu-dzhz`（或 `$XDG_CACHE_HOME/xjtu-dzhz`）。
 - `desktopPackageVersion` 必须与 `:app` 的 `versionName` 逐字相同，且只能是 `x.y.z`（`DesktopPackageVersionJvmTest` 校验）。
 - 图标在 `desktop/icons/`（`linux.png`、`windows.ico`），由应用图标导出；`windows.ico` 必须含 256×256 一张。
 - MSI 摘要信息不走本地化代码页，`description` 只能写 ASCII；Windows 的中文产品名和快捷方式靠 `desktop/packaging/windows/` 里的 zh-cn WiX 资源。

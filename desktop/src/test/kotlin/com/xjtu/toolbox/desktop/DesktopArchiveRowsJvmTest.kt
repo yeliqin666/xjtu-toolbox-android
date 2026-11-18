@@ -43,7 +43,7 @@ import kotlinx.serialization.json.put
  *     主键；端内多出来的行一行不动。
  *
  * 隔离：`dataRootOverride` + `keyValueStoreRootOverride` 指到临时目录，并把进程内 memo 过的那些
- * store 清掉（`wipeSecureStore`）⇒ 绝不碰用户真实的 `~/.local/share/xjtu-toolbox`。
+ * store 清掉（`wipeSecureStore`）⇒ 绝不碰用户真实的 `~/.local/share/xjtu-dzhz`。
  *
  * ⚠️ 一处如实记下的错位：三族端内名带**当前账号后缀**，而导入发生在「用户还没登录」的时刻 ⇒ 那时写
  * 进的是未登录命名空间（后缀 `default`，与 `DesktopDownloadsJvmTest` 同一处口径）。用例按同一命名

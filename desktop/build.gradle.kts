@@ -105,7 +105,6 @@ compose.desktop {
             )
             // 应用名 = 安装目录、启动器与快捷方式的名字。Windows 用中文（代码页见下面 `windowsResourceDir`）；
             // Linux 的 deb 包名与 /opt 目录只认 ASCII，用 xjtu-dzhz（desktop-linux.yml 的图标校验跟着它）。
-            // 数据目录（~/.local/share/xjtu-toolbox 等）与它无关，不随之改名。
             packageName = if (isWindowsHost) "岱宗盒子" else "xjtu-dzhz"
             // jpackage 只接受 x.y.z 形式的版本号。
             packageVersion = desktopPackageVersion

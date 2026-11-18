@@ -15,7 +15,7 @@ var keyValueStoreRootOverride: File? = null
 fun keyValueStoreRoot(): File =
     keyValueStoreRootOverride
         ?: System.getProperty("xjtu.toolbox.keyValueRoot")?.let { File(it) }
-        ?: File(System.getProperty("user.home") ?: "/tmp", ".local/share/xjtu-toolbox")
+        ?: File(System.getProperty("user.home") ?: "/tmp", ".local/share/xjtu-dzhz")
 
 private val stores = ConcurrentHashMap<String, KeyValueStore>()
 

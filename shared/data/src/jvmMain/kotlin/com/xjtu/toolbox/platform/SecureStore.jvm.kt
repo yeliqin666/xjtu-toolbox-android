@@ -13,7 +13,7 @@ var dataRootOverride: File? = null
 
 /** 本端数据根目录。 */
 internal fun dataRoot(): File =
-    dataRootOverride ?: File(System.getProperty("user.home") ?: "/tmp", ".local/share/xjtu-toolbox")
+    dataRootOverride ?: File(System.getProperty("user.home") ?: "/tmp", ".local/share/xjtu-dzhz")
 
 /** 数据根目录的对外形态：宿主拿它下面的子目录。 */
 fun dataRootDir(): File = dataRoot()

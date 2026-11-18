@@ -141,7 +141,7 @@ internal class DesktopAgentHost(
 
     // ── 附件图（见 [AgentCapability.IMAGE_INPUT] 与 [DesktopAgentImages]）────────
 
-    /** 这张附件图还在不在：拷进 `~/.cache/xjtu-toolbox/agent_images<suffix>` 的那一份还在地上。 */
+    /** 这张附件图还在不在：拷进 `~/.cache/xjtu-dzhz/agent_images<suffix>` 的那一份还在地上。 */
     override fun imageFileExists(path: String): Boolean = File(path).isFile
 
     /** 读一张附件图的字节（气泡里那颗缩略图解码用）。 */

@@ -39,7 +39,7 @@ class DesktopAgentJvmTest {
         // 这一端没有登录：命名空间是 `default`（见 `AccountContext.suffixFor(null)`）
         AccountContext.activeAccountId = null
         // ⚠️ 先指到临时根目录、再清：`wipeSecureStore` 删的是**当前根目录**下那个文件，
-        // 顺序反了就会去删用户真实的 ~/.local/share/xjtu-toolbox。
+        // 顺序反了就会去删用户真实的 ~/.local/share/xjtu-dzhz。
         dataRootOverride = root
         // 存储是**进程级缓存**（`:data` 的 `secureKeyValueStore` 按名字缓存实例）⇒ 每条用例先按名字清一遍：
         // 不清的话新根目录下会拿到上一条用例建的实例（文件句柄还指在旧根目录里）。
