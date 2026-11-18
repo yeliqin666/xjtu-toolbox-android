@@ -278,7 +278,14 @@ fun NavEntryBuilder.appPageEntries(
             val attendanceContext = LocalContext.current
             WithSite("new_attendance") { site ->
                 AttendanceScreen(
-                    source = remember(site) { AppAttendanceSource(site) },
+                    // 包一层：这一页每次现拉的流水要顺手落盘、并重画智能卡片。
+                    // 不包的话卡片只能等日程页的考勤角标去写缓存，页面对了卡片还错（见那个类的注释）。
+                    source = remember(site) {
+                        com.xjtu.toolbox.attendance.AppAttendanceRecordingSource(
+                            AppAttendanceSource(site),
+                            attendanceContext.applicationContext,
+                        )
+                    },
                     onBack = back,
                     onOpenIclassface = { router.open(AppRoute.Iclassface) },
                     savedState = { createSavedStateHandle() },

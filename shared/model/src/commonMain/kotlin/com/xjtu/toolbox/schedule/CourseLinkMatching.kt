@@ -48,24 +48,26 @@ class SlotAttendanceMarks(
      * 差一天就整体错一周 —— 于是明明记了考勤，按周次去查却是空的，界面上就成了
      * 「考勤未记录」。日期是学校写在流水里的原样字符串，没有换算，不会错位。
      *
-     * 同一天同一时间常有好几门课（同节次不同课），所以末尾用 [courseName] 收口，
-     * 免得把隔壁班的记录当成自己的。
+     * 同一天同一时间常有好几门课（同节次不同课），所以还要认一遍是哪门课，见 [sameCourse]。
+     * 认课**课程号优先**：两个系统用的是同一套教务课程号（实测逐字相同），比课名可靠得多 ——
+     * 考勤系统的课名和课表里的写法未必一字不差（「高等数学（甲）」对「高等数学(甲)」、
+     * 带不带班号后缀），逐字比就查不到，表现出来又是「明明有记录却说没刷上」。
      *
      * @param date `2026-11-17` 这样的日期
      * @param startSection 这一格的起始节次
      * @param endSection 这一格的结束节次；学校可能只报起始节
-     * @param courseName 课程名，空串则不参与匹配
+     * @param courseName 课程名
+     * @param courseCode 教务课程号，与流水里的 `courseCode` 同源
      */
     fun recordAt(
         date: String,
         startSection: Int,
         endSection: Int = startSection,
         courseName: String = "",
+        courseCode: String = "",
     ): AttendanceWaterRecord? {
         if (date.isBlank() || startSection <= 0) return null
-        val sameDay = byDate[date].orEmpty().filter {
-            courseName.isBlank() || it.courseName.trim() == courseName.trim()
-        }
+        val sameDay = byDate[date].orEmpty().filter { it.sameCourse(courseName, courseCode) }
         if (sameDay.isEmpty()) return null
         // 先按起始节精确命中，再容忍「流水里的节次落在这门课的节次区间内」
         return sameDay.firstOrNull { it.startTime == startSection }
@@ -87,6 +89,40 @@ class SlotAttendanceMarks(
             }
     }
 }
+
+/**
+ * 这条流水是不是这门课的。
+ *
+ * 课程号优先：考勤系统和教务用的是同一套课程号，能比对就别去比名字。
+ * 课程号都为空（脏数据 / 老记录）才退回课名，且只做**窄**归一化，见 [courseNameKey]。
+ */
+private fun AttendanceWaterRecord.sameCourse(courseName: String, courseCode: String): Boolean {
+    val wantCode = courseCode.trim()
+    val haveCode = this.courseCode.trim()
+    if (wantCode.isNotEmpty() && haveCode.isNotEmpty()) {
+        if (wantCode.equals(haveCode, ignoreCase = true)) return true
+        // 课程号常带班号后缀（`MATH100101-05`）：主段相同也算同一门，见 lmsCourseMatched。
+        val wantStem = wantCode.substringBefore('-').trim()
+        val haveStem = haveCode.substringBefore('-').trim()
+        if (wantStem.length >= 4 && wantStem.equals(haveStem, ignoreCase = true)) return true
+    }
+    if (courseName.isBlank()) return true
+    if (this.courseName.isBlank()) return false
+    return this.courseName.courseNameKey() == courseName.courseNameKey()
+}
+
+/**
+ * 比课名用的键：只抹掉「同一个名字的两种写法」的差异 —— 空白、全角半角括号。
+ *
+ * **故意不用 [normalizedCourseName]**：那个会剥掉结尾的括号后缀，对教材匹配是对的
+ * （「高等数学（上）」「高等数学（下）」共用一个教材表），但拿来认考勤就会把
+ * 「大学物理」和「大学物理（实验）」判成同一门 —— 那天同一节课两门都上，
+ * 于是讲座的考勤显示在实验课上。宁可认不出，也不能认错。
+ */
+private fun String.courseNameKey(): String = trim()
+    .replace(Regex("[\\s　]"), "")
+    .replace('（', '(')
+    .replace('）', ')')
 
 /**
  * 拉到的考勤流水 → 课表格子索引。

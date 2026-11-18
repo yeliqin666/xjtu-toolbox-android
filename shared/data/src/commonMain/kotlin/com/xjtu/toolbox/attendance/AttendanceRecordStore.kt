@@ -70,6 +70,39 @@ object AttendanceRecordStore {
     }
 
     /**
+     * 考勤系统的学期 `bh`（`646`）→ 教务风格的学期码（`2026-2027-1`）。
+     *
+     * 两者是两套编号，落盘键与智能卡片的读取都按**教务学期码**走（见 [Shard.termCode]）：
+     * 拿 `bh` 当键存进去，卡片按学期码去读就永远读不到。对不上号返回 null —— 那说明这一学期
+     * 还不在学校排的学期表里，这时宁可什么都不写。
+     */
+    fun termCodeOf(terms: List<TermInfo>, bh: String): String? =
+        terms.firstOrNull { it.bh == bh }?.code?.takeIf { it.isNotBlank() }
+
+    /**
+     * 把一次刚拉到的流水并进分片（纯函数，不落盘）。
+     *
+     * 同一条流水以新盖旧（老师改了状态要跟着变），旧记录整份保留 ——
+     * 增量只覆盖最近几天，直接替换会把整学期抹成几天。
+     *
+     * @param fullScan 这一次拉的是不是整学期。**只有整学期才能推进 [Shard.fullScanAt]**：
+     *   顺手推进的话，之后永远轮不到全量重扫，老师期末回头补的早期考勤就再也看不到了
+     *   （见本对象的刷新分层说明）。
+     */
+    fun mergedShard(
+        termCode: String,
+        fresh: List<AttendanceWaterRecord>,
+        cached: Shard?,
+        fullScan: Boolean,
+        now: Long,
+    ): Shard = Shard(
+        termCode = termCode,
+        records = merge(fresh, cached?.records.orEmpty()),
+        fetchedAt = now,
+        fullScanAt = if (fullScan) now else cached?.fullScanAt ?: 0L,
+    )
+
+    /**
      * 合并新旧记录，同一条以新盖旧。
      *
      * 去重键取 `sbh`：老师改状态时 sbh 不变、status 变，新的在前于是覆盖旧的。

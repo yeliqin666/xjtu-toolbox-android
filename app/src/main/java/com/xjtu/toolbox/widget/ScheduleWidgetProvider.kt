@@ -53,6 +53,11 @@ internal data class WidgetCourse(
     val startSection: Int = 0,
     /** 结束节次；连上多节时学校可能只报起始节，取记录时用它兜一层。 */
     val endSection: Int = 0,
+    /**
+     * 教务课程号。智能卡片认考勤流水时优先用它 —— 考勤系统和教务是同一套课程号，
+     * 比课名可靠（两边对全角括号、班号后缀的写法未必一致）。
+     */
+    val courseCode: String = "",
 )
 
 /**
@@ -454,6 +459,7 @@ object ScheduleWidgetUpdater {
                 done = date < today || (date == today && end <= nowMinute),
                 startSection = c.startSection,
                 endSection = c.endSection,
+                courseCode = c.courseCode,
             )
         }.sortedWith(compareBy({ it.startMinute }, { it.endMinute }))
     }

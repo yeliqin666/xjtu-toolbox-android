@@ -21,10 +21,11 @@ class AttendanceRecordAtTest {
         endTime: Int = 4,
         week: Int = 6,
         name: String = "高等数学",
+        code: String = "",
         status: WaterType = WaterType.NORMAL,
     ) = AttendanceWaterRecord(
         sbh = "$date-$startTime-$name", startTime = startTime, endTime = endTime,
-        week = week, date = date, courseName = name, status = status,
+        week = week, date = date, courseName = name, courseCode = code, status = status,
     )
 
     @Test
@@ -69,5 +70,44 @@ class AttendanceRecordAtTest {
     fun `日期带时间后缀也认`() {
         val marks = attendanceMarksOf(listOf(rec(date = "2026-11-17 08:00:00")))
         assertEquals(WaterType.NORMAL, marks.recordAt("2026-11-17", 3, 4, "高等数学")?.status)
+    }
+
+    @Test
+    fun `课程号优先：课名写法不一致也认得出是同一门`() {
+        // 两个系统对括号的全角半角、班号后缀的处理不一致，逐字比会把同一门课判成两门
+        val marks = attendanceMarksOf(listOf(rec(name = "高等数学（甲）", code = "MATH100101-05")))
+        assertEquals(
+            WaterType.NORMAL,
+            marks.recordAt("2026-11-17", 3, 4, courseName = "高等数学(甲)", courseCode = "MATH100101-05")?.status,
+            "课程号逐字相同就该命中，不用去看课名",
+        )
+        assertEquals(
+            WaterType.NORMAL,
+            marks.recordAt("2026-11-17", 3, 4, courseName = "随便什么名字", courseCode = "MATH100101-05")?.status,
+            "有课程号时课名不参与判定",
+        )
+    }
+
+    @Test
+    fun `课程号只带上不同班号后缀也算同一门`() {
+        val marks = attendanceMarksOf(listOf(rec(code = "MATH100101-05")))
+        assertEquals(
+            WaterType.NORMAL,
+            marks.recordAt("2026-11-17", 3, 4, courseName = "高等数学", courseCode = "MATH100101-01")?.status,
+        )
+    }
+
+    @Test
+    fun `课名只统一全角半角与空白，不剥括号后缀`() {
+        // 全角半角括号、多余空格都算同一种写法
+        val marks = attendanceMarksOf(listOf(rec(name = "大学物理（实验）")))
+        assertEquals(
+            WaterType.NORMAL,
+            marks.recordAt("2026-11-17", 3, 4, courseName = " 大学物理(实验) ")?.status,
+        )
+        // 但**不**做「剥掉结尾括号」那种归一化：「大学物理」和「大学物理（实验）」是两门课，
+        // 同一节课两门都上时，认错就等于把讲座的考勤显示在实验课上
+        assertNull(marks.recordAt("2026-11-17", 3, 4, courseName = "大学物理"))
+        assertNull(marks.recordAt("2026-11-17", 3, 4, courseName = "大学物理实验"))
     }
 }
