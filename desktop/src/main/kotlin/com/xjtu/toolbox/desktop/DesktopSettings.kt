@@ -80,13 +80,8 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
     )
 
     /** 桌面端暂不支持的设置说明。 */
-    override val gapNote: String =
-        "桌面版没有这些设置（要调请用 App）：常用功能、连接模式" +
-            "——常用功能是手机首页上的快捷入口，桌面外壳照桌面习惯另做了一套。" +
-            "课表来源只有教务一个：桌面没有另做取数来源。" +
-            "「通知与提醒」只有一档：课表有变动时弹一条系统托盘气泡（`notify/`），没有可调的开关——" +
-            "其余几类提醒的评测在 `:app` 的 WorkManager 里，桌面没有排程载体（见 `docs/desktop-port-plan.md` 的 D6）；" +
-            "「更新」整组也没有：安装包自带版本，不走单独的更新通道。"
+    // 提醒只有课表变动的托盘气泡（`notify/`）；其余提醒在 `:app` 的 WorkManager 里，桌面没有排程载体
+    override val gapNote: String = "常用功能、连接模式、课表来源和提醒设置请在手机上调整。"
 
     override val changelog: List<ChangelogEntry> = emptyList()
 
@@ -161,7 +156,7 @@ private fun DesktopDataPrivacySection() {
     SettingsCard {
         ArrowPreference(
             title = "导出数据存档",
-            summary = "写到数据根下的 ${DesktopArchiveHost.ARCHIVE_DIR}/ 目录与 ${DesktopArchiveHost.ARCHIVE_ZIP_NAME}（不含密码等凭据）",
+            summary = "不含密码",
             startAction = { SettingsIcon(Icons.Default.Upload, SettingsColors.Teal) },
             onClick = {
                 if (busy) return@ArrowPreference
@@ -171,7 +166,7 @@ private fun DesktopDataPrivacySection() {
                     status = withContext(Dispatchers.IO) {
                         runCatching { DesktopArchiveHost.exportToDataRoot() }.fold(
                             onSuccess = {
-                                "已导出 ${it.entries} 个条目到 ${it.directory.absolutePath}，另有 ${it.zip.name}"
+                                "已导出到 ${it.zip.absolutePath}"
                             },
                             onFailure = { "导出失败：${it.message ?: it::class.simpleName}" },
                         )
@@ -182,7 +177,7 @@ private fun DesktopDataPrivacySection() {
         )
         ArrowPreference(
             title = "导入数据存档",
-            summary = "扫数据根下的 ${DesktopArchiveHost.ARCHIVE_DIR}/ 目录与 *.zip，先自校验再合并",
+            summary = "与现有数据合并",
             startAction = { SettingsIcon(Icons.Default.Download, SettingsColors.Blue) },
             onClick = { planImport(ArchiveImportMode.MERGE) },
         )
@@ -248,7 +243,7 @@ private fun DesktopDataPrivacySection() {
                                         runCatching { DesktopArchiveHost.confirmImport(planned) }.fold(
                                             onSuccess = { importOutcomeText(shown.path, it) },
                                             onFailure = {
-                                                "导入失败：${it.message ?: it::class.simpleName}（端内零变化）"
+                                                "导入失败，数据未改动：${it.message ?: it::class.simpleName}"
                                             },
                                         )
                                     }
@@ -269,32 +264,30 @@ private fun DesktopDataPrivacySection() {
 /** 导入那一行的结果文本：没有档案、导入了、已经导过、档案不可用。 */
 internal fun importStatusText(): String {
     val pending = DesktopArchiveHost.maybeImportPendingArchive()
-        ?: return "数据根下没有待导入的档案"
+        ?: return "没有待导入的存档"
     return importOutcomeText(pending.path, pending.outcome)
 }
 
-/** 一次导入的文案（前缀就是「发现待导入档案 X」那一句，与 [importStatusText] 逐字一致）。 */
+/** 一次导入的文案（前缀与 [importStatusText] 一致）。 */
 internal fun importOutcomeText(path: File, outcome: DesktopImportOutcome): String {
-    val prefix = "发现待导入档案 ${path.name}"
+    val prefix = "存档 ${path.name}"
     return when (outcome) {
         is DesktopImportOutcome.Imported ->
-            "$prefix：已交给 :core 的 StoreArchive.import 按 §6.4 合并 —— " +
-                "写入 ${outcome.result.keysWritten} 个键 / 保持 ${outcome.result.keysKept} 个 / " +
-                "写回 ${outcome.result.filesWritten} 个文件" +
-                // 未落地计数（B-9）：以前这一层对桌面没有落点的族是静默丢的，现在如实报出来。
-                if (outcome.result.filesSkipped > 0) " / ${outcome.result.filesSkipped} 条未落地（这一端没有那一族的落点）" else ""
-        is DesktopImportOutcome.AlreadyImported -> "$prefix：这份档案已经导过（标记与它一致），本次未改动任何数据"
-        is DesktopImportOutcome.Failed -> "$prefix 不可用：${outcome.reason}（端内零变化）"
+            "$prefix 已导入" +
+                // 桌面没有落点的那几类数据不静默丢，报个数
+                if (outcome.result.filesSkipped > 0) "，${outcome.result.filesSkipped} 项桌面版不支持" else ""
+        is DesktopImportOutcome.AlreadyImported -> "$prefix 已经导入过，未作改动"
+        is DesktopImportOutcome.Failed -> "$prefix 无法导入，数据未改动：${outcome.reason}"
     }
 }
 
 /** 只算了差异、还没落地时的文案（弹窗标题旁那一行 / 算不出来时的理由）。 */
 internal fun planOutcomeText(path: File, plan: DesktopArchivePlanOutcome): String {
-    val prefix = "发现待导入档案 ${path.name}"
+    val prefix = "存档 ${path.name}"
     return when (plan) {
         is DesktopArchivePlanOutcome.Planned -> "$prefix：${plan.plan.summary}"
-        is DesktopArchivePlanOutcome.AlreadyImported -> "$prefix：这份档案已经导过（标记与它一致），本次未改动任何数据"
-        is DesktopArchivePlanOutcome.Failed -> "$prefix 不可用：${plan.reason}（端内零变化）"
+        is DesktopArchivePlanOutcome.AlreadyImported -> "$prefix 已经导入过，未作改动"
+        is DesktopArchivePlanOutcome.Failed -> "$prefix 无法导入，数据未改动：${plan.reason}"
     }
 }
 

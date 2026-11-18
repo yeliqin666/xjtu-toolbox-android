@@ -119,7 +119,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
     /** 页顶那一行说明（随服务端的能力开关走；可写且未刚退出时不显示）。 */
     fun gapNote(): String = when {
         readOnly -> "当前是明文 HTTP，账号改动需要先开启 HTTPS（给 serve 加上 --https）。"
-        loggedOutAfterDelete -> "当前账号已删除，serve 现已退出登录。请切换到其他账号。"
+        loggedOutAfterDelete -> "当前账号已删除，已退出登录。请切换到其他账号。"
         else -> ""
     }
 
@@ -180,7 +180,7 @@ internal fun WebAccountsScreen(
             val message = accounts.errorMessage
             when {
                 accounts.loading -> FullPageState(Modifier.fillMaxSize()) {
-                    LoadingState("正在读取账号表…", Modifier.fillMaxSize())
+                    LoadingState("正在加载…", Modifier.fillMaxSize())
                 }
 
                 message != null -> FullPageState(Modifier.fillMaxSize()) {

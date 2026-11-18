@@ -193,26 +193,23 @@ internal fun ToolboxDesktopApp(
 
     if (!auth.loggedIn) {
         LoginScreen(
-            title = "西交工具箱",
-            subtitle = "用你的校园账号登录。凭据只留在本机，取数直接从学校站点走。",
+            title = "岱宗盒子",
+            subtitle = "使用统一身份认证账号登录",
             username = auth.username,
             onUsernameChange = { auth.username = it; auth.onLoginInputChanged() },
             password = auth.password,
             onPasswordChange = { auth.password = it; auth.onLoginInputChanged() },
             state = auth.loginState,
             onSubmit = { scope.launch { auth.login() } },
-            footer = "凭据存成权限 0600 的文件（只有你这台机器的这个用户可以读）。" +
-                "登录需要两步验证时会在窗口里弹出来。",
         )
     } else {
         // 共享壳（`:core` 的 AppShell）：底栏 / 侧栏 / 当前页那一层 / 形态学全在它里面，
-        // 与 `:app` 是同一份代码。这一端只交三样：六格、当前页、以及「留下谁」那一档。
+        // 与 `:app` 是同一份代码。这一端只交三样：五格、当前页、以及「留下谁」那一档。
         val navState = ShellNavState(
             tabs = desktopTabs(),
             target = target.toShell(),
             onSelect = { tab ->
-                // 六格里只有「某一屏」与「全部」两种目标（见 desktopTabs）；Custom（端自己的页）
-                // 这一端还没有 ⇒ 映射不出来就不动（不假装能去）。
+                // 映射不出来（Custom：端自己的页，这一端没有）就不动
                 tab.target.toDesktop()?.let { target = it }
             },
         )
@@ -366,18 +363,12 @@ private fun DesktopSiteGate(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "$siteName 会话没建起来",
+                "${siteName}登录失败",
                 color = MiuixTheme.colorScheme.onSurface,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
             )
             Text(failure.orEmpty(), color = MiuixTheme.colorScheme.error, fontSize = 13.sp)
-            Text(
-                "这一屏需要先登录「$siteName」。它与图书馆是同一套凭据；这里失败通常是那个子系统自己出问题" +
-                    "（体测服务历史上返回过 502），不是账号问题。",
-                color = MiuixTheme.colorScheme.onBackgroundVariant,
-                fontSize = 12.sp,
-            )
             Button(onClick = { attempt++ }, colors = ButtonDefaults.buttonColorsPrimary()) {
                 Text("重试", color = MiuixTheme.colorScheme.onPrimary)
             }
@@ -389,7 +380,7 @@ private fun DesktopSiteGate(
         ) {
             CircularProgressIndicator()
             Text(
-                "正在准备$siteName 会话…",
+                "正在登录$siteName…",
                 color = MiuixTheme.colorScheme.onBackgroundVariant,
                 fontSize = 13.sp,
             )
@@ -773,15 +764,8 @@ private fun DesktopPage(
         //  ② 把游戏规则（`LEVELS` / 合成计分 / 投放权重）搬进 `:core` 用 Compose 重画 —— 但物理
         //     是它的本体，重画出来是**另一个游戏**，不划算。
         AppRoute.GameMerge -> HostUnavailableScreen(
-            route = route,
-            title = "合成西交大在桌面上跑不了",
-            lines = listOf(
-                "它是 WebView 里跑的游戏：HTML + 776 行 JS + 本地 Matter.js 物理引擎，" +
-                    "本体在 Android 的 assets/games/merge/（408KB，全程不联网）。",
-                "桌面端没有 WebView（Compose Desktop 的渲染栈是 skiko/Skia），依赖里也没有任何 " +
-                    "JVM 上的 JS 引擎 ⇒ 这份页面在这一端没有能执行它的地方。",
-                "不另写一屏「简化版」冒充它：物理是它的本体，重画出来是另一个游戏。",
-            ),
+            title = "桌面版暂不支持合成西交大",
+            lines = listOf("请在手机上玩。"),
             onNavigate = onNavigate,
         )
 
@@ -808,12 +792,11 @@ private fun DesktopPage(
             scanner = null,
             // 那两颗扫码按钮不画（桌面没有相机/相册），但"为什么没有"得说一句：
             // 否则用户会以为这一端坏了，或以为码只能手打。
-            gapNote = "这一端没有相机，也没有相册，扫不了码：请用手机的「匹配」扫一下，或者让对方把文字码发给你、" +
-                "粘在下面那一格（粘进来的码照常能算，契合度是在本机算的）。",
+            gapNote = "桌面版不能扫码，可以粘贴对方发来的文字码。",
         )
         AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
         // 资料站（zyxf）没有桌面端实现：显式给一条分支，不依赖 else。
-        AppRoute.Zyxf -> NotPortedScreen(route, onNavigate)
+        AppRoute.Zyxf -> NotPortedScreen(onNavigate)
         // 学业进度：取数与课表缓存都是本机的，在修课程读日程屏写的那份缓存。
         AppRoute.DegreeProgress -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { _ ->
             val source = remember(auth) {
@@ -827,12 +810,12 @@ private fun DesktopPage(
             com.xjtu.toolbox.degree.DegreeScreen(source = source, onBack = back)
         }
         // 公告详情在桌面端是从列表里内联展开的，没有独立一屏；`else` 只留给「加了路由却忘了加分支」。
-        is AppRoute.NoticeDetail -> NotPortedScreen(route, onNavigate)
+        is AppRoute.NoticeDetail -> NotPortedScreen(onNavigate)
         // 扫一扫是 Android 顶栏的相机入口，桌面端没有这一屏。
-        AppRoute.QrScan -> NotPortedScreen(route, onNavigate)
+        AppRoute.QrScan -> NotPortedScreen(onNavigate)
 
         // 其余路由显示「没搬过来」，不拿有数据的屏冒充。
-        else -> NotPortedScreen(route, onNavigate)
+        else -> NotPortedScreen(onNavigate)
     }
 }
 /** 小岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
@@ -881,129 +864,63 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("桌面端（Stage A）", color = cs.onSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "屏全部来自 :core —— 与 Android、Web 是同一份源码。取数来自 :data：" +
-                "这一端自己登录、自己直连学校站点，不经过任何我方的服务器。",
-            color = cs.onBackgroundVariant,
-            fontSize = 12.sp,
-        )
-        Text(
-            "已登录 · 会话已就绪（图书馆站点）",
-            color = cs.primary,
-            fontSize = 12.sp,
-        )
-
-        Text("真能用（${DESKTOP_SUPPORTED_ROUTES.size}）", color = cs.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text("全部页面", color = cs.onSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         DESKTOP_SUPPORTED_ROUTES.forEach { (route, label) ->
             TextLink(
-                text = "$label（${route.id}）",
+                text = label,
                 onClick = { onNavigate(DesktopTarget.App(route)) },
                 modifier = Modifier.fillMaxWidth(),
                 chevron = true,
             )
         }
 
-        Text(
-            "屏在了、还没有数据源（${DESKTOP_PENDING_ROUTES.size}）",
-            color = cs.onSurface,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            if (DESKTOP_PENDING_ROUTES.isEmpty())
-                "现在是 0：17 条真数据路由都搬完了 —— 「屏在 :core 而取数还在 :app」的路由一条不剩。" +
-                    "这一栏留着是因为它是 Stage A 的进度表：屏先落地、取数后到是常规的中间态，" +
-                    "下一屏要搬时它会重新长出条目。"
-            else
-                "下面这些屏已经是 :core 的共享屏，卡的是**取数**：它们的 `*Api` / 站点类还在 :app。" +
-                    "搬到 :data 一条就能用一条。",
-            color = cs.onBackgroundVariant,
-            fontSize = 12.sp,
-        )
-        DESKTOP_PENDING_ROUTES.forEach { (route, label) ->
-            TextLink(
-                text = "$label（${route.id}）",
-                onClick = { onNavigate(DesktopTarget.App(route)) },
-                modifier = Modifier.fillMaxWidth(),
-                chevron = true,
-            )
+        if (DESKTOP_PENDING_ROUTES.isNotEmpty()) {
+            Text("暂不可用", color = cs.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            DESKTOP_PENDING_ROUTES.forEach { (route, label) ->
+                TextLink(
+                    text = label,
+                    onClick = { onNavigate(DesktopTarget.App(route)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    chevron = true,
+                )
+            }
         }
 
         TextLink(
-            text = "退出登录（清除这条账号的凭据、会话与记录）",
+            text = "退出登录",
             onClick = { auth.logout() },
             modifier = Modifier.fillMaxWidth(),
             color = cs.error,
-        )
-        Text(
-            "退出会删掉：这条账号的记录、它的 cookie 与站点快照。" +
-                "其余账号一条不动（多账号在「账号管理」那一屏）。" +
-                "共享的机器上请不要留着登录态。",
-            color = cs.onBackgroundVariant,
-            fontSize = 12.sp,
         )
     }
 }
 
 /** 「这一屏还没搬到桌面」的占位页。 */
 @Composable
-private fun NotPortedScreen(route: AppRoute, onNavigate: (DesktopTarget) -> Unit) {
-    val cs = MiuixTheme.colorScheme
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text("这一屏还没搬到桌面", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text("AppRoute.${route::class.simpleName ?: "?"}", color = cs.primary, fontSize = 13.sp)
-        Text("路由 id：${route.id}", color = cs.onBackgroundVariant, fontSize = 12.sp)
-        Text(
-            if (route.loginType != null)
-                "它需要 ${route.loginType} 的站点会话 —— 那个站点的类与它的 *Login 还在 :app，" +
-                    "没搬进 :data。搬一个站点就有数据源。"
-            else
-                "它的取数还在 :app / campus-api 的只读端，没进 :core / :data。",
-            color = cs.onBackgroundVariant,
-            fontSize = 12.sp,
-        )
-        Text(
-            "桌面的取数不走 campus-api（设计文档 C2：任何人独立安装、独立登录）——" +
-                "所以 Stage 0 那批脚手架屏幕这一轮换成了如实说明，而不是继续借 campus-api 画画面。",
-            color = cs.onBackgroundVariant,
-            fontSize = 12.sp,
-        )
-        Button(
-            onClick = { onNavigate(DesktopTarget.Routes) },
-            colors = ButtonDefaults.buttonColorsPrimary(),
-        ) { Text("回全部页面", color = cs.onPrimary) }
-    }
-}
+private fun NotPortedScreen(onNavigate: (DesktopTarget) -> Unit) =
+    HostUnavailableScreen("桌面版暂不支持此功能", listOf("请在手机上使用。"), onNavigate)
 
-/** 「这一屏卡的不是取数，而是宿主的某一项能力」的说明。 */
+/** 桌面版做不了的功能。 */
 @Composable
 private fun HostUnavailableScreen(
-    route: AppRoute,
     title: String,
     lines: List<String>,
     onNavigate: (DesktopTarget) -> Unit,
 ) {
     val cs = MiuixTheme.colorScheme
     Column(
-        // 自己画底：`NotPortedScreen` 那一页没画，靠窗口底色 —— 而离屏
-        // 证据图里没有窗口，于是深色模式下会变成「浅字透明底」（图上看着像坏了）。这里补上。
+        // 自己画底：离屏渲染没有窗口底色，深色下会变成浅字透明底
         modifier = Modifier.fillMaxSize().background(cs.background).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(title, color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text("AppRoute.${route::class.simpleName ?: "?"}", color = cs.primary, fontSize = 13.sp)
-        Text("路由 id：${route.id}", color = cs.onBackgroundVariant, fontSize = 12.sp)
         lines.forEach { line ->
-            Text(line, color = cs.onBackgroundVariant, fontSize = 12.sp)
+            Text(line, color = cs.onBackgroundVariant, fontSize = 13.sp)
         }
         Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
             colors = ButtonDefaults.buttonColorsPrimary(),
-        ) { Text("回全部页面", color = cs.onPrimary) }
+        ) { Text("返回", color = cs.onPrimary) }
     }
 }
 

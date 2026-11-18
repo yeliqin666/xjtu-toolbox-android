@@ -345,7 +345,7 @@ class DesktopArchiveImportJvmTest {
     @Test
     fun `端到端：扫到档案就真导，状态文本如实`() = withRoot { root ->
         wipeSecureStore("app_settings")
-        assertEquals("数据根下没有待导入的档案", importStatusText())
+        assertEquals("没有待导入的存档", importStatusText())
 
         val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME")))))
         dropArchiveDir(root, entries)
@@ -356,8 +356,8 @@ class DesktopArchiveImportJvmTest {
         assertEquals("HOME", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).defaultTab)
 
         val text = importStatusText()
-        assertTrue(text.startsWith("发现待导入档案 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
-        assertTrue(text.contains("已经导过"), text)
+        assertTrue(text.startsWith("存档 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
+        assertTrue(text.contains("已经导入过"), text)
         wipeSecureStore(SettingsStore.APP_SETTINGS_FILE)
     }
 

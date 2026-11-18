@@ -60,7 +60,7 @@ internal fun WebVenueScreen(
                 // 滑块宿主槽位（serve 模式下下单要它；campus-api 的 canBook=false ⇒ 验证码弹窗不出现）。
                 captchaHost = remember { WebSlideCaptchaHost },
                 // 「去支付」是新标签页，不保证直接落成能付款的一页（见 PAY_HOP_NOTE）。
-                payHint = "支付在新标签页里打开：本端收不到回调，登录那一跳按标签页自己的流程走",
+                payHint = "支付将在新标签页打开",
                 showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
             )

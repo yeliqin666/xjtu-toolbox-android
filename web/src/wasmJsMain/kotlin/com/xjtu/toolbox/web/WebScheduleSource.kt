@@ -76,7 +76,7 @@ internal class WebScheduleSource(
         // 把当前学期的开学日当成它答回来）⇒ 静默错答不如抛错。
         if (code.isNotEmpty() && code != now) {
             throw UnsupportedOperationException(
-                "Web 这一端只拿得到当前学期（$now）的开学日：服务端的 /api/jwxt/term-start 不对历史学期作答",
+                "网页版只能查看当前学期（$now）",
             )
         }
         val start = api.termStart(code)

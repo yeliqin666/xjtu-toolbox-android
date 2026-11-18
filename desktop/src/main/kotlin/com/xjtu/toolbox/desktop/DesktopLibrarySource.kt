@@ -93,7 +93,7 @@ class DesktopLibrarySource(site: SiteSession) : LibrarySource {
 
     /** 二维码查单个座位：桌面端不支持。 */
     override suspend fun seatAvailability(qr: LibrarySeatQr): LibrarySeatStatus =
-        throw UnsupportedOperationException("桌面端不支持扫二维码查座位（${qr.areaCode}/${qr.seat}）")
+        throw UnsupportedOperationException("桌面版不支持扫码查座位")
 
     override fun areaStats(): Map<String, AreaStats> = api.cachedAreaStats
 

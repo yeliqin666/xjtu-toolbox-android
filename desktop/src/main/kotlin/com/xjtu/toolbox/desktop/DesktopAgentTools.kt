@@ -322,7 +322,7 @@ internal class DesktopAgentTools(
         val termCode = term?.takeIf { it.isNotBlank() } ?: ScheduleCache.readCurrentTerm(cache)
             ?: return CACHE_MISS_SCHEDULE
         val exams = ScheduleCache.readExams(cache, termCode)
-            ?: return "本机还没有 $termCode 的考试安排（日程页里考试那一块刷出来之后这里就有）。"
+            ?: return "还没有 $termCode 的考试安排：请先打开「日程」页刷新一次。"
         if (exams.isEmpty()) return ToolReply.empty("exams; term: $termCode")
         return buildString {
             append("$termCode 考试安排（${exams.size}场）：\n")
@@ -400,7 +400,6 @@ internal class DesktopAgentTools(
     /** 给测试也能引用的一句（见 `DesktopAgentJvmTest` 的“缓存空”那条）。 */
     companion object {
         /** 桌面没有教务取数通路时的那一句：说清"去哪儿刷一次"，别让它看起来像能自己拉。 */
-        const val CACHE_MISS_SCHEDULE =
-            "桌面这一端不直连教务：先在「日程」页登录教务刷一次课表，之后这里读的就是那一份缓存。"
+        const val CACHE_MISS_SCHEDULE = "还没有课表：请先打开「日程」页刷新一次。"
     }
 }

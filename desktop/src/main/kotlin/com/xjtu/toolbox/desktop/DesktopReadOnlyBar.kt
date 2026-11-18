@@ -25,7 +25,7 @@ internal fun DesktopReadOnlyBar(reason: String) {
     Column(
         Modifier.fillMaxWidth().background(cs.secondaryContainer).padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        Text("这一端是只读的（另一个实例正在运行）", color = cs.onSurface, fontSize = 13.sp)
+        Text("另一个窗口正在运行，这里只能查看", color = cs.onSurface, fontSize = 13.sp)
         Text(reason, color = cs.onBackgroundVariant, fontSize = 11.sp)
     }
 }

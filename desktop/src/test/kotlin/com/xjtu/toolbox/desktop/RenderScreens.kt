@@ -202,7 +202,7 @@ fun main(args: Array<String>) {
         // 假上游那组编出来的账号密码（不是任何人的学号）。
         auth.username = LibraryFakeUpstream.USERNAME
         auth.password = LibraryFakeUpstream.PASSWORD
-        val ok = runBlocking { auth.login() }
+        val ok = runBlocking { auth.login().also { auth.awaitPrewarm() } }
         println(
             "真登录结果=$ok  状态=${auth.loginState}  " +
                 "CAS 提交凭据次数=${fake.library.credentialPosts.get()}  签发的 ticket 数=${fake.library.tickets.get()}"
@@ -589,7 +589,7 @@ fun main(args: Array<String>) {
         check(homeExamShown) { "home.png：屏上没有考试倒计时 —— 考试表那一格没读出来？" }
         check(homeBulletinShown) { "home.png：顶部没有夹具那条公告 —— 公告条没接上共享层？" }
 
-        // 主壳：同一个路由、宽窗拍一张 —— 首页接进**现有导航壳**之后的形态（底栏六格 + 首页高亮）。
+        // 主壳：同一个路由、宽窗拍一张 —— 首页接进**现有导航壳**之后的形态（底栏五格 + 首页高亮）。
         var mainShellShown = false
         var mainHomeTabShown = false
         var mainBulletinShown = false

@@ -1,11 +1,7 @@
 package com.xjtu.toolbox.auth
 
-import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
-import android.util.Log
-import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.network.HttpClients
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,26 +43,30 @@ object CampusProbe {
     )
     private const val CHECK_URL = "https://ywtb.xjtu.edu.cn/portal-api/v2/service/networkCheck"
 
-    private const val PREFS = "campus_probe"
-    private const val KEY_TOKEN = "ywtb_token"
-    private lateinit var app: Context
-
-    fun init(context: Context) {
-        app = context.applicationContext
+    /** 令牌落盘的地方（安卓加密存盘）；不设就只留在内存。 */
+    interface TokenStore {
+        fun load(): String?
+        fun save(token: String?)
     }
+
+    @Volatile var tokenStore: TokenStore? = null
+        set(value) {
+            field = value
+            tokenLoaded = false
+        }
 
     @Volatile private var token: String? = null
     @Volatile private var tokenLoaded = false
 
     /**
-     * 最近一次一网通办登录拿到的令牌，加密存盘，重启和站点失效都不丢——一网通办平时不一定
+     * 最近一次一网通办登录拿到的令牌，存盘后重启和站点失效都不丢——一网通办平时不一定
      * 登录，只靠内存的话切网时多半没有。networkCheck 不看是谁。令牌是 JWT、8 小时有效，
      * 过期的当没有；服务器说没权限也作废，退回靠探针。
      */
     var ywtbToken: String?
         get() {
-            if (!tokenLoaded && ::app.isInitialized) {
-                token = runCatching { SecurePrefs.open(app, PREFS).getString(KEY_TOKEN, null) }.getOrNull()
+            if (!tokenLoaded) {
+                tokenStore?.let { store -> token = runCatching { store.load() }.getOrNull() }
                 tokenLoaded = true
             }
             return token?.takeUnless { Jwt.isExpired(it, System.currentTimeMillis()) }
@@ -74,27 +74,19 @@ object CampusProbe {
         set(value) {
             token = value
             tokenLoaded = true
-            if (!::app.isInitialized) return
-            runCatching {
-                SecurePrefs.open(app, PREFS).edit().apply { if (value == null) remove(KEY_TOKEN) else putString(KEY_TOKEN, value) }.apply()
-            }
+            tokenStore?.let { store -> runCatching { store.save(value) } }
         }
 
     /** 服务器说校外后，再等探针多久。校内探针一般几十毫秒就回。 */
-    private const val GRACE_MS = 800L
+    const val GRACE_MS = 800L
 
-    /**
-     * 服务器认不出的校园网地址（IPv6 之类）只会出现在 Wi-Fi 上；只走流量又没开 VPN 时
-     * 不可能在校园网里，服务器说校外就是校外，不再干等。
-     */
-    private fun graceMs(): Long {
-        if (!::app.isInitialized) return GRACE_MS
-        val cm = app.getSystemService(ConnectivityManager::class.java) ?: return GRACE_MS
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return GRACE_MS
-        val cellularOnly = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
-            !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-            !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-        return if (cellularOnly) 0L else GRACE_MS
+    /** 每次探测时取宽限时长；安卓只走流量时给 0（见 `CampusProbeAndroid.kt`）。 */
+    @Volatile var graceMs: () -> Long = { GRACE_MS }
+
+    /** 把会话管家拿到的一网通办令牌接到这里，换账号时作废。 */
+    fun attach(manager: SessionManager) {
+        manager.onAccountSwitched = { ywtbToken = null }
+        manager.onYwtbToken = { ywtbToken = it }
     }
 
     enum class Server { ON, OFF, REACHABLE, UNREACHABLE }
@@ -118,6 +110,23 @@ object CampusProbe {
             .callTimeout(4, TimeUnit.SECONDS)
             .followRedirects(false)
             .build()
+    }
+
+    /**
+     * 判一次校内外并切 [manager] 的访问模式：校外时只在校内可达的站点走内置 WebVPN。没网时不改判。
+     * 桌面与 serve 用；安卓有带缓存与复查的那一套（`AppLoginState.detectCampusNetwork`）。
+     */
+    suspend fun applyAccessMode(manager: SessionManager) {
+        manager.unsettleAccessMode()
+        try {
+            val verdict = detect(ywtbToken)
+            manager.recordDiagnostic("INFO", "network", "校内外判定：${verdict.why}")
+            if (!verdict.offline) {
+                manager.onNetworkChanged(if (verdict.onCampus) AccessMode.NORMAL else AccessMode.WEBVPN)
+            }
+        } finally {
+            manager.settleAccessMode()
+        }
     }
 
     /**

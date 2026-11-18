@@ -131,7 +131,10 @@ compose.desktop {
             /** Windows 那一套 jpackage `--win-*` / WiX 参数。 */
             windows {
                 perUserInstall = true
+                // 同一个 upgradeUuid + 递增的版本号 ⇒ 新安装包原地升级旧版，不并排装第二份
                 upgradeUuid = "528a294e-23ee-4307-a37a-1a71bb591fa0"
+                shortcut = true
+                menu = true
                 menuGroup = "Education"
                 iconFile.set(project.file("icons/windows.ico"))
             }

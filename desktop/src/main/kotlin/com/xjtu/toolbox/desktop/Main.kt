@@ -50,7 +50,7 @@ fun main() {
         Window(
             onCloseRequest = ::exitApplication,
             // 只读那一档在窗口标题上也要看得出来（横幅可能被滚走，标题栏一直在）
-            title = "西交工具箱（桌面预览 · Stage A）" + if (readOnlyReason == null) "" else " · 只读",
+            title = "岱宗盒子" + if (readOnlyReason == null) "" else "（只读）",
             state = rememberWindowState(size = DpSize(520.dp, 900.dp)),
         ) {
             CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {

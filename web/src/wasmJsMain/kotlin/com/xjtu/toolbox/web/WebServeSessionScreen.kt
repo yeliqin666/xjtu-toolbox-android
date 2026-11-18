@@ -96,24 +96,13 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row {
-            Text("serve 会话", color = colors.onSurface, fontSize = 18.sp, modifier = Modifier.weight(1f))
-            TextLink(text = "回课表", onClick = onBack, chevron = true)
+            Text("登录", color = colors.onSurface, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            TextLink(text = "返回", onClick = onBack, chevron = true)
         }
-        Text(
-            "这一屏是 serve 模式（`:server` 托管本页）的登录口：会话在 `:server` 进程里，" +
-                "浏览器不带任何凭据地登进去。非 serve 模式（同源反代 campus-api）用不到它。",
-            color = colors.onBackgroundVariant,
-            fontSize = 11.sp,
-        )
 
-        // ── 访问令牌：只在内存里，浏览器会话内贴一次 ──
+        // 访问令牌是 `:server` 启动横幅里打印的那一行；只存页面内存，不写 localStorage
         if (!session.hasToken && authenticated != true) {
-            Text(
-                "访问令牌：`:server` 启动横幅里打印的那一行（Authorization: Bearer <令牌>）。" +
-                    "它只存在这个页面的内存里，不写 localStorage —— 刷新后若 cookie 还在就不必重贴。",
-                color = colors.onBackgroundVariant,
-                fontSize = 11.sp,
-            )
+            Text("请输入服务器的访问令牌", color = colors.onBackgroundVariant, fontSize = 12.sp)
             TextField(
                 value = tokenInput,
                 onValueChange = { tokenInput = it },
@@ -126,21 +115,15 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                 enabled = tokenInput.isNotBlank() && !busy,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColorsPrimary(),
-            ) { Text("用这枚令牌问会话", color = colors.onPrimary) }
+            ) { Text("确定", color = colors.onPrimary) }
         }
 
         when (authenticated) {
-            null -> Text("正在问 :server 有没有会话…", color = colors.onSurface, fontSize = 13.sp)
+            null -> Text("正在检查登录状态…", color = colors.onSurface, fontSize = 13.sp)
             true -> Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(14.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("已登录（会话在 :server 进程里）", color = colors.onSurface, fontSize = 14.sp)
-                    Text(
-                        "取数（课表 / 成绩 / 黄页 / 图书馆 / 校园卡 …）现在都走 `:server`。" +
-                            "退出后将清除服务端保存的校园账号登录信息。",
-                        color = colors.onBackgroundVariant,
-                        fontSize = 11.sp,
-                    )
-                    TextLink(text = "登出", onClick = { doLogout() }, enabled = !busy, color = colors.error)
+                    Text("已登录", color = colors.onSurface, fontSize = 14.sp)
+                    TextLink(text = "退出登录", onClick = { doLogout() }, enabled = !busy, color = colors.error)
                 }
             }
             false -> Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(14.dp)) {
@@ -159,7 +142,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    // 这一发会一直开着等短信验证码（最长 150 秒）⇒ 按钮的文案要说清「可能挂一会儿」
+                    // 这一发会一直开着等短信验证码（最长 150 秒）
                     Button(
                         onClick = { doLogin() },
                         enabled = !busy && username.isNotBlank() && password.isNotBlank(),
@@ -167,7 +150,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                         colors = ButtonDefaults.buttonColorsPrimary(),
                     ) {
                         Text(
-                            if (busy) "正在登录…（挂短信二验时最长 150 秒）" else "登录",
+                            if (busy) "正在登录…" else "登录",
                             color = colors.onPrimary,
                         )
                     }

@@ -2,6 +2,8 @@ package com.xjtu.toolbox
 
 import android.app.Application
 import android.content.Context
+import com.xjtu.toolbox.auth.CampusProbe
+import com.xjtu.toolbox.auth.init
 import com.xjtu.toolbox.error.CrashReporter
 import com.xjtu.toolbox.notification.AppNotificationChannels
 import kotlinx.coroutines.CoroutineScope
@@ -97,7 +99,7 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
         }
         // 小游戏全服榜的服务端地址（构建期可覆盖，见 app/build.gradle.kts；空串 = 不出现排行榜）
         com.xjtu.toolbox.game.board.LeaderboardApi.install(BuildConfig.LEADERBOARD_BASE_URL)
-        com.xjtu.toolbox.auth.CampusProbe.init(this)
+        CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)

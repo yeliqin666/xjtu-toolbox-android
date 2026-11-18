@@ -66,7 +66,7 @@ internal object DesktopAgentImages {
             }.getOrNull()
         }
         if (tooBig > 0) {
-            showBriefMessage("有 $tooBig 张图超过 ${MAX_BYTES / 1024 / 1024}MB 没带上（桌面这一端不缩图）")
+            showBriefMessage("$tooBig 张图片超过 ${MAX_BYTES / 1024 / 1024}MB，未添加")
         }
         return saved
     }
