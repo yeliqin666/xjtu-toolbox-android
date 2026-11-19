@@ -40,10 +40,13 @@ import androidx.compose.ui.text.style.TextOverflow
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -197,6 +200,32 @@ fun BrowserScreen(
                 Toast.LENGTH_SHORT
             ).show()
         }
+    }
+
+    /**
+     * 网页里 `<input type="file">` 的唯一入口是 [WebChromeClient.onShowFileChooser]。不实现它，
+     * 点击「选择文件」一点反应都没有——思源学堂交作业上传附件就卡在这一步（本 App 不自己实现提交，
+     * 只打开官方 h5 页面，所以那一页功能必须完整）。
+     *
+     * 回调要一直留到用户选完文件才回填，所以先挂在 Compose 状态上。用 MutableState 而不是局部变量，
+     * 是为了让 ActivityResult 回调、WebView 内部（factory 里只创建一次）读到的是同一个格子。
+     */
+    val pendingFilePick = remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val callback = pendingFilePick.value ?: return@rememberLauncherForActivityResult
+        pendingFilePick.value = null
+        val data = result.data
+        val clip = data?.clipData
+        val single = data?.data
+        val picked: Array<Uri>? = when {
+            result.resultCode != android.app.Activity.RESULT_OK -> null
+            // 多选走 clipData、单选走 data；两者都可能给，先看 clipData
+            clip != null && clip.itemCount > 0 -> Array(clip.itemCount) { clip.getItemAt(it).uri }
+            single != null -> arrayOf(single)
+            else -> null
+        }
+        // 取消也必须回一次 null：WebView 内部在等这个回调，漏掉这一页的「选择文件」之后会彻底没反应
+        callback.onReceiveValue(picked)
     }
 
     LaunchedEffect(isDark, webViewRef) {
@@ -478,6 +507,34 @@ fun BrowserScreen(
                             resultMsg.sendToTarget()
                             return true
                         }
+
+                        /**
+                         * 网页点了 `<input type="file">`。不覆写这一条，WebView 默认什么都不做，
+                         * 页面上看起来就是「按钮坏了」。
+                         */
+                        override fun onShowFileChooser(
+                            view: WebView?,
+                            filePathCallback: ValueCallback<Array<Uri>>?,
+                            fileChooserParams: FileChooserParams?
+                        ): Boolean {
+                            val callback = filePathCallback ?: return false
+                            // 上一回没接完的先作废，否则那一页会一直等上一次的结果
+                            pendingFilePick.value?.onReceiveValue(null)
+                            pendingFilePick.value = callback
+                            // 选整个文件夹（webkitdirectory）：系统选择器给不出网页能用的一组文件，说清楚
+                            if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_FOLDER) {
+                                pendingFilePick.value = null
+                                callback.onReceiveValue(null)
+                                Toast.makeText(context, "这个网页想选整个文件夹，暂不支持", Toast.LENGTH_SHORT).show()
+                                return true
+                            }
+                            if (runCatching { filePicker.launch(webFileChooserIntent(fileChooserParams)) }.isFailure) {
+                                pendingFilePick.value = null
+                                callback.onReceiveValue(null)
+                                Toast.makeText(context, "没有可用的文件选择器", Toast.LENGTH_SHORT).show()
+                            }
+                            return true
+                        }
                     }
 
                     webViewRef = this
@@ -509,6 +566,9 @@ fun BrowserScreen(
             },
             onRelease = { view ->
                 if (webViewRef === view) webViewRef = null
+                // 关页面时还挂着一个没回来的选择器回调就作废它，别留悬空引用
+                pendingFilePick.value?.onReceiveValue(null)
+                pendingFilePick.value = null
                 view.releaseSafely()
             },
             modifier = Modifier
@@ -555,6 +615,53 @@ internal fun isAuthHop(url: String): Boolean {
 private fun displayHost(url: String): String {
     val real = shareableUrl(url, WebVpnUtil)
     return runCatching { URI(real).host.orEmpty() }.getOrDefault("").removePrefix("www.")
+}
+
+/**
+ * 把网页的 `<input type="file" accept=... multiple>` 折成系统选择器认得的 intent。
+ *
+ * `accept` 里既有 MIME（`application/pdf`）也有扩展名（`.pdf`），思源学堂的作业提交页就是混着写的。
+ * 扩展名原样塞进 `EXTRA_MIME_TYPES` 会让选择器一个文件都不显示，所以统一折成 MIME；
+ * 折不出来就退回不限类型——让用户至少能选到，比点了没反应好。
+ */
+private fun webFileChooserIntent(params: WebChromeClient.FileChooserParams?): android.content.Intent {
+    val mimes = acceptTypesToMimeTypes(params?.acceptTypes)
+    return android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+        addCategory(android.content.Intent.CATEGORY_OPENABLE)
+        // 只有一个类型时用 type，多个类型用 type=*/* + EXTRA_MIME_TYPES，系统文件选择器认这套
+        type = if (mimes.size == 1) mimes[0] else "*/*"
+        if (mimes.size > 1) putExtra(android.content.Intent.EXTRA_MIME_TYPES, mimes)
+        if (params?.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+            putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+    }
+}
+
+/**
+ * `accept` 属性 → 一组 MIME；空或通配符一律当「不限类型」。
+ *
+ * [mimeOfExtension] 默认走 [MimeTypeMap]；留成参数是为了单测能在纯 JVM 上验折算规则
+ * （`MimeTypeMap` 在单元测试里拿不到真实现）。
+ */
+internal fun acceptTypesToMimeTypes(
+    acceptTypes: Array<String>?,
+    mimeOfExtension: (String) -> String? = { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) },
+): Array<String> {
+    if (acceptTypes.isNullOrEmpty()) return arrayOf("*/*")
+    val mimes = linkedSetOf<String>()
+    for (raw in acceptTypes) {
+        val type = raw.trim().lowercase()
+        when {
+            type.isEmpty() -> Unit
+            type == "*/*" || type == "*" -> return arrayOf("*/*")
+            // `image/*` 这类通配 MIME 系统选择器直接认，原样留着
+            type.contains('/') -> mimes += type
+            // 扩展名：`.pdf` → `application/pdf`
+            type.startsWith(".") ->
+                mimeOfExtension(type.substring(1))?.let { mimes += it }
+        }
+    }
+    return if (mimes.isEmpty()) arrayOf("*/*") else mimes.toTypedArray()
 }
 
 
