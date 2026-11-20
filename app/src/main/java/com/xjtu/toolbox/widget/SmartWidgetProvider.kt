@@ -181,16 +181,23 @@ object SmartWidgetUpdater {
     // ══════ 填 RemoteViews ══════
 
     /**
-     * 按这个实例的**实际尺寸**选布局（§7.1）：用户能把它拖成 4×2、2×4，形态得跟着实例走。
+     * 按这个实例的**实际尺寸**选布局与行数。
      *
-     * 两套布局的控件 id 完全相同——`RemoteViews` 找不到 id 会抛 `ActionException`，
+     * 两件事都在这里定：
+     * - **形态**：用户能把它拖成 4×2、2×4，形态得跟着实例宽度走；
+     * - **能放几行**：`minHeight` 只是「至少需要这么高」，同一个 2×2 在不同桌面网格下可能是
+     *   110dp 也可能是 140dp。拿实例给的 `OPTION_APPWIDGET_MIN_HEIGHT` 去算预算，
+     *   空间富余就多写一条钩子，不够就先砍钩子 —— 而不是一律按最紧的排、白白空着半个卡。
+     *
+     * 两套布局的控件 id 完全相同：`RemoteViews` 找不到 id 会抛 `ActionException`，
      * 整张卡片会变成「加载失败」占位，所以差异只能体现在排版上，不能体现在 id 上。
      */
     private fun render(context: Context, manager: AppWidgetManager, id: Int, card: SmartCard) {
         val options = runCatching { manager.getAppWidgetOptions(id) }.getOrNull()
-        val minWidth = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) ?: 0
-        val form = SmartLayout.formOf(minWidth)
-        val plan = SmartLayout.plan(card, form)
+        val widthDp = optionDp(options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) ?: 0)
+        val heightDp = optionDp(options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT) ?: 0)
+        val form = SmartLayout.formOf(widthDp)
+        val plan = SmartLayout.plan(card, form, heightDp, widthDp)
         val layout = when (form) {
             SmartLayout.Form.WIDE -> R.layout.widget_smart_wide
             SmartLayout.Form.COMPACT -> R.layout.widget_smart_compact
@@ -204,22 +211,44 @@ object SmartWidgetUpdater {
         views.putText(R.id.widget_smart_status, block.statusLine)
         block.statusColor?.let { views.setTextColor(R.id.widget_smart_status, it) }
 
-        // 内容块整块可点（§5.1）：点场景/标题/细节/状态都进这件事对应的页面
+        // 内容块整块可点：点场景/标题/细节/状态都进这件事对应的页面。
+        // 底栏的图标各有各的 id，点区不会互相盖住。
         val open = contentIntent(context, id, block.route)
         for (row in ROW_IDS) views.setOnClickPendingIntent(row, open)
         views.setOnClickPendingIntent(R.id.widget_smart_root, open)
 
-        // 钩子：有余量才写，没有就整行 GONE（GONE 不留空行，也不占高）
-        HOOK_IDS.forEachIndexed { i, hookId ->
-            views.putText(hookId, plan.hooks.getOrNull(i))
-        }
+        // 三道分隔：块与钩子之间、键区与内容之间（横线），宽卡还有左右两栏之间的竖线。
+        // 没有分隔线的话，几行字糊成一片，看不出哪里是「一件事」的边界。
+        views.setViewVisibility(
+            R.id.widget_smart_hook_divider,
+            if (plan.showHookDivider) View.VISIBLE else View.GONE,
+        )
+        views.setViewVisibility(
+            R.id.widget_smart_vdivider,
+            if (plan.showRailDivider) View.VISIBLE else View.GONE,
+        )
 
-        // 底栏：前两个随场景变，「刷新」固定在最右（§5.6）
+        HOOK_IDS.forEachIndexed { i, hookId -> views.putText(hookId, plan.hooks.getOrNull(i)) }
+
         KEY_IDS.forEachIndexed { slot, keyId ->
             bindKey(context, views, id, slot, keyId, plan.keys.getOrNull(slot))
         }
 
         manager.updateAppWidget(id, views)
+    }
+
+    /**
+     * 把 `getAppWidgetOptions` 里的尺寸换成 dp。
+     *
+     * 坑在这儿：不同版本、不同桌面塞进 Bundle 的单位并不一致 —— 同一个 110dp 的 2×2，
+     * 有的给 `110`，有的给 `28160`（帧内部按 1/256 dp 存）。不归一的话，一个 2×2 会被
+     * 判成「宽 110 个 1/256 dp = 28160dp」，直接进宽卡形态。
+     * 判据：真机上的小组件宽度不可能超过几千 dp，超过就按 1/256 dp 换算。
+     */
+    internal fun optionDp(raw: Int): Int = when {
+        raw <= 0 -> 0
+        raw > 4000 -> raw / 256
+        else -> raw
     }
 
     private fun bindKey(
@@ -250,21 +279,24 @@ object SmartWidgetUpdater {
         views.setOnClickPendingIntent(keyId, keyIntent(context, widgetId, slot, key))
     }
 
+    /**
+     * 键盘上的一个图标。
+     *
+     * 一种键一个图标，一一对应 —— 没有多余的备用图标，也没有一个图标干两件事的歧义。
+     * 全部是 24dp 单色矢量，实际颜色由 `setColorFilter` 在运行时给。
+     */
     private fun iconOf(kind: SmartKeyKind): Int = when (kind) {
         SmartKeyKind.ATTENDANCE -> R.drawable.ic_widget_attendance
         SmartKeyKind.REFRESH -> R.drawable.ic_widget_refresh
         SmartKeyKind.QR -> R.drawable.ic_widget_qr
-        // 座位图标复用通知栏那颗，不重复画一份
-        SmartKeyKind.SEAT -> R.drawable.ic_notification_seat
         SmartKeyKind.PAYMENT -> R.drawable.ic_widget_payment
         SmartKeyKind.CARD -> R.drawable.ic_widget_card
-        SmartKeyKind.CALENDAR, SmartKeyKind.SCHOOL_CALENDAR -> R.drawable.ic_widget_calendar
+        SmartKeyKind.CALENDAR -> R.drawable.ic_widget_calendar
         SmartKeyKind.CHECKIN -> R.drawable.ic_widget_checkin
         SmartKeyKind.INBOX -> R.drawable.ic_widget_inbox
         SmartKeyKind.LEAVE -> R.drawable.ic_widget_leave
         SmartKeyKind.RETURN -> R.drawable.ic_widget_return
         SmartKeyKind.CANCEL -> R.drawable.ic_widget_cancel
-        SmartKeyKind.TASK -> R.drawable.ic_widget_task
     }
 
     /**

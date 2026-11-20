@@ -3,23 +3,35 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-<!-- Attendance: clipboard with three rows. -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.6"
-        android:pathData="M6,3.5 L18,3.5 L18,21 L6,21 Z" />
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M5.00,4.60 L5.00,20.50 L19.00,20.50 L19.00,4.60 L5.00,4.60" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M10,1.8 L14,1.8 L14,5 L10,5 Z" />
+        android:pathData="M9.30,2.20 L14.70,2.20 L14.70,5.60 L9.30,5.60 Z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M8.6,9 L15.4,9 L15.4,10.4 L8.6,10.4 Z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M8.20,10.60 L15.80,10.60" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M8.6,12.4 L15.4,12.4 L15.4,13.8 L8.6,13.8 Z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M8.20,14.40 L15.80,14.40" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M8.6,15.8 L12.8,15.8 L12.8,17.2 L8.6,17.2 Z" />
-
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M8.20,18.20 L12.80,18.20" />
 </vector>

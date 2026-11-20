@@ -72,12 +72,15 @@ enum class SmartModule {
  * 只放种类不放图标资源：图标映射在渲染那一侧做，这样仲裁与布局这一整套纯逻辑
  * 不必依赖 `R`，单测不碰 Android 资源。
  *
- * 这里**没有「空教室」**：`EmptyRoomCache` 的键是「周次 + 星期 + 节次」组合，
- * 卡片冷启动时未必拼得出来，硬做只会显示一个过期的空教室数（M11 留到下一步）。
+ * **这里刻意没有「去交」「空教室」这类键**：
+ * - 「去交」指向的就是主要信息那一块本身的开着的页面 —— 点标题已经能到，再放一个图标是重复入口；
+ * - 空教室要「周次 + 星期 + 节次」才拼得出缓存键，卡片冷启动时未必有，硬做只会显示过期数字。
+ *
+ * 判据很简单：**这个键指向的东西，点那块内容到不了吗？** 到得了就不该有。
  */
 enum class SmartKeyKind {
-    ATTENDANCE, REFRESH, QR, SEAT, PAYMENT, CARD, CALENDAR, SCHOOL_CALENDAR,
-    CHECKIN, INBOX, LEAVE, RETURN, CANCEL, TASK,
+    ATTENDANCE, REFRESH, QR, PAYMENT, CARD, CALENDAR,
+    CHECKIN, INBOX, LEAVE, RETURN, CANCEL,
 }
 
 /** 底栏上的一个键（§5.2）：导航键打开某个页面，动作键后台真做一件事。 */

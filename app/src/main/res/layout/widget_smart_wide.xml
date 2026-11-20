@@ -2,14 +2,12 @@
 <!--
   智能卡片 · 宽形态（4×2，宽 ≥ 220dp，见 SmartLayout.Form.WIDE）。
 
-  左栏 = 一个块占四行；右栏 = 钩子（竖着排，每行 14dp）；底栏横跨全宽。
+  左栏 = 一个块占四行；中间一条 1dp 竖线；右栏 = 钩子（宽 88dp，竖着排）；
+  底下一条 1dp 横线，再是底栏。三块内容各有一道分隔，不会糊成一片。
 
   ⚠️ 控件 id 必须与 widget_smart_compact.xml **完全一致** —— RemoteViews 找不到 id 会抛
   ActionException，整张卡片会变成「加载失败」占位，所以形态差异只能体现在排版上。
   SmartWidgetLayoutBudgetTest 会核对两份布局的 id 集合。
-
-  主区同样 `height=0dp + weight=1` 锚底：宽卡比紧凑卡多的只是横向空间，
-  竖向预算并没有变多（110dp 还是那个上限）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_smart_root"
@@ -17,7 +15,8 @@
     android:layout_height="match_parent"
     android:background="@drawable/bg_schedule_widget"
     android:orientation="vertical"
-    android:padding="4dp">
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="8dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -35,7 +34,7 @@
             <TextView
                 android:id="@+id/widget_smart_label"
                 android:layout_width="wrap_content"
-                android:layout_height="13dp"
+                android:layout_height="15dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
@@ -55,20 +54,10 @@
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/widget_smart_detail"
-                android:layout_width="match_parent"
-                android:layout_height="14dp"
-                android:ellipsize="end"
-                android:includeFontPadding="false"
-                android:maxLines="1"
-                android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="11sp"
-                android:visibility="gone" />
-
-            <TextView
                 android:id="@+id/widget_smart_status"
                 android:layout_width="match_parent"
-                android:layout_height="17dp"
+                android:layout_height="18dp"
+                android:layout_marginTop="2dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
@@ -76,19 +65,50 @@
                 android:textSize="12sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/widget_smart_detail"
+                android:layout_width="match_parent"
+                android:layout_height="15dp"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <!-- 宽卡的钩子在右栏，这条横线永远是 GONE（id 要对齐紧凑卡） -->
+            <ImageView
+                android:id="@+id/widget_smart_hook_divider"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/widget_divider"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:visibility="gone" />
         </LinearLayout>
 
-        <!-- 右栏：钩子。约 96dp 宽 ⇒ 文案要短（「余额 ¥128」「考试 3 天」） -->
-        <LinearLayout
-            android:layout_width="96dp"
+        <!-- 左右两栏之间的分隔线 -->
+        <ImageView
+            android:id="@+id/widget_smart_vdivider"
+            android:layout_width="1dp"
             android:layout_height="match_parent"
-            android:layout_marginStart="6dp"
+            android:layout_marginHorizontal="8dp"
+            android:background="@color/widget_divider"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no" />
+
+        <!-- 右栏：钩子，约 8 个字一行 -->
+        <LinearLayout
+            android:layout_width="88dp"
+            android:layout_height="match_parent"
             android:orientation="vertical">
 
             <TextView
                 android:id="@+id/widget_smart_hook1"
                 android:layout_width="match_parent"
-                android:layout_height="14dp"
+                android:layout_height="15dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
@@ -99,7 +119,7 @@
             <TextView
                 android:id="@+id/widget_smart_hook2"
                 android:layout_width="match_parent"
-                android:layout_height="14dp"
+                android:layout_height="15dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
@@ -110,7 +130,7 @@
             <TextView
                 android:id="@+id/widget_smart_hook3"
                 android:layout_width="match_parent"
-                android:layout_height="14dp"
+                android:layout_height="15dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
@@ -121,7 +141,7 @@
             <TextView
                 android:id="@+id/widget_smart_hook4"
                 android:layout_width="match_parent"
-                android:layout_height="14dp"
+                android:layout_height="15dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
@@ -131,10 +151,20 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 底栏：三个位置、都在底栏，一条规则不用记「这个尺寸快捷键在哪」 -->
+    <!-- 内容与按键之间的分隔线 -->
+    <ImageView
+        android:id="@+id/widget_smart_keybar_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="4dp"
+        android:background="@color/widget_divider"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no" />
+
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="22dp"
+        android:layout_height="24dp"
+        android:layout_marginTop="4dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -150,7 +180,7 @@
             android:id="@+id/widget_smart_key2"
             android:layout_width="20dp"
             android:layout_height="20dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="12dp"
             android:contentDescription="@string/smart_widget_name"
             android:scaleType="fitCenter"
             android:visibility="gone" />

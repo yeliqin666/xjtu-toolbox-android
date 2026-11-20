@@ -335,45 +335,57 @@ internal object SmartArbiter {
             .sortedWith(compareBy({ it.rank.ordinal }, { it.anchor }))
     }
 
-    // ══════ 底栏快捷键（§5.7） ══════
+    // ══════ 底栏快捷键 ══════
 
     /**
-     * 底栏三个位置：**前两个随场景变，「刷新」固定占最右边**。
+     * 底栏放什么键。
      *
-     * 刷新是每个场景都可能要的动作，放固定位置用户不用找；动作键优先于导航键 ——
-     * 动作键省掉的是「进 App → 找按钮 → 点确认」三步。
+     * 一条铁律先立住：**点那块内容能到的地方，底栏就不许再放一个图标。**
+     * 以前上课那一屏同时有「点标题进考勤页」和一颗「考勤」图标、下一节那一屏同时有
+     * 「点标题进日程」和一颗「日程」图标 —— 一个目的地两个入口，纯属占地方。
+     * 所以这里每一个键都必须是**内容块到不了**的那个地方，或者是一个**动作**：
+     *
+     * | 主要信息 | 点它去哪 | 底栏还缺什么 |
+     * |---|---|---|
+     * | 这一堂课 | 考勤页 | 扫码、刷新（结论已是定论时刷新没意义） |
+     * | 下一节 | 日程 | 查考勤 |
+     * | 饭点余额 | 付款码 | 校园卡 |
+     * | 课上完了 | 校园卡 | 付款码 |
+     * | 待办 | 那条待办自己 | 收纳 |
+     * | 图书馆 | 图书馆 | 座位动作 / 扫码 |
+     * | 考试、课表变动 | 日程 | 只有刷新 |
+     * | 放假 | 校历 | 日程 |
+     *
+     * 「刷新」固定占最右，它是每个场景都可能要的动作，位置不能变。
      */
     fun keysOf(facts: SmartFacts, block: SmartBlock): List<SmartKey> = when (block.module) {
-        SmartModule.ATTENDANCE -> listOf(
-            NavKey(SmartKeyKind.ATTENDANCE, "考勤", AppRoute.Attendance),
-            NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan),
-            RefreshKey(),
-        )
+        // 点块就进考勤页，所以只补「扫码」这个到不了的地方；结论已经是学校写下的定论时，
+        // 刷新也刷不出新东西，那个位置干脆空着
+        SmartModule.ATTENDANCE -> if (block.evidence == SmartEvidence.RECORDED) {
+            listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan))
+        } else {
+            listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan), RefreshKey())
+        }
         SmartModule.NEXT_CLASS -> listOf(
-            NavKey(SmartKeyKind.CALENDAR, "日程", AppRoute.Schedule),
             NavKey(SmartKeyKind.ATTENDANCE, "考勤", AppRoute.Attendance),
             RefreshKey(),
         )
-        SmartModule.TODO -> listOf(
-            NavKey(SmartKeyKind.TASK, "去交", block.route),
-            NavKey(SmartKeyKind.INBOX, "收纳", AppRoute.Inbox),
-            RefreshKey(),
-        )
+        // 点块进的是那条待办自己的页面；收纳是另一件事
+        SmartModule.TODO -> if (block.route == AppRoute.Inbox) {
+            listOf(RefreshKey())
+        } else {
+            listOf(NavKey(SmartKeyKind.INBOX, "收纳", AppRoute.Inbox), RefreshKey())
+        }
         SmartModule.LIBRARY -> libraryKeys(facts.library)
-        SmartModule.CAMPUS_CARD -> listOf(
-            NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode),
-            NavKey(SmartKeyKind.CARD, "校园卡", AppRoute.CampusCard),
-            RefreshKey(),
-        )
-        SmartModule.EXAM -> listOf(
-            NavKey(SmartKeyKind.CALENDAR, "日程", AppRoute.Schedule),
-            RefreshKey(),
-        )
+        // 饭点那一屏点块就打开付款码，所以补的是校园卡；反过来兜底那一屏补付款码
+        SmartModule.CAMPUS_CARD -> if (block.route == AppRoute.PaymentCode) {
+            listOf(NavKey(SmartKeyKind.CARD, "校园卡", AppRoute.CampusCard), RefreshKey())
+        } else {
+            listOf(NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode), RefreshKey())
+        }
+        // 考试、课表变动：点块进日程，日程那一栏就是它自己，没有别的去处
+        SmartModule.EXAM, SmartModule.SCHEDULE_DIFF -> listOf(RefreshKey())
         SmartModule.HOLIDAY -> listOf(
-            NavKey(SmartKeyKind.SCHOOL_CALENDAR, "校历", AppRoute.SchoolCalendar),
-            RefreshKey(),
-        )
-        SmartModule.SCHEDULE_DIFF -> listOf(
             NavKey(SmartKeyKind.CALENDAR, "日程", AppRoute.Schedule),
             RefreshKey(),
         )
@@ -384,21 +396,16 @@ internal object SmartArbiter {
     }
 
     /**
-     * 图书馆那一屏的键：**动作键只能执行「预约当前真的有这个按钮」的那个**（§5.3 ⚠️）。
+     * 图书馆那一屏的键：**动作键只能执行「预约当前真的有这个按钮」的那个**。
      *
      * 按钮集合来自最近一次查到的 `actionUrls.keys`（落盘见 `LibrarySeatStore`），
      * 查不到就不出现 —— 绝不写死一个学校那边已经没了的按钮。
      *
-     * 没约座（空档期）时给两个并列入口（§5.8）：扫码与选座不是主次取舍，
-     * 用户可能站在座位前扫码，也可能想打开平面图自己挑一个。
+     * 没约座（空档期）时只补「扫码」：选座就是点这块本身去的地方（图书馆页），不必再来一个图标。
      */
     private fun libraryKeys(lib: LibrarySeatFact?): List<SmartKey> {
         if (lib == null || !lib.active) {
-            return listOf(
-                NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan),
-                NavKey(SmartKeyKind.SEAT, "选座", AppRoute.Library),
-                RefreshKey(),
-            )
+            return listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan), RefreshKey())
         }
         val first = SEAT_ACTION_ORDER.firstOrNull { lib.has(it) }
         val keys = mutableListOf<SmartKey>()
@@ -590,7 +597,7 @@ internal object SmartArbiter {
     }
 
     private fun examDetail(e: com.xjtu.toolbox.schedule.ExamCountdown.Next): String {
-        val date = "${e.date.month.ordinal + 1}/${e.date.dayOfMonth}"
+        val date = "${e.date.month.ordinal + 1}/${e.date.day}"
         val time = e.exam.examTime.substringBefore('-').substringBefore('~').substringBefore('至').trim()
         return listOf(date, time).filter { it.isNotBlank() }.joinToString(" ")
     }

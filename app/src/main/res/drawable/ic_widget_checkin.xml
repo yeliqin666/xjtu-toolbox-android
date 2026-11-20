@@ -3,9 +3,18 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-<!-- Check-in: a tick. -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M9.2,16.4 L4.8,12 L3.4,13.4 L9.2,19.2 L20.6,7.8 L19.2,6.4 Z" />
-
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M19.60,12.00 L19.53,12.99 L19.34,13.97 L19.02,14.91 L18.58,15.80 L18.03,16.63 L17.37,17.37 L16.63,18.03 L15.80,18.58 L14.91,19.02 L13.97,19.34 L12.99,19.53 L12.00,19.60 L11.01,19.53 L10.03,19.34 L9.09,19.02 L8.20,18.58 L7.37,18.03 L6.63,17.37 L5.97,16.63 L5.42,15.80 L4.98,14.91 L4.66,13.97 L4.47,12.99 L4.40,12.00 L4.47,11.01 L4.66,10.03 L4.98,9.09 L5.42,8.20 L5.97,7.37 L6.63,6.63 L7.37,5.97 L8.20,5.42 L9.09,4.98 L10.03,4.66 L11.01,4.47 L12.00,4.40 L12.99,4.47 L13.97,4.66 L14.91,4.98 L15.80,5.42 L16.63,5.97 L17.37,6.63 L18.03,7.37 L18.58,8.20 L19.02,9.09 L19.34,10.03 L19.53,11.01 L19.60,12.00" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M8.10,12.30 L10.90,15.10 L15.90,9.30" />
 </vector>

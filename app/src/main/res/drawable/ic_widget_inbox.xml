@@ -3,14 +3,18 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-<!-- Inbox: a tray with a notch. -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.6"
-        android:pathData="M3.4,3.4 L20.6,3.4 L20.6,20.6 L3.4,20.6 Z" />
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4.00,5.20 L20.00,5.20 L20.00,18.80 L4.00,18.80 L4.00,5.20" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M3.4,13.6 L8.4,13.6 L10,16 L14,16 L15.6,13.6 L20.6,13.6 L20.6,20.6 L3.4,20.6 Z" />
-
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4.20,13.00 L8.20,13.00 L9.80,15.60 L14.20,15.60 L15.80,13.00 L19.80,13.00" />
 </vector>
