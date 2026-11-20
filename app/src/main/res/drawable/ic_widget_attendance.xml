@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+<!-- Attendance: clipboard with three rows. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:pathData="M6,3.5 L18,3.5 L18,21 L6,21 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10,1.8 L14,1.8 L14,5 L10,5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8.6,9 L15.4,9 L15.4,10.4 L8.6,10.4 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8.6,12.4 L15.4,12.4 L15.4,13.8 L8.6,13.8 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8.6,15.8 L12.8,15.8 L12.8,17.2 L8.6,17.2 Z" />
+
+</vector>

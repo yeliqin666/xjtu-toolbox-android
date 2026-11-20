@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+<!-- Refresh: open ring plus a wedge head. Only 24dp so it reads at bottom-bar size. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:pathData="M12,5.5 A6.5,6.5 0 1,1 5.5,12" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2.4 L17.2,5.4 L12,8.4 Z" />
+
+</vector>

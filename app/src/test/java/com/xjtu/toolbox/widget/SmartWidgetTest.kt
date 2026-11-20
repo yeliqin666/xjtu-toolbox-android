@@ -2,160 +2,206 @@ package com.xjtu.toolbox.widget
 
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.WaterType
+import com.xjtu.toolbox.schedule.SlotAttendanceMarks
+import com.xjtu.toolbox.schedule.XjtuTime
 import com.xjtu.toolbox.schedule.attendanceMarksOf
+import com.xjtu.toolbox.widget.smart.SmartArbiter
+import com.xjtu.toolbox.widget.smart.SmartBlock
+import com.xjtu.toolbox.widget.smart.SmartEvidence
+import com.xjtu.toolbox.widget.smart.SmartFacts
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 智能卡片上课那一屏：本堂考勤状态直接摆在卡片上。
+ * 智能卡片上课那一屏：本堂考勤状态直接摆在卡片上，并且**说清它是什么时候的事实**。
  *
- * 2026-11-18 的反馈定了口径：**没记录不能一律说「未记录」**——课前 / 刚上课时学校本来
- * 还没到出结论的时候，那是「待考勤」；上课五分钟还没刷上就该当迟到提醒；请假单独说。
+ * 2026-11-18 的反馈定了口径：没记录不能一律说「未记录」——课前 / 刚上课时学校本来还没到
+ * 出结论的时候，那是「待考勤」；请假单独说。2026-11-19 又补了一条更要紧的：
+ * **「迟到」只在查证过的前提下说**，没查过或太久没查只能说「可能迟到」（`docs/smart-widget.md` §1.4）。
  */
 class SmartWidgetTest {
 
+    /** 第 3-4 节（冬夏两套表都是 10:10–12:00），打卡窗口 10:15 关。 */
     private val course = WidgetCourse(
         name = "高等数学", location = "主楼A-202",
-        startMinute = 10 * 60, endMinute = 11 * 60 + 40, color = 0,
+        startMinute = 610, endMinute = 720, color = 0,
         startSection = 3, endSection = 4,
     )
 
     private val day = "2026-11-17"
 
-    private fun marks(status: WaterType, name: String = "高等数学", code: String = "") = attendanceMarksOf(
-        listOf(
-            AttendanceWaterRecord(
-                sbh = "1", startTime = 3, endTime = 4, week = 6, date = day,
-                courseName = name, courseCode = code, status = status,
+    private fun marks(status: WaterType, name: String = "高等数学", code: String = ""): SlotAttendanceMarks =
+        attendanceMarksOf(
+            listOf(
+                AttendanceWaterRecord(
+                    sbh = "1", startTime = 3, endTime = 4, week = 6, date = day,
+                    courseName = name, courseCode = code, status = status,
+                ),
             ),
-        ),
-    )
+        )
 
-    private fun scene(
+    private fun facts(
         nowMinute: Int,
-        attendance: com.xjtu.toolbox.schedule.SlotAttendanceMarks?,
+        attendance: SlotAttendanceMarks? = null,
         swipe: LocalSwipe? = null,
-        checkedAgoMin: Int? = null,
-    ) = SmartWidgetUpdater.sceneOf(
-        courses = listOf(course), nowMinute = nowMinute, balance = "¥12.30",
-        attendance = attendance, date = day,
-        swipe = swipe, checkedAgoMin = checkedAgoMin,
+        ago: Int? = null,
+        at: String? = null,
+    ) = SmartFacts(
+        nowMinute = nowMinute,
+        courses = listOf(course),
+        attendance = attendance,
+        date = day,
+        swipe = swipe,
+        checkedAgoMin = ago,
+        checkedAtClock = at,
     )
 
+    private fun block(
+        nowMinute: Int,
+        attendance: SlotAttendanceMarks? = null,
+        swipe: LocalSwipe? = null,
+        ago: Int? = null,
+        at: String? = null,
+    ): SmartBlock = SmartArbiter.card(facts(nowMinute, attendance, swipe, ago, at)).block
+
     @Test
-    fun `有记录就照实报`() {
-        assertEquals("已打卡 · 正常", scene(10 * 60 + 10, marks(WaterType.NORMAL)).status)
-        assertEquals("已打卡 · 迟到", scene(10 * 60 + 10, marks(WaterType.LATE)).status)
-        assertEquals("已打卡 · 缺勤", scene(10 * 60 + 50, marks(WaterType.ABSENCE)).status)
+    fun `有记录就照实报，且是定论`() {
+        assertEquals("已打卡 · 正常", block(620, marks(WaterType.NORMAL)).status)
+        assertEquals("已打卡 · 迟到", block(620, marks(WaterType.LATE)).status)
+        assertEquals("已打卡 · 缺勤", block(700, marks(WaterType.ABSENCE)).status)
         // 请假单独说，不带「打卡」——人根本没来，打卡这个词会误导
-        assertEquals("已请假", scene(10 * 60 + 10, marks(WaterType.LEAVE)).status)
+        assertEquals("已请假", block(620, marks(WaterType.LEAVE)).status)
+        assertEquals(SmartEvidence.RECORDED, block(620, marks(WaterType.NORMAL)).evidence)
+        // 学校写下的结论不会自己变，不用标时刻
+        assertNull(block(620, marks(WaterType.NORMAL), ago = 30).meta)
     }
 
     @Test
-    fun `没记录时上课五分钟内算待考勤`() {
-        assertEquals("待考勤", scene(10 * 60 + 1, null).status)
-        assertEquals("待考勤", scene(10 * 60 + 4, null).status)
+    fun `官方打卡窗口关之前是待考勤`() {
+        // 第 3 节 10:10 上课，attendanceEnd 是 10:15
+        assertEquals("待考勤", block(610).status)
+        assertEquals("待考勤", block(614).status)
+        assertEquals(SmartEvidence.INFERRED, block(611).evidence)
     }
 
     @Test
-    fun `没记录时上课五分钟后就报迟到`() {
-        assertEquals("迟到 · 还没刷上", scene(10 * 60 + 6, null).status)
-        assertEquals("迟到 · 还没刷上", scene(11 * 60 + 30, null).status)
+    fun `窗口关了又没查过，只能说可能迟到`() {
+        // 没查过就硬下结论，等于替学校盖章，而中间用户很可能补刷了
+        val b = block(616)
+        assertEquals("可能迟到", b.status)
+        assertEquals("还未查询过", b.meta)
+        assertEquals(SmartEvidence.INFERRED, b.evidence)
     }
 
     @Test
-    fun `下课前一分钟还没记录仍报迟到`() {
-        // 窗口是「课前 20 分钟 ～ 下课」，11:39 还在窗口内；下课之后这一屏就不再出现
-        assertEquals("迟到 · 还没刷上", scene(11 * 60 + 39, null).status)
+    fun `临界点上查证过才直说迟到`() {
+        val b = block(620, ago = 3, at = "10:13")
+        assertEquals("迟到", b.status)
+        assertEquals("10:13 查过", b.meta)
+        assertEquals(SmartEvidence.VERIFIED, b.evidence)
+        // 状态行拼成一句话：这是卡片上真正画出来的那句
+        assertEquals("迟到 · 10:13 查过", b.statusLine)
     }
 
     @Test
-    fun `课前那一屏也给出待考勤`() {
-        val s = scene(9 * 60 + 45, null)
-        assertEquals("15 分钟后上课", s.label)
-        assertEquals("待考勤", s.status)
+    fun `超过十分钟没再查就自动降级措辞`() {
+        val b = block(640, ago = 25, at = "10:12")
+        assertEquals("可能迟到", b.status)
+        assertEquals("上次查于 10:12", b.meta)
+        assertEquals(SmartEvidence.STALE, b.evidence)
+        // 但屏幕上永远有一句说得清的话：不是不显示，是换个说法
+        assertEquals("可能迟到 · 上次查于 10:12", b.statusLine)
+    }
+
+    @Test
+    fun `查证时刻没给就按上次查的分钟推`() {
+        // 没有 checkedAtClock（老缓存 / 跨天）时不能空着，按 ago 反推：10:20 减 3 分钟
+        assertEquals("10:17 查过", block(620, ago = 3, at = null).meta)
+    }
+
+    @Test
+    fun `刷卡流水里有记录就先报已刷卡，标的是刷卡时刻`() {
+        // 考勤结果要等结算，但刷卡流水是实时的：这段时间里刷过，就不该继续催人去补刷
+        val swipe = LocalSwipe(minuteOfDay = 9 * 60 + 58, location = "主楼A-202")
+        val b = block(620, attendance = null, swipe = swipe)
+        assertEquals("已刷卡 · 待结算", b.status)
+        // 标「刷卡 09:58」而不是「刚刚查过」：两者含义不同（§10.3）
+        assertEquals("刷卡 09:58", b.meta)
+        assertEquals(SmartEvidence.OBSERVED, b.evidence)
+    }
+
+    @Test
+    fun `刷卡时间落在本节课窗口外就不算这节课的`() {
+        val morning = LocalSwipe(minuteOfDay = 8 * 60 + 10)
+        assertEquals("迟到", block(620, swipe = morning, ago = 2).status)
+        val evening = LocalSwipe(minuteOfDay = 20 * 60)
+        assertEquals("迟到", block(620, swipe = evening, ago = 2).status)
+    }
+
+    @Test
+    fun `课前那一屏写地点，上课中改写还剩多久`() {
+        // 细节的重要性随情境变（§2.4 规则②）：课前得赶过去，上课中人已经在里面了
+        val before = block(595)
+        assertEquals("15 分钟后上课", before.label)
+        assertEquals("主楼A-202", before.detail)
+
+        val during = block(650)
+        assertEquals("上课中", during.label)
+        assertEquals("还剩 70 分钟", during.detail)
     }
 
     @Test
     fun `按日期找记录，不受周次口径影响`() {
         // 同一天同一节次、但不是这门课：不能被认成自己的记录
-        assertEquals("待考勤", scene(10 * 60 + 1, marks(WaterType.NORMAL, name = "大学物理")).status)
-    }
-
-    @Test
-    fun `不是上课时间就不带考勤那一行`() {
-        // 9:30：既不在早饭窗口（6:30–9:00），也还没进课前 20 分钟（9:40 起）
-        val s = scene(9 * 60 + 30, marks(WaterType.NORMAL))
-        assertEquals("下一节 10:00", s.label)
-        assertNull(s.status)
+        assertEquals("迟到", block(620, marks(WaterType.NORMAL, name = "大学物理"), ago = 1).status)
     }
 
     @Test
     fun `认课优先用课程号，课名写法不一致也认得出`() {
-        // 考勤系统的课名和课表里的写法未必一字不差（全角半角括号、班号后缀）
-        val coded = WidgetCourse(
-            name = "高等数学(甲)", location = "主楼A-202",
-            startMinute = 10 * 60, endMinute = 11 * 60 + 40, color = 0,
-            startSection = 3, endSection = 4, courseCode = "MATH100101-05",
-        )
-        val s = SmartWidgetUpdater.sceneOf(
-            courses = listOf(coded), nowMinute = 10 * 60 + 10, balance = "¥12.30",
+        val coded = course.copy(name = "高等数学(甲)", courseCode = "MATH100101-05")
+        val facts = SmartFacts(
+            nowMinute = 620, courses = listOf(coded), date = day,
             attendance = marks(WaterType.NORMAL, name = "高等数学（甲）", code = "MATH100101-05"),
-            date = day,
         )
-        assertEquals("已打卡 · 正常", s.status)
+        assertEquals("已打卡 · 正常", SmartArbiter.card(facts).block.status)
     }
 
     @Test
-    fun `只有学校写下的结论才算定论`() {
-        // 没记录时那句话是推断（「待考勤」/「迟到 · 还没刷上」），点刷新要显示「正在查询…」
-        assertTrue("待考勤是推断", scene(10 * 60 + 1, null).statusIsGuess)
-        assertTrue("迟到·还没刷上也是推断", scene(10 * 60 + 6, null).statusIsGuess)
-        // 学校给了结论就是定论，不用再标时效
-        assertFalse("正常是定论", scene(10 * 60 + 10, marks(WaterType.NORMAL)).statusIsGuess)
-        assertFalse("请假是定论", scene(10 * 60 + 10, marks(WaterType.LEAVE)).statusIsGuess)
+    fun `官方打卡窗口恒等于上课时刻加五分钟`() {
+        // 卡片引用的是 XjtuTime 的 attendanceEnd，不是自己写死的魔数；这条不变量塌了，
+        // 「迟到了没」这个判断就会整体错位
+        for (summer in listOf(false, true)) {
+            for (section in 1..11) {
+                val t = XjtuTime.getClassTime(section, summer)!!
+                val start = t.start.hour * 60 + t.start.minute
+                val end = t.attendanceEnd.hour * 60 + t.attendanceEnd.minute
+                assertEquals("第 $section 节（summer=$summer）", 5, end - start)
+            }
+        }
     }
 
     @Test
-    fun `刷卡流水里有记录就先报已刷卡，别喊还没刷上`() {
-        // 考勤结果要等结算，但刷卡流水是实时的：这段时间里刷过，就不该继续催人去补刷
-        val swipe = LocalSwipe(minuteOfDay = 9 * 60 + 58, location = "主楼A-202")
-        val s = scene(10 * 60 + 6, attendance = null, swipe = swipe)
-        assertEquals("已刷卡 · 待结算", s.status)
-        assertEquals("要如实说这是刷卡时刻，不是「刚刚查过」", "刷卡 09:58", s.meta)
-        assertTrue("刷卡已记录也是「还没结算」的推断，点刷新能再看一次", s.statusIsGuess)
-    }
-
-    @Test
-    fun `刷卡时间落在本节课窗口外就不算这节课的`() {
-        // 上午的课刷的卡，不能拿来给下午的课充数
-        val morning = LocalSwipe(minuteOfDay = 8 * 60 + 10)
-        assertEquals("迟到 · 还没刷上", scene(10 * 60 + 6, attendance = null, swipe = morning).status)
-        // 下课后过了很久的刷卡也不算（可能是别的课/别的活动）
-        val evening = LocalSwipe(minuteOfDay = 20 * 60)
-        assertEquals("迟到 · 还没刷上", scene(10 * 60 + 6, attendance = null, swipe = evening).status)
-    }
-
-    @Test
-    fun `没记录时如实标出这个结论是什么时候查的`() {
-        // 学校没有推送，卡片只能定时间去问：说清是哪一刻的事实，才不会被过期结论误导
-        assertEquals("还未查询过", scene(10 * 60 + 6, null, checkedAgoMin = null).meta)
-        assertEquals("刚刚查过", scene(10 * 60 + 6, null, checkedAgoMin = 0).meta)
-        assertEquals("3 分钟前查过", scene(10 * 60 + 6, null, checkedAgoMin = 3).meta)
-        // 有记录就是定论，不用再标时刻
-        assertNull(scene(10 * 60 + 10, marks(WaterType.NORMAL), checkedAgoMin = 3).meta)
+    fun `窗口关掉的那一刻从作息表取，不从魔数取`() {
+        assertEquals(615, SmartArbiter.attendanceEndMinute(course))
+        // 自建日程没有节次：退回「上课 + 5 分钟」
+        assertEquals(605, SmartArbiter.attendanceEndMinute(course.copy(startSection = 0, startMinute = 600)))
     }
 
     @Test
     fun `刷卡时刻解析`() {
         assertEquals(14 * 60 + 14, minuteOfDay("2026-11-18 14:14:37"))
-        // 只有时间没有日期也认（学校两个接口的格式不完全一致）
         assertEquals(8 * 60 + 5, minuteOfDay("08:05"))
         assertNull(minuteOfDay(""))
         assertNull(minuteOfDay("乱麻"))
         assertNull(minuteOfDay("99:99"))
+    }
+
+    @Test
+    fun `没有考勤缓存时依旧给结论，只是带查证时刻`() {
+        val b = block(630, attendance = null, ago = 120, at = "08:30")
+        assertEquals("可能迟到", b.status)
+        assertTrue("没有缓存不代表没有结论", b.statusLine!!.contains("上次查于"))
     }
 }

@@ -23,11 +23,21 @@ private const val TAG = "AttendanceSync"
 /** 连点两下刷新的防抖：一次查询要几秒，别让它排成队。 */
 private const val RAPID_TAP_MS = 8_000L
 
+/**
+ * 自动补查的重试间隔：查失败（没网、学校抽风）时别让每次重画都排一个任务。
+ *
+ * 注意「失败不推进 `last_check_at`」这条不能动 —— `lastCheckAt` 是**成功**问到的时刻，
+ * 卡片上那行「08:05 查过」说的是它；失败时若推进它，卡片就会拿一条没查成的时刻冒充事实。
+ * 所以自动重试的节流另记一个时间戳（[KEY_LAST_ATTEMPT]）。
+ */
+private const val AUTO_RETRY_MS = 5 * 60_000L
+
 /** 「正在查询」这个提示最多挂多久：Worker 被系统掐掉时别让卡片永远显示在查。 */
 private const val QUERYING_WINDOW_MS = 90_000L
 
 private const val PREFS = "attendance_widget_sync"
 private const val KEY_LAST_CHECK = "last_check_at"
+private const val KEY_LAST_ATTEMPT = "last_attempt_at"
 private const val KEY_QUERYING_UNTIL = "querying_until"
 private const val KEY_SWIPE_DAY = "swipe_day"
 private const val KEY_SWIPE_MINUTE = "swipe_minute"
@@ -50,17 +60,22 @@ internal data class LocalSwipe(
 }
 
 /**
- * 智能卡片的考勤取数：**只在用户点「刷新」时才去问学校**。
+ * 智能卡片的考勤取数：**一节课只在两个离散时刻去问学校**，其余一概不联网。
  *
- * 走过一次自动轮询，结论是不做（2026-11-18 定）：学校那边没有推送，只能靠问，而问就是
- * 一次次登录/请求 —— 一节课几分钟一轮，全天下来纯属白耗电和白打学校接口。改成按需：
+ * 2026-11-18 取消的是「每隔几分钟轮询一轮」（`d9110275`），不是「什么都不问」。理由是：
+ * 学校没有推送，只能靠问，而问就是一次次登录/请求；而**卡片上说「迟到」这件事必须新鲜** ——
+ * 用户可能早就刷上了、只是学校还没结算，一句过期的断言就没法接受。
  *
- * - 卡片右下角「刷新」→ [requestSync] → 后台问一次 → 重画卡片，**全程不打开 App**；
- * - 除此之外，只有原本就有的那些触发点（切到考勤页、切到校园卡、换包/改时间等）会重画卡片，
- *   它们本来就存在，这里不做任何删改；
- * - 拿到的刷卡事实会落在本机，卡片据此说「已刷卡 · 待结算」并标出刷卡时刻；
- * - 卡片上那行小字如实写「N 分钟前查过 / 还未查询过」，**说的就是哪一刻的事实**，
- *   不假装是此刻 —— 不自动刷新的前提下，这一点比什么都重要。
+ * 于是把「什么时候该问」从「不自动问」细化成两条（§6.3）：
+ * - **Q1 上课时刻**：问一次刷卡流水。这是唯一能消除「明明刷了却显示待考勤」的时刻；
+ * - **Q2 打卡窗口关**（`XjtuTime` 的 `attendanceEnd`）：再问一次。这是唯一能让「迟到」成立的一刻。
+ *
+ * 外加两条**按需**的补问，都不新增联网点，只是利用「用户此刻在看这张卡片」这个信号：
+ * - **欠查兜底**：闹钟会失约（关机、省电推迟），重画时发现 Q1/Q2 到了却没问过，立刻补一次；
+ * - **保鲜**：屏幕上是一句「迟到」类的话，而它已经超过 10 分钟，后台补问一次，措辞同时降级。
+ *
+ * 判「欠不欠」在 `SmartArbiter.checkNeeded`（纯函数，可单测）；这里只管**怎么问**。
+ * 一节课两次、无课日 0 次 —— 一周 20 节课约 40 次，比原来一轮一轮地问省了一个量级。
  */
 internal object AttendanceWidgetSync {
 
@@ -88,6 +103,24 @@ internal object AttendanceWidgetSync {
     fun requestSync(context: Context) {
         val now = System.currentTimeMillis()
         if (now - lastCheckAt(context) < RAPID_TAP_MS && isQuerying(context)) return
+        syncPrefs(context).edit().putLong(KEY_LAST_ATTEMPT, now).apply()
+        enqueue(context)
+    }
+
+    /**
+     * 卡片自己判出「这一屏还欠一次查询」时排的那一枪（欠查兜底 / 保鲜补查）。
+     *
+     * 和 [requestSync] 分开，只多一条节流：查失败时每 5 分钟最多重试一次，
+     * 否则每次重画（闹钟、划屏、换包）都会排一个注定失败的任务。
+     */
+    fun requestAutoSync(context: Context) {
+        val now = System.currentTimeMillis()
+        if (now - syncPrefs(context).getLong(KEY_LAST_ATTEMPT, 0L) < AUTO_RETRY_MS) return
+        syncPrefs(context).edit().putLong(KEY_LAST_ATTEMPT, now).apply()
+        enqueue(context)
+    }
+
+    private fun enqueue(context: Context) {
         runCatching {
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 "attendance_widget_sync",

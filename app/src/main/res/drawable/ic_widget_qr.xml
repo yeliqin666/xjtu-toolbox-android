@@ -1,0 +1,23 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+<!-- QR: four viewfinder corners plus the centre block. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3,3 L9.5,3 L9.5,5 L5,5 L5,9.5 L3,9.5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14.5,3 L21,3 L21,9.5 L19,9.5 L19,5 L14.5,5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3,14.5 L5,14.5 L5,19 L9.5,19 L9.5,21 L3,21 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M19,14.5 L21,14.5 L21,21 L14.5,21 L14.5,19 L19,19 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10,10 L14,10 L14,14 L10,14 Z" />
+
+</vector>

@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  智能卡片 · 宽形态（4×2，宽 ≥ 220dp，见 SmartLayout.Form.WIDE）。
+
+  左栏 = 一个块占四行；右栏 = 钩子（竖着排，每行 14dp）；底栏横跨全宽。
+
+  ⚠️ 控件 id 必须与 widget_smart_compact.xml **完全一致** —— RemoteViews 找不到 id 会抛
+  ActionException，整张卡片会变成「加载失败」占位，所以形态差异只能体现在排版上。
+  SmartWidgetLayoutBudgetTest 会核对两份布局的 id 集合。
+
+  主区同样 `height=0dp + weight=1` 锚底：宽卡比紧凑卡多的只是横向空间，
+  竖向预算并没有变多（110dp 还是那个上限）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_smart_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_schedule_widget"
+    android:orientation="vertical"
+    android:padding="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <!-- 左栏：一块四行 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_smart_label"
+                android:layout_width="wrap_content"
+                android:layout_height="13dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/widget_smart_title"
+                android:layout_width="match_parent"
+                android:layout_height="22dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_smart_detail"
+                android:layout_width="match_parent"
+                android:layout_height="14dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/widget_smart_status"
+                android:layout_width="match_parent"
+                android:layout_height="17dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- 右栏：钩子。约 96dp 宽 ⇒ 文案要短（「余额 ¥128」「考试 3 天」） -->
+        <LinearLayout
+            android:layout_width="96dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_smart_hook1"
+                android:layout_width="match_parent"
+                android:layout_height="14dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/widget_smart_hook2"
+                android:layout_width="match_parent"
+                android:layout_height="14dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/widget_smart_hook3"
+                android:layout_width="match_parent"
+                android:layout_height="14dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/widget_smart_hook4"
+                android:layout_width="match_parent"
+                android:layout_height="14dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 底栏：三个位置、都在底栏，一条规则不用记「这个尺寸快捷键在哪」 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="22dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/widget_smart_key1"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:contentDescription="@string/smart_widget_name"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/widget_smart_key2"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="@string/smart_widget_name"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no" />
+
+        <ImageView
+            android:id="@+id/widget_smart_key3"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:contentDescription="@string/smart_widget_refresh"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</LinearLayout>

@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  智能卡片 · 紧凑形态（2×2，宽 < 220dp，见 SmartLayout.Form.COMPACT）。
+
+  ⚠️ 两条不能破的规矩：
+
+  1. 布局里只能出现 RemoteViews 白名单里的控件。裸 <View>（占位撑高那种）不在白名单里 ——
+     RemoteViews 反序列化后拿自己当 LayoutInflater.Filter（onLoadClass 只放行带
+     @RemoteViews.RemoteView 注解的类，android.view.View 没有这个注解），撞上就抛
+     InflateException，桌面显示「加载失败」并把整张卡片画成错误占位。<Space> 同理。
+     撑高留白一律用空 TextView 或带 weight 的容器。
+
+  2. **主区 layout_height=0dp + weight=1，底栏 wrap_content 放最后。** 6.0.1 的 #408 就是
+     主区各行全用 wrap_content、整份布局没有一处 weight，内容一多（约 181dp）就把底栏顶出
+     110dp 的卡片。锚底之后内容再多也只会被裁，底栏永远在卡内。
+
+  行高一律写死 dp（不 wrap_content），这样高度预算能在单测里算出来、断言出来
+  （SmartLayout 的那组常量与这里逐条对应，SmartWidgetLayoutBudgetTest 会盯着）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_smart_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_schedule_widget"
+    android:orientation="vertical"
+    android:padding="4dp">
+
+    <!-- 主区：占满剩余高度，内容超了就被裁，绝不把底栏挤出去 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- 场景行：这件事是什么情境（上课中 / 下一节 10:00 / 午饭时间）。是场景词，不是功能名 -->
+        <TextView
+            android:id="@+id/widget_smart_label"
+            android:layout_width="wrap_content"
+            android:layout_height="13dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="10sp"
+            android:visibility="gone" />
+
+        <!-- 标题：这件事是什么。一行一件事，绝不和场景挤在一起 -->
+        <TextView
+            android:id="@+id/widget_smart_title"
+            android:layout_width="match_parent"
+            android:layout_height="22dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <!-- 细节：补充事实。重要性随情境变（课前写地点、上课中写还剩多久），所以常常是空的 -->
+        <TextView
+            android:id="@+id/widget_smart_detail"
+            android:layout_width="match_parent"
+            android:layout_height="14dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <!-- 状态：这件事的结论 + 它是什么时候的事实（「迟到 · 08:05 查过」）。状态必须独占一行 -->
+        <TextView
+            android:id="@+id/widget_smart_status"
+            android:layout_width="match_parent"
+            android:layout_height="17dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <!-- 钩子：次要信息填空隙，一行一条，空间没了先没它（14dp × 最多 3 条） -->
+        <TextView
+            android:id="@+id/widget_smart_hook1"
+            android:layout_width="match_parent"
+            android:layout_height="14dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="10sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/widget_smart_hook2"
+            android:layout_width="match_parent"
+            android:layout_height="14dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="10sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/widget_smart_hook3"
+            android:layout_width="match_parent"
+            android:layout_height="14dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="10sp"
+            android:visibility="gone" />
+
+        <!-- 紧凑卡最多 3 条钩子；这一格只为「两套布局 id 必须完全一致」而存在，永远是 GONE -->
+        <TextView
+            android:id="@+id/widget_smart_hook4"
+            android:layout_width="match_parent"
+            android:layout_height="14dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="10sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 底栏：前两个键随场景变，「刷新」固定在最右（§5.6）。三个 20dp 图标 + 8dp 间距 = 76dp，
+         110dp 的卡减掉左右内边距还有 102dp，放得下；四个就 104dp，放不下 —— 所以是三个。 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="22dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/widget_smart_key1"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:contentDescription="@string/smart_widget_name"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/widget_smart_key2"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="@string/smart_widget_name"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <!-- 把「刷新」推到最右：空 TextView 撑开（不是 <View>，不在白名单） -->
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no" />
+
+        <ImageView
+            android:id="@+id/widget_smart_key3"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:contentDescription="@string/smart_widget_refresh"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</LinearLayout>

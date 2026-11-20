@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+<!-- Leave (Out): an open frame with the arrow pointing out of it.
+     Out/In ship as a pair: one alone is ambiguous, two side by side read as a
+     turnstile and need no teaching. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3,3 L13,3 L13,5 L5,5 L5,19 L13,19 L13,21 L3,21 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M15,10.6 L18.6,10.6 L18.6,7.6 L23,12 L18.6,16.4 L18.6,13.4 L15,13.4 Z" />
+
+</vector>

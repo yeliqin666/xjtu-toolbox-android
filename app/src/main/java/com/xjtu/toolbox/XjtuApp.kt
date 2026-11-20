@@ -85,6 +85,9 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
         // 而重画要 Context 与 AppWidgetManager（都在 :app）⇒ 用回调挂上去（见 InboxWidgetHook）。
         com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {
             runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(this) }
+            // 智能卡片的钩子行与「快截止」那一档也读同一份待办：待办一变就得重画，
+            // 否则桌面上会挂着一条已经交掉的作业
+            runCatching { com.xjtu.toolbox.widget.SmartWidgetUpdater.requestUpdate(this) }
         }
         // 自建待办的截止提醒：存储在 :shared:model（各端共用），排期要 WorkManager（只在 :app）⇒ 同样挂回调。
         com.xjtu.toolbox.inbox.SelfTodoHooks.onChanged = { account, before, after ->

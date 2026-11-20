@@ -66,5 +66,13 @@ object LibraryStatus {
         val action = urgentAction(booking)
         if (isCurrent) HomeSignals.libraryUrgentAction = action
         InboxStore.setTodos(InboxCategories.LIBRARY, listOfNotNull(action?.let { OwnInbox.library(it, booking) }), account)
+
+        // 卡片那一屏要「坐哪个座、还能点哪几个按钮」：**当场落盘**，小组件进程冷启动时才有得读
+        // （见 LibrarySeatStore 的注释）。只存动作名，不存 URL。
+        if (isCurrent) {
+            LibrarySeatStore.save(context, booking)
+            // 预约变了就重画一次桌面卡片：不重画的话，桌面上还挂着已经取消的座位
+            runCatching { com.xjtu.toolbox.widget.SmartWidgetUpdater.requestUpdate(context) }
+        }
     }
 }

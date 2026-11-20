@@ -35,5 +35,7 @@ suspend fun refreshCampusCardCache(
         .putDailyRate(dailySpendRate(recentTx))
         .apply()
     CampusCardWidgetUpdater.requestUpdate(appContext)
+    // 余额与今日消费也进智能卡片的饭点那一屏和钩子：不重画的话，桌上那张卡一直停在旧余额
+    com.xjtu.toolbox.widget.SmartWidgetUpdater.requestUpdate(appContext)
     true
 }
