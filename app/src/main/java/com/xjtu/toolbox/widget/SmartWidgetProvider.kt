@@ -225,13 +225,14 @@ object SmartWidgetUpdater {
         manager.updateAppWidget(id, views)
     }
 
-    /** 一个块的七个 id：容器（整块可点）、场景行、标题、状态、细节，以及块内两个键。 */
+    /** 一个块的八个 id：容器（整块可点）、场景行、标题、状态、两行细节、两个键。 */
     private class BlockIds(
         val container: Int,
         val label: Int,
         val title: Int,
         val status: Int,
         val detail: Int,
+        val detail2: Int,
         val keyA: Int,
         val keyB: Int,
     )
@@ -254,6 +255,7 @@ object SmartWidgetUpdater {
         views.putText(ids.title, block.title)
         views.putText(ids.status, block.statusLine)
         views.putText(ids.detail, block.detail)
+        views.putText(ids.detail2, block.detail2)
         block.statusColor?.let { views.setTextColor(ids.status, it) }
 
         // **块整体是一个点击目标**：点场景/标题/状态/细节都进这件事对应的页面。
@@ -311,7 +313,6 @@ object SmartWidgetUpdater {
         SmartKeyKind.ATTENDANCE -> R.drawable.ic_widget_attendance
         SmartKeyKind.QR -> R.drawable.ic_widget_qr
         SmartKeyKind.PAYMENT -> R.drawable.ic_widget_payment
-        SmartKeyKind.CARD -> R.drawable.ic_widget_card
         SmartKeyKind.CALENDAR -> R.drawable.ic_widget_calendar
         SmartKeyKind.CHECKIN -> R.drawable.ic_widget_checkin
         SmartKeyKind.INBOX -> R.drawable.ic_widget_inbox
@@ -384,6 +385,7 @@ object SmartWidgetUpdater {
         title = R.id.widget_smart_title1,
         status = R.id.widget_smart_status1,
         detail = R.id.widget_smart_detail1,
+        detail2 = R.id.widget_smart_detail1b,
         keyA = R.id.widget_smart_key1a,
         keyB = R.id.widget_smart_key1b,
     )
@@ -394,6 +396,7 @@ object SmartWidgetUpdater {
         title = R.id.widget_smart_title2,
         status = R.id.widget_smart_status2,
         detail = R.id.widget_smart_detail2,
+        detail2 = R.id.widget_smart_detail2b,
         keyA = R.id.widget_smart_key2a,
         keyB = R.id.widget_smart_key2b,
     )

@@ -38,22 +38,24 @@ class SmartWidgetLayoutBudgetTest {
 
     @Test
     fun `布局里写死的行高与预算常量逐条一致`() {
-        val expected = mapOf(
-            "widget_smart_label1" to SmartLayout.BLOCK_LEAD_DP,
-            "widget_smart_title1" to SmartLayout.BLOCK_TITLE_DP,
-            "widget_smart_status1" to SmartLayout.BLOCK_STATUS_DP,
-            "widget_smart_detail1" to SmartLayout.BLOCK_DETAIL_DP,
-            "widget_smart_label2" to SmartLayout.BLOCK_LEAD_DP,
-            "widget_smart_title2" to SmartLayout.BLOCK_TITLE_DP,
-            "widget_smart_status2" to SmartLayout.BLOCK_STATUS_DP,
-            "widget_smart_detail2" to SmartLayout.BLOCK_DETAIL_DP,
-            "widget_smart_bottom_divider" to SmartLayout.DIVIDER_DP,
-            "widget_smart_key1a" to SmartLayout.KEY_ICON_DP,
-            "widget_smart_key1b" to SmartLayout.KEY_ICON_DP,
-            "widget_smart_key2a" to SmartLayout.KEY_ICON_DP,
-            "widget_smart_key2b" to SmartLayout.KEY_ICON_DP,
-            "widget_smart_refresh" to SmartLayout.KEY_ICON_DP,
-        )
+        val expected = buildMap {
+            put("widget_smart_label1", SmartLayout.BLOCK_LEAD_DP)
+            put("widget_smart_title1", SmartLayout.BLOCK_TITLE_DP)
+            put("widget_smart_status1", SmartLayout.BLOCK_STATUS_DP)
+            put("widget_smart_detail1", SmartLayout.BLOCK_DETAIL_DP)
+            put("widget_smart_detail1b", SmartLayout.BLOCK_DETAIL_DP)
+            put("widget_smart_label2", SmartLayout.BLOCK_LEAD_DP)
+            put("widget_smart_title2", SmartLayout.BLOCK_TITLE_DP)
+            put("widget_smart_status2", SmartLayout.BLOCK_STATUS_DP)
+            put("widget_smart_detail2", SmartLayout.BLOCK_DETAIL_DP)
+            put("widget_smart_detail2b", SmartLayout.BLOCK_DETAIL_DP)
+            put("widget_smart_bottom_divider", SmartLayout.DIVIDER_DP)
+            put("widget_smart_key1a", SmartLayout.KEY_ICON_DP)
+            put("widget_smart_key1b", SmartLayout.KEY_ICON_DP)
+            put("widget_smart_key2a", SmartLayout.KEY_ICON_DP)
+            put("widget_smart_key2b", SmartLayout.KEY_ICON_DP)
+            put("widget_smart_refresh", SmartLayout.KEY_ICON_DP)
+        }
         for (name in both) {
             val actual = rowHeights(layout(name))
             expected.forEach { (id, dp) -> assertEquals("$name 的 $id 行高", dp, actual[id]) }

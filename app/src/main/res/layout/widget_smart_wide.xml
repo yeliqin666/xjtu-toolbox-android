@@ -103,6 +103,19 @@
                 android:textColor="@color/widget_on_surface_secondary"
                 android:textSize="11sp"
                 android:visibility="gone" />
+
+            <!-- 第二行细节：块独占时把卡填满（时间区间 / 今日消费 / 考场…） -->
+            <TextView
+                android:id="@+id/widget_smart_detail1b"
+                android:layout_width="match_parent"
+                android:layout_height="15dp"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="11sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- 两块之间那条竖线（只有一个块时 GONE） -->
@@ -188,6 +201,18 @@
 
             <TextView
                 android:id="@+id/widget_smart_detail2"
+                android:layout_width="match_parent"
+                android:layout_height="15dp"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/widget_smart_detail2b"
                 android:layout_width="match_parent"
                 android:layout_height="15dp"
                 android:layout_marginTop="1dp"

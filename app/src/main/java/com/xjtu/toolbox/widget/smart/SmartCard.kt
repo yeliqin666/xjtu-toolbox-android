@@ -72,7 +72,7 @@ enum class SmartModule {
  * 「刷新」也不在这里：它在底部条最右，位置固定、每个场景都在。
  */
 enum class SmartKeyKind {
-    ATTENDANCE, QR, PAYMENT, CARD, CALENDAR,
+    ATTENDANCE, QR, PAYMENT, CALENDAR,
     CHECKIN, INBOX, LEAVE, RETURN, CANCEL,
 }
 
@@ -120,7 +120,10 @@ data class SmartBlock(
     val module: SmartModule,
     val label: String?,
     val title: String,
+    /** 第一行细节（随情境变：地点 / 还剩多久 / 今日消费…）。 */
     val detail: String? = null,
+    /** 第二行细节：一个块独占整张卡时用它把卡填满（时间区间、更新时刻、考场…）。 */
+    val detail2: String? = null,
     val status: String? = null,
     val statusColor: Int? = null,
     val evidence: SmartEvidence = SmartEvidence.RECORDED,
@@ -131,13 +134,13 @@ data class SmartBlock(
     val anchor: Int = 0,
     /** 点这一块去哪儿。 */
     val route: AppRoute,
-    /** 这个块自己的快捷键（最多两个，刷新在底部条上）。 */
+    /** 这个块自己的快捷键（最多两个，刷新在底部条上）。**不许指向 [route] 自己。** */
     val keys: List<SmartKey> = emptyList(),
 ) {
     /**
      * 状态行实际画出来的那句话：**状态 + 时效**。
      *
-     * 拼成一行是有意的：分开两行的话，140dp 的紧凑卡放不下，而时效又是这句话的一部分 ——
+     * 拼成一行是有意的：分开两行的话紧凑卡放不下，而时效又是这句话的一部分 ——
      * 「迟到」离开时刻就是一句过期的断言。
      */
     val statusLine: String?
@@ -147,11 +150,18 @@ data class SmartBlock(
             else -> "$status · $meta"
         }
 
-    /** 块要多高：[withDetail] 时多一行细节。 */
-    fun heightDp(withDetail: Boolean): Int =
-        SmartLayout.BLOCK_LEAD_DP + SmartLayout.BLOCK_TITLE_DP +
-            (if (statusLine != null) SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_STATUS_DP else 0) +
-            (if (withDetail && !detail.isNullOrBlank()) SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_DETAIL_DP else 0)
+    /** 这个块要几行：[details] 是细节行数（0/1/2）。 */
+    fun heightDp(details: Int): Int {
+        var h = SmartLayout.BLOCK_LEAD_DP + SmartLayout.BLOCK_TITLE_DP
+        if (statusLine != null) h += SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_STATUS_DP
+        if (details >= 1) h += SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_DETAIL_DP
+        if (details >= 2) h += SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_DETAIL_DP
+        return h
+    }
+
+    /** 这个块最多能写几行细节。 */
+    val detailCount: Int
+        get() = (if (!detail.isNullOrBlank()) 1 else 0) + (if (!detail2.isNullOrBlank()) 1 else 0)
 }
 
 /** 一条次要提示：写在卡片最底下那一条，与「刷新」并排。 */

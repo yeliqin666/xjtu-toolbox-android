@@ -46,6 +46,7 @@ class SmartWidgetButtonTest {
         library: LibrarySeatFact? = null,
         courses: List<WidgetCourse> = listOf(course),
         scheduleDiff: String? = null,
+        holiday: String? = null,
         evidenceAgo: Int? = 1,
     ) = SmartFacts(
         nowMinute = nowMinute,
@@ -56,6 +57,7 @@ class SmartWidgetButtonTest {
         balance = balance,
         library = library,
         scheduleDiff = scheduleDiff,
+        holiday = holiday,
         checkedAgoMin = evidenceAgo,
         checkedAtClock = "10:49",
     )
@@ -79,14 +81,37 @@ class SmartWidgetButtonTest {
     }
 
     @Test
-    fun `饭点那个块补校园卡，兜底那个块补付款码`() {
+    fun `校园卡那个块只给付款码，绝不再摆一颗校园卡图标`() {
+        // 点文字进的就是校园卡页，再放「校园卡」图标就是重复入口（真机反馈踩过）
         val meal = firstKeys(facts(nowMinute = 11 * 60 + 30, courses = emptyList(), balance = "¥12.30"))
-        assertEquals(listOf(SmartKeyKind.CARD), kinds(meal))
-        assertEquals(AppRoute.CampusCard, (meal.first() as NavKey).route)
+        assertEquals(listOf(SmartKeyKind.PAYMENT), kinds(meal))
+        assertEquals(AppRoute.PaymentCode, (meal.first() as NavKey).route)
 
+        // 兜底那个块同理
         val done = firstKeys(facts(nowMinute = 15 * 60, balance = "¥8.00"))
         assertEquals(listOf(SmartKeyKind.PAYMENT), kinds(done))
-        assertEquals(AppRoute.PaymentCode, (done.first() as NavKey).route)
+    }
+
+    @Test
+    fun `任何块里的导航键都不会指向这个块自己打开的页面`() {
+        val scenes = listOf(
+            facts(),
+            facts(nowMinute = 9 * 60 + 30),
+            facts(nowMinute = 11 * 60 + 30, courses = emptyList(), balance = "¥12.30"),
+            facts(nowMinute = 15 * 60, balance = "¥8.00"),
+            facts(nowMinute = 900, todos = listOf(todo(59))),
+            facts(nowMinute = 15 * 60, courses = emptyList(), holiday = "校庆"),
+            facts(nowMinute = 15 * 60, scheduleDiff = "高等数学换教室"),
+        )
+        scenes.forEach { f ->
+            SmartArbiter.card(f).blocks.forEach { b ->
+                b.keys.forEach { k ->
+                    if (k is NavKey) {
+                        assertTrue("${b.module} 的键指向了块自己打开的页面", k.route != b.route)
+                    }
+                }
+            }
+        }
     }
 
     @Test

@@ -71,7 +71,8 @@ class SmartWidgetBoundaryTest {
 
     @Test
     fun `课优先于饭点`() {
-        // 11:10-12:00 的第 4 节与午饭窗口重叠：缺勤改不了，饭可以晚十分钟吃
+        // 11:10-12:00 的第 4 节与午饭窗口重叠：缺勤改不了，饭可以晚十分钟吃 ——
+        // 课排第一个块；饭点那件事在矮卡里退成底部提示，在高一点的卡里才占第二个块
         val lunch = WidgetCourse(
             name = "大学物理", location = "主楼B-201",
             startMinute = 670, endMinute = 720, color = 0, startSection = 4, endSection = 4,
@@ -79,8 +80,13 @@ class SmartWidgetBoundaryTest {
         val card = SmartArbiter.card(facts(nowMinute = 11 * 60 + 30, courses = listOf(lunch), balance = "¥128.60"))
         assertEquals(SmartModule.ATTENDANCE, card.blocks.first().module)
         assertEquals("上课中", card.blocks.first().label)
-        // 饭点降为底部提示：余额还在，只是不占块
-        assertTrue("余额该降级成提示", card.hints.any { it.module == SmartModule.CAMPUS_CARD })
+
+        // 150dp 的 2×2：只排一个块，余额落到底部提示
+        val plan = com.xjtu.toolbox.widget.smart.SmartLayout.plan(
+            card, com.xjtu.toolbox.widget.smart.SmartLayout.Form.COMPACT, 150, 172,
+        )
+        assertEquals(1, plan.blocks.size)
+        assertTrue("余额该退成提示", (plan.hint ?: "").contains("余额"))
     }
 
     @Test

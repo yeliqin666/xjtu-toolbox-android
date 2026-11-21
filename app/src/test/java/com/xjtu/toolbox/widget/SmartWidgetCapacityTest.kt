@@ -61,15 +61,15 @@ class SmartWidgetCapacityTest {
     fun `最紧的实例只放一个块，细节行让位`() {
         val plan = SmartLayout.plan(busy(), SmartLayout.Form.COMPACT, 110, 172)
         assertEquals(1, plan.blocks.size)
-        assertTrue(plan.blocks.first().block.detail == null)
+        assertEquals(0, plan.blocks.first().details)
         assertTrue("110dp 放不下两个块", !plan.twoBlocks)
     }
 
     @Test
-    fun `常见的 2×2 能放下一个完整的块`() {
+    fun `常见的 2×2 能把两行细节都写出来`() {
         val plan = SmartLayout.plan(busy(), SmartLayout.Form.COMPACT, 140, 172)
         assertEquals(1, plan.blocks.size)
-        assertTrue("细节行回来了", plan.blocks.first().withDetail)
+        assertEquals(2, plan.blocks.first().details)
     }
 
     @Test
@@ -78,15 +78,15 @@ class SmartWidgetCapacityTest {
         assertEquals(2, plan.blocks.size)
         assertTrue(plan.twoBlocks)
         // 两块的预算只有 56dp，只放得下「场景 + 标题 + 状态」
-        assertFalse(plan.blocks[0].withDetail)
-        assertFalse(plan.blocks[1].withDetail)
+        assertEquals(0, plan.blocks[0].details)
+        assertEquals(0, plan.blocks[1].details)
     }
 
     @Test
-    fun `宽卡两块并排，各拿满高`() {
+    fun `宽卡两块并排，各拿满高、细节写满`() {
         val plan = SmartLayout.plan(busy(), SmartLayout.Form.WIDE, 140, 344)
         assertEquals(2, plan.blocks.size)
-        assertTrue("并排时各自的高度都是满高，细节行留得住", plan.blocks.all { it.withDetail })
+        assertTrue("并排时两块各拿满高", plan.blocks.all { it.details == 2 })
     }
 
     @Test

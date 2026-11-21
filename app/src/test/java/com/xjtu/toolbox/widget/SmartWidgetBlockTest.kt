@@ -101,30 +101,24 @@ class SmartWidgetBlockTest {
     }
 
     @Test
-    fun `高度够两个块就排两个，高度不够退回一个`() {
-        val card = SmartArbiter.card(facts(nowMinute = 650, todos = listOf(todo(60))))
-        assertEquals(2, card.blocks.size)
-
-        // 110dp：两块各只剩 34dp，放不下 → 退回一个，并把省下的高度给它做细节行
-        val tight = SmartLayout.plan(card, SmartLayout.Form.COMPACT, 110, 172)
-        assertEquals(1, tight.blocks.size)
-        assertFalse(tight.twoBlocks)
-
-        // 160dp：两块各 56dp，够放「场景+标题+状态」
-        val tall = SmartLayout.plan(card, SmartLayout.Form.COMPACT, 160, 172)
-        assertEquals(2, tall.blocks.size)
-        assertTrue(tall.twoBlocks)
+    fun `一块占满时把细节写满，不留大片空白`() {
+        val card = SmartArbiter.card(facts(nowMinute = 650))
+        // 110dp：块预算 69dp，只放得下三行（场景 + 标题 + 状态）
+        assertEquals(0, SmartLayout.plan(card, SmartLayout.Form.COMPACT, 110, 172).blocks.first().details)
+        // 140dp：块预算 99dp，五行（含两行细节）都放得下 —— 卡片被填满
+        val roomy = SmartLayout.plan(card, SmartLayout.Form.COMPACT, 140, 172).blocks.first()
+        assertEquals(2, roomy.details)
+        assertEquals("还剩 70 分钟", roomy.block.detail)
+        assertEquals("10:10–12:00", roomy.block.detail2)
     }
 
     @Test
-    fun `大块才给细节行`() {
-        val card = SmartArbiter.card(facts(nowMinute = 650))
-        // 110dp 一个块：块预算 69dp，四行 71dp 放不下 → 细节行让位
-        assertTrue(SmartLayout.plan(card, SmartLayout.Form.COMPACT, 110, 172).blocks.first().block.detail == null)
-        // 140dp：块预算 99dp，四行 71dp 放得下
-        assertEquals(
-            "还剩 70 分钟",
-            SmartLayout.plan(card, SmartLayout.Form.COMPACT, 140, 172).blocks.first().block.detail,
-        )
+    fun `两个块的判定看重要程度是否相近`() {
+        // 上课中（P1）+ 待办（P0/P1）：相近 ⇒ 两个块
+        assertEquals(2, SmartArbiter.card(facts(nowMinute = 650, todos = listOf(todo(60)))).blocks.size)
+        // 已查证的迟到（P0）+ 余额（P2）：差两档 ⇒ 只一个块，细节交给它
+        val late = SmartArbiter.card(facts(nowMinute = 650, balance = "¥128.60"))
+        assertEquals(1, late.blocks.size)
+        assertTrue("余额降级成底部提示", late.hints.any { it.module == SmartModule.CAMPUS_CARD })
     }
 }

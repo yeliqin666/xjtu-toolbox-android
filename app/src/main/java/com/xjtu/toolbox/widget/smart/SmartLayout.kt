@@ -110,8 +110,13 @@ object SmartLayout {
     /**
      * 落成一屏实际要渲染的东西。
      *
-     * @param availableHeightDp 这个实例实际分到的高度（`OPTION_APPWIDGET_MIN_HEIGHT`）；
-     *   拿不到时给 [DEFAULT_HEIGHT_DP]，此时按最紧的预算排。
+     * 三条伸缩规则（对着「一块占满 / 两块各半」而设计）：
+     * 1. **块数**：两个块放得下就放两个（各占一半），放不下就退回一个；
+     * 2. **细节行**：每个块能写几行细节由它分到的高度决定（0/1/2 行）——
+     *    一个块独占整张卡时写两行，把卡填满，而不是把三行字摆在正中间、上下都空着；
+     * 3. **底部那条**：按宽度拼提示，装不下就少一条。
+     *
+     * @param availableHeightDp 这个实例实际分到的高度（`OPTION_APPWIDGET_MIN_HEIGHT`）。
      * @param availableWidthDp 这个实例实际的宽度（`OPTION_APPWIDGET_MIN_WIDTH`）。
      */
     fun plan(
@@ -123,29 +128,27 @@ object SmartLayout {
         val height = availableHeightDp.coerceAtLeast(DEFAULT_HEIGHT_DP)
         val textW = textWidthDp(form, availableWidthDp)
 
-        // ① 两个块放不放得下：放不下就只留第一个（更重要的那个），把省下的高度给它做细节行
+        // ① 两个块放不放得下
         var blocks = card.blocks.take(2)
-        var twoFit = blocks.size == 2 &&
-            blockBudgetDp(form, 2, height) >= blocks[0].minHeight()
-        if (!twoFit) blocks = blocks.take(1)
+        if (blocks.size == 2 && blockBudgetDp(form, 2, height) < blocks[0].minHeight()) {
+            blocks = blocks.take(1)
+        }
 
-        // ② 每块要不要细节行：块高够就写（两块并排时高度不叠加，上下堆时已经除过二）
+        // ② 每块能写几行细节
         val budget = blockBudgetDp(form, blocks.size, height)
-        val fits = blocks.map { b -> b.heightDp(withDetail = true) <= budget }
-
-        // ③ 收字：按宽度、按行
-        val rendered = blocks.mapIndexed { i, b ->
-            val withDetail = fits[i] && !b.detail.isNullOrBlank()
+        val rendered = blocks.map { b ->
+            val details = (b.detailCount downTo 0).firstOrNull { n -> b.heightDp(n) <= budget } ?: 0
             RenderedBlock(
                 block = b.copy(
                     label = fit(b.label, textW, SIZE_LABEL, DETAIL_MAX),
                     title = fit(b.title, textW, SIZE_TITLE, TITLE_MAX).orEmpty(),
-                    detail = if (withDetail) fit(b.detail, textW, SIZE_DETAIL, DETAIL_MAX) else null,
+                    detail = if (details >= 1) fit(b.detail, textW, SIZE_DETAIL, DETAIL_MAX) else null,
+                    detail2 = if (details >= 2) fit(b.detail2, textW, SIZE_DETAIL, DETAIL_MAX) else null,
                     status = fit(b.statusLine, textW, SIZE_STATUS, STATUS_MAX),
                     meta = null,
                     keys = b.keys.take(MAX_KEYS),
                 ),
-                withDetail = withDetail,
+                details = details,
             )
         }
 
@@ -154,7 +157,7 @@ object SmartLayout {
             blocks = rendered,
             twoBlocks = rendered.size == 2,
             hint = hintLine(card.hints, textW),
-            heightDp = heightOf(form, rendered.map { it.block.heightDp(it.withDetail) }),
+            heightDp = heightOf(form, rendered.map { it.block.heightDp(it.details) }),
         )
     }
 
@@ -239,10 +242,10 @@ object SmartLayout {
     }
 
     /** 一个块最少要占多高：场景行 + 标题 + 状态（没有状态时更矮）。 */
-    private fun SmartBlock.minHeight(): Int = heightDp(withDetail = false)
+    private fun SmartBlock.minHeight(): Int = heightDp(details = 0)
 
-    /** 渲染一个块要用的东西。 */
-    data class RenderedBlock(val block: SmartBlock, val withDetail: Boolean)
+    /** 渲染一个块要用的东西：块本身 + 它这次写了几行细节。 */
+    data class RenderedBlock(val block: SmartBlock, val details: Int)
 
     /** 一屏要画的东西。 */
     data class Plan(

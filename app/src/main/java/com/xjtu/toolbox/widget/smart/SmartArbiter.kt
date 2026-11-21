@@ -77,9 +77,10 @@ internal object SmartArbiter {
         val cands = candidates(facts)
         val first = cands.first()
         val second = cands.getOrNull(1)
-        // 两个块的条件：第二件也得是要紧事（P0/P1）。背景信息（P2：余额、考试、放假）
-        // 永远只是底部的一条提示 —— 它撑不起半张卡。
-        val two = second != null && first.rank != SmartRank.P2 && second.rank != SmartRank.P2
+        // 两个块的条件：第二件的**重要程度和第一件相近**（级差不超过一档）。
+        // 「远不如」的（已查证的迟到 vs 余额）就只占一个块，把细节给它，而不是把半张卡
+        // 让给一件可有可无的事。
+        val two = second != null && second.rank.ordinal - first.rank.ordinal <= 1
         val blocks = if (two) listOf(first, second) else listOf(first)
         return SmartCard(blocks = blocks, hints = hints(facts, blocks))
     }
@@ -197,11 +198,15 @@ internal object SmartArbiter {
         } else {
             course.location.ifBlank { timeRange(course) }
         }
+        // 第二行细节：上课时间区间（课前那行已经给了地点，上课中那行已经给了还剩多久）
+        val detail2 = timeRange(course).takeIf { it.isNotBlank() && it != detail }
+            ?: course.location.takeIf { it.isNotBlank() && it != detail }
         return SmartBlock(
             module = SmartModule.ATTENDANCE,
             label = label,
             title = course.name,
             detail = detail,
+            detail2 = detail2,
             status = outcome.status,
             statusColor = outcome.color,
             evidence = outcome.evidence,
@@ -232,26 +237,28 @@ internal object SmartArbiter {
         route = AppRoute.Schedule,
     )
 
-    /** M3 校园卡：饭点报余额并给付款码入口；余额那份缓存带更新时刻，照实标。 */
+    /**
+     * M3 校园卡。饭点与兜底用的是同一个块，**route 一律是校园卡页**，键一律是「付款码」——
+     * 块的文字点开就是校园卡，再放一颗「校园卡」图标就是重复入口（这条是真机反馈踩过的）。
+     */
     private fun mealBlock(facts: SmartFacts, label: String): SmartBlock = SmartBlock(
         module = SmartModule.CAMPUS_CARD,
         label = label,
         title = facts.balance ?: "--",
-        detail = listOfNotNull(
-            facts.todaySpend?.let { "今日消费 $it" },
-            facts.balanceClock?.let { "更新于 $it" },
-        ).joinToString(" · ").ifBlank { null },
+        detail = facts.todaySpend?.let { "今日消费 $it" },
+        detail2 = facts.balanceClock?.let { "更新于 $it" },
         rank = SmartRank.P1,
         anchor = facts.nowMinute,
-        route = AppRoute.PaymentCode,
+        route = AppRoute.CampusCard,
     )
 
-    /** 兜底：课上完了 / 没课可报时，报余额。点它去校园卡页。 */
+    /** 兜底：课上完了 / 没课可报时，报余额。 */
     private fun balanceBlock(facts: SmartFacts): SmartBlock = SmartBlock(
         module = SmartModule.CAMPUS_CARD,
         label = "校园卡",
         title = facts.balance ?: "余额未同步",
         detail = facts.balanceClock?.let { "更新于 $it" },
+        detail2 = facts.todaySpend?.let { "今日消费 $it" },
         rank = SmartRank.P2,
         anchor = facts.nowMinute,
         route = AppRoute.CampusCard,
@@ -265,6 +272,12 @@ internal object SmartArbiter {
             label = if (left <= TODO_P0_MIN) "快截止" else "待办",
             title = todo.title.ifBlank { todo.source.ifBlank { "待办" } },
             detail = todo.source.ifBlank { null },
+            // 状态已经写了「还有多久」，第二行给「截止时刻」这类补充事实
+            detail2 = if (todo.expiresAt > 0L && left < 24 * 60) {
+                "${clock(facts.minuteOf(todo.expiresAt))} 截止"
+            } else {
+                null
+            },
             status = deadlineText(facts, todo),
             statusColor = if (left <= TODO_P0_MIN) COLOR_ABSENT else null,
             rank = if (left <= TODO_P0_MIN) SmartRank.P0 else SmartRank.P1,
@@ -279,6 +292,7 @@ internal object SmartArbiter {
         label = "图书馆",
         title = "座位 ${lib.seat}",
         detail = lib.area.ifBlank { null },
+        detail2 = lib.actions.takeIf { it.isNotEmpty() }?.let { "可做：${it.first()}" },
         status = lib.status.ifBlank { null },
         statusColor = when (lib.status) {
             "使用中" -> COLOR_NORMAL
@@ -362,33 +376,32 @@ internal object SmartArbiter {
     /**
      * 一个块里的键：**只放这个块到不了的地方，或一个动作**。
      *
-     * 最多两个（块内那一行只排得下两个 18dp 图标 + 间距）。刷新不在这里 —— 它在底部条右侧，
-     * 位置固定，每个场景都找得到。
+     * 一条结构性保证写在最后：**任何导航键都不许指向这个块自己打开的那个页面** ——
+     * 那正是「点文字能到、还多摆一个图标」的重复入口。以前靠约定，现在靠这行过滤。
+     *
+     * 最多两个（块内那一行只排得下两个 18dp 图标 + 间距）。刷新不在这里 —— 它在底部条右侧。
      */
-    fun keysOf(block: SmartBlock, facts: SmartFacts): List<SmartKey> = when (block.module) {
-        // 点块进考勤页；扫码是它到不了的地方
-        SmartModule.ATTENDANCE -> listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan))
-        // 点块进日程；查考勤是另一件事
-        SmartModule.NEXT_CLASS -> listOf(NavKey(SmartKeyKind.ATTENDANCE, "考勤", AppRoute.Attendance))
-        // 点块进那条待办自己；收纳是另一件事（块本身就落在收纳时就不用补了）
-        SmartModule.TODO -> if (block.route == AppRoute.Inbox) emptyList()
-        else listOf(NavKey(SmartKeyKind.INBOX, "收纳", AppRoute.Inbox))
-        // 点块进图书馆页；座位动作要靠落盘的 actionUrls
-        SmartModule.LIBRARY -> libraryKeys(facts.library)
-        // 饭点那一屏点块打开付款码 ⇒ 补校园卡；兜底那一屏反过来
-        SmartModule.CAMPUS_CARD -> if (block.route == AppRoute.PaymentCode) {
-            listOf(NavKey(SmartKeyKind.CARD, "校园卡", AppRoute.CampusCard))
-        } else {
-            listOf(NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode))
-        }
-        // 放假 / 今天没课点块进校历 ⇒ 补日程；「今天的课上完了」点块进校园卡 ⇒ 补付款码
-        SmartModule.HOLIDAY -> if (block.route == AppRoute.SchoolCalendar) {
-            listOf(NavKey(SmartKeyKind.CALENDAR, "日程", AppRoute.Schedule))
-        } else {
-            listOf(NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode))
-        }
-        SmartModule.EXAM, SmartModule.SCHEDULE_DIFF, SmartModule.NOTICE -> emptyList()
-    }
+    fun keysOf(block: SmartBlock, facts: SmartFacts): List<SmartKey> =
+        when (block.module) {
+            // 点块进考勤页；扫码是它到不了的地方
+            SmartModule.ATTENDANCE -> listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan))
+            // 点块进日程；查考勤是另一件事
+            SmartModule.NEXT_CLASS -> listOf(NavKey(SmartKeyKind.ATTENDANCE, "考勤", AppRoute.Attendance))
+            // 点块进那条待办自己；收纳是另一件事（块本身就落在收纳时就不用补了）
+            SmartModule.TODO -> if (block.route == AppRoute.Inbox) emptyList()
+            else listOf(NavKey(SmartKeyKind.INBOX, "收纳", AppRoute.Inbox))
+            // 点块进图书馆页；座位动作要靠落盘的 actionUrls
+            SmartModule.LIBRARY -> libraryKeys(facts.library)
+            // 点块进校园卡页 ⇒ 唯一的动作键是「付款码」
+            SmartModule.CAMPUS_CARD -> listOf(NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode))
+            // 放假 / 今天没课点块进校历 ⇒ 补日程；「今天的课上完了」点块进校园卡 ⇒ 补付款码
+            SmartModule.HOLIDAY -> if (block.route == AppRoute.SchoolCalendar) {
+                listOf(NavKey(SmartKeyKind.CALENDAR, "日程", AppRoute.Schedule))
+            } else {
+                listOf(NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode))
+            }
+            SmartModule.EXAM, SmartModule.SCHEDULE_DIFF, SmartModule.NOTICE -> emptyList()
+        }.filterNot { it is NavKey && it.route == block.route }
 
     /**
      * 图书馆那个块的键：**动作键只能执行「预约当前真的有这个按钮」的那个动作**。
