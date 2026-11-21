@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  智能卡片 · 宽形态（4×2，宽 ≥ 220dp，见 SmartLayout.Form.WIDE）。
+  智能卡片 · 宽形态（4×2，宽 ≥ 220dp）。
 
-  左栏 = 一个块占四行；中间一条 1dp 竖线；右栏 = 钩子（宽 88dp，竖着排）；
-  底下一条 1dp 横线，再是底栏。三块内容各有一道分隔，不会糊成一片。
+  和紧凑卡的区别只有一处：**两个块左右并排**（各 weight=1，中间一条竖线），
+  垂直方向两块各拿满高，所以细节行更常留得住。底部那条「次要提示 + 刷新」一样在最低下。
 
   ⚠️ 控件 id 必须与 widget_smart_compact.xml **完全一致** —— RemoteViews 找不到 id 会抛
-  ActionException，整张卡片会变成「加载失败」占位，所以形态差异只能体现在排版上。
-  SmartWidgetLayoutBudgetTest 会核对两份布局的 id 集合。
+  ActionException，整张卡片会变成「加载失败」占位。SmartWidgetLayoutBudgetTest 核对两份布局的 id。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_smart_root"
@@ -24,28 +23,55 @@
         android:layout_weight="1"
         android:orientation="horizontal">
 
-        <!-- 左栏：一块四行 -->
+        <!-- ══════ 块 1 ══════ -->
         <LinearLayout
+            android:id="@+id/widget_smart_block1"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:gravity="center_vertical"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/widget_smart_label"
-                android:layout_width="wrap_content"
-                android:layout_height="15dp"
-                android:ellipsize="end"
-                android:includeFontPadding="false"
-                android:maxLines="1"
-                android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="10sp"
-                android:visibility="gone" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_smart_label1"
+                    android:layout_width="0dp"
+                    android:layout_height="16dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_on_surface_secondary"
+                    android:textSize="10sp" />
+
+                <ImageView
+                    android:id="@+id/widget_smart_key1a"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="10dp"
+                    android:contentDescription="@string/smart_widget_name"
+                    android:scaleType="fitCenter"
+                    android:visibility="gone" />
+
+                <ImageView
+                    android:id="@+id/widget_smart_key1b"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="10dp"
+                    android:contentDescription="@string/smart_widget_name"
+                    android:scaleType="fitCenter"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/widget_smart_title"
+                android:id="@+id/widget_smart_title1"
                 android:layout_width="match_parent"
-                android:layout_height="22dp"
+                android:layout_height="21dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
@@ -54,10 +80,10 @@
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/widget_smart_status"
+                android:id="@+id/widget_smart_status1"
                 android:layout_width="match_parent"
-                android:layout_height="18dp"
-                android:layout_marginTop="2dp"
+                android:layout_height="17dp"
+                android:layout_marginTop="1dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
@@ -67,134 +93,144 @@
                 android:visibility="gone" />
 
             <TextView
-                android:id="@+id/widget_smart_detail"
+                android:id="@+id/widget_smart_detail1"
                 android:layout_width="match_parent"
                 android:layout_height="15dp"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="1dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
                 android:textColor="@color/widget_on_surface_secondary"
                 android:textSize="11sp"
                 android:visibility="gone" />
-
-            <!-- 宽卡的钩子在右栏，这条横线永远是 GONE（id 要对齐紧凑卡） -->
-            <ImageView
-                android:id="@+id/widget_smart_hook_divider"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/widget_divider"
-                android:contentDescription="@null"
-                android:importantForAccessibility="no"
-                android:visibility="gone" />
         </LinearLayout>
 
-        <!-- 左右两栏之间的分隔线 -->
+        <!-- 两块之间那条竖线（只有一个块时 GONE） -->
         <ImageView
-            android:id="@+id/widget_smart_vdivider"
+            android:id="@+id/widget_smart_divider"
             android:layout_width="1dp"
             android:layout_height="match_parent"
-            android:layout_marginHorizontal="8dp"
+            android:layout_marginHorizontal="3dp"
             android:background="@color/widget_divider"
             android:contentDescription="@null"
-            android:importantForAccessibility="no" />
+            android:importantForAccessibility="no"
+            android:visibility="gone" />
 
-        <!-- 右栏：钩子，约 8 个字一行 -->
+        <!-- ══════ 块 2 ══════ -->
         <LinearLayout
-            android:layout_width="88dp"
+            android:id="@+id/widget_smart_block2"
+            android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:orientation="vertical">
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_smart_label2"
+                    android:layout_width="0dp"
+                    android:layout_height="16dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_on_surface_secondary"
+                    android:textSize="10sp" />
+
+                <ImageView
+                    android:id="@+id/widget_smart_key2a"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="10dp"
+                    android:contentDescription="@string/smart_widget_name"
+                    android:scaleType="fitCenter"
+                    android:visibility="gone" />
+
+                <ImageView
+                    android:id="@+id/widget_smart_key2b"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="10dp"
+                    android:contentDescription="@string/smart_widget_name"
+                    android:scaleType="fitCenter"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/widget_smart_hook1"
+                android:id="@+id/widget_smart_title2"
                 android:layout_width="match_parent"
-                android:layout_height="15dp"
+                android:layout_height="21dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
-                android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="10sp"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_smart_status2"
+                android:layout_width="match_parent"
+                android:layout_height="17dp"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="12sp"
+                android:textStyle="bold"
                 android:visibility="gone" />
 
             <TextView
-                android:id="@+id/widget_smart_hook2"
+                android:id="@+id/widget_smart_detail2"
                 android:layout_width="match_parent"
                 android:layout_height="15dp"
+                android:layout_marginTop="1dp"
                 android:ellipsize="end"
                 android:includeFontPadding="false"
                 android:maxLines="1"
                 android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="10sp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/widget_smart_hook3"
-                android:layout_width="match_parent"
-                android:layout_height="15dp"
-                android:ellipsize="end"
-                android:includeFontPadding="false"
-                android:maxLines="1"
-                android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="10sp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/widget_smart_hook4"
-                android:layout_width="match_parent"
-                android:layout_height="15dp"
-                android:ellipsize="end"
-                android:includeFontPadding="false"
-                android:maxLines="1"
-                android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="10sp"
+                android:textSize="11sp"
                 android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 内容与按键之间的分隔线 -->
     <ImageView
-        android:id="@+id/widget_smart_keybar_divider"
+        android:id="@+id/widget_smart_bottom_divider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="3dp"
         android:background="@color/widget_divider"
         android:contentDescription="@null"
         android:importantForAccessibility="no" />
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="24dp"
-        android:layout_marginTop="4dp"
+        android:layout_height="22dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <ImageView
-            android:id="@+id/widget_smart_key1"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:contentDescription="@string/smart_widget_name"
-            android:scaleType="fitCenter"
-            android:visibility="gone" />
-
-        <ImageView
-            android:id="@+id/widget_smart_key2"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:layout_marginStart="12dp"
-            android:contentDescription="@string/smart_widget_name"
-            android:scaleType="fitCenter"
-            android:visibility="gone" />
-
         <TextView
+            android:id="@+id/widget_smart_hint"
             android:layout_width="0dp"
-            android:layout_height="1dp"
+            android:layout_height="15dp"
             android:layout_weight="1"
-            android:importantForAccessibility="no" />
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="10sp" />
 
         <ImageView
-            android:id="@+id/widget_smart_key3"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
+            android:id="@+id/widget_smart_refresh"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_marginStart="10dp"
             android:contentDescription="@string/smart_widget_refresh"
             android:scaleType="fitCenter"
             android:visibility="gone" />

@@ -8,23 +8,24 @@ import com.xjtu.toolbox.schedule.XjtuTime
 import com.xjtu.toolbox.widget.WidgetCourse
 
 /**
- * 这一屏到底画什么：**纯函数**，输入是已经读好的事实，输出是一个块 + 若干钩子 + 三个键。
+ * 这一屏到底画什么：**纯函数**，输入是已经读好的事实，输出是 1–2 个块 + 底部一条提示。
  *
- * 以前这是一串 if/else，写在 `SmartWidgetUpdater.sceneOf` 里，谁也说不清「为什么这一刻显示的是
- * 余额而不是待办」。现在顺序就是 `docs/smart-widget.md` §3.1 那张仲裁表，逐条短路：
- * **第一个命中的就是主要信息**；命中不了才往下走，最后兜底到余额。
+ * 两件事在这里定：
+ * 1. **哪些事够格上屏、谁在前** —— 就是下面 [candidates] 那张有序清单，逐条按
+ *    `docs/smart-widget.md` §3.1 的仲裁表取块，靠前的是「更重要」。
+ * 2. **一屏放一个还是两个块** —— 只有前两件事**都算要紧**（都不是 P2 的背景信息）时才放两个，
+ *    各占一半；其余情况一个块占满，把细节也给它（见 [SmartCard]）。
  *
- * 两条写死的取舍（§3.1）：
- * - **课 > 饭点**：缺勤改不了，饭可以晚十分钟吃；
- * - **签到 > 找座**：「待入馆签到」是硬窗口，丢了就是丢了。
+ * 每条结论都带着它的「依据」（[SmartEvidence]）与时效，渲染时按依据决定措辞 ——
+ * 按时钟推出来的话不许说成确定的事。
  */
 internal object SmartArbiter {
 
-    /** 课前多少分钟开始把「下一节」当成「这一堂」。更早的时候卡片回答的是别的问题。 */
+    /** 课前多少分钟开始把「下一节」当成「这一堂」。 */
     const val CLASS_LEAD_MIN = 20
 
     /**
-     * 把一次刷卡算进这节课的时间窗时，往前放宽多少分钟。
+     * 把一次刷卡算进这节课的时间窗时往前放宽多少分钟。
      *
      * 人在上课前几分钟就在楼里刷了，这条刷卡当然属于这堂课 —— 卡得太死会把「提前刷的」
      * 判成没刷，那正是这张卡片最不该犯的错。
@@ -32,11 +33,8 @@ internal object SmartArbiter {
     const val SWIPE_WINDOW_BEFORE_MIN = 25
 
     /**
-     * 结论「还是新鲜的」的分界线（分钟）。
-     *
-     * 打卡窗口关的那一刻去问过，说「迟到」是站得住的；过了十分钟还没再问，中间完全可能补刷了，
-     * 那就只能降级成「可能迟到」并触发一次补查。**屏幕上永远有一句说得清的话**，
-     * 但不许把一句可能已经过期的断言说成确定的事（§10.10/11）。
+     * 结论「还是新鲜的」的分界线（分钟）：打卡窗口关的那一刻问过，说「迟到」站得住；
+     * 过了十分钟还没再问，中间完全可能补刷了，只能降级成「可能迟到」。
      */
     const val VERIFY_WINDOW_MIN = 10
 
@@ -46,7 +44,7 @@ internal object SmartArbiter {
     /** 待办离截止不到这么久算「此刻该知道」。 */
     const val TODO_P1_MIN = 360
 
-    /** 下一节课在这个范围内就值得占主要信息。 */
+    /** 下一节课在这个范围内就值得占一块。 */
     const val NEXT_CLASS_HORIZON_MIN = 120
 
     /** 下一节还有这么久以上，才算「空档期」。 */
@@ -66,119 +64,121 @@ internal object SmartArbiter {
         Triple("晚饭时间", 17 * 60, 19 * 60 + 30),
     )
 
-    /** 座位动作的紧急程度（越靠前越该占主要信息）。 */
+    /** 座位动作的紧急程度（越靠前越该占块）。 */
     private val SEAT_ACTION_ORDER = listOf("入馆签到", "中途返回", "中途离开", "取消预约")
 
     /**
-     * 按仲裁表判出这一屏。
+     * 判出这一屏。
      *
-     * 顺序即优先级，每一段前面的注释就是 §3.1 里那条规则；想改优先级就改这里的顺序，
-     * 不要再往别处塞特例——单测 [com.xjtu.toolbox.widget.SmartWidgetBoundaryTest] 按这张表断言。
+     * `docs/smart-widget.md` 的仲裁表在这里落成一张**候选清单**（[candidates]，顺序即优先级），
+     * 然后按「前两件事都算要紧吗」决定一个块还是两个块。
      */
     fun card(facts: SmartFacts): SmartCard {
+        val cands = candidates(facts)
+        val first = cands.first()
+        val second = cands.getOrNull(1)
+        // 两个块的条件：第二件也得是要紧事（P0/P1）。背景信息（P2：余额、考试、放假）
+        // 永远只是底部的一条提示 —— 它撑不起半张卡。
+        val two = second != null && first.rank != SmartRank.P2 && second.rank != SmartRank.P2
+        val blocks = if (two) listOf(first, second) else listOf(first)
+        return SmartCard(blocks = blocks, hints = hints(facts, blocks))
+    }
+
+    /**
+     * 按仲裁表排出所有「够格上屏」的块，靠前的更重要。
+     *
+     * 顺序就是 `docs/smart-widget.md` §3.1：打卡窗口关了却没刷上 → 两小时内截止的待办 →
+     * 待入馆签到 → 当前课 → 六小时内的待办 → 中途返回 → 该出发了 → 下一节 → 饭点 →
+     * 课表变动 → 空档期的座位 → 三天内考试 → 放假/没课 → 余额兜底。
+     *
+     * 每个模块最多出现一次；同一件事不会既占块又当提示。
+     */
+    internal fun candidates(facts: SmartFacts): List<SmartBlock> {
         val now = facts.nowMinute
         val current = facts.courses.firstOrNull { now >= it.startMinute - CLASS_LEAD_MIN && now < it.endMinute }
         val next = facts.courses.firstOrNull { it.startMinute > now }
         val todo = facts.todos.minByOrNull { it.expiresAt.takeIf { e -> e > 0 } ?: Long.MAX_VALUE }
+        val todoLeft = todo?.let { minutesLeft(facts, it) } ?: Int.MAX_VALUE
         val outcome = current?.let { attendanceOf(facts, it) }
+        val out = mutableListOf<SmartBlock>()
 
-        // 1 / 1b 打卡窗口已关，而且本机没有记录：迟到是**已查证的事实**还是**还没查过的推断**，
-        //        由依据决定措辞（«迟到» / «可能迟到»），不由礼貌程度决定。
+        // 1 打卡窗口已关而且本机没记录：唯一一个 P0 的「此刻不做就出事」。
         if (current != null && outcome != null && outcome.closed && !outcome.recorded && !outcome.swiped) {
-            return cardOf(classBlock(facts, current, outcome).copy(rank = SmartRank.P0), facts)
+            out += classBlock(facts, current, outcome).copy(rank = SmartRank.P0)
         }
 
-        // 2 待办两小时内截止：过期即作废，压过一切可缓的。
-        todo?.let { t ->
-            val left = minutesLeft(facts, t)
-            if (left in 0..TODO_P0_MIN) return cardOf(todoBlock(facts, t).copy(rank = SmartRank.P0), facts)
+        // 2 两小时内截止的待办：过期即作废。
+        if (todo != null && todoLeft in 0..TODO_P0_MIN) {
+            out += todoBlock(facts, todo).copy(rank = SmartRank.P0)
         }
 
-        // 3 座位「待入馆签到」：硬窗口，丢了就是丢了。
-        //   ⚠️ 卡片算不出那 30 分钟窗口（`MyBookingInfo` 不带预约时刻，见 §11 前置 2），
-        //   所以只按 P1 排、不敢按 P0 插到课前面去——宁可少喊一句，也不虚报紧急。
-        facts.library?.let { lib: LibrarySeatFact ->
-            if (lib.active && lib.has("入馆签到")) {
-                return cardOf(libraryBlock(facts, lib), facts)
-            }
-        }
+        // 3 座位「待入馆签到」：硬窗口，丢了就是丢了 —— 排在课前面。
+        facts.library?.takeIf { it.active && it.has("入馆签到") }?.let { out += libraryBlock(facts, it) }
 
         // 4 当前课进行中（含课前二十分钟）。
-        if (current != null && outcome != null) return cardOf(classBlock(facts, current, outcome), facts)
+        if (current != null && outcome != null) out += classBlock(facts, current, outcome)
 
-        // 5 待办六小时内截止。
-        todo?.let { t ->
-            val left = minutesLeft(facts, t)
-            if (left in 0..TODO_P1_MIN) return cardOf(todoBlock(facts, t), facts)
-        }
+        // 5 六小时内截止的待办。
+        if (todo != null && todoLeft in 0..TODO_P1_MIN) out += todoBlock(facts, todo)
 
-        // 6 座位「中途返回」：人已经约上了，只差回馆。
-        facts.library?.let { lib ->
-            if (lib.active && lib.has("中途返回")) return cardOf(libraryBlock(facts, lib), facts)
-        }
+        // 6 其它座位状态（在馆 / 暂离 / 已约未签到之外的）。
+        facts.library?.takeIf { it.active }?.let { out += libraryBlock(facts, it) }
 
-        // 7 / 8 下一节课：到了该出发的时刻就染黄，两小时内就占主要信息。
+        // 7 / 8 下一节课：到了该出发的时刻就染黄，两小时内就占一块。
         if (next != null) {
             val lead = next.startMinute - now
             val walk = facts.walkMinutesTo(next)
-            if (walk != null && lead <= walk) return cardOf(nextClassBlock(facts, next, walk, leaving = true), facts)
-            if (lead in 0..NEXT_CLASS_HORIZON_MIN) return cardOf(nextClassBlock(facts, next, walk, leaving = false), facts)
+            if (walk != null && lead <= walk) {
+                out += nextClassBlock(facts, next, walk, leaving = true)
+            } else if (lead in 0..NEXT_CLASS_HORIZON_MIN) {
+                out += nextClassBlock(facts, next, walk, leaving = false)
+            }
         }
 
-        // 9 饭点：课优先（上面已经短路），到这里说明没课。
+        // 9 饭点：有课时它只配当底部那条提示，所以按 P2 排（文档的「课 > 饭点」）。
         MEALS.firstOrNull { (_, start, end) -> now in start until end }?.let { (label, _, _) ->
-            return cardOf(mealBlock(facts, label).copy(rank = SmartRank.P1), facts)
+            out += mealBlock(facts, label).copy(rank = SmartRank.P2)
         }
 
         // 10 课表变动：学校改课不通知，白跑一趟。
         facts.scheduleDiff?.takeIf { it.isNotBlank() }?.let { diff ->
-            return cardOf(
-                SmartBlock(
-                    module = SmartModule.SCHEDULE_DIFF,
-                    label = "课表有变",
-                    title = diff,
-                    rank = SmartRank.P1,
-                    anchor = now,
-                    route = AppRoute.Schedule,
-                ),
-                facts,
+            out += SmartBlock(
+                module = SmartModule.SCHEDULE_DIFF,
+                label = "课表有变",
+                title = diff,
+                rank = SmartRank.P1,
+                anchor = now,
+                route = AppRoute.Schedule,
             )
         }
 
-        // 11 空档期 + 有座位事实：只有真的有预约才画，不画「没有座位」。
-        facts.library?.let { lib ->
-            val idle = next == null || next.startMinute - now >= GAP_MIN
-            if (idle && lib.active) return cardOf(libraryBlock(facts, lib), facts)
-        }
-
-        // 12 三天内有考试。
+        // 11 三天内有考试。
         facts.exam?.let { e ->
             if (e.daysLeft <= 3) {
-                return cardOf(
-                    SmartBlock(
-                        module = SmartModule.EXAM,
-                        label = "考试",
-                        // 教务偶尔给空课名：这一行是标题，空着就等于这个块没有主语
-                        title = e.exam.courseName.ifBlank { "考试" },
-                        detail = examDetail(e),
-                        status = e.label,
-                        rank = SmartRank.P2,
-                        anchor = e.daysLeft,
-                        route = AppRoute.Schedule,
-                    ),
-                    facts,
+                out += SmartBlock(
+                    module = SmartModule.EXAM,
+                    label = "考试",
+                    title = e.exam.courseName.ifBlank { "考试" },
+                    detail = examDetail(e),
+                    status = e.label,
+                    rank = SmartRank.P2,
+                    anchor = e.daysLeft,
+                    route = AppRoute.Schedule,
                 )
             }
         }
 
-        // 13 放假 / 今天没课。
+        // 12 放假 / 今天没课 / 今天的课上完了。
         val holiday = facts.holiday
-        if (holiday != null || facts.courses.isEmpty()) {
-            return cardOf(holidayBlock(facts, holiday), facts)
+        if (holiday != null || facts.courses.isEmpty() || facts.courses.all { it.endMinute <= now }) {
+            out += holidayBlock(facts, holiday)
         }
 
-        // 14 兜底：今天课上完了，报余额。
-        return cardOf(holidayBlock(facts, null), facts)
+        // 13 兜底：余额。
+        if (out.isEmpty()) out += balanceBlock(facts)
+
+        // 一个模块只占一个块（保留最先出现、也就是更重要的那个）；顺手挂上它自己的快捷键。
+        return out.distinctBy { it.module }.map { it.copy(keys = keysOf(it, facts)) }
     }
 
     // ══════ 各模块的块 ══════
@@ -187,7 +187,7 @@ internal object SmartArbiter {
      * M1 这一堂课 + 考勤。
      *
      * 细节**随情境变**（§2.4 规则②）：课前要地点（得赶过去），上课中不要（人已经在里面了），
-     * 换成「还剩多久」。省下来的这一行正好够多写一条钩子。
+     * 换成「还剩多久」。
      */
     private fun classBlock(facts: SmartFacts, course: WidgetCourse, outcome: AttendanceOutcome): SmartBlock {
         val started = facts.nowMinute >= course.startMinute
@@ -241,18 +241,28 @@ internal object SmartArbiter {
             facts.todaySpend?.let { "今日消费 $it" },
             facts.balanceClock?.let { "更新于 $it" },
         ).joinToString(" · ").ifBlank { null },
-        rank = SmartRank.P2,
+        rank = SmartRank.P1,
         anchor = facts.nowMinute,
         route = AppRoute.PaymentCode,
     )
 
-    /** M4 待办：截止时间本身就是时效，不用再标「查于几点」。 */
+    /** 兜底：课上完了 / 没课可报时，报余额。点它去校园卡页。 */
+    private fun balanceBlock(facts: SmartFacts): SmartBlock = SmartBlock(
+        module = SmartModule.CAMPUS_CARD,
+        label = "校园卡",
+        title = facts.balance ?: "余额未同步",
+        detail = facts.balanceClock?.let { "更新于 $it" },
+        rank = SmartRank.P2,
+        anchor = facts.nowMinute,
+        route = AppRoute.CampusCard,
+    )
+
+    /** M4 待办。 */
     private fun todoBlock(facts: SmartFacts, todo: InboxItem): SmartBlock {
         val left = minutesLeft(facts, todo)
         return SmartBlock(
             module = SmartModule.TODO,
             label = if (left <= TODO_P0_MIN) "快截止" else "待办",
-            // 学校那一条没有标题时给一个能读的主语，别在桌面上留一行空标题
             title = todo.title.ifBlank { todo.source.ifBlank { "待办" } },
             detail = todo.source.ifBlank { null },
             status = deadlineText(facts, todo),
@@ -284,134 +294,114 @@ internal object SmartArbiter {
 
     /** M8 放假 / 今天没课 / 今天的课上完了：三种都是「今天没事」，说法必须分开。 */
     private fun holidayBlock(facts: SmartFacts, holiday: String?): SmartBlock {
-        val (label, title, detail) = when {
-            holiday != null -> Triple("放假", holiday, "今天不上课")
-            facts.courses.isEmpty() -> Triple("今天没课", facts.balance?.let { "校园卡 $it" } ?: "校园卡余额未同步", "饭点会自动换成付款码入口")
-            else -> Triple("今天的课上完了", facts.balance?.let { "校园卡 $it" } ?: "校园卡余额未同步", "明天的课已经排好")
+        val (label, title, detail, route) = when {
+            holiday != null ->
+                Four("放假", holiday, "今天不上课", AppRoute.SchoolCalendar)
+            facts.courses.isEmpty() ->
+                Four("今天没课", facts.balance ?: "余额未同步", "点开 App 同步课表", AppRoute.CampusCard)
+            else ->
+                Four("今天的课上完了", facts.balance ?: "余额未同步", "明天的课已经排好", AppRoute.CampusCard)
         }
         return SmartBlock(
-            module = if (holiday != null || facts.courses.isEmpty()) SmartModule.HOLIDAY else SmartModule.CAMPUS_CARD,
+            module = SmartModule.HOLIDAY,
             label = label,
             title = title,
             detail = detail,
             rank = SmartRank.P2,
             anchor = facts.nowMinute,
-            route = if (holiday != null) AppRoute.SchoolCalendar else AppRoute.CampusCard,
+            route = route,
         )
     }
 
-    // ══════ 钩子 ══════
+    private data class Four(
+        val label: String,
+        val title: String,
+        val detail: String,
+        val route: AppRoute,
+    )
+
+    // ══════ 底部的次要提示 ══════
 
     /**
-     * 次要信息：只写钩子（地点 + 数字），不写句子；**不许和主要信息同源**（§2.6.4）。
+     * 卡片最底下那一条：**只写最短的事实**（地点 + 数字），不与块同源。
      *
-     * 排法：先按级、级内按时间早的；同一条文字只出现一次。真正能放几条由布局预算决定
-     * （见 [SmartLayout.plan]），这里按「最该被看到」的顺序给全。
+     * 位置是「底部条里、刷新图标左边」——那里本来就是空白，正好用来把卡片填满，
+     * 而不是像以前那样在块和底栏之间留一大片空。
+     *
+     * 按级排、级内按时间早的排；真正能放几条由布局按宽度定（[SmartLayout.plan]）。
      */
-    fun hooks(facts: SmartFacts, block: SmartBlock): List<SmartHook> {
-        val out = mutableListOf<SmartHook>()
+    internal fun hints(facts: SmartFacts, blocks: List<SmartBlock>): List<SmartHint> {
+        val used = blocks.map { it.module }.toSet()
+        val out = mutableListOf<SmartHint>()
         val now = facts.nowMinute
 
-        facts.todos.minByOrNull { it.expiresAt.takeIf { e -> e > 0 } ?: Long.MAX_VALUE }?.let { t ->
-            if (block.module != SmartModule.TODO) {
-                out += SmartHook(SmartModule.TODO, deadlineText(facts, t), SmartRank.P1, deadlineMinute(facts, t))
+        if (SmartModule.TODO !in used) {
+            facts.todos.minByOrNull { it.expiresAt.takeIf { e -> e > 0 } ?: Long.MAX_VALUE }?.let {
+                out += SmartHint(SmartModule.TODO, deadlineText(facts, it))
             }
         }
-        facts.library?.takeIf { it.active && block.module != SmartModule.LIBRARY }?.let {
-            out += SmartHook(SmartModule.LIBRARY, "座位 ${it.seat}", SmartRank.P2, it.seat.length)
+        if (SmartModule.LIBRARY !in used) {
+            facts.library?.takeIf { it.active }?.let { out += SmartHint(SmartModule.LIBRARY, "座位 ${it.seat}") }
         }
-        facts.exam?.takeIf { it.daysLeft <= 7 && block.module != SmartModule.EXAM }?.let {
-            val text = if (it.daysLeft == 0) "今天考试" else "考试 ${it.daysLeft} 天"
-            out += SmartHook(SmartModule.EXAM, text, SmartRank.P2, it.daysLeft + 1000)
+        if (SmartModule.EXAM !in used) {
+            facts.exam?.takeIf { it.daysLeft <= 7 }?.let {
+                out += SmartHint(SmartModule.EXAM, if (it.daysLeft == 0) "今天考试" else "考试 ${it.daysLeft} 天")
+            }
         }
-        facts.balance?.takeIf { block.module != SmartModule.CAMPUS_CARD }?.let {
-            out += SmartHook(SmartModule.CAMPUS_CARD, "余额 $it", SmartRank.P2, 2000 + now / 1000)
+        if (SmartModule.CAMPUS_CARD !in used) {
+            facts.balance?.let { out += SmartHint(SmartModule.CAMPUS_CARD, "余额 $it") }
         }
-        facts.notice?.takeIf { block.module != SmartModule.NOTICE }?.let {
-            out += SmartHook(SmartModule.NOTICE, it, SmartRank.P2, 3000)
+        facts.notice?.takeIf { SmartModule.NOTICE !in used }?.let {
+            out += SmartHint(SmartModule.NOTICE, it)
         }
-        return out
-            .distinctBy { it.module }
-            .sortedWith(compareBy({ it.rank.ordinal }, { it.anchor }))
+        return out.sortedBy { it.module.ordinal }.take(3)
     }
 
-    // ══════ 底栏快捷键 ══════
+    // ══════ 块里的快捷键 ══════
 
     /**
-     * 底栏放什么键。
+     * 一个块里的键：**只放这个块到不了的地方，或一个动作**。
      *
-     * 一条铁律先立住：**点那块内容能到的地方，底栏就不许再放一个图标。**
-     * 以前上课那一屏同时有「点标题进考勤页」和一颗「考勤」图标、下一节那一屏同时有
-     * 「点标题进日程」和一颗「日程」图标 —— 一个目的地两个入口，纯属占地方。
-     * 所以这里每一个键都必须是**内容块到不了**的那个地方，或者是一个**动作**：
-     *
-     * | 主要信息 | 点它去哪 | 底栏还缺什么 |
-     * |---|---|---|
-     * | 这一堂课 | 考勤页 | 扫码、刷新（结论已是定论时刷新没意义） |
-     * | 下一节 | 日程 | 查考勤 |
-     * | 饭点余额 | 付款码 | 校园卡 |
-     * | 课上完了 | 校园卡 | 付款码 |
-     * | 待办 | 那条待办自己 | 收纳 |
-     * | 图书馆 | 图书馆 | 座位动作 / 扫码 |
-     * | 考试、课表变动 | 日程 | 只有刷新 |
-     * | 放假 | 校历 | 日程 |
-     *
-     * 「刷新」固定占最右，它是每个场景都可能要的动作，位置不能变。
+     * 最多两个（块内那一行只排得下两个 18dp 图标 + 间距）。刷新不在这里 —— 它在底部条右侧，
+     * 位置固定，每个场景都找得到。
      */
-    fun keysOf(facts: SmartFacts, block: SmartBlock): List<SmartKey> = when (block.module) {
-        // 点块就进考勤页，所以只补「扫码」这个到不了的地方；结论已经是学校写下的定论时，
-        // 刷新也刷不出新东西，那个位置干脆空着
-        SmartModule.ATTENDANCE -> if (block.evidence == SmartEvidence.RECORDED) {
-            listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan))
-        } else {
-            listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan), RefreshKey())
-        }
-        SmartModule.NEXT_CLASS -> listOf(
-            NavKey(SmartKeyKind.ATTENDANCE, "考勤", AppRoute.Attendance),
-            RefreshKey(),
-        )
-        // 点块进的是那条待办自己的页面；收纳是另一件事
-        SmartModule.TODO -> if (block.route == AppRoute.Inbox) {
-            listOf(RefreshKey())
-        } else {
-            listOf(NavKey(SmartKeyKind.INBOX, "收纳", AppRoute.Inbox), RefreshKey())
-        }
+    fun keysOf(block: SmartBlock, facts: SmartFacts): List<SmartKey> = when (block.module) {
+        // 点块进考勤页；扫码是它到不了的地方
+        SmartModule.ATTENDANCE -> listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan))
+        // 点块进日程；查考勤是另一件事
+        SmartModule.NEXT_CLASS -> listOf(NavKey(SmartKeyKind.ATTENDANCE, "考勤", AppRoute.Attendance))
+        // 点块进那条待办自己；收纳是另一件事（块本身就落在收纳时就不用补了）
+        SmartModule.TODO -> if (block.route == AppRoute.Inbox) emptyList()
+        else listOf(NavKey(SmartKeyKind.INBOX, "收纳", AppRoute.Inbox))
+        // 点块进图书馆页；座位动作要靠落盘的 actionUrls
         SmartModule.LIBRARY -> libraryKeys(facts.library)
-        // 饭点那一屏点块就打开付款码，所以补的是校园卡；反过来兜底那一屏补付款码
+        // 饭点那一屏点块打开付款码 ⇒ 补校园卡；兜底那一屏反过来
         SmartModule.CAMPUS_CARD -> if (block.route == AppRoute.PaymentCode) {
-            listOf(NavKey(SmartKeyKind.CARD, "校园卡", AppRoute.CampusCard), RefreshKey())
+            listOf(NavKey(SmartKeyKind.CARD, "校园卡", AppRoute.CampusCard))
         } else {
-            listOf(NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode), RefreshKey())
+            listOf(NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode))
         }
-        // 考试、课表变动：点块进日程，日程那一栏就是它自己，没有别的去处
-        SmartModule.EXAM, SmartModule.SCHEDULE_DIFF -> listOf(RefreshKey())
-        SmartModule.HOLIDAY -> listOf(
-            NavKey(SmartKeyKind.CALENDAR, "日程", AppRoute.Schedule),
-            RefreshKey(),
-        )
-        SmartModule.NOTICE -> listOf(
-            NavKey(SmartKeyKind.INBOX, "通知", AppRoute.Notification),
-            RefreshKey(),
-        )
+        // 放假 / 今天没课点块进校历 ⇒ 补日程；「今天的课上完了」点块进校园卡 ⇒ 补付款码
+        SmartModule.HOLIDAY -> if (block.route == AppRoute.SchoolCalendar) {
+            listOf(NavKey(SmartKeyKind.CALENDAR, "日程", AppRoute.Schedule))
+        } else {
+            listOf(NavKey(SmartKeyKind.PAYMENT, "付款码", AppRoute.PaymentCode))
+        }
+        SmartModule.EXAM, SmartModule.SCHEDULE_DIFF, SmartModule.NOTICE -> emptyList()
     }
 
     /**
-     * 图书馆那一屏的键：**动作键只能执行「预约当前真的有这个按钮」的那个**。
+     * 图书馆那个块的键：**动作键只能执行「预约当前真的有这个按钮」的那个动作**。
      *
      * 按钮集合来自最近一次查到的 `actionUrls.keys`（落盘见 `LibrarySeatStore`），
      * 查不到就不出现 —— 绝不写死一个学校那边已经没了的按钮。
-     *
-     * 没约座（空档期）时只补「扫码」：选座就是点这块本身去的地方（图书馆页），不必再来一个图标。
      */
     private fun libraryKeys(lib: LibrarySeatFact?): List<SmartKey> {
-        if (lib == null || !lib.active) {
-            return listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan), RefreshKey())
-        }
-        val first = SEAT_ACTION_ORDER.firstOrNull { lib.has(it) }
-        val keys = mutableListOf<SmartKey>()
-        if (first != null) keys += seatKey(first)
-        if (first != "取消预约" && lib.has("取消预约")) keys += seatKey("取消预约")
-        keys += RefreshKey()
+        val fact = lib ?: return emptyList()
+        if (!fact.active) return listOf(NavKey(SmartKeyKind.QR, "扫码", AppRoute.QrScan))
+        val first = SEAT_ACTION_ORDER.firstOrNull { fact.has(it) } ?: return emptyList()
+        val keys = mutableListOf<SmartKey>(seatKey(first))
+        if (first != "取消预约" && fact.has("取消预约")) keys += seatKey("取消预约")
         return keys
     }
 
@@ -426,7 +416,7 @@ internal object SmartArbiter {
         action = action,
     )
 
-    // ══════ 考勤结论（§1.4 / §10） ══════
+    // ══════ 考勤结论 ══════
 
     /** 本堂考勤的结论 + 它是什么时候的事实。 */
     internal data class AttendanceOutcome(
@@ -447,14 +437,13 @@ internal object SmartArbiter {
      *
      * 四条来源，优先级就是它们可信的程度：
      * 1. 学校写下的记录（[SmartEvidence.RECORDED]）——照实报，不标时刻；
-     * 2. 本机见到的刷卡（[SmartEvidence.OBSERVED]）——「已刷卡 · 待结算」，标**刷卡时刻**
-     *    （这是最要紧的一个状态：它把「明明刷了却显示待考勤」消掉了，用户不必再白跑一趟）；
+     * 2. 本机见到的刷卡（[SmartEvidence.OBSERVED]）——「已刷卡 · 待结算」，标**刷卡时刻**；
      * 3. 窗口还没关（[SmartEvidence.INFERRED]）——「待考勤」，标查证时刻；
      * 4. 窗口已关且没记录——在临界点查过就是 [SmartEvidence.VERIFIED]（可以直说「迟到」），
      *    没查过 / 太久没查就是 [SmartEvidence.INFERRED] / [SmartEvidence.STALE]（「可能迟到」）。
      *
      * 找记录用日期 + 节次 + 课程号，**不用周次**：两套系统的周次起始日未必同一天，
-     * 差一天就整体错一周，于是明明记了考勤却查不到（见 `SlotAttendanceMarks.recordAt`）。
+     * 差一天就整体错一周（见 `SlotAttendanceMarks.recordAt`）。
      */
     internal fun attendanceOf(facts: SmartFacts, course: WidgetCourse): AttendanceOutcome {
         val record = facts.attendance
@@ -466,7 +455,6 @@ internal object SmartArbiter {
                 WaterType.LATE -> "已打卡 · 迟到" to COLOR_LATE
                 WaterType.ABSENCE -> "已打卡 · 缺勤" to COLOR_ABSENT
                 WaterType.LEAVE -> "已请假" to COLOR_LEAVE
-                // 未识别的状态码不冒充正常，也不吓人，原样说「有记录」
                 WaterType.UNKNOWN -> "已打卡 · 状态未知" to COLOR_LEAVE
             }
             return AttendanceOutcome(text, color, SmartEvidence.RECORDED, meta = null, recorded = true)
@@ -480,7 +468,6 @@ internal object SmartArbiter {
                 status = "已刷卡 · 待结算",
                 color = COLOR_NORMAL,
                 evidence = SmartEvidence.OBSERVED,
-                // 标的是**刷卡**时刻，不是「刚刚查过」：两者含义不同（§10.3）
                 meta = "刷卡 ${swipe.clock}",
                 swiped = true,
             )
@@ -499,11 +486,8 @@ internal object SmartArbiter {
         val ago = facts.checkedAgoMin
         val at = facts.checkedAtClock ?: clockAgo(facts, ago ?: 0)
         return when {
-            // 还没问过：措辞必须降级，不能硬下结论
             ago == null -> AttendanceOutcome("可能迟到", COLOR_LATE, SmartEvidence.INFERRED, "还未查询过", closed = true)
-            // 临界点上刚查过：这一刻它掌握的事实和学校掌握的是同一件事，可以直说
             ago <= VERIFY_WINDOW_MIN -> AttendanceOutcome("迟到", COLOR_LATE, SmartEvidence.VERIFIED, "$at 查过", closed = true)
-            // 查过但已经太久了：中间完全可能补刷了
             else -> AttendanceOutcome("可能迟到", COLOR_LATE, SmartEvidence.STALE, "上次查于 $at", closed = true)
         }
     }
@@ -513,14 +497,14 @@ internal object SmartArbiter {
      *
      * 取值来自 [XjtuTime] 的 `attendanceEnd`，不是自己写死的 `start + 5`：核对过全部 11 节 ×
      * 冬夏两套表，`attendanceEnd` 恒等于上课时刻 + 5 分钟，正好对上旧的魔数 ——
-     * 但学校真改了作息，卡片应当跟着那张表走，而不是跟着一个魔数走（§11 第 12 条）。
+     * 但学校真改了作息，卡片应当跟着那张表走。
      */
     fun attendanceEndMinute(course: WidgetCourse): Int {
         val t = XjtuTime.getClassTime(course.startSection)?.attendanceEnd
         return if (t != null) t.hour * 60 + t.minute else course.startMinute + 5
     }
 
-    // ══════ 什么时候该联网（§6.3） ══════
+    // ══════ 什么时候该联网 ══════
 
     /** 这一屏要不要在后台问一次学校。 */
     enum class CheckKind {
@@ -537,15 +521,12 @@ internal object SmartArbiter {
     /**
      * 判「此刻这一屏还欠不欠一次查询」。
      *
-     * 只有一节课两个点（上课时刻 Q1、打卡窗口关 Q2），**一节课最多两次，没课一次都没有**。
-     * 这里的关键不是「隔多久查一次」，而是「这个点该问的东西，我手上有没有」：
+     * 一节课两个点（上课时刻 Q1、打卡窗口关 Q2），**一节课最多两次，没课一次都没有**。
+     * 判据不是「隔多久查一次」，而是「这个点该问的东西，我手上有没有」：
      *
      * - Q2 到了但 `lastCheckAt` 比它早 ⇒ 手上那份是窗口关之前的事实，**必须补**；
      * - 闹钟会失约（关机、省电推迟），所以这个判断要在**每次重画**时都做一遍 ——
      *   即使一个闹钟都没响过，用户看一眼卡片也会把结论查清楚。
-     *
-     * 判据（§6.3「一条通用判据」）：这个点查回来的东西会比上一次多吗？不会多就不排。
-     * 窗口刚开不排（学校还没开始记考勤，查回来必然是空的）；下课前不排（结算时机不确定）。
      */
     fun checkNeeded(facts: SmartFacts): CheckKind {
         val now = facts.nowMinute
@@ -559,7 +540,6 @@ internal object SmartArbiter {
             val last = facts.lastCheckAtMs
             if (last == null || last < dueMs) return CheckKind.DUE
         }
-        // 保鲜：结论是推断/查证/过期的那一类，而且已经超过阈值 ⇒ 用户此刻在看，值得为他多问一次
         val outcome = attendanceOf(facts, current)
         val age = facts.checkedAgoMin ?: Int.MAX_VALUE
         val inferred = outcome.evidence == SmartEvidence.VERIFIED ||
@@ -569,10 +549,6 @@ internal object SmartArbiter {
     }
 
     // ══════ 小工具 ══════
-
-    /** 把块 + 钩子 + 键凑成一屏。 */
-    private fun cardOf(block: SmartBlock, facts: SmartFacts): SmartCard =
-        SmartCard(block = block, hooks = hooks(facts, block), keys = keysOf(facts, block))
 
     private fun minutesLeft(facts: SmartFacts, todo: InboxItem): Int =
         if (todo.expiresAt <= 0L) Int.MAX_VALUE else ((todo.expiresAt - facts.nowMs) / 60_000L).toInt()
@@ -606,13 +582,9 @@ internal object SmartArbiter {
     private fun routeOf(todo: InboxItem?): AppRoute =
         todo?.route?.takeIf { it.isNotBlank() }?.let { com.xjtu.toolbox.nav.appRouteOf(it) } ?: AppRoute.Inbox
 
-    /** 状态那一行的时效说明：哪一刻的事实。 */
     private fun freshness(facts: SmartFacts): String {
         val ago = facts.checkedAgoMin ?: return "还未查询过"
-        return when {
-            ago <= 0 -> "刚刚查过"
-            else -> "$ago 分钟前查过"
-        }
+        return if (ago <= 0) "刚刚查过" else "$ago 分钟前查过"
     }
 
     private fun clockAgo(facts: SmartFacts, ago: Int): String =
@@ -625,9 +597,8 @@ internal object SmartArbiter {
 }
 
 /**
- * 「从上一节课的楼走到下一节课的楼要几分钟」，用打包在应用里的 OSM 简图（[CampusMaps]）本地算，
- * 零联网、零请求。算不出来（楼名对不上 OSM）返回 null —— 那就**不写步行时间**，
- * 绝不编一个数字上去（§10.8）。
+ * 「从上一节课的楼走到下一节课的楼要几分钟」，用打包在应用里的 OSM 简图（`CampusMaps`）本地算，
+ * 零联网、零请求。算不出来（楼名对不上 OSM）返回 null —— 那就**不写步行时间**，绝不编一个数字。
  */
 internal fun SmartFacts.walkMinutesTo(course: WidgetCourse): Int? {
     if (course.location.isBlank()) return null
@@ -637,9 +608,4 @@ internal fun SmartFacts.walkMinutesTo(course: WidgetCourse): Int? {
     val a = com.xjtu.toolbox.campusmap.CampusMaps.find(from.location)?.second ?: return null
     val b = com.xjtu.toolbox.campusmap.CampusMaps.find(course.location)?.second ?: return null
     return com.xjtu.toolbox.campusmap.CampusMaps.walkMinutes(a, b)
-}
-
-/** 「刷新」键：只打考勤这一枪，不打开 App（`ACTION_REFRESH_NOW`）。 */
-data class RefreshKey(override val label: String = "刷新") : SmartKey {
-    override val kind: SmartKeyKind get() = SmartKeyKind.REFRESH
 }

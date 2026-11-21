@@ -3,16 +3,15 @@ package com.xjtu.toolbox.widget.smart
 import com.xjtu.toolbox.nav.AppRoute
 
 // ==================== 卡片的内容模型（纯数据，不碰 Android） ====================
-// 设计见 docs/smart-widget.md §2。这里只有形状与判据，渲染在 SmartWidgetUpdater 那一侧，
-// 所以这一整套能在普通 JVM 单测里逐条断言，而不用起模拟器。
+// 设计见 docs/smart-widget.md §2，并按真机反馈改过两处：
+//   · 一屏可以有 **1 或 2 个块**（「小卡占一半、大卡占满」）；
+//   · 快捷键挂在**块里面**，块整体一个点击目标、块内的图标各是另一个。
 
 /**
  * 卡片上一条结论是**怎么来的**。
  *
  * 这一项决定「渲染规则」——不是在内容上加个后缀，而是决定这一行**能不能下断言**：
  * 学校写下的（[RECORDED]）怎么显示都行，按本机时钟推出来的（[INFERRED]）必须降级措辞并标时刻。
- * 旧代码只有一个 `statusIsGuess` 布尔，分不出「查证过」与「没查过」——那正是
- * 「明明刷了卡却显示迟到」的根源。
  */
 enum class SmartEvidence {
     /** 学校写下的结论（正常 / 迟到 / 缺勤 / 请假）：不会自己变，不用标时刻。 */
@@ -31,12 +30,10 @@ enum class SmartEvidence {
     STALE,
 }
 
-/** 时效等级，决定排位与染色（§2.2）。 */
+/** 时效等级，决定排位与染色。 */
 enum class SmartRank { P0, P1, P2 }
 
-/**
- * 内容模块。主要信息与次要信息**不许同源**（§4.2），去重就靠它。
- */
+/** 内容模块，用于「次要提示不许和块同源」的去重。 */
 enum class SmartModule {
     /** 这一堂课 + 考勤。 */
     ATTENDANCE,
@@ -62,32 +59,28 @@ enum class SmartModule {
     /** 课表变动（停课 / 换教室）。 */
     SCHEDULE_DIFF,
 
-    /** 教务通知（只当钩子，没有标题可说）。 */
+    /** 教务通知（只当次要提示）。 */
     NOTICE,
 }
 
 /**
- * 底栏快捷键的种类。
+ * 块里的快捷键种类。
  *
- * 只放种类不放图标资源：图标映射在渲染那一侧做，这样仲裁与布局这一整套纯逻辑
- * 不必依赖 `R`，单测不碰 Android 资源。
+ * **这里刻意没有「去交」「考勤」「日程」「选座」这类键**：它们指向的就是块本身打开的那个页面 ——
+ * 点块已经能到，再放一个图标就是重复入口。留下的都是「块到不了的地方」或「一个动作」。
  *
- * **这里刻意没有「去交」「空教室」这类键**：
- * - 「去交」指向的就是主要信息那一块本身的开着的页面 —— 点标题已经能到，再放一个图标是重复入口；
- * - 空教室要「周次 + 星期 + 节次」才拼得出缓存键，卡片冷启动时未必有，硬做只会显示过期数字。
- *
- * 判据很简单：**这个键指向的东西，点那块内容到不了吗？** 到得了就不该有。
+ * 「刷新」也不在这里：它在底部条最右，位置固定、每个场景都在。
  */
 enum class SmartKeyKind {
-    ATTENDANCE, REFRESH, QR, PAYMENT, CARD, CALENDAR,
+    ATTENDANCE, QR, PAYMENT, CARD, CALENDAR,
     CHECKIN, INBOX, LEAVE, RETURN, CANCEL,
 }
 
-/** 底栏上的一个键（§5.2）：导航键打开某个页面，动作键后台真做一件事。 */
+/** 块里的一个键：要么打开另一个页面，要么后台真做一件事。 */
 sealed interface SmartKey {
     val kind: SmartKeyKind
 
-    /** 无障碍朗读与宽卡小字都用它（「中途离开」而不是「图片」）。 */
+    /** 无障碍朗读用（「中途离开」而不是「图片」）。 */
     val label: String
 }
 
@@ -111,16 +104,17 @@ data class SeatKey(
 ) : SmartKey
 
 /**
- * 一个块 = 一件事的若干行（§2.3）：
+ * 一个块 = 一件事的若干行：
  *
  * ```
- * 场景    ← 这件事是什么情境（上课中 / 下一节 / 午饭时间）
- * 标题    ← 这件事是什么
- * 细节    ← 补充事实（地点、还剩多久）
- * 状态    ← 结论（已刷卡 · 待结算）
+ * 场景（右边挂这个块自己的快捷键）   ← 这件事是什么情境
+ * 标题                              ← 这件事是什么
+ * 状态                              ← 结论（迟到 · 08:05 查过）
+ * 细节（大块才给）                  ← 补充事实（地点、还剩多久）
  * ```
  *
- * **块是内容的单位，行是排版的单位**——场景和课名两件互不相干的事不许拼在一行。
+ * **块整体是一个点击目标**（去这件事对应的页面），**块里的图标各是另一个点击目标**
+ * （去块到不了的地方）。块内的图标与块的点击区用不同的 view id，互不覆盖。
  */
 data class SmartBlock(
     val module: SmartModule,
@@ -133,16 +127,18 @@ data class SmartBlock(
     /** 时效说明（「刷卡 09:58」/「08:05 查过」/「上次查于 07:40」）。 */
     val meta: String? = null,
     val rank: SmartRank = SmartRank.P2,
-    /** 排序用的锚点（距 00:00 的分钟）：级内按它早的在前。 */
+    /** 排序用的锚点（距 00:00 的分钟）。 */
     val anchor: Int = 0,
-    /** 点这一块去哪儿（内容块整块可点，§5.1）。 */
+    /** 点这一块去哪儿。 */
     val route: AppRoute,
+    /** 这个块自己的快捷键（最多两个，刷新在底部条上）。 */
+    val keys: List<SmartKey> = emptyList(),
 ) {
     /**
      * 状态行实际画出来的那句话：**状态 + 时效**。
      *
-     * 拼成一行是有意的（§1.4 的样张就是「迟到 · 08:05 查过」）：分开两行的话，
-     * 110dp 的紧凑卡放不下，而时效又是这句话的一部分——「迟到」离开时刻就是过期的断言。
+     * 拼成一行是有意的：分开两行的话，140dp 的紧凑卡放不下，而时效又是这句话的一部分 ——
+     * 「迟到」离开时刻就是一句过期的断言。
      */
     val statusLine: String?
         get() = when {
@@ -150,23 +146,24 @@ data class SmartBlock(
             meta.isNullOrBlank() -> status
             else -> "$status · $meta"
         }
+
+    /** 块要多高：[withDetail] 时多一行细节。 */
+    fun heightDp(withDetail: Boolean): Int =
+        SmartLayout.BLOCK_LEAD_DP + SmartLayout.BLOCK_TITLE_DP +
+            (if (statusLine != null) SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_STATUS_DP else 0) +
+            (if (withDetail && !detail.isNullOrBlank()) SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_DETAIL_DP else 0)
 }
 
-/**
- * 钩子：一两句写在空闲处的短句（§2.4 规则③）。
- *
- * 它**只写钩子**（地点 + 数字），不写句子；空间真没了，钩子先没——它最不重要。
- */
-data class SmartHook(
-    val module: SmartModule,
-    val text: String,
-    val rank: SmartRank,
-    val anchor: Int,
-)
+/** 一条次要提示：写在卡片最底下那一条，与「刷新」并排。 */
+data class SmartHint(val module: SmartModule, val text: String)
 
-/** 卡片判出来的一屏：一个块 + 若干钩子 + 底栏三个键。 */
+/**
+ * 判出来的一屏：**1 或 2 个块** + 底部一条次要提示。
+ *
+ * - 有一件事远比其他都重要 ⇒ 一个块占满（块里给细节），底下一条提示；
+ * - 有两件都算要紧 ⇒ 两个块各占一半（块里只留场景/标题/状态）。
+ */
 data class SmartCard(
-    val block: SmartBlock,
-    val hooks: List<SmartHook> = emptyList(),
-    val keys: List<SmartKey> = emptyList(),
+    val blocks: List<SmartBlock>,
+    val hints: List<SmartHint> = emptyList(),
 )

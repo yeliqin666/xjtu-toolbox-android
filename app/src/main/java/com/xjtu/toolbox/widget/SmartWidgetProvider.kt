@@ -31,7 +31,6 @@ import com.xjtu.toolbox.util.CampusZoneId
 import com.xjtu.toolbox.util.RequestCodes
 import com.xjtu.toolbox.util.todayOnCampus
 import com.xjtu.toolbox.widget.smart.NavKey
-import com.xjtu.toolbox.widget.smart.RefreshKey
 import com.xjtu.toolbox.widget.smart.SeatKey
 import com.xjtu.toolbox.widget.smart.SmartArbiter
 import com.xjtu.toolbox.widget.smart.SmartCard
@@ -181,16 +180,15 @@ object SmartWidgetUpdater {
     // ══════ 填 RemoteViews ══════
 
     /**
-     * 按这个实例的**实际尺寸**选布局与行数。
+     * 按这个实例的**实际尺寸**选布局、排块数。
      *
-     * 两件事都在这里定：
+     * 三件事都在这里定：
      * - **形态**：用户能把它拖成 4×2、2×4，形态得跟着实例宽度走；
-     * - **能放几行**：`minHeight` 只是「至少需要这么高」，同一个 2×2 在不同桌面网格下可能是
-     *   110dp 也可能是 140dp。拿实例给的 `OPTION_APPWIDGET_MIN_HEIGHT` 去算预算，
-     *   空间富余就多写一条钩子，不够就先砍钩子 —— 而不是一律按最紧的排、白白空着半个卡。
+     * - **一个块还是两个**：两个块要两个块的预算，高度不够就退回一个（把细节给它）；
+     * - **每块要不要细节行**：同一个块在 110dp 的实例里只放得下三行，在 160dp 里能多一行。
      *
      * 两套布局的控件 id 完全相同：`RemoteViews` 找不到 id 会抛 `ActionException`，
-     * 整张卡片会变成「加载失败」占位，所以差异只能体现在排版上，不能体现在 id 上。
+     * 整张卡片会变成「加载失败」占位，所以差异只能体现在排版上。
      */
     private fun render(context: Context, manager: AppWidgetManager, id: Int, card: SmartCard) {
         val options = runCatching { manager.getAppWidgetOptions(id) }.getOrNull()
@@ -203,38 +201,69 @@ object SmartWidgetUpdater {
             SmartLayout.Form.COMPACT -> R.layout.widget_smart_compact
         }
         val views = RemoteViews(context.packageName, layout)
-        val block = plan.block
 
-        views.putText(R.id.widget_smart_label, block.label)
-        views.putText(R.id.widget_smart_title, block.title)
-        views.putText(R.id.widget_smart_detail, block.detail)
-        views.putText(R.id.widget_smart_status, block.statusLine)
-        block.statusColor?.let { views.setTextColor(R.id.widget_smart_status, it) }
-
-        // 内容块整块可点：点场景/标题/细节/状态都进这件事对应的页面。
-        // 底栏的图标各有各的 id，点区不会互相盖住。
-        val open = contentIntent(context, id, block.route)
-        for (row in ROW_IDS) views.setOnClickPendingIntent(row, open)
-        views.setOnClickPendingIntent(R.id.widget_smart_root, open)
-
-        // 三道分隔：块与钩子之间、键区与内容之间（横线），宽卡还有左右两栏之间的竖线。
-        // 没有分隔线的话，几行字糊成一片，看不出哪里是「一件事」的边界。
+        // 一个块 / 两个块：每块整块可点，块内的图标各有各的 id，互不覆盖
+        bindBlock(context, views, id, SLOT_BLOCK1, plan.blocks.getOrNull(0), ROW1)
+        bindBlock(context, views, id, SLOT_BLOCK2, plan.blocks.getOrNull(1), ROW2)
         views.setViewVisibility(
-            R.id.widget_smart_hook_divider,
-            if (plan.showHookDivider) View.VISIBLE else View.GONE,
-        )
-        views.setViewVisibility(
-            R.id.widget_smart_vdivider,
-            if (plan.showRailDivider) View.VISIBLE else View.GONE,
+            R.id.widget_smart_divider,
+            if (plan.twoBlocks) View.VISIBLE else View.GONE,
         )
 
-        HOOK_IDS.forEachIndexed { i, hookId -> views.putText(hookId, plan.hooks.getOrNull(i)) }
-
-        KEY_IDS.forEachIndexed { slot, keyId ->
-            bindKey(context, views, id, slot, keyId, plan.keys.getOrNull(slot))
-        }
+        // 底部那条：次要提示 + 刷新。提示只读、不做点击目标 —— 点空白不该乱跳。
+        views.putText(R.id.widget_smart_hint, plan.hint)
+        views.setViewVisibility(R.id.widget_smart_refresh, View.VISIBLE)
+        views.setImageViewResource(R.id.widget_smart_refresh, R.drawable.ic_widget_refresh)
+        views.setInt(
+            R.id.widget_smart_refresh,
+            "setColorFilter",
+            context.getColor(R.color.widget_on_surface_secondary),
+        )
+        views.setContentDescription(R.id.widget_smart_refresh, "刷新")
+        views.setOnClickPendingIntent(R.id.widget_smart_refresh, refreshNowIntent(context))
 
         manager.updateAppWidget(id, views)
+    }
+
+    /** 一个块的七个 id：容器（整块可点）、场景行、标题、状态、细节，以及块内两个键。 */
+    private class BlockIds(
+        val container: Int,
+        val label: Int,
+        val title: Int,
+        val status: Int,
+        val detail: Int,
+        val keyA: Int,
+        val keyB: Int,
+    )
+
+    private fun bindBlock(
+        context: Context,
+        views: RemoteViews,
+        widgetId: Int,
+        slot: Int,
+        rendered: SmartLayout.RenderedBlock?,
+        ids: BlockIds,
+    ) {
+        if (rendered == null) {
+            views.setViewVisibility(ids.container, View.GONE)
+            return
+        }
+        val block = rendered.block
+        views.setViewVisibility(ids.container, View.VISIBLE)
+        views.putText(ids.label, block.label)
+        views.putText(ids.title, block.title)
+        views.putText(ids.status, block.statusLine)
+        views.putText(ids.detail, block.detail)
+        block.statusColor?.let { views.setTextColor(ids.status, it) }
+
+        // **块整体是一个点击目标**：点场景/标题/状态/细节都进这件事对应的页面。
+        // 请求码与下面两个图标必须分开 —— 共用时 PendingIntent 会互相覆盖，
+        // 表现出来就是「点块跳到了图标的地方」。
+        val open = contentIntent(context, widgetId, block.route, slot)
+        views.setOnClickPendingIntent(ids.container, open)
+
+        bindKey(context, views, widgetId, slot + 1, ids.keyA, block.keys.getOrNull(0))
+        bindKey(context, views, widgetId, slot + 2, ids.keyB, block.keys.getOrNull(1))
     }
 
     /**
@@ -266,15 +295,8 @@ object SmartWidgetUpdater {
         views.setViewVisibility(keyId, View.VISIBLE)
         views.setImageViewResource(keyId, iconOf(key.kind))
         // 图标是单色矢量，颜色由这里给：android:tint 在 RemoteViews 里不可靠，用标准方法着色
-        views.setInt(
-            keyId,
-            "setColorFilter",
-            context.getColor(
-                if (key.kind == SmartKeyKind.REFRESH) R.color.widget_on_surface_secondary
-                else R.color.widget_on_surface,
-            ),
-        )
-        // 无障碍朗读要读出动作名，而不是「图片」（§11 第 16 条）
+        views.setInt(keyId, "setColorFilter", context.getColor(R.color.widget_on_surface))
+        // 无障碍朗读要读出动作名，而不是「图片」
         views.setContentDescription(keyId, key.label)
         views.setOnClickPendingIntent(keyId, keyIntent(context, widgetId, slot, key))
     }
@@ -287,7 +309,6 @@ object SmartWidgetUpdater {
      */
     private fun iconOf(kind: SmartKeyKind): Int = when (kind) {
         SmartKeyKind.ATTENDANCE -> R.drawable.ic_widget_attendance
-        SmartKeyKind.REFRESH -> R.drawable.ic_widget_refresh
         SmartKeyKind.QR -> R.drawable.ic_widget_qr
         SmartKeyKind.PAYMENT -> R.drawable.ic_widget_payment
         SmartKeyKind.CARD -> R.drawable.ic_widget_card
@@ -300,14 +321,13 @@ object SmartWidgetUpdater {
     }
 
     /**
-     * 一个键按下去做什么。
+     * 块里的一个键按下去做什么。
      *
-     * 三种：**动作键**发广播给 Already-存在的后台 Worker（不打开 App）、**刷新**只打考勤这一枪、
-     * **导航键**带路由启动 App。请求码按「实例 + 位置」分开——`PendingIntent` 判等不看 extras，
-     * 共用请求码会让后画的把先画的意图覆盖掉。
+     * 两种：**动作键**发广播给现成的后台 Worker（不打开 App）、**导航键**带路由启动 App。
+     * 请求码按「实例 + 位置」分开 —— `PendingIntent` 判等不看 extras，共用请求码会让后画的
+     * 把先画的意图覆盖掉。
      */
     private fun keyIntent(context: Context, widgetId: Int, slot: Int, key: SmartKey): PendingIntent = when (key) {
-        is RefreshKey -> refreshNowIntent(context)
         is SeatKey -> PendingIntent.getBroadcast(
             context, requestCode(widgetId, slot),
             Intent(context, LibraryActionReceiver::class.java)
@@ -329,13 +349,54 @@ object SmartWidgetUpdater {
         )
     }
 
+    /**
+     * 请求码 = 基址 + 实例号 × 10 + 位置。
+     *
+     * **块与它内部的图标必须占不同位置**：`PendingIntent` 判等不看 extras，共用请求码时
+     * `FLAG_UPDATE_CURRENT` 会让后设置的那个把先设置的覆盖掉 —— 表现出来就是
+     * 「点块跳到了图标的页面」。下面六个 SLOT 常量为此分开（单测断言互不相同）。
+     */
     private fun requestCode(widgetId: Int, slot: Int): Int =
         RequestCodes.SMART_WIDGET + widgetId.coerceAtLeast(0) * 10 + slot
+
+    /** 块 1 本体 / 它的两个键；块 2 本体 / 它的两个键。互不相同。 */
+    internal const val SLOT_BLOCK1 = 0
+    internal const val SLOT_KEY1A = 1
+    internal const val SLOT_KEY1B = 2
+    internal const val SLOT_BLOCK2 = 3
+    internal const val SLOT_KEY2A = 4
+    internal const val SLOT_KEY2B = 5
+
+    /** 一个实例上会用到的全部请求码（单测断言它们互不相同）。 */
+    internal fun requestCodesOf(widgetId: Int): List<Int> =
+        listOf(SLOT_BLOCK1, SLOT_KEY1A, SLOT_KEY1B, SLOT_BLOCK2, SLOT_KEY2A, SLOT_KEY2B)
+            .map { requestCode(widgetId, it) }
 
     private fun RemoteViews.putText(id: Int, value: String?) {
         setTextViewText(id, value.orEmpty())
         setViewVisibility(id, if (value.isNullOrBlank()) View.GONE else View.VISIBLE)
     }
+
+    /** 块 1 / 块 2 的 id 组。 */
+    private val ROW1 = BlockIds(
+        container = R.id.widget_smart_block1,
+        label = R.id.widget_smart_label1,
+        title = R.id.widget_smart_title1,
+        status = R.id.widget_smart_status1,
+        detail = R.id.widget_smart_detail1,
+        keyA = R.id.widget_smart_key1a,
+        keyB = R.id.widget_smart_key1b,
+    )
+
+    private val ROW2 = BlockIds(
+        container = R.id.widget_smart_block2,
+        label = R.id.widget_smart_label2,
+        title = R.id.widget_smart_title2,
+        status = R.id.widget_smart_status2,
+        detail = R.id.widget_smart_detail2,
+        keyA = R.id.widget_smart_key2a,
+        keyB = R.id.widget_smart_key2b,
+    )
 
     // ══════ 闹钟 ══════
 
@@ -401,27 +462,6 @@ object SmartWidgetUpdater {
         val t = Instant.ofEpochMilli(ms).atZone(CampusZoneId)
         return "%02d:%02d".format(t.hour, t.minute)
     }
-
-    /** 内容块那四行：点哪一行都进同一件事（§5.1）。 */
-    private val ROW_IDS = intArrayOf(
-        R.id.widget_smart_label,
-        R.id.widget_smart_title,
-        R.id.widget_smart_detail,
-        R.id.widget_smart_status,
-    )
-
-    private val HOOK_IDS = intArrayOf(
-        R.id.widget_smart_hook1,
-        R.id.widget_smart_hook2,
-        R.id.widget_smart_hook3,
-        R.id.widget_smart_hook4,
-    )
-
-    private val KEY_IDS = intArrayOf(
-        R.id.widget_smart_key1,
-        R.id.widget_smart_key2,
-        R.id.widget_smart_key3,
-    )
 }
 
 /**
