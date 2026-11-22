@@ -57,7 +57,7 @@ internal object NoticeNotifier {
         )
 
         val notification = NotificationCompat.Builder(context, AppNotificationChannels.CHANNEL_APP)
-            .setSmallIcon(R.drawable.ic_notification_notice)
+            .setSmallIcon(R.drawable.ic_notification_app)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(inbox)

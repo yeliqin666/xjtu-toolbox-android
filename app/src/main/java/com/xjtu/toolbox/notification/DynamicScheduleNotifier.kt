@@ -56,7 +56,7 @@ internal object DynamicScheduleNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(context, AppNotificationChannels.CHANNEL_DYNAMIC_SCHEDULE)
-            .setSmallIcon(R.drawable.ic_notification_notice)
+            .setSmallIcon(R.drawable.ic_notification_app)
             .setContentTitle("$state$kind · ${item.course.courseName}")
             .setContentText(detail)
             .setSubText(if (plan.ongoing) "距结束" else "距开始")

@@ -30,7 +30,7 @@ class AgentGenerationService : Service() {
             this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val notification = NotificationCompat.Builder(this, AppNotificationChannels.CHANNEL_AGENT)
-            .setSmallIcon(R.drawable.ic_notification_notice)
+            .setSmallIcon(R.drawable.ic_notification_app)
             .setContentTitle("正在生成回复")
             .setContentText("切出应用也会继续，完成后自动消失")
             .setContentIntent(
