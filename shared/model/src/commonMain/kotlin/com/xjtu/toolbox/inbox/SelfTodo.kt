@@ -358,14 +358,20 @@ object SelfTodoStore {
             .orEmpty()
     }
 
-    private fun save(account: String?, todos: List<SelfTodo>) {
-        val before = synchronizedBlock(lock) {
+    /**
+     * 读出、改、写回在同一把锁里做完。分开做的话，界面上点完成和屁岱在后台加待办同时发生时，
+     * 后写的一方拿着旧列表整份覆盖，另一方刚写进去的那条就丢了。
+     * 推给收纳也放在锁里：两次改动先后落盘，收纳拿到的必须是后一次的结果。
+     */
+    private fun update(account: String?, transform: (List<SelfTodo>) -> List<SelfTodo>) {
+        val (before, after) = synchronizedBlock(lock) {
             val b = all(account)
-            prefs(account).putString("data", AppJson.encodeToString(todos))
-            b
+            val next = transform(b)
+            prefs(account).putString("data", AppJson.encodeToString(next))
+            publish(account, next)
+            b to next
         }
-        publish(account, todos)
-        runCatching { SelfTodoHooks.onChanged?.invoke(account, before, todos) }
+        runCatching { SelfTodoHooks.onChanged?.invoke(account, before, after) }
     }
 
     fun open(account: String? = AccountContext.activeAccountId): List<SelfTodo> = SelfTodoRules.open(all(account))
@@ -391,19 +397,19 @@ object SelfTodoStore {
     ): SelfTodo? {
         if (title.isBlank()) return null
         val todo = SelfTodoRules.newTodo(title, content, dueDate, priority, source, allDay, remind, colorArgb, nowMs(), course)
-        save(account, all(account) + todo)
+        update(account) { it + todo }
         return todo
     }
 
     fun complete(id: String, account: String? = AccountContext.activeAccountId) {
         val now = nowMs()
-        save(account, all(account).map { if (it.id == id) SelfTodoRules.complete(it, now) else it })
+        update(account) { list -> list.map { if (it.id == id) SelfTodoRules.complete(it, now) else it } }
     }
 
     /** 给一条自建待办挑颜色（ARGB；null = 回到「我的待办」那一类的默认绿）。 */
     fun setColor(id: String, colorArgb: Int?, account: String? = AccountContext.activeAccountId) {
         val now = nowMs()
-        save(account, all(account).map { if (it.id == id) it.copy(colorArgb = colorArgb, modifiedTime = now) else it })
+        update(account) { list -> list.map { if (it.id == id) it.copy(colorArgb = colorArgb, modifiedTime = now) else it } }
     }
 
     /**
@@ -414,10 +420,12 @@ object SelfTodoStore {
      */
     fun setDue(id: String, dueDate: String?, account: String? = AccountContext.activeAccountId) {
         val now = nowMs()
-        save(account, all(account).map {
-            // 抽屉里给的总是「某天某个钟点」，所以不算全天
-            if (it.id == id) it.copy(dueDate = dueDate, isAllDay = false, modifiedTime = now) else it
-        })
+        update(account) { list ->
+            list.map {
+                // 抽屉里给的总是「某天某个钟点」，所以不算全天
+                if (it.id == id) it.copy(dueDate = dueDate, isAllDay = false, modifiedTime = now) else it
+            }
+        }
     }
 
     /**
@@ -426,12 +434,12 @@ object SelfTodoStore {
      */
     fun restore(snapshot: SelfTodo, account: String? = AccountContext.activeAccountId) {
         InboxStore.unignoreTodo(SelfTodoRules.inboxId(snapshot.id), account)
-        save(account, all(account).filter { it.id != snapshot.id } + snapshot)
+        update(account) { list -> list.filter { it.id != snapshot.id } + snapshot }
     }
 
     /** 删除：先按「忽略」记进收纳的已完成区（标已忽略），再从存储里去掉，免得显示成「已完成」。 */
     fun delete(id: String, account: String? = AccountContext.activeAccountId) {
         InboxStore.ignoreTodo(SelfTodoRules.inboxId(id))
-        save(account, all(account).filter { it.id != id })
+        update(account) { list -> list.filter { it.id != id } }
     }
 }

@@ -65,7 +65,14 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
     var homeworkDue by mutableStateOf<List<LmsDue>>(emptyList()); private set
     /** 系统日历里今天起 [SYSTEM_CALENDAR_DAYS] 天的日程（用户在设置里打开才有，见 [ScheduleHost.systemCalendarEvents]）。 */
     var systemCalendarEvents by mutableStateOf<List<SystemCalendarEvent>>(emptyList()); private set
-    private var systemCalendarJob: Job? = null
+    private val systemCalendar = SystemCalendarRefresher(
+        scope = viewModelScope,
+        days = SYSTEM_CALENDAR_DAYS,
+        today = { nowOnCampus().date },
+        load = { from, to -> withContext(host.io) { host.systemCalendarEvents(from, to) } },
+        onLoaded = { systemCalendarEvents = it },
+        onError = { Log.w(TAG, "system calendar read failed: ${it.message}") },
+    )
     var textbooks by mutableStateOf<List<TextbookItem>>(emptyList()); private set
     var textbooksLoading by mutableStateOf(false); private set
     var textbooksError by mutableStateOf<String?>(null); private set
@@ -269,22 +276,11 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         if (!isLoading && !isSwitching && !isRefreshingFromNetwork) loadInitialData()
     }
 
-    /** 重读系统日历：从 [today] 0 点起 [SYSTEM_CALENDAR_DAYS] 天，够今日时间轴和「接下来」用。 */
-    fun refreshSystemCalendar(today: LocalDate) {
-        systemCalendarJob?.cancel()
-        systemCalendarJob = viewModelScope.launch {
-            val from = today.atStartOfDayIn(CampusTimeZone)
-            val to = today.plus(SYSTEM_CALENDAR_DAYS, DateTimeUnit.DAY).atStartOfDayIn(CampusTimeZone)
-            systemCalendarEvents = try {
-                withContext(host.io) { host.systemCalendarEvents(from, to) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "system calendar read failed: ${e.message}")
-                emptyList()
-            }
-        }
-    }
+    /** 重读系统日历：[today] 起 [SYSTEM_CALENDAR_DAYS] 天（查询时前后各多一天），够今日和「接下来」用。 */
+    fun refreshSystemCalendar(today: LocalDate) = systemCalendar.refresh(today)
+
+    /** 日程页在前台时调用：监听系统日历库变化，防抖后重读；调用方取消（退到后台）即注销监听。 */
+    suspend fun watchSystemCalendar() = systemCalendar.watch(host.systemCalendarChanges())
 
     /** 错误页的重试：没会话先登录，有会话强制重新认证一次。 */
     fun retry() {
@@ -920,7 +916,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
     private companion object {
         const val TAG = "ScheduleViewModel"
         const val STALE_MS = 30 * 60_000L
-        /** 系统日历读多少天：今天 + 「接下来」的 7 天。 */
+        /** 系统日历显示多少天：今天 + 「接下来」的 7 天。 */
         const val SYSTEM_CALENDAR_DAYS = 8
     }
 }

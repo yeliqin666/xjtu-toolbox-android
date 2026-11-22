@@ -108,6 +108,12 @@ object AgentResponsesFormat {
                 effortOf(config)?.let { put("effort", it) }
                 put("summary", "auto")
             })
+        } else {
+            // 关了思考：OpenAI 官方的已知型号直接发它认的最低档（Luna 是 none，Sol 是 low），
+            // 不然服务端按默认的 medium 照样想半天。自定义端点和未知型号不发，跟以前一样。
+            OpenAiReasoningCaps.thinkingOffFloorOf(config)?.wire?.let { floor ->
+                put("reasoning", buildJsonObject { put("effort", floor) })
+            }
         }
         if (chatTools != null && chatTools.isNotEmpty()) {
             put("tools", tools(chatTools))

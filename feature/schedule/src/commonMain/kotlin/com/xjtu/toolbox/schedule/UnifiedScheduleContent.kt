@@ -61,6 +61,11 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.plus
 import kotlin.time.Instant
 
 /**
@@ -157,13 +162,16 @@ fun TodayTimeline(
                 endMinute = slice.endMinute,
                 title = e.title,
                 place = e.location,
-                detail = e.calendarName,
+                detail = listOfNotNull(
+                    e.calendarName.takeIf { it.isNotBlank() },
+                    slice.spanLabel(),
+                ).joinToString("  "),
                 kind = EntryKind.CALENDAR,
                 course = null,
                 allDay = slice.allDay,
             )
         }
-        // 全天的排最前面：它不占某个时刻，是这一天的背景
+        // 全天的排最前面：它不占某个时刻，是这一天的背景（画的时候单独成一组，不进时间轴）
         (fromCourses + fromExams + fromHomework + fromCalendar)
             .sortedWith(compareBy<TimelineEntry> { !it.allDay }.thenBy { it.startMinute })
     }
@@ -236,24 +244,32 @@ fun TodayTimeline(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (showPlan) item(key = "day_plan") { DayPlanCard(planSnapshot, today, onAdd = onAddPlan) }
+        // 全天日程单独一组放在最上面，不占时间轴上的某个钟点
+        val allDayEntries = entries.filter { it.allDay }
+        val timedEntries = entries.filterNot { it.allDay }
+        if (allDayEntries.isNotEmpty()) {
+            item(key = "all_day_label") { Box(Modifier.enterOnce(0)) { SectionLabel("全天") } }
+            itemsIndexed(allDayEntries) { i, e -> Box(Modifier.enterOnce(1 + i)) { AllDayRow(e) } }
+        }
+        val timedBase = if (allDayEntries.isEmpty()) 0 else allDayEntries.size + 1
         if (entries.isEmpty()) {
             // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
             // 别让页面看着像没加载出来。
             item { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
         } else {
-            itemsIndexed(entries) { i, e ->
+            itemsIndexed(timedEntries) { i, e ->
                 // 已经过去的条目压暗。今天这一级的价值就是"接下来干什么"，
                 // 上午的课到了下午还跟没上过一样醒目，等于每次都要自己再筛一遍。
                 val past = e.endMinute in 1 until nowMinute
                 val progress = if (e.endMinute > e.startMinute && nowMinute in e.startMinute until e.endMinute)
                     (nowMinute - e.startMinute).toFloat() / (e.endMinute - e.startMinute) else null
-                Box(Modifier.enterOnce(i)) {
+                Box(Modifier.enterOnce(timedBase + i)) {
                     TimelineRow(e, past, courseColors, onCourseClick, progress, onNavigate)
                 }
             }
         }
         if (upcoming.isNotEmpty()) {
-            val base = entries.size.coerceAtLeast(1)
+            val base = (timedBase + timedEntries.size).coerceAtLeast(1)
             item { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
             itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item, onNavigate) } }
         }
@@ -275,6 +291,48 @@ private data class TimelineEntry(
     /** 系统日历的全天日程：时刻列写「全天」，不算进「已过去」。 */
     val allDay: Boolean = false,
 )
+
+/** 今日顶上「全天」那一组的一行：系统日历的全天日程（含把今天整个盖住的跨天日程），不画钟点。 */
+@Composable
+private fun AllDayRow(e: TimelineEntry) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 12.dp,
+        colors = CardDefaults.defaultColors(color = SystemCalendarAccent.copy(alpha = 0.12f)),
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            AllDayBadge()
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    e.title,
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val sub = listOfNotNull(e.place.takeIf { it.isNotBlank() }, e.detail.takeIf { it.isNotBlank() }).joinToString("  ·  ")
+                if (sub.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(sub, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AllDayBadge() {
+    Surface(shape = RoundedCornerShape(4.dp), color = SystemCalendarAccent.copy(alpha = 0.9f)) {
+        Text(
+            "全天",
+            Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            style = MiuixTheme.textStyles.footnote2,
+            color = Color.White,
+        )
+    }
+}
 
 @Composable
 private fun NoCourseTodayCard() {
@@ -421,6 +479,8 @@ data class UpcomingItem(
     /** 排序用，不展示。 */
     val at: Instant,
     val route: AppRoute? = null,
+    /** 系统日历的全天日程：行首带「全天」标，不写钟点。 */
+    val allDay: Boolean = false,
 )
 
 /**
@@ -476,21 +536,29 @@ fun buildUpcoming(
                 route = AppRoute.Lms(hw.courseId, hw.activityId),
             )
         }
-    // 系统日历：明天起 7 天内开始的（今天开始的、跨进今天的已经在时间轴里）
-    val calendarItems = calendar
-        .filter { it.begin <= horizon && it.begin.toLocalDateTime(zone).date > today }
-        .map { e ->
-            val start = e.begin.toLocalDateTime(zone)
-            val dow = DOW_NAMES.getOrElse(start.dayOfWeek.ordinal + 1) { "" }
-            val whenText = "周$dow " + if (e.allDay) "全天" else "${formatTwoDigits(start.hour)}:${formatTwoDigits(start.minute)}"
+    // 系统日历：明天起 7 天，按天切开（今天的在时间轴里）。跨天的每天各一行，全天的排在当天最前面。
+    val calendarItems = (1..UPCOMING_CALENDAR_DAYS).flatMap { offset ->
+        val day = today.plus(offset, DateTimeUnit.DAY)
+        val dayStart = day.atStartOfDayIn(zone)
+        val dow = DOW_NAMES.getOrElse(day.dayOfWeek.ordinal + 1) { "" }
+        calendarSlicesOn(day, calendar, zone).map { slice ->
+            val e = slice.event
+            val time = when {
+                slice.allDay -> "全天"
+                slice.endMinute > slice.startMinute -> formatMinute(slice.startMinute) + "–" + formatMinute(slice.endMinute)
+                else -> formatMinute(slice.startMinute)
+            }
+            val whenText = "周$dow $time" + (slice.spanLabel()?.let { " · $it" } ?: "")
             UpcomingItem(
                 kind = UpcomingKind.CALENDAR,
                 title = e.title,
                 subtitle = listOfNotNull(whenText, e.location.takeIf { it.isNotBlank() }).joinToString(" · "),
-                at = e.begin,
+                at = if (slice.allDay) dayStart else dayStart + slice.startMinute.minutes,
+                allDay = slice.allDay,
             )
         }
-    return (examItems + homeworkItems + calendarItems).sortedBy { it.at }
+    }.filter { it.at <= horizon }
+    return (examItems + homeworkItems + calendarItems).sortedWith(compareBy<UpcomingItem> { it.at }.thenBy { !it.allDay })
 }
 
 /** 系统日历日程落在某一天的那一段。跨天的日程每天各占一段：开始那天到 24:00，中间整天，结束那天从 0:00 起。 */
@@ -500,7 +568,16 @@ internal data class CalendarDaySlice(
     /** 0 = 不画结束时刻（全天的）。 */
     val endMinute: Int,
     val allDay: Boolean,
-)
+    /** 跨几天的日程里这是第几天（从 1 起）/ 一共几天；不跨天时都是 1。 */
+    val dayIndex: Int = 1,
+    val dayCount: Int = 1,
+) {
+    /** 「第 2/3 天」；不跨天时 null。 */
+    fun spanLabel(): String? = if (dayCount > 1) "第 $dayIndex/$dayCount 天" else null
+}
+
+/** 「接下来」里系统日历看几天（明天起）。 */
+private const val UPCOMING_CALENDAR_DAYS = 7
 
 /**
  * [events] 里和 [day] 这一天（[zone] 的 0 点到次日 0 点）有交集的那些，换成这一天里的分钟段。
@@ -519,15 +596,20 @@ internal fun calendarSlicesOn(
     return events.mapNotNull { e ->
         val overlaps = if (e.end > e.begin) e.begin < dayEnd && e.end > dayStart else e.begin >= dayStart && e.begin < dayEnd
         if (!overlaps) return@mapNotNull null
+        // 跨几天：开始那天到最后一天（结束是开区间，正好 0 点结束的不算进那天）
+        val firstDay = e.begin.toLocalDateTime(zone).date
+        val lastDay = if (e.end > e.begin) (e.end - 1.milliseconds).toLocalDateTime(zone).date else firstDay
+        val dayCount = (lastDay.toEpochDays() - firstDay.toEpochDays()).toInt() + 1
+        val dayIndex = (day.toEpochDays() - firstDay.toEpochDays()).toInt() + 1
         val wholeDay = e.allDay || (e.begin <= dayStart && e.end >= dayEnd)
-        if (wholeDay) return@mapNotNull CalendarDaySlice(e, 0, 0, allDay = true)
+        if (wholeDay) return@mapNotNull CalendarDaySlice(e, 0, 0, allDay = true, dayIndex = dayIndex, dayCount = dayCount)
         val start = if (e.begin <= dayStart) 0 else minuteOf(e.begin)
         val end = when {
             e.end <= e.begin -> 0
             e.end >= dayEnd -> 24 * 60
             else -> minuteOf(e.end)
         }
-        CalendarDaySlice(e, start, end, allDay = false)
+        CalendarDaySlice(e, start, end, allDay = false, dayIndex = dayIndex, dayCount = dayCount)
     }
 }
 
@@ -547,14 +629,20 @@ private fun UpcomingRow(item: UpcomingItem, onNavigate: (AppRoute) -> Unit) {
         colors = CardDefaults.defaultColors(color = accent.copy(alpha = 0.10f)),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text(
-                item.title,
-                style = MiuixTheme.textStyles.body2,
-                fontWeight = FontWeight.Bold,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (item.allDay) {
+                    AllDayBadge()
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    item.title,
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(2.dp))
             Text(item.subtitle, style = MiuixTheme.textStyles.footnote1, color = accent)
         }

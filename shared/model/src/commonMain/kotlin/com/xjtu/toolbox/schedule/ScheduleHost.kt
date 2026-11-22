@@ -104,6 +104,12 @@ interface ScheduleHost {
      */
     suspend fun systemCalendarEvents(from: kotlin.time.Instant, to: kotlin.time.Instant): List<SystemCalendarEvent> = emptyList()
 
+    /**
+     * 系统日历库有变化（日历 App 里增删改、账户同步完）时发一个信号；收集时注册监听，取消收集即注销。
+     * 日程页只在前台时收集，收到后防抖重读 [systemCalendarEvents]。没打开、没授权或这一端没有系统日历时为空流。
+     */
+    fun systemCalendarChanges(): kotlinx.coroutines.flow.Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
+
     /** 课程详情里的下钻（思源学堂、本次考勤）。`null` = 这一端没接。 */
     val courseLinks: CourseLinkAccess?
 

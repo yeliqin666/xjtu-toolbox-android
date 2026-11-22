@@ -147,7 +147,7 @@ class CampusLibraryApi(
 
     // ─── 本端已知的旁证（:`app` 那边是 LibraryApi 里那几张「学到的表」）──────
 
-    override fun areaStats(): Map<String, AreaStats> = areaStats.toMap()
+    override fun areaStats(): Map<String, AreaStats> = areaStats
 
     override fun areaNameOf(areaCode: String): String = areaNames[areaCode] ?: areaCode
 
@@ -207,28 +207,31 @@ class CampusLibraryApi(
     // ─── 内部 ──────────────────────────────────────────────────
 
 
+    // 下面三张表在请求协程里写、在界面上读（areaStats() 还会被拷走）。commonMain 带 wasm 目标用不了
+    // java.util.concurrent，于是每次写都换一张新的只读表：读的一方拿到的永远是完整快照，不会边遍历边被改。
+
     /** 区域码 → 中文名（`areas` / `warmCampusAreas` 学到的；与 `:app` 的 `learnedAreaNames` 同一件事）。 */
-    private val areaNames = LinkedHashMap<String, String>()
+    private var areaNames: Map<String, String> = emptyMap()
 
     /** 区域码 → 所在楼层码（同一批请求里学到的）。 */
-    private val areaFloors = LinkedHashMap<String, String>()
+    private var areaFloors: Map<String, String> = emptyMap()
 
     /** 区域码 → 空座/总数（`:app` 的 `cachedAreaStats`）。 */
-    private val areaStats = LinkedHashMap<String, AreaStats>()
+    private var areaStats: Map<String, AreaStats> = emptyMap()
 
     /** 把一行 `areas[]` 记进「学到的表」。`floorCode` 是行里 `floor` 为空时的兜底（就是请求的那一层）。 */
     private fun rememberArea(row: JsonObject, floorCode: String?) {
         val code = row["code"].safeString().trim()
         if (code.isEmpty()) return
         val name = row["name"].safeString().trim()
-        if (name.isNotEmpty()) areaNames[code] = name
+        if (name.isNotEmpty()) areaNames = areaNames + (code to name)
         val floor = blankToNull(row["floor"].safeString()) ?: floorCode
-        if (floor != null) areaFloors[code] = floor
+        if (floor != null) areaFloors = areaFloors + (code to floor)
         // 见类 KDoc：total/available 缺一个就当上游没有这个区域的统计，不进表
         val total = row["total"]
         val available = row["available"]
         if (total.isNull || available.isNull) return
-        areaStats[code] = AreaStats(available = available.safeInt(), total = total.safeInt())
+        areaStats = areaStats + (code to AreaStats(available = available.safeInt(), total = total.safeInt()))
     }
 
     private fun readOnly(): Nothing =

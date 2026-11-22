@@ -36,9 +36,13 @@ import java.util.concurrent.TimeUnit
  *    「用户询问…」这类**转述请求**而不是主题名。这类一律判废，同样退回首条消息。
  * 4. 对常见清单式的标点（顿号、引号、句号）作主动清理。
  * 5. 接口格式跟着对话走（#427）：Responses 走 `/responses`，先带 `reasoning.effort = low` 试，
- *    非推理模型 400 就去掉重试。Chat 路径上 OpenAI 的推理模型（o 系列、gpt-5 系列）不认 `max_tokens`、
+ *    非推理模型 400 就去掉重试。Chat 路径上 OpenAI 的推理模型（o 系列、gpt-5 / gpt-6 系列）不认 `max_tokens`、
  *    也不接受自定义 temperature，所以对 OpenAI 改发 `max_completion_tokens`、不发 temperature；
  *    降级重试时 `max_tokens`、`temperature` 也一并去掉，免得两次都 400。
+ * 6. 已知的 OpenAI 系型号（[OpenAiReasoningCaps]）不再「先试再降级」：直接发它认的最低档
+ *    （Sol 是 low、Luna 是 none、gpt-5-mini 是 minimal、gpt-4o 不发），一次请求就完事，
+ *    不会每个标题都白挨一次 400。OpenAI 官方上降级重试只留给表里没有的型号；
+ *    自定义端点即便型号已知，400 时也去掉参数再试一次（中转 / 代理常不认推理参数）。
  */
 object AgentTitleGen {
 
@@ -51,10 +55,29 @@ object AgentTitleGen {
     suspend fun generate(config: AgentConfig, userMsg: String, assistantMsg: String): String? =
         withContext(Dispatchers.IO) {
             if (config.apiKey.isBlank()) return@withContext null
+            val floor = OpenAiReasoningCaps.floorOf(config)
+            if (floor != null) {
+                // 已知型号：档位一次发对。OpenAI 官方不留降级重试（400 就是真失败）；
+                // 自定义端点（中转 / 代理）可能不认推理参数，400 时去掉参数再试一次，以前拿得到的标题不能丢。
+                val official = config.provider == AgentConfig.PROVIDER_OPENAI
+                val responses = config.effectiveApiFormat == AgentConfig.API_RESPONSES
+                val known = if (responses) {
+                    requestResponses(config, userMsg, assistantMsg, effort = floor.wire, retryOn400 = !official)
+                } else {
+                    requestKnownChat(config, userMsg, assistantMsg, floor, retryOn400 = !official)
+                }
+                return@withContext when (known) {
+                    is Attempt.Done -> known.title
+                    Attempt.Rejected -> (
+                        if (responses) requestResponses(config, userMsg, assistantMsg, effort = null, retryOn400 = false)
+                        else request(config, userMsg, assistantMsg, disableThinking = false)
+                    ).let { (it as? Attempt.Done)?.title }
+                }
+            }
             if (config.effectiveApiFormat == AgentConfig.API_RESPONSES) {
-                return@withContext when (val first = requestResponses(config, userMsg, assistantMsg, lowEffort = true)) {
+                return@withContext when (val first = requestResponses(config, userMsg, assistantMsg, effort = "low", retryOn400 = true)) {
                     is Attempt.Done -> first.title
-                    Attempt.Rejected -> (requestResponses(config, userMsg, assistantMsg, lowEffort = false) as? Attempt.Done)?.title
+                    Attempt.Rejected -> (requestResponses(config, userMsg, assistantMsg, effort = null, retryOn400 = false) as? Attempt.Done)?.title
                 }
             }
             // 先带着"关思考"的参数试；只有 400（后端不认这俩字段）才去掉参数重来。
@@ -79,16 +102,7 @@ object AgentTitleGen {
         disableThinking: Boolean,
     ): Attempt {
         return run {
-            val messages = buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "system")
-                    put("content", SYSTEM_PROMPT)
-                })
-                add(buildJsonObject {
-                    put("role", "user")
-                    put("content", userContent(userMsg, assistantMsg))
-                })
-            }
+            val messages = chatMessages(userMsg, assistantMsg)
             val openAi = config.provider == AgentConfig.PROVIDER_OPENAI
             val reqBody = buildJsonObject {
                 put("model", config.effectiveModel)
@@ -112,22 +126,59 @@ object AgentTitleGen {
                     put("reasoning_effort", "none")
                 }
             }
-            runCatching {
-                client.newCall(
-                    Request.Builder()
-                        .url("${config.effectiveBaseUrl}/chat/completions")
-                        .header("Authorization", "Bearer ${config.apiKey}")
-                        .header("Content-Type", "application/json")
-                        .post(reqBody.toString().toRequestBody(json))
-                        .build()
-                ).execute().use { resp ->
-                    // 400 基本就是"这个后端不认那两个字段"，交给外层去掉参数重试。
-                    if (resp.code == 400 && disableThinking) return@use Attempt.Rejected
-                    Attempt.Done(if (resp.isSuccessful) parseTitle(resp.body?.string()) else null)
-                }
-            }.getOrElse { Attempt.Done(null) }
-            }
+            postChat(config, reqBody, rejectOn400 = disableThinking)
+        }
     }
+
+    /**
+     * 能力表里有的 OpenAI 系型号走 Chat：只发 `max_completion_tokens` 和最低档 `reasoning_effort`，
+     * 不发 temperature、thinking 这些它不认的字段。最低档还要思考（low / minimal）时不设输出上限，
+     * 推理 token 也算在上限里，64 会被思考吃光、拿不到正文；长度照样靠提示词和 [sanitizeAgentTitle] 管。
+     */
+    private fun requestKnownChat(
+        config: AgentConfig,
+        userMsg: String,
+        assistantMsg: String,
+        floor: OpenAiReasoningCaps.Floor,
+        retryOn400: Boolean,
+    ): Attempt {
+        val reqBody = buildJsonObject {
+            put("model", config.effectiveModel)
+            put("messages", chatMessages(userMsg, assistantMsg))
+            floor.wire?.let { put("reasoning_effort", it) }
+            if (floor == OpenAiReasoningCaps.Floor.NONE || floor == OpenAiReasoningCaps.Floor.NOT_REASONING) {
+                put("max_completion_tokens", 64)
+            }
+        }
+        return postChat(config, reqBody, rejectOn400 = retryOn400)
+    }
+
+    private fun chatMessages(userMsg: String, assistantMsg: String) = buildJsonArray {
+        add(buildJsonObject {
+            put("role", "system")
+            put("content", SYSTEM_PROMPT)
+        })
+        add(buildJsonObject {
+            put("role", "user")
+            put("content", userContent(userMsg, assistantMsg))
+        })
+    }
+
+    private fun postChat(config: AgentConfig, reqBody: kotlinx.serialization.json.JsonObject, rejectOn400: Boolean): Attempt =
+        runCatching {
+            client.newCall(
+                Request.Builder()
+                    .url("${config.effectiveBaseUrl}/chat/completions")
+                    .header("Authorization", "Bearer ${config.apiKey}")
+                    .header("Content-Type", "application/json")
+                    .post(reqBody.toString().toRequestBody(json))
+                    .build()
+            ).execute().use { resp ->
+                // 400 基本就是"这个后端不认那两个字段"，交给外层去掉参数重试。
+                if (resp.code == 400 && rejectOn400) return@use Attempt.Rejected
+                Attempt.Done(if (resp.isSuccessful) parseTitle(resp.body?.string()) else null)
+            }
+        }.getOrElse { Attempt.Done(null) }
 
     // 光说"概括主题"不够：模型的默认倾向是**转述这次请求**
     // （"用户询问本周是否有考试"），那是摘要不是标题。
@@ -142,21 +193,24 @@ object AgentTitleGen {
         "【用户】${userMsg.take(300)}" + assistantMsg.takeIf { it.isNotBlank() }?.let { "\n【助手】${it.take(300)}" }.orEmpty()
 
     /**
-     * Responses 路径：非流式，`store: false`。先带 `reasoning.effort = low`（推理模型上省时间省额度），
-     * 400（非推理模型不认）就去掉重试。不设输出上限：推理 token 也算在上限里，卡死了反而拿不到正文。
+     * Responses 路径：非流式，`store: false`。[effort] 为 null 就不带 `reasoning`。
+     * 未知型号先带 low 试（推理模型上省时间省额度），400（非推理模型不认）就去掉重试；
+     * 已知型号由调用方直接给对档位，[retryOn400] = false。
+     * 不设输出上限：推理 token 也算在上限里，卡死了反而拿不到正文。
      */
     private fun requestResponses(
         config: AgentConfig,
         userMsg: String,
         assistantMsg: String,
-        lowEffort: Boolean,
+        effort: String?,
+        retryOn400: Boolean,
     ): Attempt {
         val reqBody = buildJsonObject {
             put("model", config.effectiveModel)
             put("instructions", SYSTEM_PROMPT)
             put("input", userContent(userMsg, assistantMsg))
             put("store", false)
-            if (lowEffort) put("reasoning", buildJsonObject { put("effort", "low") })
+            effort?.let { put("reasoning", buildJsonObject { put("effort", it) }) }
         }
         return runCatching {
             client.newCall(
@@ -167,7 +221,7 @@ object AgentTitleGen {
                     .post(reqBody.toString().toRequestBody(json))
                     .build()
             ).execute().use { resp ->
-                if (resp.code == 400 && lowEffort) return@use Attempt.Rejected
+                if (resp.code == 400 && retryOn400) return@use Attempt.Rejected
                 Attempt.Done(if (resp.isSuccessful) parseResponsesTitle(resp.body?.string()) else null)
             }
         }.getOrElse { Attempt.Done(null) }

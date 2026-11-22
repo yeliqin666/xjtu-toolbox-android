@@ -114,7 +114,7 @@ fun TextbookScreen(
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             GlassTopAppBar(
                 title = "教材",

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 
+import androidx.lifecycle.repeatOnLifecycle
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.graphicsLayer
@@ -148,6 +149,10 @@ fun ScheduleScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    // 系统日历：页面在前台时监听日历库（日历 App 里增删改、账户同步完），变了就重读；退到后台即注销
+    LaunchedEffect(vm, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) { vm.watchSystemCalendar() }
     }
 
     var showAddCourseDialog by remember { mutableStateOf(false) }

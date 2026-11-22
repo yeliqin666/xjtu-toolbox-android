@@ -43,7 +43,10 @@ class SseAgentTransport : AgentTransport {
         val arguments: String get() = args.toString()
     }
 
-    /** Responses 上 400 且说的是 `reasoning`：非推理模型不认这个字段，或组织没验证不给推理摘要。 */
+    /**
+     * 请求带了推理参数却被 400：非推理模型不认、组织没验证不给推理摘要，
+     * 或者用户自己接的中转 / 代理压根不认这些字段（错误文案五花八门，不一定提到 reasoning）。
+     */
     private class ReasoningRejected(userMessage: String, val serverMessage: String) : RuntimeException(userMessage)
 
     override suspend fun stream(
@@ -63,7 +66,8 @@ class SseAgentTransport : AgentTransport {
                     onReasoningDelta = { if (it.isNotEmpty()) emitted = true; onReasoningDelta(it) },
                 )
             } catch (e: ReasoningRejected) {
-                // 先只去掉 summary（组织未验证），还不行再整个去掉 reasoning（非推理模型）；最多降两次。
+                // Responses：先只去掉 summary（组织未验证），还不行再整个去掉 reasoning；
+                // Chat：去掉 reasoning_effort 重试一次。推理参数去光了还 400 就是别的错，原样抛。
                 val next = downgradeReasoning(body, e.serverMessage)
                 if (next == null || downgrades >= 2) throw RuntimeException(e.message)
                 body = next
@@ -79,11 +83,22 @@ class SseAgentTransport : AgentTransport {
     }
 
     private fun downgradeReasoning(body: JsonObject, serverMessage: String): JsonObject? {
+        if (REASONING_EFFORT in body) return JsonObject(body - REASONING_EFFORT)
         val reasoning = body["reasoning"] as? JsonObject ?: return null
         if ("summar" in serverMessage.lowercase() && "summary" in reasoning) {
             return JsonObject(body + ("reasoning" to JsonObject(reasoning - "summary")))
         }
         return JsonObject(body - "reasoning")
+    }
+
+    /**
+     * 这次 400 值不值得去掉推理参数重试：Responses 看 `reasoning`；Chat 看 `reasoning_effort`。
+     * DeepSeek 官方本来就认 thinking / reasoning_effort，它的 400 是别的问题，不重试。
+     */
+    private fun carriesDroppableReasoning(config: AgentConfig, responses: Boolean, body: JsonObject): Boolean = when {
+        responses -> body["reasoning"] != null
+        config.provider == AgentConfig.PROVIDER_DEEPSEEK -> false
+        else -> body[REASONING_EFFORT] != null
     }
 
     private suspend fun streamOnce(
@@ -125,7 +140,7 @@ class SseAgentTransport : AgentTransport {
                         AppJson.parseToJsonElement(errBody).jsonObject
                             .obj("error")?.get("message")?.stringValue
                     }.getOrNull() ?: "HTTP ${resp.code}"
-                    if (responses && resp.code == 400 && reqBody["reasoning"] != null && "reasoning" in errMsg.lowercase()) {
+                    if (resp.code == 400 && carriesDroppableReasoning(config, responses, reqBody)) {
                         throw ReasoningRejected(agentHttpErrorText(resp.code, errMsg), errMsg)
                     }
                     throw RuntimeException(agentHttpErrorText(resp.code, errMsg))
@@ -323,5 +338,6 @@ class SseAgentTransport : AgentTransport {
             .build()
 
         private val JSON = "application/json; charset=utf-8".toMediaType()
+        private const val REASONING_EFFORT = "reasoning_effort"
     }
 }

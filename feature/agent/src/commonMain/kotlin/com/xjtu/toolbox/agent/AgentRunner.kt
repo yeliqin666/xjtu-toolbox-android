@@ -189,6 +189,10 @@ class AgentRunner(
                         !config.thinkingEnabled -> put("reasoning_effort", "none")
                         config.reasoningEffort != AgentConfig.REASONING_AUTO -> put("reasoning_effort", config.reasoningEffort)
                     }
+                } else if (!config.thinkingEnabled) {
+                    // OpenAI 官方关思考：按能力表发最低档，不盲发 none（GPT-6.2 Sol / Astra 收到 none 直接 400）。
+                    // 自定义端点和未知型号什么都不发，跟以前一样（中转多半不认这个字段）。
+                    OpenAiReasoningCaps.thinkingOffFloorOf(config)?.wire?.let { put("reasoning_effort", it) }
                 }
                 if (allowTools) {
                     put("tools", toolDefs)

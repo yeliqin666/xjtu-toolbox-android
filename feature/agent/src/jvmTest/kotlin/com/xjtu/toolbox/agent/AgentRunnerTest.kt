@@ -384,7 +384,7 @@ class AgentRunnerTest {
         )
         val body = transport.bodies[0]
         assertNull(body["messages"])
-        assertEquals("gpt-5-mini", body.text("model"))
+        assertEquals("gpt-6.2-sol", body.text("model"))
         assertEquals("true", body["stream"]!!.jsonPrimitive.content)
         assertEquals("false", body["store"]!!.jsonPrimitive.content)
         // DeepSeek 那几个字段一个都不发
@@ -419,13 +419,13 @@ class AgentRunnerTest {
         assertEquals("false", tool["strict"]!!.jsonPrimitive.content)
         assertEquals("auto", body.text("tool_choice"))
 
-        // 关了思考就不带 reasoning
+        // 关了思考：不要推理摘要，只按能力表压到最低档（默认 gpt-6.2-sol 最低是 low）
         val off = FakeTransport(listOf(reply("好")))
         AgentRunner(FakeTools { _, _ -> "" }, off).run(
             messages(),
             AgentConfig(provider = AgentConfig.PROVIDER_OPENAI, apiKey = "sk-fake-runner-006", thinkingEnabled = false),
         )
-        assertNull(off.bodies[0]["reasoning"])
+        assertEquals("""{"effort":"low"}""", off.bodies[0]["reasoning"].toString())
         assertTrue(off.bodies[0]["input"] != null)
     }
 
@@ -596,5 +596,74 @@ class AgentRunnerTest {
         // 半截话先入历史（否则续写那一轮会把前半句丢掉），续写的提问跟在它后面
         assertTrue(messages[1].jsonObject.text("content").contains("前半句"))
         assertTrue(messages[2].jsonObject.text("content").contains("接着写"))
+    }
+
+    @Test
+    fun openai关思考按能力表发最低档_不盲发none() = runBlocking {
+        // Responses：Sol 关思考发 low（none 会 400），也不带 summary
+        val sol = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, sol).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_OPENAI, apiKey = "sk-fake-runner-020", thinkingEnabled = false),
+        )
+        val solReasoning = sol.bodies[0]["reasoning"]!!.jsonObject
+        assertEquals("low", solReasoning.text("effort"))
+        assertNull(solReasoning["summary"])
+
+        // Luna 认 none
+        val luna = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, luna).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_OPENAI, apiKey = "sk-fake-runner-021", model = "gpt-6-luna", thinkingEnabled = false),
+        )
+        assertEquals("none", luna.bodies[0]["reasoning"]!!.jsonObject.text("effort"))
+
+        // 非推理模型：reasoning 一个字都不发
+        val legacy = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, legacy).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_OPENAI, apiKey = "sk-fake-runner-022", model = "gpt-4o", thinkingEnabled = false),
+        )
+        assertNull(legacy.bodies[0]["reasoning"])
+
+        // Chat 路径：Sol 发 reasoning_effort=low；gpt-5-mini 发 minimal
+        val chatSol = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, chatSol).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_OPENAI, apiKey = "sk-fake-runner-023", thinkingEnabled = false, apiFormat = AgentConfig.API_CHAT),
+        )
+        assertEquals("low", chatSol.bodies[0].text("reasoning_effort"))
+        assertNull(chatSol.bodies[0]["thinking"])
+        val chatMini = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, chatMini).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_OPENAI, apiKey = "sk-fake-runner-024", model = "gpt-5-mini", thinkingEnabled = false, apiFormat = AgentConfig.API_CHAT),
+        )
+        assertEquals("minimal", chatMini.bodies[0].text("reasoning_effort"))
+
+        // 未知型号：跟以前一样什么都不发
+        val unknown = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, unknown).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM, baseUrl = "https://example.invalid/v1", apiKey = "sk-fake-runner-025", model = "relay-model", thinkingEnabled = false),
+        )
+        assertNull(unknown.bodies[0]["reasoning_effort"])
+    }
+
+    @Test
+    fun 自定义端点关思考不主动发推理参数_中转多半不认() = runBlocking {
+        val chat = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, chat).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM, baseUrl = "https://example.invalid/v1", apiKey = "sk-fake-runner-030", model = "gpt-6.2-sol", thinkingEnabled = false),
+        )
+        assertNull(chat.bodies[0]["reasoning_effort"])
+
+        val responses = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, responses).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM, baseUrl = "https://example.invalid/v1", apiKey = "sk-fake-runner-031", model = "gpt-6-luna", thinkingEnabled = false, apiFormat = AgentConfig.API_RESPONSES),
+        )
+        assertNull(responses.bodies[0]["reasoning"])
     }
 }

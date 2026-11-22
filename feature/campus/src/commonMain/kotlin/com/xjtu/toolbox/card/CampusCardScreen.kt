@@ -3,6 +3,7 @@ package com.xjtu.toolbox.card
 
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.BackButton
@@ -179,7 +180,7 @@ fun CampusCardScreen(
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
     var wideTab by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             CouiPageTopAppBar(
                 title = "校园卡",

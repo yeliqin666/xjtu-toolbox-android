@@ -329,8 +329,9 @@ fun LibraryScreen(
         // 扫桌面二维码进来的预约确认。校区定下来就弹，状态查到前「预约」也能点：
         // 真被占了服务端会拒，失败原因照常显示在页面上。
         // 只读端（canBook=false）不给这个框：它只有一个「预约」按钮，那按钮必失败。
-        // 这两个框画在本页 Scaffold 里，在底栏上作子页时会被悬浮底栏盖住按钮（#476）：垫出底栏那一截
-        val aboveTabBar = Modifier.padding(bottom = LocalTabBottomPadding.current)
+        // 本页 Scaffold 里的弹窗和底部结果条，在底栏上作子页时会被悬浮底栏盖住（#476）：
+        // 一律垫出底栏那一截；独立页时这截是 0
+        val aboveTabBar = Modifier.tabContentBottomPadding()
         val ss = vm.scanSeat
         BackHandler(enabled = ss != null) { vm.scanSeat = null }
         OverlayDialog(
@@ -827,7 +828,7 @@ fun LibraryScreen(
         ResultBanner(
             result = vm.bookingResult,
             onDismiss = { vm.bookingResult = null },
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier.align(Alignment.BottomCenter).then(aboveTabBar),
         )
         }
     }

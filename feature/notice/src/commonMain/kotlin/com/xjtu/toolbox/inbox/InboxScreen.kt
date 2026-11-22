@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.rememberCourseColors
@@ -261,7 +262,7 @@ fun InboxScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbar, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             GlassTopAppBar(
                 title = "消息",

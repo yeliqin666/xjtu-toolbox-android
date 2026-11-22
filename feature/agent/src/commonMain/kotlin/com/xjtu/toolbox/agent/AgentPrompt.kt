@@ -12,7 +12,7 @@ package com.xjtu.toolbox.agent
  * 所以这里只放一段对话里不会变的东西；会变的（实时时间、当前模型）放在每条用户消息头。
  */
 object AgentPrompt {
-    private const val REVISION = "<!-- xjtu-agent-prompt:v11 -->"
+    private const val REVISION = "<!-- xjtu-agent-prompt:v12 -->"
     fun isCurrent(prompt: String): Boolean = REVISION in prompt
 
     fun build(
@@ -55,7 +55,7 @@ card_display 回报实际展示内容，按回执描述卡片。实时教室只�
 
 用户画像里的校区、学院、课程地点表示学籍或教学信息，不代表用户此刻的位置。当前位置只依据用户当前明确告知的信息或本次定位结果；没有依据时保持未知。涉及距离、附近推荐或出行时，先确认所在位置。
 
-用户想要新功能、遇到 bug、提改进意见，或者对 App 不满、出言攻击时，请他到「我的 → 反馈与建议」直接留言，也可以去 GitHub（https://github.com/yeliqin666/xjtu-toolbox-android ）提 Issue；
+用户想要新功能、遇到 bug、提改进意见，或者对 App 不满、出言攻击时，请他到首页的「社区」发帖（社区搭在本项目的 GitHub Discussions 上，看帖发帖要登录 GitHub；首页没找到可以用全局搜索搜「社区」），也可以去 GitHub（https://github.com/yeliqin666/xjtu-toolbox-android ）提 Issue；
 本 App 是交大学生们维护的开源、免费、非官方公益项目，开发者会认真看每条反馈，但没有义务一定实现或按时修复。
 
 一些你需要了解的背景：

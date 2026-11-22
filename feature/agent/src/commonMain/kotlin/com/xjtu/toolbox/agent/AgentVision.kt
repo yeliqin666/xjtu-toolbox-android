@@ -45,6 +45,9 @@ object AgentVision {
      * 裁一次又会让此后的前缀缓存失效，所以攒够了再裁。
      */
     private const val KEEP_IMAGE_TURNS = 2
+
+    /** gpt-4o、gpt-4.1 以及 gpt-5 往后的每一代（gpt-6.2-sol、gpt-6-luna……），不用每出一代就改一次。 */
+    private val OPENAI_VISION_MODEL = Regex("""gpt-(4o|4\.1|[5-9])""")
     private const val PRUNE_AT = 6
 
     /**
@@ -53,7 +56,7 @@ object AgentVision {
      * 按模型 ID 猜，不额外发探测请求：猜错的代价是按钮多显示/少显示一个，
      * 而为每次换模型多打一轮网络请求，代价更大。
      * - DeepSeek：`deepseek-flash` 支持（`deepseek-v4-pro` 官方未列为视觉模型）。
-     * - OpenAI：4o 及之后的主线模型都支持，`*-audio`、`*-realtime` 这些除外。
+     * - OpenAI：4o 及之后的主线模型都支持（GPT-6 系列官方写明全部认图），`*-audio`、`*-realtime` 这些除外。
      * - 自定义端点：无从判断，一律放行——用户自己填的中转，他比我们清楚。
      *
      * 注意：这只回答「模型认不认」。**这一端有没有相册**是另一档，见 `AgentCapability.IMAGE_INPUT`。
@@ -63,7 +66,7 @@ object AgentVision {
         return when (config.provider) {
             AgentConfig.PROVIDER_DEEPSEEK -> "flash" in model
             AgentConfig.PROVIDER_OPENAI ->
-                ("gpt-4o" in model || "gpt-4.1" in model || "gpt-5" in model || "o3" in model || "o4" in model) &&
+                (OPENAI_VISION_MODEL.containsMatchIn(model) || "o3" in model || "o4" in model) &&
                     "audio" !in model && "realtime" !in model
             else -> true
         }
