@@ -309,14 +309,14 @@ fun InboxScreen(
                                             RowActions(
                                                 it,
                                                 listOf(
-                                                    "改截止" to { editingDue = selfId },
-                                                    "标为完成" to { SelfTodoStore.complete(selfId) },
-                                                    "删除" to { SelfTodoStore.delete(selfId) },
+                                                    RowAction("改截止") { editingDue = selfId },
+                                                    RowAction("标为完成") { SelfTodoStore.complete(selfId) },
+                                                    RowAction("删除", danger = true) { SelfTodoStore.delete(selfId) },
                                                 ),
                                                 todoId = selfId,
                                             )
                                         } else {
-                                            RowActions(it, listOf("忽略这条待办" to { InboxStore.ignoreTodo(it.id) }))
+                                            RowActions(it, listOf(RowAction("忽略这条待办") { InboxStore.ignoreTodo(it.id) }))
                                         }
                                     },
                                 ) { open(it) }
@@ -340,10 +340,10 @@ fun InboxScreen(
                         }
                         groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
                             section(title, list.map { g ->
-                                val rowActions = buildList<Pair<String, () -> Unit>> {
-                                    if (g.unread) add("标为已读" to { InboxStore.markRead(g.ids) })
+                                val rowActions = buildList {
+                                    if (g.unread) add(RowAction("标为已读") { InboxStore.markRead(g.ids) })
                                     if (onForwardToAgent != null && g.latest.category == InboxCategories.NOTICE) {
-                                        add("问小岱" to {
+                                        add(RowAction("问小岱") {
                                             InboxStore.markRead(g.ids)
                                             onForwardToAgent(com.xjtu.toolbox.agent.AgentForward.inboxNotice(g.latest))
                                         })
@@ -411,10 +411,13 @@ private class Entry(
     val onClick: () -> Unit,
 )
 
+/** 长按抽屉里的一个按钮；[danger] 是删除这类回不去的操作，画成红底。 */
+private class RowAction(val label: String, val danger: Boolean = false, val run: () -> Unit)
+
 /** 长按一条弹出的操作。 */
 private class RowActions(
     val item: InboxItem,
-    val actions: List<Pair<String, () -> Unit>>,
+    val actions: List<RowAction>,
     /** 自建待办在 `SelfTodoStore` 里的 id：只有这一种条目能在长按抽屉里改颜色。 */
     val todoId: String? = null,
 )
@@ -443,12 +446,13 @@ private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
                 InboxStore.setImportance(a.item.id, it)
             }
             Spacer(Modifier.height(12.dp))
-            a.actions.forEach { (label, run) ->
+            a.actions.forEach { action ->
                 TextButton(
-                    text = label,
-                    onClick = { run(); onDismiss() },
+                    text = action.label,
+                    onClick = { action.run(); onDismiss() },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    colors = if (action.danger) com.xjtu.toolbox.ui.components.appDangerTextButtonColors()
+                    else ButtonDefaults.textButtonColorsPrimary(),
                 )
             }
             TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))

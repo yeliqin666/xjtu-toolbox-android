@@ -927,9 +927,7 @@ private fun DeleteConfirmDialog(
                     text = "删除",
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColors(
-                        textColor = MiuixTheme.colorScheme.error
-                    )
+                    colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                 )
             }
         }

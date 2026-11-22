@@ -219,7 +219,7 @@ private fun CommunityForum(
                         text = "退出登录",
                         onClick = { accountDialog = false; session.signOut() },
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                        colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                     )
                 }
             }

@@ -2050,7 +2050,7 @@ private fun DeleteGroupDialog(group: HomeGroup, onDismiss: () -> Unit, onConfirm
                     text = "删除",
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                 )
             }
         }

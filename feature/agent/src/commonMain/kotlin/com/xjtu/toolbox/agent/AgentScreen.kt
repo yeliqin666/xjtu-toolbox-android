@@ -315,6 +315,7 @@ fun AgentScreen(
                             text = "删除",
                             onClick = { deleteTarget = target; actionTarget = null },
                             modifier = Modifier.fillMaxWidth(),
+                            colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                         )
                         TextButton(
                             text = "取消",
@@ -382,7 +383,7 @@ fun AgentScreen(
                                 deleteTarget = null
                             },
                             modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.textButtonColorsPrimary(),
+                            colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                         )
                     }
                 }
