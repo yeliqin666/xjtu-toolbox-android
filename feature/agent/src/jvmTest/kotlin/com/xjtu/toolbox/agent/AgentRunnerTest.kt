@@ -384,7 +384,7 @@ class AgentRunnerTest {
         )
         val body = transport.bodies[0]
         assertNull(body["messages"])
-        assertEquals("gpt-5-mini", body.text("model"))
+        assertEquals("gpt-6.2-sol", body.text("model"))
         assertEquals("true", body["stream"]!!.jsonPrimitive.content)
         assertEquals("false", body["store"]!!.jsonPrimitive.content)
         // DeepSeek 那几个字段一个都不发

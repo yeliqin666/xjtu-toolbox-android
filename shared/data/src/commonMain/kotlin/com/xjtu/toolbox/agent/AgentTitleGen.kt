@@ -36,7 +36,7 @@ import java.util.concurrent.TimeUnit
  *    「用户询问…」这类**转述请求**而不是主题名。这类一律判废，同样退回首条消息。
  * 4. 对常见清单式的标点（顿号、引号、句号）作主动清理。
  * 5. 接口格式跟着对话走（#427）：Responses 走 `/responses`，先带 `reasoning.effort = low` 试，
- *    非推理模型 400 就去掉重试。Chat 路径上 OpenAI 的推理模型（o 系列、gpt-5 系列）不认 `max_tokens`、
+ *    非推理模型 400 就去掉重试。Chat 路径上 OpenAI 的推理模型（o 系列、gpt-5 / gpt-6 系列）不认 `max_tokens`、
  *    也不接受自定义 temperature，所以对 OpenAI 改发 `max_completion_tokens`、不发 temperature；
  *    降级重试时 `max_tokens`、`temperature` 也一并去掉，免得两次都 400。
  */

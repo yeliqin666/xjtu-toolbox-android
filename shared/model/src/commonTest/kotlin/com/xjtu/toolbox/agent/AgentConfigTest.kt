@@ -37,7 +37,7 @@ class AgentConfigTest {
     @Test
     fun `模型名留空时按服务商取默认，填了就用手填的`() {
         assertEquals("deepseek-flash", AgentConfig().effectiveModel)
-        assertEquals("gpt-5-mini", AgentConfig(provider = AgentConfig.PROVIDER_OPENAI).effectiveModel)
+        assertEquals("gpt-6.2-sol", AgentConfig(provider = AgentConfig.PROVIDER_OPENAI).effectiveModel)
         // 接口格式：OpenAI 默认 Responses、可切回 Chat；DeepSeek 只有 Chat；自定义默认 Chat、可切 Responses
         assertEquals(AgentConfig.API_RESPONSES, AgentConfig(provider = AgentConfig.PROVIDER_OPENAI).effectiveApiFormat)
         assertEquals(AgentConfig.API_CHAT, AgentConfig(provider = AgentConfig.PROVIDER_OPENAI, apiFormat = AgentConfig.API_CHAT).effectiveApiFormat)

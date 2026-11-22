@@ -76,11 +76,14 @@ data class AgentConfig(
     val effectiveModel: String
         get() = model.ifBlank {
             when (provider) {
-                // gpt-4o-mini 太旧：不是推理模型，「思考」区和强度档位对它都没用
-                PROVIDER_OPENAI -> "gpt-5-mini"
+                // OpenAI 官方模型页（2026-11）推荐的日常主力是 GPT-6.2 Sol：推理模型、认图、
+                // 适合跑工具调用的智能体。gpt-5-mini 那一代已经旧了。
+                // 注意 Sol 不接受 reasoning effort = none：关掉思考时主对话不发 reasoning（服务端用默认档），
+                // 标题生成发 none 撞 400 会走降级重试。
+                PROVIDER_OPENAI -> DEFAULT_OPENAI_MODEL
                 // `deepseek-v4-flash` 是旧名，模型已退役，请求被转到 V4.1-Flash 计费。
                 // 直接用现名，免得日后旧名真的下线。
-                else -> "deepseek-flash"
+                else -> DEFAULT_DEEPSEEK_MODEL
             }
         }
 
@@ -95,6 +98,10 @@ data class AgentConfig(
         const val PROVIDER_CUSTOM = "custom"
         const val DEEPSEEK_BASE_URL = "https://api.deepseek.com"
         const val DEEPSEEK_KEYS_URL = "https://platform.deepseek.com/api_keys"
+        /** DeepSeek 官方现名，当前由 DeepSeek-V4.1-Flash 提供服务（见 api-docs.deepseek.com 快速开始）。 */
+        const val DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
+        /** OpenAI 官方模型页的「日常主力」：GPT-6.2 Sol（#427）。 */
+        const val DEFAULT_OPENAI_MODEL = "gpt-6.2-sol"
         /** 不下发 `reasoning_effort`，由服务端按模型默认档跑。不是 DeepSeek 的合法取值。 */
         const val REASONING_AUTO = "auto"
         const val REASONING_LOW = "low"
