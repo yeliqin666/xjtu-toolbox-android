@@ -229,7 +229,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
     val refNumbers = remember(markdown) { issueNumbersIn(markdown) }
     androidx.compose.runtime.LaunchedEffect(refs, refNumbers) { refs?.request(refNumbers) }
     val knownRefs = refs?.kinds?.filterKeys { it in refNumbers }.orEmpty()
-    val linked = remember(markdown, knownRefs) { linkIssues(linkMentions(markdown), knownRefs) }
+    val linked = remember(markdown, knownRefs) { linkIssues(linkMentions(linkGithubRefs(markdown)), knownRefs) }
     // 引用垫一层浅底圆角，和正文分得开；内容仍是标准的「> 」引用，只是这边画得像卡片
     val quoteBackground = colors.onSurface.copy(alpha = 0.05f)
     val components = markdownComponents(
@@ -450,36 +450,92 @@ private fun mapOutsideCode(markdown: String, transform: (String) -> String): Str
 }
 
 private val ISSUE_REF = Regex("""(^|[\s(（，。、：；！？])#(\d{1,7})(?![\w-])""")
+private val GH_REF = Regex("""(^|[\s(（，。、：；！？])GH-(\d{1,7})(?![\w-])""")
 private const val MAX_REFS_PER_QUERY = 40
 
-/** 正文里出现的 `#编号`，代码里的不算。 */
+/** 正文里出现的 `#编号`、`GH-编号`，代码里的不算。 */
 internal fun issueNumbersIn(markdown: String): Set<Int> {
-    if ('#' !in markdown) return emptySet()
+    if ('#' !in markdown && "GH-" !in markdown) return emptySet()
     val found = linkedSetOf<Int>()
     mapOutsideCode(markdown) { text ->
         ISSUE_REF.findAll(text).forEach { m -> m.groupValues[2].toIntOrNull()?.let(found::add) }
+        GH_REF.findAll(text).forEach { m -> m.groupValues[2].toIntOrNull()?.let(found::add) }
         text
     }
     return found
 }
 
-/** 把确认存在的 `#编号` 换成链接；没查到的保持普通文字。 */
+/** 把确认存在的 `#编号`、`GH-编号` 换成链接；没查到的保持普通文字。 */
 internal fun linkIssues(markdown: String, kinds: Map<Int, GithubRefKind>): String {
     if (kinds.isEmpty()) return markdown
     val base = "https://github.com/${CommunityRepo.OWNER}/${CommunityRepo.NAME}"
+    fun link(m: MatchResult, label: String): String {
+        val number = m.groupValues[2].toIntOrNull()
+        val path = when (kinds[number]) {
+            GithubRefKind.DISCUSSION -> "discussions"
+            GithubRefKind.PULL_REQUEST -> "pull"
+            GithubRefKind.ISSUE -> "issues"
+            null -> null
+        }
+        return if (path == null) m.value else "${m.groupValues[1]}[$label$number]($base/$path/$number)"
+    }
     return mapOutsideCode(markdown) { text ->
-        ISSUE_REF.replace(text) { m ->
-            val number = m.groupValues[2].toIntOrNull()
-            val path = when (kinds[number]) {
-                GithubRefKind.DISCUSSION -> "discussions"
-                GithubRefKind.PULL_REQUEST -> "pull"
-                GithubRefKind.ISSUE -> "issues"
-                null -> null
+        GH_REF.replace(ISSUE_REF.replace(text) { link(it, "#") }) { link(it, "GH-") }
+    }
+}
+
+// 前面是行首、空白或中文标点（Markdown 链接 `](` 里的不算）；后面只能跟句末标点和空白
+private const val REF_START = """(^|[\s（，。、：；！？])"""
+private const val REF_END = """(?=[.,:;!?)）。，、；：！？]*(?:\s|$))"""
+private val REPO_REF = Regex("""(^|[\s(（，。、：；！？])([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100})#(\d{1,7})(?![\w-])""")
+private val GITHUB_REF_URL = Regex(
+    REF_START + """https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)/""" +
+        """(?:(?:issues|pull|discussions)/(\d{1,7})(#(?:discussioncomment|issuecomment)-\d+)?|labels/([A-Za-z0-9._~%-]+))""" + REF_END,
+)
+
+/**
+ * GitHub 的自动短链（#474）：`Owner/Repo#123` 变成链接；指向 issue / PR / 讨论的裸链接缩成 `#123`
+ * （别的仓库是 `Owner/Repo#123`，带评论锚点的加「(comment)」）；标签链接显示成标签名，
+ * 和 GitHub 一样只认完整 URL 编码过的。`GH-123` 要先确认存在，在 [linkIssues] 里换。
+ */
+internal fun linkGithubRefs(markdown: String): String {
+    if ('#' !in markdown && "github.com/" !in markdown) return markdown
+    return mapOutsideCode(markdown) { text ->
+        val shortened = GITHUB_REF_URL.replace(text) { m ->
+            val (lead, owner, repo, number, anchor, label) = m.destructured
+            val url = m.value.substring(lead.length)
+            val title = if (number.isNotEmpty()) {
+                val same = owner.equals(CommunityRepo.OWNER, true) && repo.equals(CommunityRepo.NAME, true)
+                (if (same) "#$number" else "$owner/$repo#$number") + if (anchor.isNotEmpty()) " (comment)" else ""
+            } else {
+                percentDecode(label)?.takeIf { it.isNotBlank() }?.let(::escapeMarkdown)
             }
-            if (path == null) m.value else "${m.groupValues[1]}[#$number]($base/$path/$number)"
+            if (title == null) m.value else "$lead[$title]($url)"
+        }
+        REPO_REF.replace(shortened) { m ->
+            val (lead, owner, repo, number) = m.destructured
+            "$lead[$owner/$repo#$number](https://github.com/$owner/$repo/issues/$number)"
         }
     }
 }
+
+private fun percentDecode(value: String): String? = runCatching {
+    val bytes = ArrayList<Byte>(value.length)
+    var i = 0
+    while (i < value.length) {
+        if (value[i] == '%') {
+            bytes += value.substring(i + 1, i + 3).toInt(16).toByte()
+            i += 3
+        } else {
+            bytes += value[i].code.toByte()
+            i++
+        }
+    }
+    bytes.toByteArray().decodeToString(throwOnInvalidSequence = true)
+}.getOrNull()
+
+private fun escapeMarkdown(text: String): String =
+    text.replace(Regex("""[\\`*_\[\]<>]""")) { "\\" + it.value }
 
 /** 一页里各楼层的编号合并成一次查询，查过的不再查。 */
 internal class IssueRefResolver(private val repo: GithubDiscussionsRepository, private val scope: kotlinx.coroutines.CoroutineScope) {
