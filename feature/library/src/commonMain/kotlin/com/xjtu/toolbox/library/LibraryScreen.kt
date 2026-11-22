@@ -68,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -134,12 +135,17 @@ fun LibraryScreen(
     LaunchedEffect(vm.myBookingKnown, vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId, vm.bookedAtDesk) {
         if (vm.myBookingKnown) onBookingChanged?.invoke(vm.myBooking, vm.bookedAtDesk)
     }
+    // 底栏上的图书馆页不重建 ViewModel：首页推荐等别处放进信箱的定位在这里接
+    LaunchedEffect(Unit) { vm.takeFocus() }
+    LaunchedEffect(vm.myBookingKnown, vm.myBooking, vm.campus) { vm.refreshLastSeat() }
 
     var confirmDialog by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     val campus = vm.campus
     val selectedArea = vm.floorAreas[vm.selectedAreaCode] ?: source.areaNameOf(vm.selectedAreaCode)
-    LaunchedEffect(vm.selectedAreaCode) { seatPlanUi.selected.value = null }
+    // 推荐里点过的座位在列表里描一圈，换区域就不描了
+    var highlightedSeat by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(vm.selectedAreaCode) { seatPlanUi.selected.value = null; highlightedSeat = null }
     // 屁岱荐座：候选按本地热力挑，图在真调模型时才裁
     var seatPrefs by remember { mutableStateOf(SeatPickPrefs.load()) }
     val seatPicksData = remember(vm.planLayout, vm.planImages, selectedArea, seatPrefs) {
@@ -546,7 +552,9 @@ fun LibraryScreen(
                                     "下拉刷新重试",
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                )
+                                ) else vm.lastSeatHint?.let { hint ->
+                                    LastSeatHint(hint, onPick = { vm.pickSeat(hint.seat.areaCode, it) })
+                                }
                             }
                         }
                     }
@@ -616,6 +624,25 @@ fun LibraryScreen(
         )
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
         com.xjtu.toolbox.ui.glass.ReportScrollPosition(gridState, scrollBehavior)
+        // 推荐里点的座位：区域加载出来后平面图里选中、列表里滚到并描边，预约仍要用户自己点
+        val pick = vm.pendingPick
+        LaunchedEffect(pick, vm.selectedAreaCode, vm.planLayout, seats, planMode) {
+            val seatId = pick?.seatId ?: return@LaunchedEffect
+            if (vm.selectedAreaCode != pick.areaCode) return@LaunchedEffect
+            val header = if (wideLibrary) 0 else 1
+            if (planMode) {
+                if (vm.planLayout?.seats?.none { it.seatId == seatId } != false) return@LaunchedEffect
+                seatPlanUi.selected.value = seatId
+                gridState.animateScrollToItem(header + if (seatPicksData != null && seatPicksShown) 1 else 0)
+            } else {
+                if (seats.none { it.seatId == seatId }) return@LaunchedEffect
+                val list = if (visibleSeats.any { it.seatId == seatId }) visibleSeats
+                else { seatScope = "全部"; seats.sortedByDescending { it.seatId in favorites } }
+                highlightedSeat = seatId
+                gridState.animateScrollToItem(header + list.indexOfFirst { it.seatId == seatId })
+            }
+            vm.pendingPick = null
+        }
         Row(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         if (wideLibrary) {
             Column(
@@ -784,6 +811,7 @@ fun LibraryScreen(
                                 seat = seat,
                                 isBooking = vm.isBooking,
                                 isFavorite = seat.seatId in favorites,
+                                highlighted = seat.seatId == highlightedSeat,
                                 bookable = source.canBook,
                                 onClick = { if (seat.available) bookSeat(seat.seatId) },
                                 onLongClick = { vm.toggleFavorite(seat.seatId) }
@@ -803,6 +831,31 @@ fun LibraryScreen(
         )
         }
     }
+}
+
+/** 上次预约的座位推荐（#461）：可点的座位号点了在下方选中它。 */
+@Composable
+private fun LastSeatHint(hint: SeatSuggestion, onPick: (String) -> Unit) {
+    val text = hint.hintText()
+    val linkStyle = androidx.compose.ui.text.TextLinkStyles(
+        androidx.compose.ui.text.SpanStyle(color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Medium),
+    )
+    val annotated = androidx.compose.ui.text.buildAnnotatedString {
+        append(text.summary)
+        if (text.links.isNotEmpty() || text.tail.isNotEmpty()) append("，")
+        append(text.lead)
+        text.links.forEachIndexed { i, (label, seatId) ->
+            if (i > 0) append("、")
+            withLink(androidx.compose.ui.text.LinkAnnotation.Clickable(seatId, linkStyle) { onPick(seatId) }) { append(label) }
+        }
+        append(text.tail)
+    }
+    Text(
+        annotated,
+        style = MiuixTheme.textStyles.footnote1,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(top = 2.dp),
+    )
 }
 
 @Composable
@@ -842,7 +895,9 @@ private fun SeatChip(
     seat: SeatInfo, isBooking: Boolean, isFavorite: Boolean,
     /** 本端点一下能不能预约（见 [LibrarySource.canBook]）。 */
     bookable: Boolean,
-    onClick: () -> Unit, onLongClick: () -> Unit
+    onClick: () -> Unit, onLongClick: () -> Unit,
+    /** 从「上次预约」推荐里点过来的那个座位。 */
+    highlighted: Boolean = false,
 ) {
     val bgColor = when {
         isFavorite && seat.available -> MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.15f)
@@ -860,6 +915,7 @@ private fun SeatChip(
         modifier = Modifier
             .pressScale(press, pressed = 0.9f)   // 按下缩一点再弹回，座位格摸起来是软的
             .squircleSurface(color = bgColor, cornerRadius = 10.dp)
+            .then(if (highlighted) Modifier.border(1.5.dp, MiuixTheme.colorScheme.primary, RoundedCornerShape(10.dp)) else Modifier)
             .then(
                 if (!isBooking)
                     Modifier.combinedClickable(

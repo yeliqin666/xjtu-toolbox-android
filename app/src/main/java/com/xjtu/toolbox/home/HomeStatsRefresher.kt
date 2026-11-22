@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.lms.lmsTermOrder
+import com.xjtu.toolbox.library.hintText
 import com.xjtu.toolbox.lms.newestTermCourses
 import kotlin.math.roundToInt
 import kotlin.time.Clock
@@ -336,10 +337,11 @@ object HomeStatsRefresher {
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 // 查失败算这个源失败，不能当成「没有预约」把待办和提醒清掉
-                val b = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site)).fetchMyBooking().getOrThrow()
+                val api = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site))
+                val b = api.fetchMyBooking().getOrThrow()
                 // 在图书馆自助机上约的座位不会经过本 App 的图书馆页，首页这一轮是唯一能发现它的地方。
                 com.xjtu.toolbox.library.LibraryStatus.publish(ctx, b, roundAccount)
-                if (b == null) return@withContext null
+                if (b == null) return@withContext lastSeatStat(api)
                 Log.d(
                     TAG,
                     "library: seat=${b.seatId} area=${b.area} status=${b.statusText} " +
@@ -382,6 +384,26 @@ object HomeStatsRefresher {
             )
         },
     )
+
+    /**
+     * 没有预约时说说上次约的座位（#461）：和账号同校区才顺带只读地拉一次那个区域的座位状态，
+     * 拉不到就只报座位号；别的校区不查。从没约过返回 null，和以前一样。
+     */
+    private suspend fun lastSeatStat(api: com.xjtu.toolbox.library.LibraryApi): HomeStat? {
+        val account = com.xjtu.toolbox.account.AccountContext.suffixFor(roundAccount)
+        val last = com.xjtu.toolbox.library.LibraryLastSeat.load(account) ?: return null
+        val campus = com.xjtu.toolbox.library.LibraryLastSeat.accountCampus(account)
+        val states = if (campus?.id != last.campusId) null else runCatching {
+            api.getSeatLayout(last.areaCode).seats.associate { it.seatId to com.xjtu.toolbox.library.SeatOccupancy.of(it) }
+        }.getOrNull()
+        val hint = com.xjtu.toolbox.library.suggestSeat(last, campus, states)
+        val text = hint.hintText()
+        Log.d(TAG, "library: no booking, last=${last.seatId} hint=${hint::class.simpleName}")
+        val seats = text.links.map { (label, seatId) ->
+            HomeLine(label, com.xjtu.toolbox.library.LibraryLastSeat.link(last, seatId), "相邻空座".takeIf { text.lead.isNotEmpty() })
+        }
+        return HomeStat("未预约", text.summary, seats + listOfNotNull(text.tail.takeIf { it.isNotEmpty() }?.let { HomeLine(it) }))
+    }
 
     /**
      * 思源学堂最新的作业/资料两条。
