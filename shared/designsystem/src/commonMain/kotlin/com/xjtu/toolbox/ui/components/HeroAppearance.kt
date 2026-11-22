@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -188,6 +189,8 @@ fun HeroAppearanceDialog(
     examSoon: Boolean = false,
     onDismiss: () -> Unit,
     onApply: (HeroAppearance) -> Unit,
+    /** 非 null 时在底部给一行「打开主页设置」（#434）；草稿不落盘，跟取消一样。 */
+    onOpenHomeSettings: (() -> Unit)? = null,
 ) {
     val dark = LocalIsDarkTheme.current
     var draft by remember(current, dark) { mutableStateOf(current) }
@@ -418,6 +421,19 @@ fun HeroAppearanceDialog(
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),
                     )
+                }
+                if (onOpenHomeSettings != null) {
+                    Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "打开主页设置",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClick = onOpenHomeSettings)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
                 }
             }
         }
