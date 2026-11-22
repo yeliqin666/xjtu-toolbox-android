@@ -89,6 +89,8 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
             },
             // 和圆角那条一样：拖的时候只写盘，松手才让首页重读一次（逐帧 bump 会整页重组）
             onValueChangeFinished = { HomeLayoutRevision.bump() },
+            // 拖的时候首页跟着变，抽屉收起只留滑条（#433）
+            livePreview = { HomeLayoutRevision.bump() },
         )
     }
     val source = cropSource
