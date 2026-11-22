@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -249,6 +251,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
                 is PostPart.Text -> Markdown(part.markdown, markdownColors, typography, Modifier.fillMaxWidth(),
                     components = components, imageTransformer = Coil3ImageTransformerImpl, annotator = annotator)
                 is PostPart.Image -> PostImage(part)
+                is PostPart.QuotedImages -> QuotedImages(part.images, quoteBackground, typography.quote.color)
             }
         }
     }
@@ -258,36 +261,70 @@ internal sealed interface PostPart {
     data class Text(val markdown: String) : PostPart
     /** [width]/[height] 来自 GitHub 网页插图的 `<img width height>`，有就能一次占好位。 */
     data class Image(val url: String, val alt: String, val width: Int?, val height: Int?) : PostPart
+    /** 引用块（`> `）里独占一行的图片，连着的几张放进同一张引用卡片（#470）。 */
+    data class QuotedImages(val images: List<Image>) : PostPart
 }
 
 private val MD_IMAGE_LINE = Regex("""^!\[([^\]]*)]\(<?(https://[^\s)>]+)>?(?:\s+"[^"]*")?\)$""")
 private val HTML_IMAGE_LINE = Regex("""^(?:<p[^>]*>\s*)?<img\b([^>]*?)/?>(?:\s*</p>)?$""", RegexOption.IGNORE_CASE)
+private val QUOTE_PREFIX = Regex("""^(?:>\s?)+""")
 private fun htmlAttr(attrs: String, name: String): String? =
     Regex("""\b$name\s*=\s*["']([^"']*)["']""", RegexOption.IGNORE_CASE).find(attrs)?.groupValues?.get(1)
 
-/** 把独占一行的图片（Markdown 或 `<img>`）切成单独的块；代码块里的不动。 */
+/** 把独占一行的图片（Markdown 或 `<img>`，引用块里的也算）切成单独的块；代码块里的不动。 */
 internal fun splitBlockImages(markdown: String): List<PostPart> {
     val parts = mutableListOf<PostPart>()
     val buffer = StringBuilder()
     fun flush() {
-        if (buffer.isNotBlank()) parts += PostPart.Text(buffer.toString().trim('\n'))
+        // 只剩 `>` 的空行（引用里图片之间的空行）不单独画成一张空引用
+        if (buffer.lines().any { it.trim().replace(QUOTE_PREFIX, "").isNotBlank() }) parts += PostPart.Text(buffer.toString().trim('\n'))
         buffer.clear()
     }
     var fenced = false
     markdown.split('\n').forEach { line ->
         val t = line.trim()
         if (t.startsWith("```") || t.startsWith("~~~")) fenced = !fenced
-        val image = if (fenced) null else MD_IMAGE_LINE.matchEntire(t)?.let { PostPart.Image(it.groupValues[2], it.groupValues[1], null, null) }
-            ?: HTML_IMAGE_LINE.matchEntire(t)?.groupValues?.get(1)?.let { attrs ->
+        val quoted = !fenced && t.startsWith(">")
+        val body = if (quoted) t.replace(QUOTE_PREFIX, "").trim() else t
+        val image = if (fenced) null else MD_IMAGE_LINE.matchEntire(body)?.let { PostPart.Image(it.groupValues[2], it.groupValues[1], null, null) }
+            ?: HTML_IMAGE_LINE.matchEntire(body)?.groupValues?.get(1)?.let { attrs ->
                 htmlAttr(attrs, "src")?.takeIf { it.startsWith("https://") }?.let { src ->
                     PostPart.Image(src, htmlAttr(attrs, "alt").orEmpty(),
                         htmlAttr(attrs, "width")?.toIntOrNull(), htmlAttr(attrs, "height")?.toIntOrNull())
                 }
             }
-        if (image != null) { flush(); parts += image } else buffer.append(line).append('\n')
+        when {
+            image == null -> buffer.append(line).append('\n')
+            quoted -> {
+                flush()
+                val last = parts.lastOrNull()
+                if (last is PostPart.QuotedImages) parts[parts.lastIndex] = PostPart.QuotedImages(last.images + image)
+                else parts += PostPart.QuotedImages(listOf(image))
+            }
+            else -> { flush(); parts += image }
+        }
     }
     flush()
     return parts.ifEmpty { listOf(PostPart.Text(markdown)) }
+}
+
+/** 引用里的图片：和 [MarkdownBlockQuote] 同一张浅底卡片、同一条左侧竖线。 */
+@Composable
+private fun QuotedImages(images: List<PostPart.Image>, background: Color, bar: Color) {
+    Box(Modifier.padding(vertical = 2.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(background)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    val x = 4.dp.toPx()
+                    drawLine(bar, Offset(x, 2.dp.toPx()), Offset(x, size.height - 2.dp.toPx()), 2.dp.toPx())
+                }
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            images.forEach { PostImage(it) }
+        }
+    }
 }
 
 private enum class ImageStatus { LOADING, FAILED, READY }

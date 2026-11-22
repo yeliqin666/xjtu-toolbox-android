@@ -84,4 +84,18 @@ class CommunityTimeTest {
         assertNull(mentionQuery("hi @" + "a".repeat(40), 44)) // 超过 39 个字符
         assertEquals("a-b", mentionQuery("（@a-b", 5))
     }
+
+    @Test
+    fun `引用块里独占一行的图片切成引用图片块`() {
+        val md = "> <img width=\"10\" height=\"20\" alt=\"a\" src=\"https://x/a.png\" />\n>\n> ![b](https://x/b.png)\n\n/attachcomment #468"
+        assertEquals(
+            listOf(
+                PostPart.QuotedImages(listOf(PostPart.Image("https://x/a.png", "a", 10, 20), PostPart.Image("https://x/b.png", "b", null, null))),
+                PostPart.Text("/attachcomment #468"),
+            ),
+            splitBlockImages(md),
+        )
+        // 引用里还有文字时文字照常留给 Markdown
+        assertEquals(PostPart.Text("> 原文"), splitBlockImages("> 原文\n> ![b](https://x/b.png)").first())
+    }
 }
