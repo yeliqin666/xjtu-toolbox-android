@@ -25,6 +25,9 @@ enum class AgentCapability(val tool: String?, val label: String) {
      */
     FILE_SAVE("save_file", "存进下载"),
 
+    /** 智慧社区活动的查询与一键报名（`:app` = `SsActivityApi`）。 */
+    SS_ACTIVITY("activity", "活动报名"),
+
     ;
     companion object {
 

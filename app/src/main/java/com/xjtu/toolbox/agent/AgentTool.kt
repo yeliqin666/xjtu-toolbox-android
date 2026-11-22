@@ -107,6 +107,7 @@ class AgentToolRegistry(
         "save_file" to "files",
         "get_textbooks" to "textbook",
         "get_coupons" to "coupon",
+        "activity" to "ss",
         "get_lms" to "lms",
         "get_lms_activity" to "lms",
         "get_fitness_score" to "fitness",
@@ -451,6 +452,7 @@ class AgentToolRegistry(
                 getLibrarySeats(args.argStr("campus"), args.argStr("area"))
             "get_textbooks" -> getTextbooks(args.argStr("course"), args.argStr("term"))
             "get_coupons" -> getCoupons(args.argStr("status"))
+            "activity" -> ssActivity(args.argStr("action"), args.argStr("keyword"), args.argStr("id"), args.argStr("order"))
             "get_lms" -> {
                 val course = (args.argStr("course")).orEmpty()
                 when {
@@ -472,7 +474,8 @@ class AgentToolRegistry(
                 if (key.isBlank() || value.isBlank()) host.readAppSettings() else host.writeAppSetting(key, value)
             }
             "calculate" -> agentCalculate(args.argStr("expression") ?: "")
-            "app_guide" -> agentGuideText(args.argStr("topic"))
+            "app_guide" -> APP_GUIDE
+            "search_campus_guide" -> campusGuideText(args.argStr("query"), args.argStr("section"), args.argInt("limit"))
             else -> ToolReply.notFound("tool", name)
         }
     }
@@ -1588,6 +1591,70 @@ class AgentToolRegistry(
                     ?.let { return formatTextbooks(cacheTermForFallback, it, cached = true) }
             }
             ToolReply.failed("get_textbooks", e.message)
+        }
+    }
+
+    /** 智慧社区活动（#465）：查、看、报、取消、我的报名。报名前自己再核一遍报名时间，不全指望模型。 */
+    private suspend fun ssActivity(action: String?, keyword: String?, id: String?, order: String?): String {
+        val site = ensureSite(LoginType.SS) ?: return loginHint(LoginType.SS)
+        val api = com.xjtu.toolbox.ss.SsActivityApi(site)
+        fun line(a: com.xjtu.toolbox.ss.SsActivity) = listOf(
+            "id ${a.id}", a.title, a.status.label, a.start, a.type, a.org, a.nature, a.ability,
+            a.points.takeIf { it.isNotBlank() && it != "0" }?.let { "积分 $it" }.orEmpty(),
+            "${a.participants} 人参与",
+            if (a.likelyGroupProof) "讲座类，常可开集体活动证明" else "",
+        ).filter { it.isNotBlank() }.joinToString("｜")
+        return try {
+            when (action) {
+                "group_proof" -> api.groupProofCandidates().take(20)
+                    .ifEmpty { return ToolReply.empty("group_proof_activities") }
+                    .joinToString("\n", "未结束的讲座、报告、分享类活动（逐个 detail 看能否报名）：\n") { line(it) }
+                "search", null -> api.list(keyword.orEmpty(), when (order) {
+                    "hot" -> com.xjtu.toolbox.ss.SsActivityApi.Order.HOT
+                    "points" -> com.xjtu.toolbox.ss.SsActivityApi.Order.POINTS
+                    else -> com.xjtu.toolbox.ss.SsActivityApi.Order.TIME
+                }).ifEmpty { return ToolReply.empty("activities") }.joinToString("\n") { line(it) }
+                "mine" -> api.myApplies().ifEmpty { return ToolReply.empty("my_applies") }
+                    .joinToString("\n") { listOf("id ${it.activityId}", it.title, it.start, it.activityStatus, "审核 ${it.review}").filter { s -> s.isNotBlank() }.joinToString("｜") }
+                "detail", "apply", "cancel" -> {
+                    val hd = id?.trim()?.takeIf { it.isNotEmpty() } ?: return ToolReply.missing("id")
+                    val d = api.detail(hd)
+                    when (action) {
+                        "apply" -> {
+                            d.applyBlocker(com.xjtu.toolbox.util.nowOnCampus())?.let { return ToolReply.failed("apply", it) }
+                            api.apply(hd)
+                            "ok: applied; ${d.base.title}${if (d.needReview) "; 需审核，结果看 mine" else ""}"
+                        }
+                        "cancel" -> {
+                            if (!d.applied) return ToolReply.failed("cancel", "还没报名")
+                            if (!d.canCancel) return ToolReply.failed("cancel", "这个活动不允许取消报名")
+                            api.cancel(hd)
+                            "ok: cancelled; ${d.base.title}"
+                        }
+                        else -> buildString {
+                            append(line(d.base)).append('\n')
+                            if (d.place.isNotBlank()) append("地点：").append(d.place).append('\n')
+                            if (d.scope.isNotBlank()) append("范围：").append(d.scope).append('\n')
+                            if (d.needApply) {
+                                append("报名：").append(d.applyStart).append(" 至 ").append(d.applyEnd)
+                                d.quota?.let { append("，名额 ").append(it) }
+                                append("，").append(if (d.applied) "已报名" else d.applyBlocker(com.xjtu.toolbox.util.nowOnCampus()) ?: "现在可一键报名")
+                                append('\n')
+                            } else append("无需报名\n")
+                            if (d.pointsBreakdown.isNotBlank()) append("积分构成：").append(d.pointsBreakdown).append('\n')
+                            if (d.onsiteSignIn) append("需现场签到（在 App「活动报名」里输验证码）\n")
+                            val body = com.xjtu.toolbox.lms.htmlToPlainText(d.contentHtml).take(1500)
+                            if (body.isNotBlank()) append("正文：").append(body).append('\n')
+                            if (d.notice.isNotBlank()) append("须知：").append(d.notice.take(500))
+                        }.trimEnd()
+                    }
+                }
+                else -> ToolReply.badValue("action", "group_proof, search, detail, apply, cancel, mine")
+            }
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            ToolReply.notLoggedIn(LoginType.SS.label)
+        } catch (e: Exception) {
+            ToolReply.failed(action ?: "activity", e.message)
         }
     }
 

@@ -294,9 +294,9 @@ private const val DIAGNOSTICS_HEADER = "> ### 诊断信息"
 
 internal fun hasDiagnostics(body: String): Boolean = body.lines().any { it.trim() == DIAGNOSTICS_HEADER }
 
-/** 正文末尾换行后接上诊断引用块；[info] 是「键：值」的多行文本。 */
+/** 正文末尾换行后接上诊断引用块；[info] 是「键：值」的多行文本，可带折叠的日志块（空行保留，`<details>` 要靠它分段）。 */
 internal fun withDiagnostics(body: String, info: String): String {
-    val block = (listOf(DIAGNOSTICS_HEADER) + info.lines().filter { it.isNotBlank() }.map { "> $it" }).joinToString("\n")
+    val block = (listOf(DIAGNOSTICS_HEADER) + info.trim().lines().map { if (it.isBlank()) ">" else "> $it" }).joinToString("\n")
     return if (body.isBlank()) block else body.trimEnd() + "\n\n" + block
 }
 

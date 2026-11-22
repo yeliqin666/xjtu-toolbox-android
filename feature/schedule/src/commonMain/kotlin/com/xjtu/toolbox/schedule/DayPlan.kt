@@ -51,7 +51,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /** 「一句话排今天」：照今天的课、考试、截止和用户一句话，排出从现在到睡前的安排和路线。 */
 private val DAY_PLAN = InsightSpec(
     id = "day_plan_v3",
-    tools = setOf("get_schedule", "get_exam_schedule", "campus_map", "my_location", "get_empty_rooms", "get_library", "app_guide", "get_card_info"),
+    tools = setOf("get_schedule", "get_exam_schedule", "campus_map", "my_location", "get_empty_rooms", "get_library", "search_campus_guide", "get_card_info"),
     ttlMs = 2 * 60 * 60 * 1000L,
     thinking = true,
     busyHint = "在排…",

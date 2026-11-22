@@ -200,10 +200,12 @@ internal fun ChatPanel(
             .background(MiuixTheme.colorScheme.surface)
     ) {
         // 内容层只录聊天列表和气泡；输入栏玻璃采样这一层，不能把自己也录进去。
+        // 采样层自己垫页面底色：不垫的话没底的回答文字录下来四周透明，玻璃盖不住，下面的字清清楚楚透上来
         Box(
             Modifier
                 .fillMaxSize()
                 .then(if (glass) couiChatBackdrop?.recordInto(Modifier) ?: Modifier else Modifier)
+                .background(MiuixTheme.colorScheme.surface)
         ) {
             Box(Modifier.fillMaxSize().clipToBounds()) {
             // 切会话（含首屏「接着聊」）：旧会话淡出、新会话略微上浮淡入

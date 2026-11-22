@@ -189,6 +189,21 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "text_offset" to agentIntProp(DOC_OFFSET_PROP),
             required = listOf("course", "activity"),
         )))
+    if (AgentCapability.SS_ACTIVITY in honored) {
+        arr.add(agentTool("activity",
+            "学校智慧社区的活动报名，是集体活动证明和课外学分（第二课堂，本科共需 8 学分）的主要来源。" +
+                "活动描述几乎不写「集体活动证明」，但讲座、报告会、分享会、宣讲会（如高数讲座、保研分享会）通常都能开；" +
+                "用户要集体活动证明时用 group_proof，它按这类关键词合并搜出未结束的活动。结果里的课程性质、素养能力、积分是课外学分的参考，能否认定以学院、书院规定为准。" +
+                "search 按名称搜（keyword 缺省列近期活动）；detail 看详情（报名起止、名额、是否已报、地点、积分构成）；mine 本人报名记录。" +
+                "apply 一键报名、cancel 取消报名：先 detail 核对仍在报名时间内且未报过，并经用户明确同意。需智慧社区登录。",
+            agentParams(
+                "action" to agentEnumProp("group_proof / search / detail / apply / cancel / mine。", "group_proof", "search", "detail", "apply", "cancel", "mine"),
+                "keyword" to agentStrProp("search 的活动名称关键词。"),
+                "id" to agentStrProp("活动 ID（HDDM），来自 search 或 mine。detail / apply / cancel 必填。"),
+                "order" to agentEnumProp("search 排序：time 时间（默认）、hot 热度、points 积分。", "time", "hot", "points"),
+                required = listOf("action"),
+            )))
+    }
     arr.add(agentTool("get_fitness_score",
         "本人体测成绩：总分、等级、分项。按学年计。需体测登录。",
         agentParams("year" to agentStrProp("学年起始年，2025=2025-2026 学年。缺省：当前已开测学年。"))))
@@ -202,8 +217,15 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
                 )))
     }
     arr.add(agentTool("app_guide",
-        "查询本 App 的完整功能与操作入口，包括小岱配置、MCP 扩展工具、日程、下载与隐私；以及兴庆、创新港的食堂和开放时间。回答 App 能力或设置问题时先查此工具。",
-        agentParams("topic" to agentEnumProp("app：功能与入口；campus：食堂与开放时间。缺省：两者都给。", "app", "campus"))))
+        "查询本 App 的完整功能与操作入口，包括小岱配置、MCP 扩展工具、日程、下载与隐私。回答 App 能力或设置问题时先查此工具。",
+        agentParams()))
+    arr.add(agentTool("search_campus_guide",
+        "校园指南：食堂与开放时间、入学、学籍学分、选课、考试补考、转专业辅修、特色项目、奖助贷、就业升学、交流、医疗医保心理、住宿后勤、校园卡网络、图书馆自习、体育场馆、党团社团、安全纪律、证件用印、毕业、校历作息、校园文化的规定、流程与常识，含电话、地点、时间、金额，条末标出处和年份。",
+        agentParams(
+            "query" to agentStrProp("关键词，如 转专业、缓考、校园网流量、医保报销、跑操。"),
+            "section" to agentStrProp("节名片段，如 选课、奖助。只给它不给 query 时列出整节。都不给：列分节目录。"),
+            "limit" to agentIntProp("条数，默认 5，上限 10。"),
+        )))
     arr.add(agentTool("calculate",
         "计算表达式：+ - * / ^ 与括号。",
         agentParams("expression" to agentStrProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))

@@ -46,6 +46,7 @@ actual fun CouiGlassPanel(
     cornerRadius: Dp,
     tint: Color,
     fallbackColor: Color,
+    blurRadius: Float,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val backdrop = pageBackdrop.androidBackdrop()
@@ -60,7 +61,7 @@ actual fun CouiGlassPanel(
     else if (dark) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f)
     val shape = remember(cornerRadius) { CouiShape(cornerRadius, cornerWeight = 2f) }
     val cornerRadiusPx = cornerRadius.value * density
-    val material = remember(resolvedTint, dark) { CouiFabDefaults.material(resolvedTint, dark) }
+    val material = remember(resolvedTint, dark, blurRadius) { CouiFabDefaults.material(resolvedTint, dark).copy(blurRadius = blurRadius) }
     val renderer = remember { CouiFloatingRenderer.standalone() }
     val contentLayer = rememberGraphicsLayer()
     var boundsSize by remember { mutableStateOf(IntSize.Zero) }

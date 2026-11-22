@@ -160,7 +160,7 @@ fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
 
 /** [appPageEntries] 里以 data object 形式注册过的页面（带参数的上面单独判断）。 */
 private val standaloneHostedRoutes: Set<AppRoute> = setOf(
-    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
+    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
     AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress,
@@ -314,6 +314,11 @@ fun NavEntryBuilder.appPageEntries(
         }
         entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
             WithSite("qms") { JudgeScreen(site = it, onBack = back) }
+        }
+        entry<AppRoute.SsActivity>(transition = expand(AppRoute.SsActivity::class)) {
+            WithSite(com.xjtu.toolbox.auth.SsSession.SITE_KEY) {
+                com.xjtu.toolbox.ss.SsActivityScreen(site = it, onBack = back, onOpenWeb = { url -> router.open(AppRoute.Browser(url)) })
+            }
         }
         entry<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
             val libraryContext = LocalContext.current
@@ -695,7 +700,8 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
-            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides ::communityDiagnostics) {
+            val app = LocalContext.current.applicationContext
+            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides { communityDiagnostics(app) }) {
                 CommunityScreen(
                     session = remember { SecureGithubSession.get() },
                     deviceAuth = remember {
@@ -709,7 +715,8 @@ fun NavEntryBuilder.appPageEntries(
             }
         }
         entry<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->
-            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides ::communityDiagnostics) {
+            val app = LocalContext.current.applicationContext
+            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides { communityDiagnostics(app) }) {
                 CommunityScreen(
                     session = remember { SecureGithubSession.get() },
                     deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
@@ -808,11 +815,14 @@ fun AwaitSite(
 
 /** 内置浏览器打开某个站点时带哪套登录会话的 cookie。 */
 /** 社区发帖附的诊断信息（#463）：只有版本、机型、系统，不含账号。 */
-private fun communityDiagnostics(): String = listOf(
+private fun communityDiagnostics(context: android.content.Context): String = listOfNotNull(
     "app版本：${com.xjtu.toolbox.BuildConfig.VERSION_NAME} (${com.xjtu.toolbox.BuildConfig.VERSION_CODE})",
     "预览版：${if (com.xjtu.toolbox.BuildConfig.IS_PREVIEW) "是" else "否"}",
     "设备型号：${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
     "系统版本：${android.os.Build.DISPLAY}, Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})",
+    com.xjtu.toolbox.error.CrashReporter.latestCrash(context)?.let {
+        "<details><summary>最近一次崩溃日志</summary>\n\n```\n${it.trim()}\n```\n</details>"
+    },
 ).joinToString("\n")
 
 private fun siteKeyForHost(host: String): String = when {

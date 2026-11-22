@@ -145,10 +145,10 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
      * 往 [groupId] 组里加一个功能。**同一组里允许出现同一个功能的多块**（2026-11 按需求改）：
      * 「常用功能」本来就是同一路由的第二块，组内再来一块也是用户的明确意图，没有理由拦。
      */
-    fun addTile(groupId: String, routeId: String, tileId: String): HomeLayout {
+    fun addTile(groupId: String, routeId: String, tileId: String, w: Float = 2f, h: Float = 1f): HomeLayout {
         val group = group(groupId) ?: return this
-        // 新块按 2×1 进组：和默认布局一档，放不下就落到最下面
-        val size = 2f to 1f
+        // 新块默认 2×1 进组：和默认布局一档，放不下就落到最下面
+        val size = w to h
         val slot = HomeGridMath.firstFreeSlot(group.tiles, size.first, size.second)
         val tile = if (slot != null) {
             HomeTile(tileId, routeId, slot.first, slot.second, size.first, size.second)

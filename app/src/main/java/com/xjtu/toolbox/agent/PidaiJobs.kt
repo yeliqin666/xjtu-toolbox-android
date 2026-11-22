@@ -146,11 +146,11 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
         private val WEEKLY = (20 * 60) until (23 * 60)
 
         /** 后台能用的工具：都不用登录。 */
-        private val BACKGROUND_TOOLS = setOf("get_notifications", "web_search", "web_fetch", "wechat_search", "campus_map", "app_guide", "calculate")
+        private val BACKGROUND_TOOLS = setOf("get_notifications", "web_search", "web_fetch", "wechat_search", "campus_map", "app_guide", "search_campus_guide", "calculate")
 
         private val MORNING_BRIEF = InsightSpec(
             id = "pidai_morning",
-            tools = setOf("get_notifications", "campus_map", "app_guide"),
+            tools = setOf("get_notifications", "campus_map", "search_campus_guide"),
             ttlMs = 60 * 60 * 1000L,
             instruction = """
 任务：写一条早上的「今日简报」推送。依据给你的今天的课、待办和余额；可以用 get_notifications 看看今天有没有要紧的公开通知，campus_map 算一下课间要不要赶。
@@ -162,7 +162,7 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
 
         private val EVENING_BRIEF = InsightSpec(
             id = "pidai_evening",
-            tools = setOf("campus_map", "app_guide"),
+            tools = setOf("campus_map", "search_campus_guide"),
             ttlMs = 60 * 60 * 1000L,
             instruction = """
 任务：写一条晚上的「明日预告」推送：明天第一节几点在哪、要带什么、哪些待办快到期。明天没课就说一声，提醒一件最该做的事。

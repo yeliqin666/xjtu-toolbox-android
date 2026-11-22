@@ -156,9 +156,33 @@ class HomeLayoutStore(
             saved?.let { store.putString(KEY_LAYOUT, HomeLayoutCodec.encode(it.snapToGrid().withoutEmptyGroups())) }
             store.remove(KEY_LEGACY_GRID)
         }
-        return (saved ?: migrateFromWidgetLayout(accountType) ?: HomeLayoutDefaults.of(accountType, quickRoutes))
+        val stored = saved ?: migrateFromWidgetLayout(accountType)
+        return (stored?.let { withNewServices(it, accountType) } ?: HomeLayoutDefaults.of(accountType, quickRoutes))
             .compactGaps(grid)
     }
+
+    /**
+     * 自己摆过首页的用户，升级后新功能也要出现：目录里有、上次存档时还没见过的功能，
+     * 放进它所属分类组的第一个空格（1×1）。见过的不再加——用户删掉的就是不要了。
+     */
+    private fun withNewServices(layout: HomeLayout, accountType: AccountType): HomeLayout {
+        val seen = store.getString(KEY_SEEN_ROUTES)?.split(',')?.toSet()
+            ?: (catalogIds() - INTRODUCED_AFTER_SEEN_TRACKING)
+        store.putString(KEY_SEEN_ROUTES, (seen + catalogIds()).joinToString(","))
+        val present = layout.groups.flatMap { g -> g.tiles.map { it.routeId } }.toSet()
+        val fresh = AppServices.homeFor(accountType).filter { it.route.id !in seen && it.route.id !in present }
+        if (fresh.isEmpty()) return layout
+        val placed = fresh.fold(layout) { acc, service ->
+            val groupId = acc.group(service.category.name)?.id
+                ?: acc.groups.lastOrNull { it.id != HomeLayoutDefaults.QUICK_GROUP }?.id
+                ?: return@fold acc
+            acc.addTile(groupId, service.route.id, acc.nextTileId(groupId, service.route.id), 1f, 1f)
+        }
+        store.putString(KEY_LAYOUT, HomeLayoutCodec.encode(placed))
+        return placed
+    }
+
+    private fun catalogIds(): Set<String> = AppServices.home.mapTo(mutableSetOf()) { it.route.id }
 
     /**
      * 把 dev 上那套「小组件」的排版迁成卡片组——**兼容必备**：升级不能把用户摆好的分组、
@@ -181,6 +205,8 @@ class HomeLayoutStore(
     fun save(layout: HomeLayout) {
         // 空组不落盘：编辑态里被搬空的组，保存这一下就自动删掉（它在常规态本来就是隐藏的）
         saved = layout.withoutEmptyGroups()
+        // 存的这一刻用户看得到整份目录：之后才进目录的才算新功能
+        store.putString(KEY_SEEN_ROUTES, catalogIds().joinToString(","))
     }
 
     /** 「恢复默认分组和布局」：清掉整页快照，回到 [HomeLayoutDefaults]。 */
@@ -313,6 +339,14 @@ private const val KEY_CARD_CORNER = "home_card_corner"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"
+        /** 存档时用户已见过的功能（逗号分隔的路由 id），见 [withNewServices]。 */
+        private const val KEY_SEEN_ROUTES = "home_seen_routes"
+
+        /**
+         * 开始记「见过的功能」之后才进目录的功能。老存档没有见过记录时，
+         * 按「当前目录减去这些」当作见过，于是这些会补进去，其余的（用户删过的）不会。
+         */
+        private val INTRODUCED_AFTER_SEEN_TRACKING = setOf(AppRoute.SsActivity.id)
     }
 }
 

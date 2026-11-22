@@ -37,6 +37,7 @@ fun agentToolLabel(name: String): String = when (name) {
     "get_library"           -> "查询图书馆…"
     "get_textbooks"         -> "查询日程教材…"
     "get_coupons"           -> "查询加餐券…"
+    "activity"              -> "查询智慧社区活动…"
     "get_lms"               -> "查询思源学堂…"
     "get_lms_activity"      -> "读取课程活动…"
     "list_zyxf"             -> "检索学辅资料…"
@@ -50,6 +51,7 @@ fun agentToolLabel(name: String): String = when (name) {
     "calculate"             -> "计算…"
     AgentRetitle.TOOL       -> "改对话标题…"
     "app_guide"             -> "查看 App 指南…"
+    "search_campus_guide"   -> "查校园指南…"
     else                    -> "调用工具 $name…"
 }
 

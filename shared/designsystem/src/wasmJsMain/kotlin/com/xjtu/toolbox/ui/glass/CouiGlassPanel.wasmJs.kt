@@ -14,6 +14,7 @@ actual fun CouiGlassPanel(
     cornerRadius: Dp,
     tint: Color,
     fallbackColor: Color,
+    blurRadius: Float,
     content: @Composable BoxScope.() -> Unit,
 ) {
     CouiGlassPanelFallback(modifier, cornerRadius, fallbackColor, content)

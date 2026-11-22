@@ -4,6 +4,7 @@ import com.xjtu.toolbox.util.CampusTimeZone
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.plus
 import kotlinx.datetime.toInstant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -283,6 +284,25 @@ class SystemCalendarScheduleTest {
                 "运动会" to "周六 全天 · 第 2/2 天",
             ),
             buildUpcoming(emptyList(), emptyList(), evening, events).map { it.title to it.subtitle },
+        )
+    }
+
+    @Test
+    fun 连续几天的全天日程并成一根横条并错开行() {
+        val week = (0..6).map { LocalDate(2026, 12, 21).plus(it, kotlinx.datetime.DateTimeUnit.DAY) }
+        val events = mapOf(
+            week[1] to listOf("考试周", "jadek"),
+            week[2] to listOf("jadek", "考试周"),
+            week[3] to listOf("考试周"),
+            week[5] to listOf("jadek"),
+        )
+        assertEquals(
+            listOf(
+                AllDayBar("考试周", 1, 3, 0),
+                AllDayBar("jadek", 1, 2, 1),
+                AllDayBar("jadek", 5, 5, 0),
+            ),
+            allDayBars(week, events),
         )
     }
 }

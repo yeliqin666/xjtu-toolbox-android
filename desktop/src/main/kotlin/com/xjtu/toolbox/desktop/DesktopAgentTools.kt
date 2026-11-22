@@ -6,7 +6,8 @@ import com.xjtu.toolbox.agent.AgentTools
 import com.xjtu.toolbox.agent.ToolReply
 import com.xjtu.toolbox.agent.agentCalculate
 import com.xjtu.toolbox.agent.agentCourseLine
-import com.xjtu.toolbox.agent.agentGuideText
+import com.xjtu.toolbox.agent.APP_GUIDE
+import com.xjtu.toolbox.agent.campusGuideText
 import com.xjtu.toolbox.agent.agentToolDefinitions
 import com.xjtu.toolbox.agent.argInt
 import com.xjtu.toolbox.agent.argStr
@@ -52,6 +53,7 @@ internal val DESKTOP_AGENT_TOOLS = listOf(
     "preference",
     "find_faculty",
     "app_guide",
+    "search_campus_guide",
     "calculate",
 )
 
@@ -109,7 +111,8 @@ internal class DesktopAgentTools(
                 date = args.argStr("date"),
             )
             "calculate" -> agentCalculate(args.argStr("expression").orEmpty())
-            "app_guide" -> agentGuideText(args.argStr("topic"))
+            "app_guide" -> APP_GUIDE
+            "search_campus_guide" -> campusGuideText(args.argStr("query"), args.argStr("section"), args.argInt("limit"))
             // 给 value 是记下，不给是删掉（与 `:app` 同一条判据）
             "preference" -> {
                 val key = args.argStr("key") ?: ""

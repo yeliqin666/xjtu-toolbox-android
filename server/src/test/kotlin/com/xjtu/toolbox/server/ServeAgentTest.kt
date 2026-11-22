@@ -815,7 +815,7 @@ class ServeAgentTest {
             assertEquals(
                 listOf(
                     "get_calendar", "get_schedule", "get_exam_schedule", "get_empty_rooms",
-                    "search_yellow_page", "preference", "find_faculty", "app_guide", "calculate", "campus_map",
+                    "search_yellow_page", "preference", "find_faculty", "app_guide", "search_campus_guide", "calculate", "campus_map",
                     "get_campus_bus", "get_degree_progress",
                 ),
                 agent.toolAllowlist(AgentConfig()),

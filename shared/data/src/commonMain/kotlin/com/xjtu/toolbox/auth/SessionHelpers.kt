@@ -15,6 +15,7 @@ fun LoginType.siteKey(): String = when (this) {
     LoginType.ATTENDANCE -> "new_attendance"
     LoginType.ICLASSFACE -> "iclassface"
     LoginType.QMS -> QmsSession.SITE_KEY
+    LoginType.SS -> SsSession.SITE_KEY
 }
 
 /**

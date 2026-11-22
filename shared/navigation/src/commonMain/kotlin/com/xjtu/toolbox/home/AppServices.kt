@@ -25,7 +25,7 @@ enum class ServiceCategory(val title: String, val subtitle: String) {
      * 而底栏已经是 5 个 tab（miuix 的上限就是 5），加不了 tab，
      * 所以走首页分类卡这一层。
      */
-    PLAY("课余", "小游戏与匹配"),
+    PLAY("课余", "活动、小游戏与匹配"),
 }
 
 data class AppService(
@@ -104,6 +104,12 @@ object AppServices {
 
         AppService(AppRoute.Games, "小游戏", "合成方块与棋类", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "方块", "俄罗斯方块", "跳一跳", "摸鱼")),
         AppService(AppRoute.Match, "匹配交友", "课表匹配找同伴", ServiceCategory.PLAY, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),
+        AppService(AppRoute.SsActivity, "活动报名", "智慧社区讲座与活动", ServiceCategory.PLAY,
+            listOf("智慧社区", "活动", "讲座", "报名", "签到", "签退", "第二课堂", "课外学分", "集体活动", "集体活动证明", "活动证明"),
+            features = listOf(
+                "集体活动：一键找讲座、报告、分享会这类常能开集体活动证明的活动",
+                "课外学分参考：活动的课程性质、素养能力与积分构成",
+                "一键报名与取消：附件或团体报名跳网页", "现场签到签退：输入现场 6 位验证码", "我的报名：报名状态与审核结果", "小岱找活动：按主题查活动并帮你报名")),
 
         AppService(AppRoute.DownloadManager, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(AppRoute.Settings, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),

@@ -995,7 +995,8 @@ private fun ScheduleTabContent(
         // 一节课都没有（暑假、还没选课）。0 页 Pager 会崩，20 页空网格是原来的毛病。
         // 判的是 courses（含自定义日程）而不是 totalWeeks：后者只数教务课表，
         // 教务为空时用户自己加的日程也会被这一句挡住，加了等于没加。
-        if (courses.isEmpty()) {
+        // 知道开学日期时照样按周翻：系统日历的日程要按周画上去（#462），没课的周由下面的「这周没课」兜底。
+        if (courses.isEmpty() && (startOfTerm == null || showAllWeeks)) {
             // 空状态也要能下拉刷新（副文案就是这么引导的）：PullToRefresh 的拖动量
             // 全靠嵌套滚动分发，内容不满一屏又没有滚动容器时手势根本传不到它，
             // 垫一层 verticalScroll 只为建立滚动链，内容没有可滚的距离、视觉无变化。
@@ -1068,7 +1069,7 @@ private fun ScheduleTabContent(
                     weekDates?.let { weekCalendar(it, weekN, weekEvents) } ?: WeekCalendar(emptyList(), emptyMap())
                 }
                 val weekSlots = remember(weekCourses, weekCal) { weekCourses + weekCal.slots }
-                if (weekSlots.isEmpty() && weekFriend.isEmpty() && weekCal.allDay.isEmpty() && courses.isNotEmpty()) {
+                if (weekSlots.isEmpty() && weekFriend.isEmpty() && weekCal.allDay.isEmpty()) {
                     val emptyScroll = rememberScrollState()
                     com.xjtu.toolbox.ui.glass.ReportScrollPosition(emptyScroll)
                     EmptyState(

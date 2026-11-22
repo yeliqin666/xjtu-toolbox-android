@@ -155,6 +155,8 @@ internal fun AgentComposer(
             modifier = Modifier.fillMaxWidth(),
             cornerRadius = 24.dp,
             tint = pillTint.copy(alpha = 0.55f),
+            // 默认 10 太浅，压在聊天气泡上字都透出来；输入框要能看清自己的字
+            blurRadius = 32f,
         ) {
         Row(
             Modifier

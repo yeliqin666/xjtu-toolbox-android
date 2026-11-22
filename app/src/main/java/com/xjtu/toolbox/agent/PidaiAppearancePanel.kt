@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -238,8 +239,13 @@ private fun PersonaRow(characterId: String) {
     var revision by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val current = remember(characterId, revision) { PidaiAppearanceHost.persona(context, characterId) }
     var editing by remember { mutableStateOf(false) }
+    // 做成一块浅底卡片 + 右侧「编辑」：只是一行字的话看不出能点
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { editing = true }.padding(vertical = 6.dp),
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+            .clickable { editing = true }
+            .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -251,6 +257,17 @@ private fun PersonaRow(characterId: String) {
                 maxLines = 2,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
+        }
+        Spacer(Modifier.width(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            top.yukonga.miuix.kmp.basic.Icon(
+                androidx.compose.material.icons.Icons.Outlined.Edit,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text("编辑", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
         }
     }
     if (!editing) return

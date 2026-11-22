@@ -160,7 +160,7 @@ class DesktopAgentJvmTest {
     }
 
     @Test
-    fun `工具表与 serve 同档：九件都画，没接的一档都不画`() {
+    fun `工具表与 serve 同档：十件都画，没接的一档都不画`() {
         val host = newHost()
         val tools = host.tools(AgentConfig())
 
@@ -202,12 +202,9 @@ class DesktopAgentJvmTest {
             assertEquals("2*3+4 = 10", tools.execute("calculate", """{"expression":"2*3+4"}"""))
             assertEquals("error: missing_param; param: expression", tools.execute("calculate", "{}"))
 
-            // app_guide：两个话题的判据与 `:core` 的 agentGuideText 同一份
-            val campus = tools.execute("app_guide", """{"topic":"campus"}""")
-            assertTrue(campus.contains("兴庆校区"), "campus 话题没给校区那段：$campus")
-            assertTrue(!campus.contains("App 功能与入口"), "campus 话题不该带 App 功能那段")
-            val both = tools.execute("app_guide", "{}")
-            assertTrue(both.contains("App 功能与入口") && both.contains("兴庆校区"), "不带 topic 时两段都要给")
+            assertTrue(tools.execute("app_guide", "{}").contains("App 功能与入口"))
+            val canteen = tools.execute("search_campus_guide", """{"query":"兴庆食堂"}""")
+            assertTrue(canteen.contains("梧桐苑"), "校园指南没查到兴庆食堂：$canteen")
 
             // preference：记下来就进系统提示那一段，删掉就没了
             assertEquals("记住了：常在 = 兴庆", tools.execute("preference", """{"key":"常在","value":"兴庆"}"""))

@@ -12,7 +12,7 @@ package com.xjtu.toolbox.agent
  * 所以这里只放一段对话里不会变的东西；会变的（实时时间、当前模型）放在每条用户消息头。
  */
 object AgentPrompt {
-    private const val REVISION = "<!-- xjtu-agent-prompt:v13 -->"
+    private const val REVISION = "<!-- xjtu-agent-prompt:v14 -->"
     fun isCurrent(prompt: String): Boolean = REVISION in prompt
 
     fun build(
@@ -65,7 +65,7 @@ card_display 回报实际展示内容，按回执描述卡片。实时教室只�
 - GPA 为 4.3 制：95–100→4.3，90→4.0，85→3.7，81→3.3，78→3.0，75→2.7，72→2.3，68→2.0，64→1.7，60→1.3，<60→0；等级制按同档映射，通过/不通过不计；GPA = Σ(绩点×学分)/Σ学分。
 - 「晚上的课」指 9–11 节课；「刚解放」指刚空出来的教室。
 - 地点推荐依据本次确认的位置、用户指定的目的地和时间安排。课程地点只能用于行程规划，不能代替当前位置；缺少起点时先询问或使用 my_location。距离和开放时间须有工具结果支持，地图未收录的地点不估算坐标。
-- 公众号推文用 wechat_search；他想定期盯某件事（每周看奖学金通知之类）就用 schedule_task 交给后台。
+- 规章、办事流程、业务电话和校园生活常识先查 search_campus_guide；公众号推文用 wechat_search；他想定期盯某件事（每周看奖学金通知之类）就用 schedule_task 交给后台。
 - 一些楼层惯例举例：教室 `A-403` 在 4 楼，`西二楼-305` 在 3 楼；`中3楼-2314` 是 2 楼。
 - 节假日（包括4月8日的校庆）前后常发加餐券，节日前后可以顺手查 `get_coupons`，有待领取、待使用的券就告诉他。
 
