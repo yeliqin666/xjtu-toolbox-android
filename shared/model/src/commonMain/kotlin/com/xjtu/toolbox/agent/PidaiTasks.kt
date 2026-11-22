@@ -2,6 +2,7 @@ package com.xjtu.toolbox.agent
 
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.platform.synchronizedBlock
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.safeStringOrNull
@@ -41,18 +42,27 @@ object PidaiTaskStore {
     fun all(): List<PidaiTask> =
         store.getString(KEY)?.let { runCatching { AppJson.decodeFromString(serializer, it) }.getOrNull() }.orEmpty()
 
-    private fun save(tasks: List<PidaiTask>) = store.putString(KEY, AppJson.encodeToString(serializer, tasks))
+    private val lock = Any()
 
-    fun add(task: PidaiTask): Boolean {
-        val tasks = all()
-        if (tasks.size >= MAX_TASKS) return false
-        save(tasks + task)
-        return true
+    /**
+     * 读出、改、写回在同一把锁里做完：后台到点跑任务时会写 lastRun，同时用户可能让小岱加或取消任务。
+     * 分开读写的话，后写的一方拿旧列表整份覆盖，刚取消的任务会被写回来接着跑，刚加的会丢。
+     */
+    private fun update(transform: (List<PidaiTask>) -> List<PidaiTask>?): Boolean = synchronizedBlock(lock) {
+        val next = transform(all()) ?: return@synchronizedBlock false
+        store.putString(KEY, AppJson.encodeToString(serializer, next))
+        true
     }
 
-    fun remove(id: String) = save(all().filterNot { it.id == id })
+    fun add(task: PidaiTask): Boolean = update { tasks -> if (tasks.size >= MAX_TASKS) null else tasks + task }
 
-    fun markRun(id: String, at: Long) = save(all().map { if (it.id == id) it.copy(lastRun = at) else it })
+    fun remove(id: String) {
+        update { tasks -> tasks.filterNot { it.id == id } }
+    }
+
+    fun markRun(id: String, at: Long) {
+        update { tasks -> tasks.map { if (it.id == id) it.copy(lastRun = at) else it } }
+    }
 
     /** [now] 这一刻该跑的任务：今天在 [PidaiTask.days] 里、过了设定时刻、今天这一次还没跑过。 */
     fun due(now: LocalDateTime, tasks: List<PidaiTask> = all()): List<PidaiTask> = tasks.filter { t ->
