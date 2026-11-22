@@ -70,7 +70,7 @@ android {
             val lbProps = Properties().apply { if (lbFile.exists()) lbFile.inputStream().use { load(it) } }
             val lbUrl = System.getenv("LEADERBOARD_BASE_URL")?.trim()?.takeIf { it.isNotEmpty() }
                 ?: lbProps.getProperty("baseUrl")?.trim()?.takeIf { it.isNotEmpty() }
-                ?: "https://zyxf.top/games"
+                ?: "https://dzhz.zyxf.top/games"
             buildConfigField("String", "LEADERBOARD_BASE_URL", "\"$lbUrl\"")
         }
     }

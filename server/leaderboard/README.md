@@ -210,8 +210,8 @@ ssh root@"$HOST" 'systemctl daemon-reload && systemctl enable --now xjtu-games'
 ssh root@"$HOST" 'nginx -t && systemctl reload nginx'
 
 # 5. 验证
-curl -s https://zyxf.top/games/health
-curl -s 'https://zyxf.top/games/board?game=2048&uid=testuid12345&limit=10'
+curl -s https://dzhz.zyxf.top/games/health
+curl -s 'https://dzhz.zyxf.top/games/board?game=2048&uid=testuid12345&limit=10'
 ```
 
 升级只改 `index.js` 的话：`scp index.js root@"$HOST":/opt/xjtu-games/ && ssh root@"$HOST" 'systemctl restart xjtu-games'`。
