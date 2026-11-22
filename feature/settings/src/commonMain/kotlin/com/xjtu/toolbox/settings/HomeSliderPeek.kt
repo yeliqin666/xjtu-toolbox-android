@@ -16,11 +16,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -34,15 +38,15 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 主页设置抽屉里「拖背景滑条时只留滑条」（#433）。
+ * 主页设置抽屉里拖背景滑条时把抽屉调淡，好看清主页背景。
  *
- * 照 HyperOS 控制中心调亮度的做法：手指一拖背景那两条（模糊程度、背景不透明度），抽屉底色、
- * 遮罩、标题和其它行都收起来，只剩手上这根滑条和它上方一枚小字数值，好直接看主页背景的变化；
- * 松手立刻复原。
+ * 照 HyperOS 控制中心调亮度的做法：手指一拖背景那两条（模糊程度、背景不透明度），抽屉底色和
+ * 其它行都变得很淡但还在，手上这根滑条照常清楚地显示，上方另有一枚小字数值；松手立刻复原。
  *
  * 滑条本身**不换组件、不挪位置**：手势还在原来那根 `SliderPreference` 上，换掉它拖动就断了。
- * 所以「收起」是画法上的：整块内容照常排版、照常接收手势，只在绘制阶段裁成那根滑条的胶囊
- * （[drawOnlyActiveSlider]）；数值小字另画在内容上面（[HomeSliderPeekLabel]）。
+ * 所以「调淡」是画法上的：整块内容照常排版、照常接收手势，绘制时滑条以外的部分按
+ * [PEEK_ALPHA] 画淡，滑条那块胶囊照原样画（[drawFadedExceptActiveSlider]）；数值小字另画在
+ * 内容上面（[HomeSliderPeekLabel]）。
  *
  * 拖动中首页要跟着变才看得见效果，可连续值平时只在松手 / 关抽屉时通知首页（逐帧通知会整页重组），
  * 这里折中按 [LIVE_INTERVAL_MS] 节流通知一次。
@@ -57,7 +61,7 @@ internal class HomeSliderPeek {
 
     val active: Boolean get() = owner != null
 
-    /** 每条可收起的滑条在滑条正上方放了一个 0 高的锚点，记的就是它的坐标。 */
+    /** 每条会调淡抽屉的滑条在滑条正上方放了一个 0 高的锚点，记的就是它的坐标。 */
     private val anchors = HashMap<String, LayoutCoordinates>()
     /** 被裁剪的那一层（抽屉的滚动内容）与数值小字所在容器的坐标。 */
     var content: LayoutCoordinates? = null
@@ -102,16 +106,34 @@ internal class HomeSliderPeek {
 
 internal val LocalHomeSliderPeek = compositionLocalOf<HomeSliderPeek?> { null }
 
-/** 拖动中只画正在拖的那根滑条（胶囊形，和 MIUIX 滑条同形），其余照常排版但不画。 */
-internal fun ContentDrawScope.drawOnlyActiveSlider(peek: HomeSliderPeek) {
+/** 拖动时抽屉内容和底色的不透明度：淡到能看清背后的主页，又看得出抽屉还在。 */
+internal const val PEEK_ALPHA = 0.25f
+
+/**
+ * 拖动中滑条以外的内容画淡，正在拖的那根滑条（胶囊形，和 MIUIX 滑条同形）照原样画。
+ * 找不到滑条的位置时整块画淡，不会什么都不画。
+ */
+internal fun ContentDrawScope.drawFadedExceptActiveSlider(peek: HomeSliderPeek) {
     if (!peek.active) {
         drawContent()
         return
     }
-    val rect = peek.sliderRect(peek.content, SliderDefaults.MinHeight.toPx()) ?: return
-    val radius = rect.height / 2f
-    val path = Path().apply { addRoundRect(RoundRect(rect, CornerRadius(radius, radius))) }
-    clipPath(path) { this@drawOnlyActiveSlider.drawContent() }
+    val rect = peek.sliderRect(peek.content, SliderDefaults.MinHeight.toPx())
+    val path = rect?.let { r ->
+        val radius = r.height / 2f
+        Path().apply { addRoundRect(RoundRect(r, CornerRadius(radius, radius))) }
+    }
+    val faded = Paint().apply { alpha = PEEK_ALPHA }
+    drawIntoCanvas { canvas ->
+        canvas.saveLayer(Rect(Offset.Zero, size), faded)
+        if (path != null) {
+            clipPath(path, ClipOp.Difference) { this@drawFadedExceptActiveSlider.drawContent() }
+        } else {
+            drawContent()
+        }
+        canvas.restore()
+    }
+    if (path != null) clipPath(path) { this@drawFadedExceptActiveSlider.drawContent() }
 }
 
 /** 滑条正上方的数值小字；底色半透明，压在任何壁纸上都读得清。 */

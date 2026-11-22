@@ -101,19 +101,20 @@ fun HomeSettingsSheet(
         if (show) HomeSettingsOverlay.open = true
         onDispose { if (show) HomeSettingsOverlay.open = false }
     }
-    // 拖背景滑条时只留滑条（#433）：底色、遮罩、标题、拖动条都收起，内容只画那根滑条
+    // 拖背景滑条时抽屉调淡，好看清背后的主页：底色、拖动条和内容都变淡，正在拖的滑条照常显示
     val peek = remember { HomeSliderPeek() }
     val peeking = peek.active
     OverlayBottomSheet(
         show = show,
-        // 收起时标题留一个空格占住原高度：标题行一消失，下面整块上移，滑条就从手指底下跑了
+        // 标题只能是纯文字、调不了透明度，拖动时换成一个空格占住原高度：标题行一消失，下面整块上移，滑条就从手指底下跑了
         title = if (peeking) " " else "主页设置",
         // 默认左右 24dp 内边距再叠卡片的 16dp 就成了 40dp；去掉这一层，标题与卡片的对齐和设置页一致
         insideMargin = DpSize(0.dp, 0.dp),
         // 默认底色 background 在浅色下是纯白，和卡片的 surfaceVariant 一样白，分组就看不出来了
-        backgroundColor = if (peeking) Color.Transparent else MiuixTheme.colorScheme.surface,
+        backgroundColor = MiuixTheme.colorScheme.surface.let { if (peeking) it.copy(alpha = PEEK_ALPHA) else it },
+        // 抽屉的遮罩只能开或关、调不了深浅；开着会把背景压暗，看不准调出来的效果，拖动时先关掉
         enableWindowDim = !peeking,
-        dragHandleColor = if (peeking) Color.Transparent else BottomSheetDefaults.dragHandleColor(),
+        dragHandleColor = BottomSheetDefaults.dragHandleColor().let { if (peeking) it.copy(alpha = it.alpha * PEEK_ALPHA) else it },
         onDismissRequest = onDismiss,
     ) {
         CompositionLocalProvider(LocalHomeSliderPeek provides peek) {
@@ -124,7 +125,7 @@ fun HomeSettingsSheet(
                     modifier = Modifier
                         .verticalScroll(rememberScrollState())
                         .onGloballyPositioned { peek.content = it }
-                        .drawWithContent { drawOnlyActiveSlider(peek) }
+                        .drawWithContent { drawFadedExceptActiveSlider(peek) }
                         .navigationBarsPadding(),
                 )
                 if (peeking) HomeSliderPeekLabel(peek)
@@ -209,7 +210,7 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
                         opacity = it.roundToInt()
                         store.backgroundOpacity = opacity
                     },
-                    // 拖的时候首页跟着变，抽屉收起只留滑条（#433）
+                    // 拖的时候首页跟着变，抽屉调淡、只有这根滑条照常显示
                     livePreview = { store.notifyChanged() },
                 )
             }
@@ -392,8 +393,8 @@ internal fun SettingsSliderRow(
     onChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit = {},
     /**
-     * 拖动中节流通知首页重读（#433）。非 null 且在主页设置抽屉里时，这条滑条拖动期间抽屉收起、
-     * 只留滑条和数值小字（见 [HomeSliderPeek]）；只给背景那两条用。
+     * 拖动中节流通知首页重读。非 null 且在主页设置抽屉里时，这条滑条拖动期间抽屉调淡，
+     * 滑条照常显示、上方加一枚数值小字（见 [HomeSliderPeek]）；只给背景那两条用。
      */
     livePreview: (() -> Unit)? = null,
 ) {
@@ -415,7 +416,7 @@ internal fun SettingsSliderRow(
         title = title,
         valueText = valueText,
         startAction = { SettingsIcon(icon, color) },
-        // 滑条正上方的 0 高锚点：收起时按它裁出那根滑条、摆数值小字
+        // 滑条正上方的 0 高锚点：拖动时按它找出那根滑条照常画、摆数值小字
         bottomAction = if (peek != null) {
             { Box(Modifier.fillMaxWidth().height(0.dp).onGloballyPositioned { peek.anchor(title, it) }) }
         } else {
