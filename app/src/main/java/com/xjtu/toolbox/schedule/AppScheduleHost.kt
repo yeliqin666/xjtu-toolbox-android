@@ -61,6 +61,8 @@ internal class AppScheduleHost(
     override suspend fun systemCalendarEvents(from: kotlin.time.Instant, to: kotlin.time.Instant): List<SystemCalendarEvent> =
         com.xjtu.toolbox.calendar.SystemCalendar.events(app, from, to)
 
+    override fun systemCalendarChanges(): Flow<Unit> = com.xjtu.toolbox.calendar.SystemCalendar.changes(app)
+
     override suspend fun roomSeatCount(location: String): Int? =
         com.xjtu.toolbox.emptyroom.EmptyRoomApi().getRoomSeatCount(location)
 
