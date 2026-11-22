@@ -158,24 +158,39 @@ object HomeStats {
     // 与首页摘要分开存：摘要是"现在是什么状态"，这两个是"跟上次比变了没有"。
     // 混在一起会出错——摘要 7 天过期，而基线不能过期，否则过完期就又报一次"新成绩"。
 
+    /** 旧游标（只记总门数），已由 [KEY_SEEN_GRADES] 取代，读到就顺手删掉。 */
     private const val KEY_SCORE_CURSOR = "proactive_score_total"
+    /** 见过的成绩标识（学期 + 课程号），换行分隔。见 [com.xjtu.toolbox.jwapp.NewGradeCursor]。 */
+    private const val KEY_SEEN_GRADES = "seen_grade_keys"
+    private val gradeCursorLock = Any()
     private const val KEY_LATEST_NOTICE = "proactive_latest_notice"
 
     /**
-     * 记录成绩总门数并返回**本次新增了几门**。
+     * 拿这次取到的全部成绩推进游标，返回**这次新出分的那几门**（#428）。
      *
-     * 首次调用（没有基线）返回 0：不知道之前有多少门，任何数字都可能是全部历史成绩，
+     * 首次调用（没有基线，含老用户第一次跑新游标）只建基线、返回空：不知道之前见过哪些，
      * 报「新增 200 门」只会让人以为坏了。
      *
-     * 游标只在这里前移，且只有成功取到数据才会调用——失败时不动基线，
-     * 否则一次失败把基线冲成 0，下次就会把全部成绩当成新增。
+     * 首页刷新和后台 [com.xjtu.toolbox.notification.GradeWatchWorker] 共用这一份游标，加锁保证
+     * 同一门只被其中一方报一次。只有成功取到数据才会调用——失败时不动基线。
      */
-    fun bumpScoreCursor(context: Context, total: Int, accountId: String? = AccountContext.activeAccountId): Int = runCatching {
-        val prefs = scorePrefs(context, accountId)
-        val prev = prefs.getInt(KEY_SCORE_CURSOR, -1)
-        prefs.edit().putInt(KEY_SCORE_CURSOR, total).apply()
-        if (prev < 0) 0 else (total - prev).coerceAtLeast(0)
-    }.getOrDefault(0)
+    fun advanceGradeCursor(
+        context: Context,
+        terms: List<com.xjtu.toolbox.jwapp.TermScore>,
+        accountId: String? = AccountContext.activeAccountId,
+    ): List<com.xjtu.toolbox.jwapp.ScoreItem> = runCatching {
+        synchronized(gradeCursorLock) {
+            val prefs = scorePrefs(context, accountId)
+            val previous = prefs.getString(KEY_SEEN_GRADES, null)
+                ?.split('\n')?.filter { it.isNotBlank() }?.toSet()
+            val adv = com.xjtu.toolbox.jwapp.NewGradeCursor.advance(previous, terms)
+            prefs.edit()
+                .putString(KEY_SEEN_GRADES, adv.seen.joinToString("\n"))
+                .remove(KEY_SCORE_CURSOR)
+                .apply()
+            adv.fresh
+        }
+    }.getOrDefault(emptyList())
 
     /** 当前的成绩新增数（供屁岱读取，不改变游标）。 */
     fun pendingNewScores(context: Context, accountId: String? = AccountContext.activeAccountId): Int = runCatching {

@@ -14,7 +14,7 @@ import com.xjtu.toolbox.util.RequestCodes
  * 三类后台提醒的系统通知。
  *
  * 图书馆走 [AppNotificationChannels.CHANNEL_REMINDER]：截止时间是硬的，过点就丢座位。
- * 课表变更、考试、作业走 [AppNotificationChannels.CHANNEL_APP]：要紧但不按分钟算。
+ * 课表变更、考试、作业、新成绩走 [AppNotificationChannels.CHANNEL_APP]：要紧但不按分钟算。
  *
  * 权限判断复用 [NoticeNotifier.canPost]，没授权就不发——不绕过用户的开关。
  */
@@ -25,6 +25,7 @@ internal object ReminderNotifier {
     private const val ID_EXAM = 3203
     private const val ID_LMS = 3204
     private const val ID_EXAM_CHANGE = 3205
+    private const val ID_GRADE = 3206
 
     fun canPost(context: Context): Boolean = NoticeNotifier.canPost(context)
 
@@ -154,6 +155,21 @@ internal object ReminderNotifier {
             style = inbox,
         )
     }
+
+    /**
+     * 出新成绩（#428）。只写课名和门数，不写分数：通知在锁屏上也看得见。点开跳成绩页。
+     * @param summary 形如「高等数学 等 2 门出分了」，见 [com.xjtu.toolbox.jwapp.NewGradeCursor.summary]。
+     */
+    fun notifyNewGrades(context: Context, summary: String): Boolean = post(
+        context = context,
+        id = ID_GRADE,
+        requestCode = RequestCodes.REMINDER_GRADE,
+        channel = AppNotificationChannels.CHANNEL_APP,
+        icon = R.drawable.ic_notification_app,
+        title = "出新成绩了",
+        text = summary,
+        route = AppRoute.JwappScore,
+    )
 
     private fun post(
         context: Context,

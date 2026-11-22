@@ -15,9 +15,13 @@ import kotlin.time.Instant
 
 /** 我们自己的提醒转成收纳条目，调用方一行搞定。 */
 object OwnInbox {
-    fun grade(newCount: Int, total: Int) = InboxItem(
-        id = "grade:$total", category = InboxCategories.GRADE, source = "成绩",
-        title = "出了 $newCount 门新成绩", body = "目前共 $total 门", time = Clock.System.now().toEpochMilliseconds(), route = "jwapp_score",
+    /** @param courses 新出分的课名（可空）；门数不变的一增一删靠它区分条目 id。 */
+    fun grade(newCount: Int, total: Int, courses: List<String> = emptyList()) = InboxItem(
+        id = if (courses.isEmpty()) "grade:$total" else "grade:$total:${courses.sorted().joinToString("|").hashCode()}",
+        category = InboxCategories.GRADE, source = "成绩",
+        title = "出了 $newCount 门新成绩",
+        body = if (courses.isEmpty()) "目前共 $total 门" else "${courses.take(3).joinToString("、")}${if (courses.size > 3) " 等" else ""} · 目前共 $total 门",
+        time = Clock.System.now().toEpochMilliseconds(), route = "jwapp_score",
     )
 
     fun attendance(text: String) = InboxItem(

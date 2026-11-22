@@ -267,9 +267,9 @@ object HomeStatsRefresher {
 
         // 成绩：一天一次。成绩出分是低频事件，但"出了没出"用户很在意，一天一查是平衡点。
         //
-        // 这里除了给首页写摘要，还负责**算出"新增了几门"**供屁岱主动提醒使用：
-        // 把总门数记在一个独立的游标里，与上次对比。游标只在成功取到数据时前移，
-        // 否则一次失败会把基线冲掉，之后永远判不出"新增"。
+        // 这里除了给首页写摘要，还负责**算出"新出了哪几门"**供屁岱主动提醒使用：
+        // 游标记见过的课程（学期 + 课程号），与后台成绩检查共用，同一门只报一次（#428）。
+        // 游标只在成功取到数据时前移，否则一次失败会把基线冲掉。
         Source(AppRoute.JwappScore, 1 * DAY, LoginType.JWAPP) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
@@ -280,12 +280,16 @@ object HomeStatsRefresher {
                 Log.d(TAG, "score: ${terms.size} 个学期，共 $total 门")
                 if (total == 0) return@withContext null
 
-                val newCount = HomeStats.bumpScoreCursor(ctx, total, roundAccount)
+                val fresh = HomeStats.advanceGradeCursor(ctx, terms, roundAccount)
+                val newCount = fresh.size
                 // 累加而非覆盖：气泡可能还没冒出来就又刷了一轮，直接覆盖会把待提醒的数吞掉。
                 // 冒过一次后由 MainActivity 清零。
                 if (newCount > 0) {
                     HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx, roundAccount) + newCount, roundAccount)
-                    InboxStore.post(OwnInbox.grade(newCount, total), roundAccount)
+                    InboxStore.post(
+                        OwnInbox.grade(newCount, total, fresh.map { com.xjtu.toolbox.jwapp.NewGradeCursor.displayName(it.courseName) }),
+                        roundAccount,
+                    )
                 }
                 // 只报本学期：教务的学期信息和日程页缓存都是同一套学期号，本学期还没出分就如实说没有，
                 // 不拿上学期的顶上。取不到当前学期号时才退回「有成绩的最新学期」。

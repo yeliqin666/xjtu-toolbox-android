@@ -59,6 +59,7 @@ import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.archive.AppArchiveUx
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.notification.CommunityWatchScheduler
+import com.xjtu.toolbox.notification.GradeWatchScheduler
 import com.xjtu.toolbox.notification.LibraryReminderScheduler
 import com.xjtu.toolbox.notification.LmsDeadlineScheduler
 import com.xjtu.toolbox.notification.NoticeWatchScheduler
@@ -186,6 +187,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
     var reminderLibrary by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.LIBRARY)) }
     var reminderSchedule by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.SCHEDULE)) }
     var reminderLms by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.LMS)) }
+    var reminderGrade by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.GRADE)) }
     var reminderReply by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.COMMUNITY_REPLY)) }
     var reminderMention by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.COMMUNITY_MENTION)) }
 
@@ -207,6 +209,10 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             ReminderKind.LMS -> {
                 reminderLms = enabled
                 LmsDeadlineScheduler.apply(context)
+            }
+            ReminderKind.GRADE -> {
+                reminderGrade = enabled
+                GradeWatchScheduler.apply(context)
             }
             ReminderKind.COMMUNITY_REPLY, ReminderKind.COMMUNITY_MENTION -> {
                 if (kind == ReminderKind.COMMUNITY_REPLY) reminderReply = enabled else reminderMention = enabled
@@ -306,6 +312,13 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             checked = reminderLms,
             startAction = { SettingsIcon(Icons.AutoMirrored.Filled.Assignment, SettingsColors.Indigo) },
             onCheckedChange = { on -> applyReminder(ReminderKind.LMS, on) }
+        )
+        SwitchPreference(
+            title = ReminderKind.GRADE.title,
+            summary = "出分后推送课名，不显示分数",
+            checked = reminderGrade,
+            startAction = { SettingsIcon(Icons.Default.Star, SettingsColors.Purple) },
+            onCheckedChange = { on -> applyReminder(ReminderKind.GRADE, on) }
         )
         ArrowPreference(
             title = "提醒不准时？",
