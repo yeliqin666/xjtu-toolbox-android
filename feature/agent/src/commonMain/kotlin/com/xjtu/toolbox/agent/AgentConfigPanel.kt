@@ -74,8 +74,8 @@ internal fun ConfigPanel(
     val uiPrefs = remember { keyValueStore("agent_config_ui") }
     var relayWarningDismissed by remember { mutableStateOf(uiPrefs.getBoolean("relay_warning_dismissed", false)) }
 
-    // 辅助函数：立即保存当前所有配置
-    fun saveNow() {
+    // 把面板上的当前值拼成一份配置交出去（写盘由宿主做）
+    fun writeConfig() {
         onSave(AgentConfig(
             provider = provider,
             apiKey = apiKey.trim(),
@@ -94,16 +94,12 @@ internal fun ConfigPanel(
         ))
     }
 
-    var pendingSaveJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    // 刚粘完 API Key 就按返回：面板的协程跟着被取消，挂着的那次保存得在这里补上
-    DisposableEffect(Unit) {
-        onDispose {
-            if (pendingSaveJob?.isActive == true) {
-                pendingSaveJob?.cancel()
-                saveNow()
-            }
-        }
-    }
+    // 防抖保存 + 离开时补存：刚改完名字 / 粘完 API Key 就按返回，没写的那次在离开组合时补上。
+    // 补存不能靠「挂着的 job 还 isActive 吗」判断（作用域先于 onDispose 被取消），见 [rememberDebouncedSave]。
+    val saver = com.xjtu.toolbox.ui.components.rememberDebouncedSave(500L) { writeConfig() }
+
+    /** 立即保存（下拉、开关、键盘「完成」）。 */
+    fun saveNow() = saver.now()
 
     // 模型一键拉取
     var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -112,19 +108,8 @@ internal fun ConfigPanel(
     val scope = rememberCoroutineScope()
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
-    /**
-     * 防抖保存：每次调用都把挂起的保存任务延后 500ms，
-     * 文本框按键连续触发时只触发最后一次，避免每键一次 SharedPreferences 写。
-     * 退出时没赶上的由上面的 DisposableEffect 补存。
-     */
-    fun scheduleSave() {
-        pendingSaveJob?.cancel()
-        pendingSaveJob = scope.launch {
-            kotlinx.coroutines.delay(500)
-            saveNow()
-            pendingSaveJob = null
-        }
-    }
+    /** 文本框按键连续触发时只写最后一次（500ms 防抖），避免每键一次 SharedPreferences 写。 */
+    fun scheduleSave() = saver.schedule()
 
     val providerItems = AgentConfig.PROVIDERS.map { AgentConfig.providerLabel(it) }
     val providerIndex = AgentConfig.PROVIDERS.indexOf(provider).coerceAtLeast(0)
