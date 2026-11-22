@@ -71,7 +71,13 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
         com.xjtu.toolbox.archive.AppArchiveUx.maybeImportPendingArchive(base)
     }
 
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
     override fun onCreate() {
+        // 带焦点的内嵌 View（WebView 等）被移除时，Android 同步把焦点还给 Compose 根视图；
+        // 这个开关下 Compose 会做一次越界焦点搜索，去子组合 Pager 里还没应用的页，
+        // 抛 "pending composition has not been applied"（b/469958424，ui 1.12.1 仍未修）。
+        // 官方给的规避是关掉它；必须在第一次组合之前设。出栈路径另见 AppNavigator.dropEmbeddedFocus。
+        androidx.compose.ui.ComposeUiFlags.isBypassUnfocusableComposeViewEnabled = false
         super.onCreate()
         com.xjtu.toolbox.platform.initAndroidPlatform(this)
         // 同一件事的 :data 版：会话内核要的密文存储（cookie / 站点快照）按名字从
