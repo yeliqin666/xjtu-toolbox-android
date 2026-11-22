@@ -253,12 +253,17 @@ fun BrowserScreen(
         web.loadUrl(normalizeUrl(initialUrl))
     }
 
-    // 系统返回：在网页里后退（跳过登录中转页），退到头才关掉浏览器
-    BackHandler {
-        val web = webViewRef
-        val steps = web?.let(::backStepsSkippingAuth)
-        if (web != null && steps != null) web.goBackOrForward(-steps) else onBack()
+    // 返回：在网页里后退（跳过登录中转页），退到头就关掉浏览器。系统返回键 / 手势走这里，
+    // 网页自己的「返回」按钮（history.back() / history.go(-n)）经 [WebBackBridge] 也走这里。
+    val onBackState = rememberUpdatedState(onBack)
+    val navigateBack: (Int) -> Unit = remember {
+        { requested ->
+            val web = webViewRef
+            val steps = web?.let { if (requested <= 1) backStepsSkippingAuth(it) else backStepsOrNull(it, requested) }
+            if (web != null && steps != null) web.goBackOrForward(-steps) else onBackState.value()
+        }
     }
+    BackHandler { navigateBack(1) }
 
     Scaffold(
         topBar = {
@@ -428,6 +433,7 @@ fun BrowserScreen(
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
                             isLoading = false
+                            view?.evaluateJavascript(WebBackBridge.HOOK_JS, null)
                             url?.let { currentUrl = it }
                             view?.let { WebViewNightMode.apply(it, darkState.value) }
                             if (desktopState.value && url != null && !isAuthHop(url)) view?.evaluateJavascript(DESKTOP_VIEWPORT_JS, null)
@@ -508,6 +514,11 @@ fun BrowserScreen(
                             return true
                         }
 
+                        /** 网页自己调 `window.close()`（「关闭」「完成」一类按钮）：照着关掉浏览器。 */
+                        override fun onCloseWindow(window: WebView?) {
+                            if (window === webViewRef) onBackState.value()
+                        }
+
                         /**
                          * 网页点了 `<input type="file">`。不覆写这一条，WebView 默认什么都不做，
                          * 页面上看起来就是「按钮坏了」。
@@ -538,6 +549,7 @@ fun BrowserScreen(
                     }
 
                     webViewRef = this
+                    addJavascriptInterface(WebBackBridge(this, navigateBack), WebBackBridge.NAME)
 
                     setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
                         if (url.startsWith("blob:")) {
@@ -569,7 +581,7 @@ fun BrowserScreen(
                 // 关页面时还挂着一个没回来的选择器回调就作废它，别留悬空引用
                 pendingFilePick.value?.onReceiveValue(null)
                 pendingFilePick.value = null
-                view.releaseSafely()
+                view.releaseSafely(listOf(WebBackBridge.NAME))
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -599,6 +611,43 @@ private fun backStepsSkippingAuth(web: WebView): Int? {
         if (!isAuthHop(history.getItemAtIndex(i).url)) return history.currentIndex - i
     }
     return null
+}
+
+/** 网页要退 [requested] 步：历史里够退就照退，不够（直接打开的那一页上点了网页的返回）返回 null，由调用方关掉浏览器。 */
+private fun backStepsOrNull(web: WebView, requested: Int): Int? =
+    requested.takeIf { web.copyBackForwardList().currentIndex - it >= 0 }
+
+/**
+ * 接住网页自己的「返回」。
+ *
+ * 学堂 h5 这类单页应用左上角的返回调的是 `history.back()`；从 App 直接打开某一页（比如作业提交页）时
+ * 前面没有历史，浏览器内核什么都不做，用户就卡在那一页、只能点顶栏的关闭。这里把
+ * `history.back()` / `history.go(-n)` 换成问原生要不要退：有历史就照常退（同文档的 pushState 历史也在
+ * WebView 的后退列表里，退回去一样触发 popstate），没有就关掉浏览器——和系统返回键同一条规则。
+ *
+ * 这个接口对浏览器里打开的任何网页都可见，所以只给「退几步」这一个能力，不传回任何数据。
+ * `@JavascriptInterface` 跑在 JS 线程上，要 post 回主线程再碰 WebView 和 Compose 状态。
+ */
+internal class WebBackBridge(
+    private val web: WebView,
+    private val navigateBack: (Int) -> Unit,
+) {
+    @JavascriptInterface
+    fun back(steps: Int) {
+        val n = steps.coerceIn(1, MAX_STEPS)
+        web.post { navigateBack(n) }
+    }
+
+    companion object {
+        const val NAME = "XjtuToolboxBack"
+        private const val MAX_STEPS = 50
+
+        /** 每页加载完挂一次；同一文档里重复执行不会重复包装。 */
+        const val HOOK_JS = """(function(){var b=window.XjtuToolboxBack,h=window.history;
+if(!b||!h||h.__xtbBack)return;h.__xtbBack=true;var go=h.go.bind(h);
+h.back=function(){b.back(1);};
+h.go=function(n){n=Number(n)||0;if(n<0)b.back(-n);else go(n);};})()"""
+    }
 }
 
 internal fun isAuthHop(url: String): Boolean {
