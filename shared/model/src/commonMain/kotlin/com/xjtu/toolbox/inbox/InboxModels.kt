@@ -201,6 +201,21 @@ object InboxRules {
         else -> null
     }
 
+    /**
+     * 过了截止多久，写成「已逾期 …」：一小时内报分钟，一天内报小时和分钟，再久报天数。
+     * 不到一分钟算刚逾期，不写「0 分钟」。
+     */
+    fun overdueText(overdueMs: Long): String {
+        val minutes = overdueMs / 60_000
+        val hours = minutes / 60
+        return when {
+            minutes < 1 -> "刚刚逾期"
+            minutes < 60 -> "已逾期 $minutes 分钟"
+            hours < 24 -> if (minutes % 60 == 0L) "已逾期 $hours 小时" else "已逾期 $hours 小时 ${minutes % 60} 分钟"
+            else -> "已逾期 ${hours / 24} 天"
+        }
+    }
+
     /** 最近办完或忽略的待办，新的在前。 */
     fun finished(data: InboxData, now: Long): List<FinishedTodo> =
         data.finished.filter { it.item.category !in data.off && now - it.at < FINISHED_KEEP_MS }.sortedByDescending { it.at }

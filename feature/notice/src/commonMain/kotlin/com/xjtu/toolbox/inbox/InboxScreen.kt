@@ -590,11 +590,14 @@ private fun clockText(dateTime: kotlinx.datetime.LocalDateTime): String {
     return "$h:$m"
 }
 
-/** 有截止时间的待办报还剩多久，其余报发生在什么时候。 */
+/** 有截止时间的待办报还剩多久（过了截止报逾期多久），其余报发生在什么时候。 */
 private fun timeLabel(item: InboxItem): String {
     if (item.expiresAt <= 0) return timeLabel(item.time)
-    val minutes = (item.expiresAt - Clock.System.now().toEpochMilliseconds()) / 60_000
+    val leftMs = item.expiresAt - Clock.System.now().toEpochMilliseconds()
+    if (leftMs <= 0) return InboxRules.overdueText(-leftMs)
+    val minutes = leftMs / 60_000
     return when {
+        minutes < 1 -> "即将截止"
         minutes < 60 -> "$minutes 分钟后截止"
         minutes < 24 * 60 -> "${minutes / 60} 小时后截止"
         else -> dayText(localDateOf(item.expiresAt)) + "截止"
