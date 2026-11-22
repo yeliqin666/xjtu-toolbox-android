@@ -264,10 +264,33 @@ class AgentTitleGenJvmTest {
     }
 
     @Test
-    fun `已知型号真被 400 就回退，不再重试`() {
+    fun `自定义端点上已知型号一直 400 也只多试一次`() {
         handler = { 400 to """{"error":{"message":"bad request"}}""" }
         assertNull(generateWith("gpt-6.2-sol"))
-        assertEquals(1, bodies.size)
+        assertEquals(2, bodies.size, "去参数重试一次，不无限重试")
+    }
+
+    @Test
+    fun `中转不认推理参数时，已知型号去掉参数重试一次照样拿到标题`() {
+        // 用户自己接的中转：只要带推理参数就 400，错误文案也不提 reasoning
+        handler = { body ->
+            if (body.contains("reasoning")) 400 to """{"error":{"message":"Bad Request"}}"""
+            else 200 to ok("本周考试安排")
+        }
+        assertEquals("本周考试安排", generateWith("gpt-6.2-sol"))
+        assertEquals(2, bodies.size)
+        assertTrue(bodies[0].contains("\"reasoning_effort\":\"low\""), bodies[0])
+        assertFalse(bodies[1].contains("reasoning"), bodies[1])
+        assertFalse(bodies[1].contains("max_completion_tokens"), bodies[1])
+
+        bodies.clear()
+        handler = { body ->
+            if (body.contains("reasoning")) 400 to "{}"
+            else 200 to """{"output":[{"type":"message","content":[{"type":"output_text","text":"本周考试"}]}]}"""
+        }
+        assertEquals("本周考试", generateWith("gpt-6.2-sol", AgentConfig.API_RESPONSES))
+        assertEquals(2, bodies.size)
+        assertFalse(bodies[1].contains("reasoning"), bodies[1])
     }
 
     @Test

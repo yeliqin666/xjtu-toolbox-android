@@ -56,4 +56,14 @@ class OpenAiReasoningCapsTest {
             "OpenAI 默认模型 gpt-6.2-sol",
         )
     }
+
+    @Test
+    fun 关思考主动发最低档只对OpenAI官方() {
+        assertEquals(
+            OpenAiReasoningCaps.Floor.LOW,
+            OpenAiReasoningCaps.thinkingOffFloorOf(AgentConfig(provider = AgentConfig.PROVIDER_OPENAI)),
+        )
+        assertNull(OpenAiReasoningCaps.thinkingOffFloorOf(AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM, model = "gpt-6.2-sol")))
+        assertNull(OpenAiReasoningCaps.thinkingOffFloorOf(AgentConfig()))
+    }
 }

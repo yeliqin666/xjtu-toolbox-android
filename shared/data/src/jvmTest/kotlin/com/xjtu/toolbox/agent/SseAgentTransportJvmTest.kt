@@ -339,4 +339,46 @@ class SseAgentTransportJvmTest {
             """data: {"choices":[{"delta":{"content":"不该出现"}}]}""",
         ).joinToString("\n")
     }
+
+    private fun chatBodyWithEffort(effort: String = "low") = kotlinx.serialization.json.buildJsonObject {
+        put("model", kotlinx.serialization.json.JsonPrimitive("gpt-6.2-sol"))
+        put("reasoning_effort", kotlinx.serialization.json.JsonPrimitive(effort))
+    }
+
+    @Test
+    fun chat_中转不认reasoning_effort时去掉重试一次() = runBlocking {
+        // 中转的 400 文案五花八门，不一定提到 reasoning
+        queuedResponses += 400 to """{"error":{"message":"Bad Request"}}"""
+        response = 200 to SSE_FULL
+        val result = SseAgentTransport().stream(config(), chatBodyWithEffort("high"), {}, {})
+        assertEquals(2, requestCount.get())
+        assertTrue("reasoning_effort" !in postedBody.get().orEmpty(), postedBody.get())
+        assertTrue(result.content.isNotEmpty())
+    }
+
+    @Test
+    fun chat_去掉推理参数还400就原样报错_只重试一次() = runBlocking {
+        response = 400 to """{"error":{"message":"model not found"}}"""
+        val msg = assertFailsWith<RuntimeException> {
+            SseAgentTransport().stream(config(), chatBodyWithEffort(), {}, {})
+        }.message
+        assertEquals(2, requestCount.get())
+        assertEquals("LLM 请求失败：model not found", msg)
+    }
+
+
+    @Test
+    fun responses_中转400不提reasoning也去掉重试() = runBlocking {
+        queuedResponses += 400 to """{"error":{"message":"invalid request body"}}"""
+        response = 200 to SSE_RESPONSES_FULL
+        val reqBody = kotlinx.serialization.json.buildJsonObject {
+            put("reasoning", kotlinx.serialization.json.buildJsonObject {
+                put("effort", kotlinx.serialization.json.JsonPrimitive("low"))
+            })
+        }
+        val result = SseAgentTransport().stream(responsesConfig(), reqBody, {}, {})
+        assertEquals(2, requestCount.get())
+        assertTrue("reasoning" !in postedBody.get().orEmpty(), postedBody.get())
+        assertEquals("你好，世界", result.content)
+    }
 }

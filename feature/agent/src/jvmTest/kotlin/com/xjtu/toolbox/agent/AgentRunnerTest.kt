@@ -649,4 +649,21 @@ class AgentRunnerTest {
         )
         assertNull(unknown.bodies[0]["reasoning_effort"])
     }
+
+    @Test
+    fun 自定义端点关思考不主动发推理参数_中转多半不认() = runBlocking {
+        val chat = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, chat).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM, baseUrl = "https://example.invalid/v1", apiKey = "sk-fake-runner-030", model = "gpt-6.2-sol", thinkingEnabled = false),
+        )
+        assertNull(chat.bodies[0]["reasoning_effort"])
+
+        val responses = FakeTransport(listOf(reply("好")))
+        AgentRunner(FakeTools { _, _ -> "" }, responses).run(
+            messages(),
+            AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM, baseUrl = "https://example.invalid/v1", apiKey = "sk-fake-runner-031", model = "gpt-6-luna", thinkingEnabled = false, apiFormat = AgentConfig.API_RESPONSES),
+        )
+        assertNull(responses.bodies[0]["reasoning"])
+    }
 }

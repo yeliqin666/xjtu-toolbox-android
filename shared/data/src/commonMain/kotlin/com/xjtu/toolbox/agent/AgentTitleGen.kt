@@ -41,7 +41,8 @@ import java.util.concurrent.TimeUnit
  *    降级重试时 `max_tokens`、`temperature` 也一并去掉，免得两次都 400。
  * 6. 已知的 OpenAI 系型号（[OpenAiReasoningCaps]）不再「先试再降级」：直接发它认的最低档
  *    （Sol 是 low、Luna 是 none、gpt-5-mini 是 minimal、gpt-4o 不发），一次请求就完事，
- *    不会每个标题都白挨一次 400。降级重试只留给表里没有的型号。
+ *    不会每个标题都白挨一次 400。OpenAI 官方上降级重试只留给表里没有的型号；
+ *    自定义端点即便型号已知，400 时也去掉参数再试一次（中转 / 代理常不认推理参数）。
  */
 object AgentTitleGen {
 
@@ -56,13 +57,22 @@ object AgentTitleGen {
             if (config.apiKey.isBlank()) return@withContext null
             val floor = OpenAiReasoningCaps.floorOf(config)
             if (floor != null) {
-                // 已知型号：档位一次发对，不留降级重试（400 就是真失败）
-                val known = if (config.effectiveApiFormat == AgentConfig.API_RESPONSES) {
-                    requestResponses(config, userMsg, assistantMsg, effort = floor.wire, retryOn400 = false)
+                // 已知型号：档位一次发对。OpenAI 官方不留降级重试（400 就是真失败）；
+                // 自定义端点（中转 / 代理）可能不认推理参数，400 时去掉参数再试一次，以前拿得到的标题不能丢。
+                val official = config.provider == AgentConfig.PROVIDER_OPENAI
+                val responses = config.effectiveApiFormat == AgentConfig.API_RESPONSES
+                val known = if (responses) {
+                    requestResponses(config, userMsg, assistantMsg, effort = floor.wire, retryOn400 = !official)
                 } else {
-                    requestKnownChat(config, userMsg, assistantMsg, floor)
+                    requestKnownChat(config, userMsg, assistantMsg, floor, retryOn400 = !official)
                 }
-                return@withContext (known as? Attempt.Done)?.title
+                return@withContext when (known) {
+                    is Attempt.Done -> known.title
+                    Attempt.Rejected -> (
+                        if (responses) requestResponses(config, userMsg, assistantMsg, effort = null, retryOn400 = false)
+                        else request(config, userMsg, assistantMsg, disableThinking = false)
+                    ).let { (it as? Attempt.Done)?.title }
+                }
             }
             if (config.effectiveApiFormat == AgentConfig.API_RESPONSES) {
                 return@withContext when (val first = requestResponses(config, userMsg, assistantMsg, effort = "low", retryOn400 = true)) {
@@ -130,6 +140,7 @@ object AgentTitleGen {
         userMsg: String,
         assistantMsg: String,
         floor: OpenAiReasoningCaps.Floor,
+        retryOn400: Boolean,
     ): Attempt {
         val reqBody = buildJsonObject {
             put("model", config.effectiveModel)
@@ -139,7 +150,7 @@ object AgentTitleGen {
                 put("max_completion_tokens", 64)
             }
         }
-        return postChat(config, reqBody, rejectOn400 = false)
+        return postChat(config, reqBody, rejectOn400 = retryOn400)
     }
 
     private fun chatMessages(userMsg: String, assistantMsg: String) = buildJsonArray {

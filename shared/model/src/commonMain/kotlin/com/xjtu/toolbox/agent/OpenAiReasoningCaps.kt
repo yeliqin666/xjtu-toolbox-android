@@ -44,6 +44,13 @@ object OpenAiReasoningCaps {
         return TABLE.firstOrNull { it.first.matches(id) }?.second
     }
 
+    /**
+     * 主对话关思考时要不要主动发最低档：只对 OpenAI 官方端点发。
+     * 用户自己接的中转 / 代理很多不认推理参数，关思考时以前什么都不发、能正常聊，升级后不能变成 400。
+     */
+    fun thinkingOffFloorOf(config: AgentConfig): Floor? =
+        if (config.provider == AgentConfig.PROVIDER_OPENAI) floorOf(config.effectiveModel) else null
+
     /** DeepSeek 有自己的 thinking 开关和 none 档，不查这张表。 */
     fun floorOf(config: AgentConfig): Floor? =
         if (config.provider == AgentConfig.PROVIDER_DEEPSEEK) null else floorOf(config.effectiveModel)
