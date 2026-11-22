@@ -48,6 +48,7 @@ fun agentToolLabel(name: String): String = when (name) {
     "preference"            -> "记下偏好…"
     "app_setting"           -> "读取 / 修改设置…"
     "calculate"             -> "计算…"
+    AgentRetitle.TOOL       -> "改对话标题…"
     "app_guide"             -> "查看 App 指南…"
     else                    -> "调用工具 $name…"
 }

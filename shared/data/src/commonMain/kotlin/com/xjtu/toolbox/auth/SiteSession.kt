@@ -165,10 +165,15 @@ abstract class SiteSession(
         if (!force && hasLogin && isFresh()) return
 
         val mgr = manager
-        mgr?.checkPasswordValid()
-        // 失败冷却只约束后台/自动路径。用户主动点功能时被 60 秒冷却挡住，
-        // 表现就是"点了没反应"，而防刷已由 CasGate 的失败退避+全局串行覆盖。
-        if (!userInitiated) mgr?.checkLoginCooldown(siteKey, siteName)
+        try {
+            mgr?.checkPasswordValid()
+            // 失败冷却只约束后台/自动路径。用户主动点功能时被 60 秒冷却挡住，
+            // 表现就是"点了没反应"，而防刷已由 CasGate 的失败退避+全局串行覆盖。
+            if (!userInitiated) mgr?.checkLoginCooldown(siteKey, siteName)
+        } catch (e: Exception) {
+            AuthTrace.error("[$siteKey] 登录前检查（密码/冷却）", e)
+            throw e
+        }
         // 校内外还没判定完时，跟随全局模式的站点先等：按旧模式去连校内地址，校外会白等到连接超时
         if (mustUseWebVpn) mgr?.awaitAccessMode()
         if (currentAccessMode == AccessMode.WEBVPN) {
@@ -238,10 +243,14 @@ abstract class SiteSession(
                     manager?.reportPasswordInvalidated(siteKey, siteName)
                     throw e
                 }
+                AuthTrace.error("[$siteKey] runLogin(silent=$silent)", e)
                 // 用户自己取消验证不算登录失败，不进冷却
                 if (e is MfaCancelledException) throw e
                 manager?.reportLoginFailure(siteKey)
                 manager?.recordDiagnostic("ERROR", siteKey, "登录失败：${e.message ?: e.javaClass.simpleName}")
+                throw e
+            } catch (e: Exception) {
+                if (e !is kotlinx.coroutines.CancellationException) AuthTrace.error("[$siteKey] runLogin(silent=$silent) 非 IO 异常", e)
                 throw e
             } finally {
                 silentLogin = false
@@ -338,12 +347,17 @@ abstract class SiteSession(
         // 根本无从分辨——教务学期列表接口就是这么被卡住的。
         val failedUrl = WebVpnUtil.getOriginalUrl(response.request.url.toString())
             ?: response.request.url.toString()
-        Log.w(
-            TAG,
-            // 路径是判据（哪个接口），敏感的只在参数里，去掉参数即可
-            "[$siteKey] auth failure: code=${response.code} path=${failedUrl.substringBefore('?')} " +
-                "title=${bodyPreview?.let { Regex("<title>(.*?)</title>", RegexOption.IGNORE_CASE).find(it)?.groupValues?.get(1) }.redactBody(80)} " +
-                "preview=${bodyPreview.redactBody(160)}"
+        // 路径是判据（哪个接口），敏感的只在参数里，去掉参数即可
+        val failure = "[$siteKey] auth failure (retried=$retried): code=${response.code} path=${failedUrl.substringBefore('?')} " +
+            "title=${bodyPreview?.let { Regex("<title>(.*?)</title>", RegexOption.IGNORE_CASE).find(it)?.groupValues?.get(1) }.redactBody(80)} " +
+            "preview=${bodyPreview.redactBody(160)}"
+        Log.w(TAG, failure)
+        AuthTrace.write("WARN", AuthTrace.redact(failure, 400))
+        // 403 这类错误页的正文是判据（「无权访问」还是 WAF 拦截），去掉标签后记一段；响应头只记名字
+        val pageText = bodyPreview?.replace(Regex("(?is)<(script|style)[^>]*>.*?</\\1>"), " ")?.replace(Regex("<[^>]+>"), " ")
+        AuthTrace.write(
+            "WARN",
+            "[$siteKey] 失效页正文：${AuthTrace.redact(pageText, 400)} | 响应头：${response.headers.names().joinToString(",")}",
         )
         withContext(Dispatchers.IO) { response.close() }
         // 被网关打回登录前页：网关会话死了，重登前得先让网关续上，不能再信它的新鲜窗口

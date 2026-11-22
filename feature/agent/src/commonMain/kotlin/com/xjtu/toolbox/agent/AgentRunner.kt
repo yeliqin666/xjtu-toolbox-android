@@ -144,7 +144,9 @@ class AgentRunner(
         onToolResult: (name: String, success: Boolean, errorMessage: String?) -> Unit = { _, _, _ -> },
         onDelta: suspend (String) -> Unit = {},
         onReasoningDelta: suspend (String) -> Unit = {},
-        onUsage: (Long) -> Unit = {}
+        onUsage: (Long) -> Unit = {},
+        /** 非 null 时给模型 [AgentRetitle] 工具：传入新标题和是否用户要求，返回给模型的结果。 */
+        retitle: ((title: String, byUser: Boolean) -> String)? = null,
     ): String {
         val baseToolDefs = AppJson.parseToJsonElement(tools.toolDefinitions).jsonArray
             .map { AgentWidgetPresentation.queryDefinition(it.jsonObject) }
@@ -153,6 +155,7 @@ class AgentRunner(
                 val canWrite = defs.any { it["function"]?.jsonObject?.get("name")?.jsonPrimitive?.content == "add_schedule_event" }
                 if (canWrite) defs + AgentPlanCard.definition() else defs
             }
+            .let { if (retitle != null) it + AgentRetitle.definition() else it }
         data class Snapshot(val tool: String, val widgets: List<AgentWidget>)
         val snapshots = linkedMapOf<String, Snapshot>()
         val displayedSnapshots = mutableMapOf<String, List<AgentWidget>>()
@@ -308,6 +311,10 @@ class AgentRunner(
                         val card = AgentPlanCard.parse(tc.arguments)
                         present(tc.id, listOf(card))
                         AgentPlanCard.receipt(card)
+                    } else if (tc.name == AgentRetitle.TOOL && retitle != null) {
+                        val args = AppJson.parseToJsonElement(tc.arguments).jsonObject
+                        val title = args.argStr("title")
+                        if (title.isNullOrBlank()) ToolReply.missing("title") else retitle(title, args.argBool("requested_by_user") == true)
                     } else interruptible { tools.execute(tc.name, tc.arguments) }
                 }
                 // 查询保留快照，展示在拿到结果后单独决定。

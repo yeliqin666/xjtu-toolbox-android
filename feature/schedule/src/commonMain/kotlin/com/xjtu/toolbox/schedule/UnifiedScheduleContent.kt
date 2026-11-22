@@ -613,8 +613,53 @@ internal fun calendarSlicesOn(
     }
 }
 
+/** 周视图里系统日历条目的课程号前缀：点开时据此区分，不当成课去查详情。 */
+internal const val SYSTEM_CALENDAR_CODE_PREFIX = "syscal:"
+
+/** 周视图里一周的系统日历：定时的画成格子（[slots]），全天的标在列头（[allDay]：日期 → 标题）。 */
+internal data class WeekCalendar(val slots: List<CourseItem>, val allDay: Map<LocalDate, List<String>>)
+
+/**
+ * 把 [events] 落到第 [week] 周的 [weekDates]（周一到周日）上，供周视图叠在课表上画。
+ * 定时的按当天的钟点画成格子（跨天的按天切开）；全天的、以及把一整天盖住的，只标在列头。
+ */
+internal fun weekCalendar(
+    weekDates: List<LocalDate>,
+    week: Int,
+    events: List<SystemCalendarEvent>,
+    zone: TimeZone = CampusTimeZone,
+): WeekCalendar {
+    if (week <= 0) return WeekCalendar(emptyList(), emptyMap())
+    val bits = "0".repeat(week - 1) + "1"
+    val allDay = linkedMapOf<LocalDate, MutableList<String>>()
+    val slots = weekDates.flatMapIndexed { i, day ->
+        calendarSlicesOn(day, events, zone).mapNotNull { slice ->
+            if (slice.allDay) {
+                allDay.getOrPut(day) { mutableListOf() } += slice.event.title
+                return@mapNotNull null
+            }
+            // 只有一个时刻的（提醒类）给半小时，格子才画得出来
+            val end = if (slice.endMinute > slice.startMinute) slice.endMinute else (slice.startMinute + 30).coerceAtMost(24 * 60)
+            fun section(minute: Int) = (minute / 60 - DAY_START_HOUR + 1).coerceIn(1, MAX_SECTIONS)
+            CourseItem(
+                courseName = slice.event.title,
+                location = slice.event.location,
+                weekBits = bits,
+                dayOfWeek = i + 1,
+                startSection = section(slice.startMinute),
+                endSection = section(end - 1),
+                courseCode = "$SYSTEM_CALENDAR_CODE_PREFIX${day}:${slice.startMinute}:${slice.event.title}",
+                courseType = "系统日历",
+                startMinuteOfDay = slice.startMinute,
+                endMinuteOfDay = end,
+            )
+        }
+    }
+    return WeekCalendar(slots, allDay)
+}
+
 /** 系统日历日程的强调色：和课（按课名配色）、考试（红）、作业（主色）都分得开。 */
-private val SystemCalendarAccent = Color(0xFF26A69A)
+internal val SystemCalendarAccent = Color(0xFF26A69A)
 
 @Composable
 private fun UpcomingRow(item: UpcomingItem, onNavigate: (AppRoute) -> Unit) {
@@ -855,7 +900,7 @@ private fun SectionLabel(text: String) {
 
 private fun LocalTime.toMinuteOfDay() = hour * 60 + minute
 
-private fun formatMinute(m: Int) = "${formatTwoDigits(m / 60)}:${formatTwoDigits(m % 60)}"
+internal fun formatMinute(m: Int) = "${formatTwoDigits(m / 60)}:${formatTwoDigits(m % 60)}"
 
 /** 考试时间是 "14:30-16:30" / "14:30~16:30" 这类文本，取开头的时刻。 */
 private fun parseExamStart(raw: String): Int? =

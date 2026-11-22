@@ -108,6 +108,8 @@ internal fun ZyxfBrowseScreen(
     val stack = vm.stack
     val entries = vm.entries
     val searching = vm.searching
+    // 长按的那一项（#200）；非 null 时弹操作菜单
+    var menuEntry by remember { mutableStateOf<ZyxfApi.Entry?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(vm.loading) { if (!vm.loading) refreshing = false }
     // 第一次上屏才发目录请求（ViewModel 可能提前建在宿主层，见 ensureStarted）
@@ -291,21 +293,30 @@ internal fun ZyxfBrowseScreen(
                             vm.previewFromSplit = isWide
                         } else vm.download(entry)
                     }
+                    val listView = vm.listView
+                    // 视图切换（#199）挂在第一个分区标题右边
+                    val viewToggle: @Composable () -> Unit = { ViewToggle(listView, vm::toggleView) }
                     if (folders.isNotEmpty()) {
                         item(key = "folderHead", contentType = "section") {
                             Box(Modifier.enterOnce(2)) {
-                                SectionLabel(if (searching) "匹配的文件夹 · 点开查看内容" else "文件夹", folders.size)
+                                SectionLabel(if (searching) "匹配的文件夹 · 点开查看内容" else "文件夹", folders.size, viewToggle)
                             }
                         }
-                        items(folders.chunked(2), key = { "folders-${it.first().id}" }, contentType = { "folderRow" }) { pair ->
-                            Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                pair.forEach { folder ->
-                                    FolderTile(folder, Modifier.weight(1f)) { onEntryClick(folder) }
+                        if (listView) {
+                            itemsIndexed(folders, key = { _, it -> "folder-${it.id}" }, contentType = { _, _ -> "folderLine" }) { i, folder ->
+                                FolderLine(folder, i == 0, i == folders.lastIndex, { onEntryClick(folder) }, { menuEntry = folder })
+                            }
+                        } else {
+                            items(folders.chunked(2), key = { "folders-${it.first().id}" }, contentType = { "folderRow" }) { pair ->
+                                Row(
+                                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    pair.forEach { folder ->
+                                        FolderTile(folder, Modifier.weight(1f), onLongClick = { menuEntry = folder }) { onEntryClick(folder) }
+                                    }
+                                    if (pair.size == 1) Spacer(Modifier.weight(1f))
                                 }
-                                if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
                     }
@@ -313,19 +324,36 @@ internal fun ZyxfBrowseScreen(
                         item(key = "fileHead", contentType = "section") {
                             Box(Modifier.enterOnce(3)) {
                                 if (searching && folders.isNotEmpty()) Spacer(Modifier.height(20.dp))
-                                SectionLabel(if (searching) "独立匹配的文件 · 来源见下方路径" else "文件", files.size)
+                                SectionLabel(
+                                    if (searching) "独立匹配的文件 · 来源见下方路径" else "文件",
+                                    files.size,
+                                    if (folders.isEmpty()) viewToggle else null,
+                                )
                             }
                         }
-                        itemsIndexed(files, key = { _, it -> "file-${it.id}" }, contentType = { _, _ -> "file" }) { i, entry ->
+                        itemsIndexed(files, key = { _, it -> "file-${it.id}" }, contentType = { _, _ -> if (listView) "fileLine" else "file" }) { i, entry ->
                             Box(Modifier.enterOnce(4 + i)) {
-                                FileRow(
-                                    entry = entry,
-                                    state = vm.downloadState[entry.id],
-                                    first = i == 0,
-                                    last = i == files.lastIndex,
-                                    onClick = { onEntryClick(entry) },
-                                    onDownload = { vm.download(entry) },
-                                )
+                                if (listView) {
+                                    FileLine(
+                                        entry = entry,
+                                        state = vm.downloadState[entry.id],
+                                        first = i == 0,
+                                        last = i == files.lastIndex,
+                                        onClick = { onEntryClick(entry) },
+                                        onLongClick = { menuEntry = entry },
+                                        onDownload = { vm.download(entry) },
+                                    )
+                                } else {
+                                    FileRow(
+                                        entry = entry,
+                                        state = vm.downloadState[entry.id],
+                                        first = i == 0,
+                                        last = i == files.lastIndex,
+                                        onClick = { onEntryClick(entry) },
+                                        onLongClick = { menuEntry = entry },
+                                        onDownload = { vm.download(entry) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -369,6 +397,35 @@ internal fun ZyxfBrowseScreen(
           }
         },
         listWidth = 380.dp,
+    )
+
+    val toast = androidx.compose.ui.platform.LocalContext.current
+    ZyxfEntrySheet(
+        entry = menuEntry,
+        downloadState = menuEntry?.let { vm.downloadState[it.id] },
+        location = vm.location(),
+        onTodo = {
+            menuEntry?.let { e ->
+                val ok = vm.addTodo(e)
+                android.widget.Toast.makeText(toast, if (ok) "已加入待办" else "没加上", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            menuEntry = null
+        },
+        onDownload = { menuEntry?.let(vm::download); menuEntry = null },
+        onShare = { menuEntry?.let(vm::share); menuEntry = null },
+        onAsk = { menuEntry?.let(vm::askPidai); menuEntry = null },
+        onDismiss = { menuEntry = null },
+    )
+}
+
+/** 卡片 / 列表视图切换（#199）。 */
+@Composable
+private fun ViewToggle(listView: Boolean, onToggle: () -> Unit) {
+    Text(
+        if (listView) "卡片视图" else "列表视图",
+        style = MiuixTheme.textStyles.footnote1,
+        color = MiuixTheme.colorScheme.primary,
+        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).padding(horizontal = 8.dp, vertical = 4.dp),
     )
 }
 
@@ -556,7 +613,7 @@ internal fun ZyxfTopBarSortChips(
  * （pdf / ppt / doc / xls / 压缩包），颜色已经足够一眼分辨，
  * 而引二十个图标既臃肿又和 MIUIX 的线性图标风格打架。
  */
-private fun extTone(ext: String): Pair<Long, String> {
+internal fun extTone(ext: String): Pair<Long, String> {
     val e = ext.lowercase().removePrefix(".")
     return when (e) {
         "pdf" -> 0xFFE5484D to "PDF"
@@ -570,9 +627,9 @@ private fun extTone(ext: String): Pair<Long, String> {
 }
 
 @Composable
-private fun SectionLabel(title: String, count: Int) {
+private fun SectionLabel(title: String, count: Int, trailing: (@Composable () -> Unit)? = null) {
     Row(
-        Modifier.padding(start = 22.dp, end = 22.dp, top = 12.dp, bottom = 6.dp),
+        Modifier.fillMaxWidth().padding(start = 22.dp, end = 14.dp, top = 12.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -587,6 +644,10 @@ private fun SectionLabel(title: String, count: Int) {
             style = MiuixTheme.textStyles.footnote2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
         )
+        if (trailing != null) {
+            Spacer(Modifier.weight(1f))
+            trailing()
+        }
     }
 }
 
@@ -595,7 +656,7 @@ private val FOLDER_TONES = longArrayOf(
     0xFF3B82F6, 0xFF14B8A6, 0xFFF0A23C, 0xFF8B5CF6, 0xFFEC4899, 0xFF3FBF7F, 0xFFE5484D, 0xFF0EA5E9,
 )
 
-private fun folderTone(name: String) =
+internal fun folderTone(name: String) =
     androidx.compose.ui.graphics.Color(FOLDER_TONES[(name.hashCode() and 0x7fffffff) % FOLDER_TONES.size])
 
 /** 取名字里第一个能当「首字」的字符，跳过开头的括号和空格。 */
@@ -607,13 +668,13 @@ private fun folderInitial(name: String): String =
  * 以前统一一个蓝色文件夹图标，根目录一屏全是同一种颜色，只能靠读字找课。
  */
 @Composable
-private fun FolderTile(entry: ZyxfApi.Entry, modifier: Modifier, onClick: () -> Unit) {
+private fun FolderTile(entry: ZyxfApi.Entry, modifier: Modifier, onLongClick: () -> Unit, onClick: () -> Unit) {
     val tone = folderTone(entry.name)
     Row(
         modifier
             .clip(RoundedCornerShape(16.dp))
             .background(com.xjtu.toolbox.ui.components.AppCardColor)
-            .clickable(onClick = onClick)
+            .entryClicks(onClick, onLongClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -656,6 +717,7 @@ private fun FileRow(
     first: Boolean,
     last: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onDownload: () -> Unit,
 ) {
     val r = 18.dp
@@ -668,7 +730,7 @@ private fun FileRow(
             .padding(horizontal = 16.dp)
             .clip(shape)
             .background(com.xjtu.toolbox.ui.components.AppCardColor)
-            .clickable(onClick = onClick),
+            .entryClicks(onClick, onLongClick),
     ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),

@@ -355,13 +355,26 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 val title = host.generateTitle(config, firstUser, "")?.takeIf { it.isNotBlank() }
                     ?: return@launch
                 if (!store.isLocked(id)) {           // 期间用户可能已手动改名
-                    store.rename(id, title, lock = true)
+                    store.rename(id, title, lock = true, ai = true)
                     refreshSessions()
                 }
             } finally {
                 titling -= id
             }
         }
+    }
+
+    /**
+     * [AgentRetitle] 工具落地。用户在对话里明确要改（[byUser]）就照改，并当作用户自己定的名字，之后不再自动改；
+     * 模型自发改名时，用户手动改过名的会话一律拒绝。
+     */
+    private fun retitleSession(id: String, raw: String, byUser: Boolean): String {
+        val store = store ?: return ToolReply.failed("rename", "no_store")
+        if (!byUser && !store.canAiRetitle(id)) return "error: user_renamed; 用户改过标题，不要自己改；用户明确要求时再改"
+        val title = sanitizeAgentTitle(raw.trim(), "", AGENT_TITLE_MAX_CHARS).ifBlank { return ToolReply.missing("title") }
+        store.rename(id, title, lock = true, ai = !byUser)
+        refreshSessions()
+        return "ok: renamed; title: $title"
     }
 
     /** 标题取首条用户消息（按会话标题的上限截断），无则默认。 */
@@ -489,6 +502,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                         assistantName = config.effectiveName,
                         userContext = registry.userContext(allowNetwork = allowProfileNetwork),
                         memoryBlock = registry.memoryBlock(),
+                        persona = host.personaPrompt(),
                     )
                     // system 必须待在第 0 位：整段历史是 provider 端 prefix cache 的比对前缀
                     val rebuilt = mutableListOf<JsonElement>()
@@ -508,8 +522,16 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
                 // 每条 user 消息携带实时时间，杜绝"今天/明天"按会话起始日的陈旧判断。
                 // annex 只给模型看、不进气泡，自带说明（见 AgentAnnex）。
+                // 改标题工具（#484）：除推送会话外每轮都给，工具列表前后不变，不破坏前缀缓存；
+                // 能不能改在执行时判（retitleSession）。当前标题跟着实时标签走，模型才知道话题跳没跳
+                val retitleTitle = turnSid?.takeIf { it != AgentPushFocus.SESSION_ID }
+                    ?.let { sid -> sessions.firstOrNull { it.id == sid }?.title }
+                val retitle: ((String, Boolean) -> String)? =
+                    if (retitleTitle != null && turnSid != null) { raw, byUser -> retitleSession(turnSid, raw, byUser) } else null
                 val llmUser = buildString {
-                    append(nowTag(config.effectiveModel))
+                    append(nowTag(config.effectiveModel).let { tag ->
+                        if (retitleTitle == null) tag else tag.removeSuffix("]") + AgentRetitle.tag(retitleTitle) + "]"
+                    })
                     append('\n')
                     if (!llmAnnex.isNullOrBlank()) {
                         append(llmAnnex.trim())
@@ -601,7 +623,8 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                                 contextExhaustedJustTriggered = true
                             }
                         }
-                    }
+                    },
+                    retitle = retitle,
                 )
 
                 toolBubbleIndices.forEach { settleToolAt(it, true, null) }

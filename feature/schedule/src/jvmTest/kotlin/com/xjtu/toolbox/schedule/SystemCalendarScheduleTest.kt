@@ -219,4 +219,70 @@ class SystemCalendarScheduleTest {
         val events = SystemCalendarRules.toEvents(listOf(allDayRow("生日", 10, 11)), deviceZone = shanghai)
         assertTrue(buildUpcoming(emptyList(), emptyList(), now, events).isEmpty())
     }
+
+    @Test
+    fun 周视图里一个月后的全天日程标在列头定时的画成格子() {
+        // 真机上 12 月 23 日那条全天日程的原样存储（小米日历：UTC 0 点，END 开区间）
+        val rows = listOf(
+            SystemCalendarRow(title = "jadek", beginMillis = 1797984000000, endMillis = 1798070400000, allDay = true),
+            SystemCalendarRow(
+                title = "组会", location = "主楼",
+                beginMillis = LocalDateTime(2026, 12, 24, 14, 0).toInstant(shanghai).toEpochMilliseconds(),
+                endMillis = LocalDateTime(2026, 12, 24, 15, 30).toInstant(shanghai).toEpochMilliseconds(), allDay = false,
+            ),
+            // 跨午夜：周五晚到周六早，两天各画一段
+            SystemCalendarRow(
+                title = "通宵",
+                beginMillis = LocalDateTime(2026, 12, 25, 22, 0).toInstant(shanghai).toEpochMilliseconds(),
+                endMillis = LocalDateTime(2026, 12, 26, 2, 0).toInstant(shanghai).toEpochMilliseconds(), allDay = false,
+            ),
+        )
+        val events = SystemCalendarRules.toEvents(rows, deviceZone = shanghai)
+        val monday = LocalDate(2026, 12, 21)
+        val week = (0..6).map { LocalDate.fromEpochDays(monday.toEpochDays() + it) }
+        val cal = weekCalendar(week, 15, events)
+
+        assertEquals(mapOf(LocalDate(2026, 12, 23) to listOf("jadek")), cal.allDay)
+        val meeting = cal.slots.single { it.courseName == "组会" }
+        assertEquals(4, meeting.dayOfWeek)
+        assertEquals(14 * 60 to 15 * 60 + 30, meeting.startMinuteOfDay to meeting.endMinuteOfDay)
+        assertTrue(meeting.isInWeek(15))
+        assertFalse(meeting.isInWeek(14))
+        assertTrue(meeting.courseCode.startsWith(SYSTEM_CALENDAR_CODE_PREFIX))
+        val overnight = cal.slots.filter { it.courseName == "通宵" }.map { it.dayOfWeek to (it.startMinuteOfDay to it.endMinuteOfDay) }
+        assertEquals(listOf(5 to (22 * 60 to 24 * 60), 6 to (0 to 2 * 60)), overnight)
+    }
+
+    @Test
+    fun 今天以后几天的全天日程按真实存储格式都进接下来() {
+        // 2026-11-22（周日）晚上；Instances 行按日历库的真实写法：Google 等是 UTC 0 点，部分账户是本地 0 点
+        val day = LocalDate(2026, 11, 22)
+        val evening = LocalDateTime(2026, 11, 22, 22, 30)
+        fun utc(d: Int) = LocalDateTime(2026, 11, d, 0, 0).toInstant(TimeZone.UTC).toEpochMilliseconds()
+        fun local(d: Int) = LocalDateTime(2026, 11, d, 0, 0).toInstant(shanghai).toEpochMilliseconds()
+        val stored = listOf(
+            SystemCalendarRow(title = "今天", beginMillis = utc(22), endMillis = utc(23), allDay = true),
+            SystemCalendarRow(title = "本地零点", beginMillis = local(23), endMillis = local(24), allDay = true),
+            SystemCalendarRow(title = "UTC零点", beginMillis = utc(24), endMillis = utc(25), allDay = true),
+            // 每年重复的生日：Instances 已按窗口展开成这一次
+            SystemCalendarRow(title = "生日", beginMillis = utc(26), endMillis = utc(27), allDay = true),
+            SystemCalendarRow(title = "运动会", beginMillis = utc(27), endMillis = utc(29), allDay = true),
+        )
+        // 日历库按查询窗口返回与之有交集的行（BEGIN <= to 且 END >= from）
+        val (from, to) = SystemCalendarRules.queryWindow(day, 8)
+        val returned = stored.filter { it.beginMillis <= to.toEpochMilliseconds() && it.endMillis >= from.toEpochMilliseconds() }
+        assertEquals(stored, returned)
+        val events = SystemCalendarRules.toEvents(returned, deviceZone = shanghai)
+        assertEquals(listOf("今天"), calendarSlicesOn(day, events).map { it.event.title })
+        assertEquals(
+            listOf(
+                "本地零点" to "周一 全天",
+                "UTC零点" to "周二 全天",
+                "生日" to "周四 全天",
+                "运动会" to "周五 全天 · 第 1/2 天",
+                "运动会" to "周六 全天 · 第 2/2 天",
+            ),
+            buildUpcoming(emptyList(), emptyList(), evening, events).map { it.title to it.subtitle },
+        )
+    }
 }

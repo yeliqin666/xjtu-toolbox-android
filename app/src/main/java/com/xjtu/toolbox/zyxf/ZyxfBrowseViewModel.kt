@@ -165,12 +165,62 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
         reload()
     }
 
-    fun download(entry: ZyxfApi.Entry) {
+    private val prefs = this.context.getSharedPreferences("zyxf_browse", android.content.Context.MODE_PRIVATE)
+
+    /** 列表视图（#199）：一项一行，像官网；false = 文件夹两列卡片。记住用户的选择。 */
+    var listView by mutableStateOf(prefs.getBoolean("list_view", false)); private set
+
+    fun toggleView() {
+        listView = !listView
+        prefs.edit().putBoolean("list_view", listView).apply()
+    }
+
+    /** 长按菜单里「位置」一栏：浏览目录时取面包屑。 */
+    fun location(): String = stack.drop(1).joinToString("/") { it.name }
+
+    fun download(entry: ZyxfApi.Entry, then: ((uri: String) -> Unit)? = null) {
         if (downloadState[entry.id] == DOWNLOADING) return
         downloadState[entry.id] = DOWNLOADING
         viewModelScope.launch {
             val saved = withContext(Dispatchers.IO) { runCatching { ZyxfApi.download(context, entry.id) }.getOrNull() }
             downloadState[entry.id] = if (saved != null) "已保存到下载" else "下载失败"
+            if (saved == null || then == null) return@launch
+            // 下载只回文件名，uri 去下载登记表里取刚存的那条
+            withContext(Dispatchers.IO) {
+                com.xjtu.toolbox.lms.LmsDownloadStore.getAll(context).filter { it.name == saved }.maxByOrNull { it.savedAt }?.uri
+            }?.let(then)
         }
+    }
+
+    /** 长按「分享」：先下载，下完弹系统分享。 */
+    fun share(entry: ZyxfApi.Entry) = download(entry) { uri ->
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(entry.ext.lowercase()) ?: "*/*"
+            putExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri.parse(uri))
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            context.startActivity(
+                android.content.Intent.createChooser(send, "分享「${entry.name}」").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    /** 长按「加入待办」：当收藏用，待办里写清在哪能找到。 */
+    fun addTodo(entry: ZyxfApi.Entry): Boolean {
+        val where = entry.path.ifBlank { location() }
+        return com.xjtu.toolbox.inbox.SelfTodoStore.create(
+            title = (if (entry.isFolder) "看学辅文件夹「" else "看学辅资料「") + entry.name + "」",
+            content = if (where.isNotEmpty()) "学辅 · $where" else "学辅资料站",
+        ) != null
+    }
+
+    /** 长按「小岱解读」：新开一个对话发给小岱。 */
+    fun askPidai(entry: ZyxfApi.Entry) {
+        com.xjtu.toolbox.agent.AgentInsightHub.insights.ask(
+            if (entry.isFolder) "帮我看看学辅资料站的文件夹「${entry.name}」（folder_id ${entry.id}）里有什么，哪些值得先看。"
+            else "帮我讲讲学辅资料「${entry.name}」：先读它（file_id ${entry.id}），再挑重点讲，有题就讲思路。",
+            null,
+        )
     }
 }

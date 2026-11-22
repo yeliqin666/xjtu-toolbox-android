@@ -89,7 +89,7 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
             },
             // 和圆角那条一样：拖的时候只写盘，松手才让首页重读一次（逐帧 bump 会整页重组）
             onValueChangeFinished = { HomeLayoutRevision.bump() },
-            // 拖的时候首页跟着变，抽屉调淡、只有这根滑条照常显示
+            // 拖的时候首页跟着变，抽屉只留这根滑条
             livePreview = { HomeLayoutRevision.bump() },
         )
     }

@@ -12,7 +12,7 @@ package com.xjtu.toolbox.agent
  * 所以这里只放一段对话里不会变的东西；会变的（实时时间、当前模型）放在每条用户消息头。
  */
 object AgentPrompt {
-    private const val REVISION = "<!-- xjtu-agent-prompt:v12 -->"
+    private const val REVISION = "<!-- xjtu-agent-prompt:v13 -->"
     fun isCurrent(prompt: String): Boolean = REVISION in prompt
 
     fun build(
@@ -20,12 +20,14 @@ object AgentPrompt {
         userContext: String = "",
         /** 见 [AgentMemory]，拼好的那一段从 `AgentMemory.promptBlock()` 来。没有偏好时为空串。 */
         memoryBlock: String = "",
+        /** 角色口吻（形象设置里那一段）；空 = 不加。 */
+        persona: String = "",
     ): String = listOf(
         REVISION,
         """
 你是面向西安交大学生的非官方校园助手，运行在手机App里，用户叫你「$assistantName」。
 
-回答直接、简洁，语气自然。只解释对用户有用的信息，避免套话、宣传式表达和重复说明。
+回答直接、简洁；语气按文末的「说话风格」，没有就自然些。只解释对用户有用的信息，避免套话、宣传式表达和重复说明。
 
 用 Markdown 格式回复。链接优先使用 `[说明文字](完整URL)` 形式的 Markdown 超链接。关键的时间、地点、金额加粗，时间写成「今晚 19:10」这样的绝对表述。App 能显示表格、简单公式（用 `${'$'}…${'$'}` 写 TeX）和图片（独占一行的 `![说明](https://…)`）。
 
@@ -71,5 +73,16 @@ card_display 回报实际展示内容，按回执描述卡片。实时教室只�
         """.trimIndent(),
         if (userContext.isBlank()) "" else "用户画像：\n$userContext",
         memoryBlock.trim(),
+        personaBlock(persona),
     ).filter { it.isNotBlank() }.joinToString("\n\n")
+
+    /**
+     * 角色口吻（#423）：用户在设置里选的说话方式，明说是用户要的，免得模型觉得和上面「语气自然」冲突而不肯演；
+     * 同时圈定只管语气，事实照常准确，演也不能顶掉正事。
+     */
+    private fun personaBlock(persona: String): String {
+        val text = persona.trim().ifEmpty { return "" }
+        return "说话风格（用户在设置里给你选的角色口吻，照着说）：\n$text\n" +
+            "只改变语气和口头禅：时间、地点、数据照常准确，查不到就直说；口头禅一条回答里最多一两处，讲正事时以说清楚为先。"
+    }
 }

@@ -75,6 +75,21 @@ object ScheduleCache {
         runCatching { cache.write(examsKey(termCode), exams) }
     }
 
+    fun readUnscheduled(cache: ScheduleCacheStore, termCode: String): List<UnscheduledCourse> =
+        cache.read<List<UnscheduledCourse>>("unscheduled_$termCode", FOREVER).orEmpty()
+
+    fun writeUnscheduled(cache: ScheduleCacheStore, termCode: String, courses: List<UnscheduledCourse>) {
+        runCatching { cache.write("unscheduled_$termCode", courses) }
+    }
+
+    /** 用户点了「忽略」的未排课（[UnscheduledCourse.id]）。 */
+    fun readDismissedUnscheduled(cache: ScheduleCacheStore, termCode: String): Set<String> =
+        cache.read<Set<String>>("unscheduled_dismissed_$termCode", FOREVER).orEmpty()
+
+    fun writeDismissedUnscheduled(cache: ScheduleCacheStore, termCode: String, ids: Set<String>) {
+        runCatching { cache.write("unscheduled_dismissed_$termCode", ids) }
+    }
+
     fun readOptimizedCourses(cache: ScheduleCacheStore, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
         if (termCode.isBlank()) null
         else cache.read<List<CourseItem>>(optimizedScheduleKey(termCode), ttlMs)

@@ -1,7 +1,10 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.em
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.InlineTextContent
@@ -87,44 +90,57 @@ fun MarkdownText(
     val codeBg = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     val quoteColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        blocks.forEach { block ->
+    // 正文放松行距（照 my_blog 的 post-md：行高约 1.8、字距 0.01em）；思考块那种小字保持紧凑
+    val body = if (compact) bodyStyle else bodyStyle.copy(
+        lineHeight = bodyStyle.fontSize * BODY_LINE_HEIGHT,
+        letterSpacing = 0.01.em,
+    )
+    val accent = MiuixTheme.colorScheme.primary
+    Column(modifier) {
+        blocks.forEachIndexed { index, block ->
+            // 块前留白按类型给：标题前空得多、同一列表里的项挨得紧（spacedBy 一刀切 4dp 时标题贴着上一段）
+            if (index > 0) Spacer(Modifier.height(if (compact) 4.dp else blockGap(blocks[index - 1], block)))
             when (block) {
-                is MdBlock.Heading -> MdText(
-                    mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
-                    color = color,
-                    fontWeight = FontWeight.Bold,
-                    style = when {
-                        compact -> bodyStyle
-                        block.level == 1 -> MiuixTheme.textStyles.title2
-                        block.level == 2 -> MiuixTheme.textStyles.title3
-                        block.level == 3 -> MiuixTheme.textStyles.subtitle
-                        else -> bodyStyle
-                    }
-                )
-                is MdBlock.Bullet -> ListRow(block.indent, "•", bodyStyle) {
-                    MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
-                        style = bodyStyle, modifier = Modifier.weight(1f))
+                is MdBlock.Heading -> MdHeading(
+                    block.level, compact, body, color, accent,
+                ) { style, headingColor ->
+                    MdText(
+                        mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
+                        color = headingColor, style = style, fontWeight = if (compact) FontWeight.Bold else FontWeight.Medium,
+                        textAlign = if (!compact && block.level == 1) TextAlign.Center else null,
+                        modifier = if (!compact && block.level == 1) Modifier.fillMaxWidth() else Modifier,
+                    )
                 }
-                is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐", bodyStyle) {
+                is MdBlock.Bullet -> ListRow(block.indent, "•", body, accent) {
+                    MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
+                        style = body, modifier = Modifier.weight(1f))
+                }
+                is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐", body, accent) {
                     MdText(
                         mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
                         color = if (block.checked) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
-                        style = bodyStyle,
+                        style = body,
                         textDecoration = if (block.checked) TextDecoration.LineThrough else null,
                         modifier = Modifier.weight(1f)
                     )
                 }
-                is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.", bodyStyle) {
+                is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.", body, accent) {
                     MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
-                        style = bodyStyle, modifier = Modifier.weight(1f))
+                        style = body, modifier = Modifier.weight(1f))
                 }
-                is MdBlock.Quote -> Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                    Box(Modifier.width(3.dp).fillMaxHeight()
-                        .background(quoteColor.copy(alpha = 0.5f), RoundedCornerShape(2.dp)))
-                    Spacer(Modifier.width(8.dp))
+                // 引用：大圆角浅底色块，左侧一根圆头的主题色短条，不描边
+                is MdBlock.Quote -> Row(
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(accent.copy(alpha = 0.06f))
+                        .padding(start = 10.dp, top = 10.dp, end = 14.dp, bottom = 10.dp),
+                ) {
+                    Box(Modifier.padding(vertical = 4.dp).width(4.dp).fillMaxHeight()
+                        .background(accent.copy(alpha = 0.45f), RoundedCornerShape(2.dp)))
+                    Spacer(Modifier.width(10.dp))
                     MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = quoteColor,
-                        style = MiuixTheme.textStyles.body2)
+                        style = if (compact) MiuixTheme.textStyles.body2
+                        else MiuixTheme.textStyles.body2.let { it.copy(lineHeight = it.fontSize * BODY_LINE_HEIGHT) })
                 }
                 is MdBlock.Code -> Column {
                     val scroll = rememberScrollState()
@@ -168,7 +184,7 @@ fun MarkdownText(
                     }
                 }
                 is MdBlock.Para -> MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
-                    style = bodyStyle)
+                    style = body)
                 is MdBlock.Math -> MathBlock(block, color, codeBg, mathLive)
                 is MdBlock.Image -> MdImage(block.alt, block.url, images, linkColor, onClick = { linkHandler(block.url) })
             }
@@ -177,11 +193,66 @@ fun MarkdownText(
 }
 
 @Composable
-private fun ListRow(indent: Int, marker: String, style: TextStyle, content: @Composable RowScope.() -> Unit) {
+private fun ListRow(indent: Int, marker: String, style: TextStyle, markerColor: Color, content: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = (indent.coerceIn(0, 4) * 16).dp)) {
-        Text("$marker ", style = style,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text("$marker ", style = style, color = markerColor)
         content()
+    }
+}
+
+/** 正文行高倍数（my_blog 是 1.85，手机气泡窄一些，略收）。 */
+private const val BODY_LINE_HEIGHT = 1.75f
+
+/**
+ * 块前留白：标题前空得多（层级越高越多），同一列表的相邻项挨得紧，其余段落之间 10dp。
+ * 照 my_blog 的 post-md：h2 前 2.6em、h3 前 38px、p 14px、li 5px，按手机正文换算后收紧。
+ */
+private fun blockGap(prev: MdBlock, next: MdBlock): androidx.compose.ui.unit.Dp {
+    fun isList(b: MdBlock) = b is MdBlock.Bullet || b is MdBlock.Numbered || b is MdBlock.Task
+    return when {
+        next is MdBlock.Heading -> when (next.level) { 1 -> 22.dp; 2 -> 20.dp; 3 -> 16.dp; else -> 12.dp }
+        prev is MdBlock.Heading -> 6.dp
+        isList(prev) && isList(next) -> 4.dp
+        else -> 10.dp
+    }
+}
+
+/**
+ * 标题：字重统一中等，靠字号和留白分层级，不靠加粗（my_blog：h1–h5 都是 520）。
+ * H1 居中、下面一道渐变细线；H2 不加装饰；H3 左侧一小段主题色短横；H4 实心圆点；H5 空心圆点；H6 正文大小、次要色。
+ */
+@Composable
+private fun MdHeading(
+    level: Int,
+    compact: Boolean,
+    body: TextStyle,
+    color: Color,
+    accent: Color,
+    text: @Composable (TextStyle, Color) -> Unit,
+) {
+    if (compact) { text(body, color); return }
+    val size = body.fontSize
+    fun style(scale: Float) = body.copy(fontSize = size * scale, lineHeight = size * scale * 1.35f, letterSpacing = (-0.01).em)
+    when (level) {
+        1 -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            text(style(1.45f), color)
+            Spacer(Modifier.height(8.dp))
+            Box(Modifier.width(48.dp).height(2.dp).background(
+                androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(accent.copy(alpha = 0.2f), accent, accent.copy(alpha = 0.2f))),
+                RoundedCornerShape(1.dp),
+            ))
+        }
+        2 -> text(style(1.3f), color)
+        3, 4, 5 -> Row(verticalAlignment = Alignment.CenterVertically) {
+            when (level) {
+                3 -> Box(Modifier.width(10.dp).height(2.dp).background(accent.copy(alpha = 0.48f), RoundedCornerShape(1.dp)))
+                4 -> Box(Modifier.size(8.dp).background(accent, androidx.compose.foundation.shape.CircleShape))
+                else -> Box(Modifier.size(8.dp).border(2.dp, accent, androidx.compose.foundation.shape.CircleShape))
+            }
+            Spacer(Modifier.width(8.dp))
+            text(style(when (level) { 3 -> 1.16f; 4 -> 1.07f; else -> 1.03f }), color)
+        }
+        else -> text(style(1f), MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
@@ -477,11 +548,12 @@ private fun MdText(
     modifier: Modifier = Modifier,
     fontWeight: FontWeight? = null,
     textDecoration: TextDecoration? = null,
+    textAlign: TextAlign? = null,
 ) {
     val texes = remember(text) { inlineTexOf(text) }
     if (texes.isEmpty()) {
         Text(text, color = color, style = style, fontWeight = fontWeight,
-            textDecoration = textDecoration, modifier = modifier)
+            textDecoration = textDecoration, textAlign = textAlign, modifier = modifier)
         return
     }
     val config = remember(color, style.fontSize) { mathConfig(color, style.fontSize) }
@@ -498,7 +570,7 @@ private fun MdText(
     BasicText(
         text,
         modifier = modifier,
-        style = style.merge(color = color, fontWeight = fontWeight, textDecoration = textDecoration),
+        style = style.merge(color = color, fontWeight = fontWeight, textDecoration = textDecoration, textAlign = textAlign ?: TextAlign.Unspecified),
         inlineContent = content,
     )
 }

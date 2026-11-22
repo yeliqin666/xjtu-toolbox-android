@@ -695,24 +695,28 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
-            CommunityScreen(
-                session = remember { SecureGithubSession.get() },
-                deviceAuth = remember {
-                    GithubOAuthDeviceAuthRepository(
-                        GithubNetwork.client,
-                        CommunityRepo.CLIENT_ID,
-                    )
-                },
-                onBack = back,
-            )
+            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides ::communityDiagnostics) {
+                CommunityScreen(
+                    session = remember { SecureGithubSession.get() },
+                    deviceAuth = remember {
+                        GithubOAuthDeviceAuthRepository(
+                            GithubNetwork.client,
+                            CommunityRepo.CLIENT_ID,
+                        )
+                    },
+                    onBack = back,
+                )
+            }
         }
         entry<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->
-            CommunityScreen(
-                session = remember { SecureGithubSession.get() },
-                deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
-                onBack = back,
-                discussionNumber = route.number,
-            )
+            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides ::communityDiagnostics) {
+                CommunityScreen(
+                    session = remember { SecureGithubSession.get() },
+                    deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
+                    onBack = back,
+                    discussionNumber = route.number,
+                )
+            }
         }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
             FacultyScreen(
@@ -803,6 +807,14 @@ fun AwaitSite(
 }
 
 /** 内置浏览器打开某个站点时带哪套登录会话的 cookie。 */
+/** 社区发帖附的诊断信息（#463）：只有版本、机型、系统，不含账号。 */
+private fun communityDiagnostics(): String = listOf(
+    "app版本：${com.xjtu.toolbox.BuildConfig.VERSION_NAME} (${com.xjtu.toolbox.BuildConfig.VERSION_CODE})",
+    "预览版：${if (com.xjtu.toolbox.BuildConfig.IS_PREVIEW) "是" else "否"}",
+    "设备型号：${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+    "系统版本：${android.os.Build.DISPLAY}, Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})",
+).joinToString("\n")
+
 private fun siteKeyForHost(host: String): String = when {
     host == "dzpz.xjtu.edu.cn" -> "dzpz"
     "tyxylp.xjtu.edu.cn" in host -> "fitness"

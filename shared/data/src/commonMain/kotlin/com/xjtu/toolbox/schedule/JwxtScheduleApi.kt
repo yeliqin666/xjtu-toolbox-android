@@ -144,6 +144,9 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
     override suspend fun changes(term: String): List<ScheduleChangeEvent> =
         JwxtChanges.apply(emptyList(), rawChanges(term)).changes
 
+    override suspend fun unscheduled(term: String): List<UnscheduledCourse> =
+        wdkbRows("xskcb/xswpkc.do", "xswpkc", term).mapNotNull(UnscheduledCourse::of)
+
     /** 调停课记录。拿不到就当没有：课表照原样给，比整张课表出不来强。 */
     private suspend fun rawChanges(term: String): List<JwxtChange> = try {
         wdkbRows("xskcb/xsdkkc.do", "xsdkkc", term).mapNotNull(JwxtChange::of)

@@ -250,6 +250,8 @@ internal class AndroidAgentHost(
     override suspend fun generateTitle(config: AgentConfig, userMsg: String, assistantMsg: String): String? =
         AgentTitleGen.generate(config, userMsg, assistantMsg)
 
+    override fun personaPrompt(): String = PidaiAppearanceHost.persona(context)
+
     // ── 首屏快照 ──────────────────────────────────────────────────────────────
 
     override fun welcomeFacts(now: LocalDateTime): WelcomeFacts =

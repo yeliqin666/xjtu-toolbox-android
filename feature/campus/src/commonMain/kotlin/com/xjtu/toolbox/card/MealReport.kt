@@ -39,17 +39,40 @@ data class MealReport(
     val avgMeal: Double get() = if (meals == 0) 0.0 else mealSpend / meals
     val mealShare: Double get() = if (totalSpend <= 0.0) 0.0 else mealSpend / totalSpend
 
-    /** 一句话的人设。按最突出的那个习惯取，取不出来就是「规律干饭人」。 */
-    val persona: String
+    /** 人设和配的那句吐槽。按最突出的那个习惯取，取不出来就是「规律干饭人」。 */
+    private val personaPair: Pair<String, String>
         get() = when {
-            days > 0 && breakfastDays.toDouble() / days >= 0.6 -> "早八战神"
-            meals > 0 && lateNights.toDouble() / meals >= 0.15 -> "深夜食堂常客"
-            meals > 0 && drinks.toDouble() / meals >= 0.2 -> "续命饮品依赖者"
-            canteen != null && meals > 0 && canteen.second.toDouble() / meals >= 0.6 -> "${canteen.first}钉子户"
-            else -> "规律干饭人"
+            days > 0 && breakfastDays.toDouble() / days >= 0.6 -> "早八战神" to "七点的食堂，有你的固定机位"
+            meals > 0 && lateNights.toDouble() / meals >= 0.15 -> "深夜食堂常客" to "月亮不睡你不睡，夜宵摊都记得你"
+            meals > 0 && drinks.toDouble() / meals >= 0.2 -> "续命饮品依赖者" to "血液成分：咖啡因、糖，和一点点 ddl"
+            canteen != null && meals > 0 && canteen.second.toDouble() / meals >= 0.6 ->
+                "${canteen.first}钉子户" to "打饭阿姨大概已经认得你了"
+            else -> "规律干饭人" to "按时吃饭，是最朴素的自律"
+        }
+    val persona: String get() = personaPair.first
+    val personaLine: String get() = personaPair.second
+
+    /** 吃饭钱能换几碗 [NOODLE_PRICE] 元的牛肉面。 */
+    val noodleBowls: Int get() = (mealSpend / NOODLE_PRICE).toInt()
+
+    /** 干饭高峰的钟点和一句点评；没有分时数据时 null。 */
+    val peak: Pair<Int, String>?
+        get() {
+            val max = hourlyCounts.maxOrNull()?.takeIf { it > 0 } ?: return null
+            val hour = hourlyCounts.indexOf(max)
+            val quip = when (hour) {
+                in 5..9 -> "早起的人有早饭吃"
+                in 11..12 -> "和全校一起抢饭，手速是练出来的"
+                in 17..18 -> "晚饭一顿不落"
+                in 21..23, in 0..3 -> "夜色正浓，饭点正好"
+                else -> "错峰干饭，不用排队"
+            }
+            return hour to quip
         }
 
     companion object {
+        const val NOODLE_PRICE = 15
+
         private val CANTEEN = Regex("""[一-龥]{1,4}(?:苑|食堂|餐厅|美食城|餐饮中心)""")
 
         /** 流水时间形如 "2026-01-05 12:03:21"。取「几点几分」换成分钟，凌晨 0–3 点算前一天的 24–27 点。 */

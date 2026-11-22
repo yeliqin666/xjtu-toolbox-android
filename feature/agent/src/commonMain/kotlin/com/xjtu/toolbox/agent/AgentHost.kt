@@ -98,6 +98,9 @@ interface AgentHost {
     /** 拉模型列表（`:data` 的 `AgentModelFetcher`）。[config] 的服务商、Key、Base URL 是面板上还没存的那一份。 */
     suspend fun fetchModels(config: AgentConfig): List<String> = emptyList()
 
+    /** 当前角色的说话口吻（形象设置里的「角色提示词」，#423）；空 = 不加。 */
+    fun personaPrompt(): String = ""
+
     /** 把首轮对话总结成标题（`:data` 的 `AgentTitleGen`）。返回 null = 不自动改名。 */
     suspend fun generateTitle(config: AgentConfig, userMsg: String, assistantMsg: String): String? = null
 

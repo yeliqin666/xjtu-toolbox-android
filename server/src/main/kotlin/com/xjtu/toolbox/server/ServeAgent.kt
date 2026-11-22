@@ -433,7 +433,7 @@ class ServeAgent(
         background.launch {
             val title = runCatching { generateTitle(config, firstUser, firstAssistant) }.getOrNull()
             if (!title.isNullOrBlank() && !store.isLocked(sessionId)) {
-                store.rename(sessionId, title, lock = true)
+                store.rename(sessionId, title, lock = true, ai = true)
             }
         }
     }

@@ -80,6 +80,8 @@ fun ScheduleGrid(
     isCurrentWeek: Boolean = false,  // 是否显示当前时间线
     weekDates: List<LocalDate>? = null,
     holidayNames: Map<LocalDate, String> = emptyMap(),
+    /** 系统日历的全天日程：标在那一天的列头日期下面。 */
+    allDayEvents: Map<LocalDate, List<String>> = emptyMap(),
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 顶部留白，放在纵向滚动里面：顶栏是玻璃时，星期头和网格要能从它下面滚过去。 */
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
@@ -217,6 +219,20 @@ fun ScheduleGrid(
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                    // 系统日历的全天日程：一条写名字，多条写「n 项」
+                    allDayEvents[date]?.takeIf { it.isNotEmpty() }?.let { titles ->
+                        Text(
+                            if (titles.size == 1) titles[0] else "${titles.size} 项日程",
+                            fontSize = 8.sp,
+                            color = SystemCalendarAccent,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .padding(horizontal = 2.dp)
+                                .background(SystemCalendarAccent.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 3.dp),
                         )
                     }
                 }

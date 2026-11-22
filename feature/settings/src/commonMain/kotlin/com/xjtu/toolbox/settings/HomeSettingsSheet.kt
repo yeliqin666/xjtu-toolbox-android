@@ -36,9 +36,7 @@ import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.onGloballyPositioned
-import top.yukonga.miuix.kmp.layout.BottomSheetDefaults
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -101,35 +99,28 @@ fun HomeSettingsSheet(
         if (show) HomeSettingsOverlay.open = true
         onDispose { if (show) HomeSettingsOverlay.open = false }
     }
-    // 拖背景滑条时抽屉调淡，好看清背后的主页：底色、拖动条和内容都变淡，正在拖的滑条照常显示
+    // 拖背景滑条时只留滑条，抽屉其余部分和遮罩渐变淡出（见 HomeSliderPeek）
     val peek = remember { HomeSliderPeek() }
-    val peeking = peek.active
     OverlayBottomSheet(
         show = show,
-        // 标题只能是纯文字、调不了透明度，拖动时换成一个空格占住原高度：标题行一消失，下面整块上移，滑条就从手指底下跑了
-        title = if (peeking) " " else "主页设置",
+        modifier = Modifier.peekSheetModifier(peek),
+        title = "主页设置",
         // 默认左右 24dp 内边距再叠卡片的 16dp 就成了 40dp；去掉这一层，标题与卡片的对齐和设置页一致
         insideMargin = DpSize(0.dp, 0.dp),
         // 默认底色 background 在浅色下是纯白，和卡片的 surfaceVariant 一样白，分组就看不出来了
-        backgroundColor = MiuixTheme.colorScheme.surface.let { if (peeking) it.copy(alpha = PEEK_ALPHA) else it },
-        // 抽屉的遮罩只能开或关、调不了深浅；开着会把背景压暗，看不准调出来的效果，拖动时先关掉
-        enableWindowDim = !peeking,
-        dragHandleColor = BottomSheetDefaults.dragHandleColor().let { if (peeking) it.copy(alpha = it.alpha * PEEK_ALPHA) else it },
+        backgroundColor = MiuixTheme.colorScheme.surface,
+        // miuix 的遮罩只能开关，淡出期间换成 peekSheetModifier 自己画的那层
+        enableWindowDim = !peek.ownDimActive(),
         onDismissRequest = onDismiss,
     ) {
         CompositionLocalProvider(LocalHomeSliderPeek provides peek) {
-            Box(Modifier.fillMaxWidth().onGloballyPositioned { peek.container = it }) {
-                // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上
-                HomeSettingsBody(
-                    onDismiss = onDismiss,
-                    modifier = Modifier
-                        .verticalScroll(rememberScrollState())
-                        .onGloballyPositioned { peek.content = it }
-                        .drawWithContent { drawFadedExceptActiveSlider(peek) }
-                        .navigationBarsPadding(),
-                )
-                if (peeking) HomeSliderPeekLabel(peek)
-            }
+            // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上
+            HomeSettingsBody(
+                onDismiss = onDismiss,
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding(),
+            )
         }
     }
 }
@@ -210,7 +201,7 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
                         opacity = it.roundToInt()
                         store.backgroundOpacity = opacity
                     },
-                    // 拖的时候首页跟着变，抽屉调淡、只有这根滑条照常显示
+                    // 拖的时候首页跟着变，抽屉只留这根滑条
                     livePreview = { store.notifyChanged() },
                 )
             }
@@ -393,8 +384,8 @@ internal fun SettingsSliderRow(
     onChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit = {},
     /**
-     * 拖动中节流通知首页重读。非 null 且在主页设置抽屉里时，这条滑条拖动期间抽屉调淡，
-     * 滑条照常显示、上方加一枚数值小字（见 [HomeSliderPeek]）；只给背景那两条用。
+     * 拖动中节流通知首页重读。非 null 且在主页设置抽屉里时，这条滑条拖动期间抽屉其余部分
+     * 淡出、滑条照常显示、上方加一枚数值小字（见 [HomeSliderPeek]）；只给背景那两条用。
      */
     livePreview: (() -> Unit)? = null,
 ) {

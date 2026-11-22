@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.xjtu.toolbox.ui.glass.coui.CouiBackdrop
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.glass.coui.CouiCapsuleShape
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -216,7 +217,8 @@ private fun Modifier.floatingSurfaces(
     val recordingDensity = LocalDensity.current
     val density = recordingDensity.density
     val view = LocalView.current
-    val fallbackColor = if (LocalCouiDarkTheme.current == true) Color(0xFF2B2B2B) else Color(0xFFF5F5F5)
+    // 低版本底色。多数页面不提供 LocalCouiDarkTheme，要退回 App 的深浅色，否则夜间模式下也是浅底
+    val fallbackColor = if (LocalCouiDarkTheme.current ?: LocalIsDarkTheme.current) Color(0xFF2B2B2B) else Color(0xFFF5F5F5)
     val shadowLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val causticLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val materialLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
@@ -313,7 +315,7 @@ private fun Modifier.floatingSurfaces(
                 contentLayers[index].clip = true
             }
             if (!couiEffectsSupported) {
-                // 低版本：主体画成纯色形状，不采样、不画光效与投影。
+                // 低版本：不采样、不画光效与投影；主体是底色叠上材质的着色（课格的课程色、有色面板就靠它）
                 return@drawWithCache onDrawWithContent {
                     drawContent()
                     nodes.indices.sortedBy { drawOrder?.indexOf(it) ?: it }.forEach { index ->
@@ -322,7 +324,14 @@ private fun Modifier.floatingSurfaces(
                         withTransform({
                             translate(node.bounds.left, node.bounds.top)
                             scale(node.scaleX, node.scaleY, Offset(node.bounds.width / 2f, node.bounds.height / 2f))
-                        }) { drawOutline(outlines[index], fallbackColor, alpha = node.alpha) }
+                        }) {
+                            drawOutline(outlines[index], fallbackColor, alpha = node.alpha)
+                            // 只叠普通覆盖的着色；中性玻璃的 COLOR_DODGE / OVERLAY 着色按覆盖画会把整块压暗
+                            val material = materials[index]
+                            if (material.firstBlendMode == android.graphics.BlendMode.SRC_OVER) {
+                                drawOutline(outlines[index], material.firstColor, alpha = node.alpha)
+                            }
+                        }
                         beforeContent?.invoke(this, index, beforeClips[index])
                         drawLayer(contentLayers[index])
                     }

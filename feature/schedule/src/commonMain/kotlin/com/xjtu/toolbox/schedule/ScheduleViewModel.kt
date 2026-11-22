@@ -110,6 +110,55 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
 
     var customCourses by mutableStateOf<List<CustomCourse>>(emptyList()); private set
     var addScheduleDraft by mutableStateOf(CustomCourseDraft())
+
+    // 选上了但没排时间地点的课（#360）
+    private var unscheduledAll by mutableStateOf<List<UnscheduledCourse>>(emptyList())
+    private var unscheduledDismissed by mutableStateOf<Set<String>>(emptySet())
+    private var unscheduledJob: Job? = null
+
+    /** 还要用户处理的未排课：没点忽略，也没照课名填过自定义日程。 */
+    val pendingUnscheduled: List<UnscheduledCourse>
+        get() = unscheduledAll.filter { u ->
+            u.id !in unscheduledDismissed &&
+                customCourses.none { it.termCode == selectedTermCode && it.courseName.trim() == u.name }
+        }
+
+    /** 先上缓存，再从教务拉一次；拉不到保留缓存。 */
+    fun loadUnscheduled() {
+        val term = selectedTermCode.takeIf { it.isNotEmpty() } ?: return
+        unscheduledAll = ScheduleCache.readUnscheduled(cache, term)
+        unscheduledDismissed = ScheduleCache.readDismissedUnscheduled(cache, term)
+        val source = activeSource ?: return
+        unscheduledJob?.cancel()
+        unscheduledJob = viewModelScope.launch {
+            val fresh = try {
+                withContext(host.io) { source.unscheduled(term) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "unscheduled courses failed: ${e.message}")
+                return@launch
+            }
+            if (term != selectedTermCode) return@launch
+            unscheduledAll = fresh
+            ScheduleCache.writeUnscheduled(cache, term, fresh)
+        }
+    }
+
+    fun dismissUnscheduled(id: String) {
+        val term = selectedTermCode.takeIf { it.isNotEmpty() } ?: return
+        unscheduledDismissed = unscheduledDismissed + id
+        ScheduleCache.writeDismissedUnscheduled(cache, term, unscheduledDismissed)
+    }
+
+    /** 「填时间地点」：课名、教师、周次先填进新建日程的草稿。 */
+    fun draftFromUnscheduled(u: UnscheduledCourse) {
+        addScheduleDraft = CustomCourseDraft(
+            courseName = u.name,
+            note = u.teacher.takeIf { it.isNotEmpty() }?.let { "教师：$it" }.orEmpty(),
+            selectedWeeks = parseWeeksText(u.weeksText).toSet(),
+        )
+    }
     /** 待确认的冲突：(要保存的, 与之冲突的)。 */
     var pendingSave by mutableStateOf<Pair<CustomCourse, List<CustomCourse>>?>(null)
 

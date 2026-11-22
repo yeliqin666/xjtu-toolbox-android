@@ -35,7 +35,7 @@ class AgentSessionLifecycleTest {
         override fun create(title: String): AgentSession = AgentSession("new-${++created}", title).also {
             metadata[it.id] = it; conversations[it.id] = StoredConversation()
         }
-        override fun rename(id: String, title: String, lock: Boolean) { metadata[id]?.let { metadata[id] = it.copy(title = title, locked = lock) } }
+        override fun rename(id: String, title: String, lock: Boolean, ai: Boolean) { metadata[id]?.let { metadata[id] = it.copy(title = title, locked = lock, aiTitled = ai) } }
         override fun delete(id: String) { metadata.remove(id); conversations.remove(id) }
         override fun load(id: String) = conversations[id]
         override fun save(id: String, convo: StoredConversation, title: String) {
