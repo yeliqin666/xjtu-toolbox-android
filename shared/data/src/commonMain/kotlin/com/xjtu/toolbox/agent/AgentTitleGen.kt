@@ -35,6 +35,10 @@ import java.util.concurrent.TimeUnit
  * 3. 输出还要过一遍 [looksLikeMeta]：模型有时即使写在 content 里，也会输出
  *    「用户询问…」这类**转述请求**而不是主题名。这类一律判废，同样退回首条消息。
  * 4. 对常见清单式的标点（顿号、引号、句号）作主动清理。
+ * 5. 接口格式跟着对话走（#427）：Responses 走 `/responses`，先带 `reasoning.effort = low` 试，
+ *    非推理模型 400 就去掉重试。Chat 路径上 OpenAI 的推理模型（o 系列、gpt-5 系列）不认 `max_tokens`、
+ *    也不接受自定义 temperature，所以对 OpenAI 改发 `max_completion_tokens`、不发 temperature；
+ *    降级重试时 `max_tokens`、`temperature` 也一并去掉，免得两次都 400。
  */
 object AgentTitleGen {
 
@@ -47,6 +51,12 @@ object AgentTitleGen {
     suspend fun generate(config: AgentConfig, userMsg: String, assistantMsg: String): String? =
         withContext(Dispatchers.IO) {
             if (config.apiKey.isBlank()) return@withContext null
+            if (config.effectiveApiFormat == AgentConfig.API_RESPONSES) {
+                return@withContext when (val first = requestResponses(config, userMsg, assistantMsg, lowEffort = true)) {
+                    is Attempt.Done -> first.title
+                    Attempt.Rejected -> (requestResponses(config, userMsg, assistantMsg, lowEffort = false) as? Attempt.Done)?.title
+                }
+            }
             // 先带着"关思考"的参数试；只有 400（后端不认这俩字段）才去掉参数重来。
             // 其余失败重试也没用：开着思考、64 token 的额度会被思维链吃光，拿不到标题。
             when (val first = request(config, userMsg, assistantMsg, disableThinking = true)) {
@@ -72,37 +82,33 @@ object AgentTitleGen {
             val messages = buildJsonArray {
                 add(buildJsonObject {
                     put("role", "system")
-                    put("content",
-                        // 光说"概括主题"不够：模型的默认倾向是**转述这次请求**
-                        // （"用户询问本周是否有考试"），那是摘要不是标题。
-                        // 所以既要正面给出"名词短语"的形状，也要反面点名禁掉主语开头，再给两个例子对齐。
-                        "为对话起标题：一个不超过 8 个字的名词短语，写主题，不转述提问。\n" +
-                            "不以「用户」「助手」「关于」「如何」开头，不含「询问」「想让我」这类动作词；只输出标题，不加标点。\n" +
-                            "例：问这周有没有考试 → 本周考试；帮我把实验加进日程 → 实验日程"
-                    )
+                    put("content", SYSTEM_PROMPT)
                 })
                 add(buildJsonObject {
                     put("role", "user")
-                    // 刚发出还没有回复时只给问题
-                    put("content",
-                        "【用户】${userMsg.take(300)}" + assistantMsg.takeIf { it.isNotBlank() }?.let { "\n【助手】${it.take(300)}" }.orEmpty()
-                    )
+                    put("content", userContent(userMsg, assistantMsg))
                 })
             }
+            val openAi = config.provider == AgentConfig.PROVIDER_OPENAI
             val reqBody = buildJsonObject {
                 put("model", config.effectiveModel)
                 put("messages", messages)
-                put("temperature", 0.3)
-                // 32 太紧：思考没关掉的后端连 content 都轮不到就被截断。
-                // 给到 64 仍然极便宜，但正常情况下一定能把标题写完。
-                put("max_tokens", 64)
                 // 关掉思考：标题是直接生成任务，不需要 CoT。
-                // 两个字段一起发，覆盖两套约定：thinking 是 DeepSeek 侧的开关，
-                // reasoning_effort=none 是 OpenAI 兼容侧的写法。都不认就走上面的降级重试。
+                // thinking 是 DeepSeek 侧的开关，reasoning_effort=none 是 OpenAI 兼容侧的写法。
+                // 都不认就走上面的降级重试——重试那次连额度和 temperature 一起去掉，只留最基本的字段。
                 if (disableThinking) {
-                    put("thinking", buildJsonObject {
-                        put("type", "disabled")
-                    })
+                    if (openAi) {
+                        // OpenAI 推理模型只认 max_completion_tokens，也不接受自定义 temperature
+                        put("max_completion_tokens", 64)
+                    } else {
+                        put("temperature", 0.3)
+                        // 32 太紧：思考没关掉的后端连 content 都轮不到就被截断。
+                        // 给到 64 仍然极便宜，但正常情况下一定能把标题写完。
+                        put("max_tokens", 64)
+                        put("thinking", buildJsonObject {
+                            put("type", "disabled")
+                        })
+                    }
                     put("reasoning_effort", "none")
                 }
             }
@@ -123,15 +129,74 @@ object AgentTitleGen {
             }
     }
 
+    // 光说"概括主题"不够：模型的默认倾向是**转述这次请求**
+    // （"用户询问本周是否有考试"），那是摘要不是标题。
+    // 所以既要正面给出"名词短语"的形状，也要反面点名禁掉主语开头，再给两个例子对齐。
+    private const val SYSTEM_PROMPT =
+        "为对话起标题：一个不超过 8 个字的名词短语，写主题，不转述提问。\n" +
+            "不以「用户」「助手」「关于」「如何」开头，不含「询问」「想让我」这类动作词；只输出标题，不加标点。\n" +
+            "例：问这周有没有考试 → 本周考试；帮我把实验加进日程 → 实验日程"
+
+    // 刚发出还没有回复时只给问题
+    private fun userContent(userMsg: String, assistantMsg: String): String =
+        "【用户】${userMsg.take(300)}" + assistantMsg.takeIf { it.isNotBlank() }?.let { "\n【助手】${it.take(300)}" }.orEmpty()
+
+    /**
+     * Responses 路径：非流式，`store: false`。先带 `reasoning.effort = low`（推理模型上省时间省额度），
+     * 400（非推理模型不认）就去掉重试。不设输出上限：推理 token 也算在上限里，卡死了反而拿不到正文。
+     */
+    private fun requestResponses(
+        config: AgentConfig,
+        userMsg: String,
+        assistantMsg: String,
+        lowEffort: Boolean,
+    ): Attempt {
+        val reqBody = buildJsonObject {
+            put("model", config.effectiveModel)
+            put("instructions", SYSTEM_PROMPT)
+            put("input", userContent(userMsg, assistantMsg))
+            put("store", false)
+            if (lowEffort) put("reasoning", buildJsonObject { put("effort", "low") })
+        }
+        return runCatching {
+            client.newCall(
+                Request.Builder()
+                    .url("${config.effectiveBaseUrl}/responses")
+                    .header("Authorization", "Bearer ${config.apiKey}")
+                    .header("Content-Type", "application/json")
+                    .post(reqBody.toString().toRequestBody(json))
+                    .build()
+            ).execute().use { resp ->
+                if (resp.code == 400 && lowEffort) return@use Attempt.Rejected
+                Attempt.Done(if (resp.isSuccessful) parseResponsesTitle(resp.body?.string()) else null)
+            }
+        }.getOrElse { Attempt.Done(null) }
+    }
+
+    /** Responses 的 `output` 里只取 `message` 条目的 `output_text`；`reasoning` 条目是摘要，不是答案。 */
+    private fun parseResponsesTitle(body: String?): String? {
+        body ?: return null
+        val output = AppJson.parseToJsonElement(body).jsonObject.arr("output") ?: return null
+        val raw = output.mapNotNull { it as? kotlinx.serialization.json.JsonObject }
+            .filter { it["type"]?.stringValue == "message" }
+            .flatMap { it.arr("content").orEmpty() }
+            .mapNotNull { it as? kotlinx.serialization.json.JsonObject }
+            .filter { it["type"]?.stringValue == "output_text" }
+            .joinToString("") { it["text"]?.stringValue.orEmpty() }
+        return cleanTitle(raw)
+    }
+
     private fun parseTitle(body: String?): String? {
         body ?: return null
         val msg = AppJson.parseToJsonElement(body).jsonObject
             .arr("choices")?.get(0)?.jsonObject
             ?.obj("message") ?: return null
         // 只认 content。reasoning_content 是思考链，不是答案，见类注释第 2 条。
-        val raw = msg.get("content")?.takeIf { !it.isNull }?.stringValue
-            ?.takeIf { it.isNotBlank() }
-            ?: return null
+        return cleanTitle(msg.get("content")?.takeIf { !it.isNull }?.stringValue)
+    }
+
+    private fun cleanTitle(content: String?): String? {
+        val raw = content?.takeIf { it.isNotBlank() } ?: return null
         // 推理模型偶尔把最终答案跟在思考后面并用换行分隔，取最后一行非空文本。
         val lastLine = raw.trim().lines().lastOrNull { it.isNotBlank() }?.trim()
             ?: return null

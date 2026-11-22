@@ -48,7 +48,7 @@ class SseAgentTransportJvmTest {
         port = 0
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.executor = Executors.newCachedThreadPool()
-        server.createContext("/v1/chat/completions") { exchange ->
+        val handler = com.sun.net.httpserver.HttpHandler { exchange ->
             path.set(exchange.requestURI.path)
             authHeader.set(exchange.requestHeaders.getFirst("Authorization"))
             acceptHeader.set(exchange.requestHeaders.getFirst("Accept"))
@@ -61,6 +61,8 @@ class SseAgentTransportJvmTest {
             exchange.sendResponseHeaders(code, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
+        server.createContext("/v1/chat/completions", handler)
+        server.createContext("/v1/responses", handler)
         server.start()
         port = server.address.port
     }
@@ -76,6 +78,8 @@ class SseAgentTransportJvmTest {
         apiKey = apiKey,
         baseUrl = "http://127.0.0.1:$port/v1",
     )
+
+    private fun responsesConfig() = config().copy(apiFormat = AgentConfig.API_RESPONSES)
 
     @Test
     fun 逐条聚合正文_思维链_分片工具调用与用量() = runBlocking {
@@ -189,6 +193,110 @@ class SseAgentTransportJvmTest {
         assertEquals(1, requestCount.get())
     }
 
+    @Test
+    fun chat路径也认delta_reasoning() = runBlocking {
+        response = 200 to listOf(
+            """data: {"choices":[{"delta":{"reasoning":"中转的思考"}}]}""",
+            """data: {"choices":[{"delta":{"content":"答"},"finish_reason":"stop"}]}""",
+            "data: [DONE]",
+        ).joinToString("\n")
+        val result = SseAgentTransport().stream(config(), JsonObject(emptyMap()), {}, {})
+        assertEquals("中转的思考", result.reasoningContent)
+        assertEquals("答", result.content)
+    }
+
+    @Test
+    fun responses_聚合正文_推理摘要_分片工具调用与用量() = runBlocking {
+        response = 200 to SSE_RESPONSES_FULL
+        val deltas = mutableListOf<String>()
+        val reasoningDeltas = mutableListOf<String>()
+
+        val result = SseAgentTransport().stream(
+            responsesConfig(), JsonObject(emptyMap()),
+            onDelta = { deltas += it },
+            onReasoningDelta = { reasoningDeltas += it },
+        )
+
+        assertEquals("/v1/responses", path.get())
+        assertEquals("你好，世界", result.content)
+        // 换了一段摘要（summary_index 变了）中间补空行
+        assertEquals("先想想\n\n再查成绩", result.reasoningContent)
+        assertEquals(listOf("先想", "想", "\n\n再查成绩"), reasoningDeltas)
+        assertEquals(listOf("你好", "，世界"), deltas)
+        assertEquals(1, result.toolCalls.size)
+        assertEquals("call_1", result.toolCalls[0].id)
+        assertEquals("get_grades", result.toolCalls[0].name)
+        assertEquals("""{"term":"2025-2026-1"}""", result.toolCalls[0].arguments)
+        assertEquals("tool_calls", result.finishReason)
+        assertEquals(123L, result.totalTokens)
+    }
+
+    @Test
+    fun responses_被截断记成length() = runBlocking {
+        response = 200 to listOf(
+            """data: {"type":"response.output_text.delta","output_index":0,"delta":"写到一半"}""",
+            """data: {"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"total_tokens":9}}}""",
+        ).joinToString("\n")
+        val result = SseAgentTransport().stream(responsesConfig(), JsonObject(emptyMap()), {}, {})
+        assertEquals("length", result.finishReason)
+        assertEquals("写到一半", result.content)
+        assertEquals(9L, result.totalTokens)
+    }
+
+    @Test
+    fun responses_没等到结束事件就断了按中断处理() = runBlocking {
+        response = 200 to """data: {"type":"response.output_text.delta","output_index":0,"delta":"partial"}"""
+        val deltas = mutableListOf<String>()
+        assertFailsWith<java.io.IOException> {
+            SseAgentTransport().stream(responsesConfig(), JsonObject(emptyMap()), { deltas += it }, {})
+        }
+        assertEquals(listOf("partial"), deltas)
+        assertEquals(1, requestCount.get())
+    }
+
+    @Test
+    fun responses_失败事件直接抛() = runBlocking {
+        response = 200 to """data: {"type":"response.failed","response":{"status":"failed","error":{"code":"server_error","message":"boom"}}}"""
+        val msg = assertFailsWith<RuntimeException> {
+            SseAgentTransport().stream(responsesConfig(), JsonObject(emptyMap()), {}, {})
+        }.message
+        assertEquals("LLM 请求失败：boom", msg)
+    }
+
+    @Test
+    fun responses_非推理模型不认reasoning时去掉重试() = runBlocking {
+        queuedResponses += 400 to """{"error":{"message":"Unsupported parameter: 'reasoning.effort' is not supported with this model."}}"""
+        response = 200 to SSE_RESPONSES_FULL
+        val reqBody = kotlinx.serialization.json.buildJsonObject {
+            put("model", kotlinx.serialization.json.JsonPrimitive("gpt-4.1"))
+            put("reasoning", kotlinx.serialization.json.buildJsonObject {
+                put("effort", kotlinx.serialization.json.JsonPrimitive("high"))
+                put("summary", kotlinx.serialization.json.JsonPrimitive("auto"))
+            })
+        }
+        val result = SseAgentTransport().stream(responsesConfig(), reqBody, {}, {})
+        assertEquals(2, requestCount.get())
+        assertTrue("reasoning" !in postedBody.get().orEmpty(), postedBody.get())
+        assertEquals("你好，世界", result.content)
+    }
+
+    @Test
+    fun responses_组织未验证时只去掉摘要() = runBlocking {
+        queuedResponses += 400 to """{"error":{"message":"Your organization must be verified to generate reasoning summaries."}}"""
+        response = 200 to SSE_RESPONSES_FULL
+        val reqBody = kotlinx.serialization.json.buildJsonObject {
+            put("reasoning", kotlinx.serialization.json.buildJsonObject {
+                put("effort", kotlinx.serialization.json.JsonPrimitive("high"))
+                put("summary", kotlinx.serialization.json.JsonPrimitive("auto"))
+            })
+        }
+        SseAgentTransport().stream(responsesConfig(), reqBody, {}, {})
+        assertEquals(2, requestCount.get())
+        val sent = postedBody.get().orEmpty()
+        assertTrue("\"effort\":\"high\"" in sent, sent)
+        assertTrue("summary" !in sent, sent)
+    }
+
     private companion object {
         /** 编造的密钥：这一份永远不出网。 */
         const val FAKE_KEY = "sk-fake-sse-011"
@@ -201,6 +309,21 @@ class SseAgentTransportJvmTest {
             """data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}""",
             """data: {"usage":{"total_tokens":123}}""",
             "data: [DONE]",
+        ).joinToString("\n")
+
+        val SSE_RESPONSES_FULL = listOf(
+            "event: response.created",
+            """data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}""",
+            """data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"先想"}""",
+            """data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"想"}""",
+            """data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":1,"delta":"再查成绩"}""",
+            """data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":"你好"}""",
+            """data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":"，世界"}""",
+            """data: {"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_grades","arguments":""}}""",
+            """data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":2,"delta":"{\"term\":"}""",
+            // 有的实现分片里只带 item_id，不带 output_index
+            """data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"\"2025-2026-1\"}"}""",
+            """data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":100,"output_tokens":23,"total_tokens":123}}}""",
         ).joinToString("\n")
 
         val SSE_NOISE = listOf(

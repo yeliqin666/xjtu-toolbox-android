@@ -36,7 +36,7 @@ class AgentTitleGenJvmTest {
         handler = { 200 to ok("本周考试安排") }
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.executor = Executors.newCachedThreadPool()
-        server.createContext("/chat/completions") { exchange ->
+        val route = com.sun.net.httpserver.HttpHandler { exchange ->
             val request = exchange.requestBody.readBytes().toString(StandardCharsets.UTF_8)
             bodies += request
             val (code, body) = handler(request)
@@ -44,6 +44,8 @@ class AgentTitleGenJvmTest {
             exchange.sendResponseHeaders(code, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
+        server.createContext("/chat/completions", route)
+        server.createContext("/responses", route)
         server.start()
         port = server.address.port
     }
@@ -102,6 +104,43 @@ class AgentTitleGenJvmTest {
         assertTrue(bodies[0].contains("thinking"))
         assertFalse(bodies[1].contains("thinking"), "重试那次不该再带 thinking：${bodies[1]}")
         assertFalse(bodies[1].contains("reasoning_effort"))
+    }
+
+    @Test
+    fun `降级重试连额度和 temperature 一起去掉`() {
+        handler = { body -> if (body.contains("thinking")) 400 to "{}" else 200 to ok("本周考试安排") }
+        assertEquals("本周考试安排", generate())
+        assertFalse(bodies[1].contains("max_tokens"), bodies[1])
+        assertFalse(bodies[1].contains("temperature"), bodies[1])
+    }
+
+    @Test
+    fun `Responses 格式走 responses 端点，只取 message 里的 output_text`() {
+        handler = { body ->
+            assertTrue(body.contains("\"instructions\""), body)
+            assertTrue(body.contains("\"store\":false"), body)
+            200 to """{"output":[{"type":"reasoning","summary":[{"type":"summary_text","text":"用户问考试"}]},""" +
+                """{"type":"message","role":"assistant","content":[{"type":"output_text","text":"本周考试"}]}]}"""
+        }
+        val title = runBlocking {
+            AgentTitleGen.generate(config().copy(apiFormat = AgentConfig.API_RESPONSES), "这周有考试吗", "")
+        }
+        assertEquals("本周考试", title)
+        assertEquals(1, bodies.size)
+        assertTrue(bodies[0].contains("\"effort\":\"low\""), bodies[0])
+    }
+
+    @Test
+    fun `Responses 上非推理模型不认 reasoning 时去掉重试`() {
+        handler = { body ->
+            if (body.contains("reasoning")) 400 to """{"error":{"message":"reasoning not supported"}}"""
+            else 200 to """{"output":[{"type":"message","content":[{"type":"output_text","text":"本周考试"}]}]}"""
+        }
+        val title = runBlocking {
+            AgentTitleGen.generate(config().copy(apiFormat = AgentConfig.API_RESPONSES), "这周有考试吗", "")
+        }
+        assertEquals("本周考试", title)
+        assertEquals(2, bodies.size)
     }
 
     @Test

@@ -171,7 +171,10 @@ class AgentRunner(
                 listOf(AgentWidgetPresentation.toolDefinition(snapshots.mapValues { it.value.tool })))
             // 保险丝烧了，这一轮不带 tools，逼模型直接作答
             val allowTools = toolCallCount < TOOL_CALL_FUSE && toolDefs.isNotEmpty()
-            val reqBody = buildJsonObject {
+            val reqBody = if (config.effectiveApiFormat == AgentConfig.API_RESPONSES) {
+                // Responses API（#427）：历史换算成 input、工具定义拍平、思考走 reasoning.effort / summary
+                AgentResponsesFormat.request(config, messages, if (allowTools) toolDefs else null)
+            } else buildJsonObject {
                 put("model", config.effectiveModel)
                 put("messages", messagesForProvider(messages, config))
                 put("stream", true)

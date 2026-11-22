@@ -38,6 +38,7 @@ class AgentConfigStore(
         mcpEnabled = plain.getBoolean("mcp_enabled", false),
         mcpEndpoint = plain.getString("mcp_endpoint").orEmpty(),
         mcpToken = secure.getString("mcp_token").orEmpty(),
+        apiFormat = plain.getString("api_format")?.takeIf { it in AgentConfig.API_FORMATS }.orEmpty(),
     )
 
     fun save(config: AgentConfig) {
@@ -60,6 +61,7 @@ class AgentConfigStore(
         p.putBoolean("mcp_enabled", config.mcpEnabled)
         p.putString("mcp_endpoint", config.mcpEndpoint.trim())
         secure.putString("mcp_token", config.mcpToken.trim())
+        p.putString("api_format", config.apiFormat)
     }
 
     companion object {

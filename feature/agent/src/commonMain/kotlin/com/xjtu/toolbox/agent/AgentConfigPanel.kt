@@ -68,6 +68,7 @@ internal fun ConfigPanel(
     var mcpEnabled by remember { mutableStateOf(config.mcpEnabled) }
     var mcpEndpoint by remember { mutableStateOf(config.mcpEndpoint) }
     var mcpToken by remember { mutableStateOf(config.mcpToken) }
+    var apiFormat by remember { mutableStateOf(config.apiFormat) }
     var mcpTesting by remember { mutableStateOf(false) }
     var mcpStatus by remember { mutableStateOf<String?>(null) }
     val uiPrefs = remember { keyValueStore("agent_config_ui") }
@@ -89,6 +90,7 @@ internal fun ConfigPanel(
             mcpEnabled = mcpEnabled,
             mcpEndpoint = mcpEndpoint.trim(),
             mcpToken = mcpToken.trim(),
+            apiFormat = apiFormat,
         ))
     }
 
@@ -273,6 +275,21 @@ internal fun ConfigPanel(
                             }
                         )
                     }
+                    if (provider != AgentConfig.PROVIDER_DEEPSEEK) {
+                        // 接口格式（#427）：OpenAI 默认 Responses；中转大多只有 Chat Completions，支持 /responses 的可切过去
+                        val effectiveFormat = AgentConfig(provider = provider, apiFormat = apiFormat).effectiveApiFormat
+                        val formatIdx = AgentConfig.API_FORMATS.indexOf(effectiveFormat).coerceAtLeast(0)
+                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
+                            title = "接口格式",
+                            summary = AgentConfig.apiFormatLabel(effectiveFormat),
+                            items = AgentConfig.API_FORMATS.map { AgentConfig.apiFormatLabel(it) },
+                            selectedIndex = formatIdx,
+                            onSelectedIndexChange = {
+                                apiFormat = AgentConfig.API_FORMATS[it]
+                                saveNow()
+                            }
+                        )
+                    }
                     if (provider == AgentConfig.PROVIDER_CUSTOM) {
                         TextField(
                             value = baseUrl,
@@ -286,6 +303,7 @@ internal fun ConfigPanel(
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { saveNow() })
                         )
+
                         Text(
                             "填写 OpenAI 兼容中转地址；Claude 可通过 OpenRouter 等兼容服务接入。",
                             style = MiuixTheme.textStyles.footnote1,
