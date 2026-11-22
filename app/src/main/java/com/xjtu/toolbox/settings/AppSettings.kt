@@ -283,6 +283,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
         )
     }
     DynamicSchedulePreference()
+    SystemCalendarPreference()
     SmallTitle("后台提醒")
     SettingsCard {
         SwitchPreference(

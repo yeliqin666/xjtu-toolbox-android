@@ -20,6 +20,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 富触感反馈（ui/Haptics.kt）：没有这个权限，VibrationEffect 组合振动会静默失效 -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 日程页显示系统日历里的日程（设置里手动打开才会申请；只读，不写系统日历） -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
 
     <!--
         扫码登录需要相机。用 required="false" 声明特性，避免无相机设备在应用市场被过滤掉。
