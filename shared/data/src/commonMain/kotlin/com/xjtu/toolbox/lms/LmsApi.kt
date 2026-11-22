@@ -143,9 +143,10 @@ class LmsApi(private val site: SiteSession) {
 
     // 缓存
     private var cachedUserInfo: LmsUserInfo? = null
-    private val replayVideoCache = mutableMapOf<String, List<LmsReplayVideo>>()
-    private val playerTokenCache = mutableMapOf<Int, String>()
-    private val rmsTokenCache = mutableMapOf<Int, String>()
+    // 这几张表在不同协程里并发读写（回放列表、取播放凭证），用并发表
+    private val replayVideoCache = java.util.concurrent.ConcurrentHashMap<String, List<LmsReplayVideo>>()
+    private val playerTokenCache = java.util.concurrent.ConcurrentHashMap<Int, String>()
+    private val rmsTokenCache = java.util.concurrent.ConcurrentHashMap<Int, String>()
 
     // ── 公有接口 ──────────────────────────
 

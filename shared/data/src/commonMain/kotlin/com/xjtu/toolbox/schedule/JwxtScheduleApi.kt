@@ -66,7 +66,9 @@ fun isTermCode(term: String): Boolean = TERM_CODE.matches(term)
 class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
 
     private var cachedTermCode: String? = null
-    private val termNameCache = mutableMapOf<String, String>()
+    // termList()/学期起始在 IO 线程写，日程页菜单在主线程 termNames() 拷快照：
+    // 普通 LinkedHashMap 边写边拷会抛 ConcurrentModificationException（6.0.2 闪退），换成并发表
+    private val termNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val termWeeksCache = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     override fun termNames(): Map<String, String> = termNameCache.toMap()
