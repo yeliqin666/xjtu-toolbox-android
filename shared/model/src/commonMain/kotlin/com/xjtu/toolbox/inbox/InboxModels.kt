@@ -79,7 +79,62 @@ data class InboxData(
     val schoolFetchedAt: Long = 0L,
     /** 已经由小岱冒过泡的消息，不重复念。 */
     val bubbled: Set<String> = emptySet(),
+    /** 用户滑掉的消息：来源再推同一条也不再显示，过了保留期随消息一起丢。 */
+    val cleared: Set<String> = emptySet(),
+    /** 列表项左右滑做什么。 */
+    val swipe: InboxSwipeSettings = InboxSwipeSettings(),
 )
+
+/** 列表项滑动可选的动作。存的是 [key]：改字面、加动作都不影响老数据。 */
+enum class InboxSwipeAction(val key: String, val label: String) {
+    NONE("none", "不操作"),
+    COMPLETE("complete", "完成"),
+    DELETE("delete", "删除"),
+    IGNORE("ignore", "忽略"),
+    CLEAR("clear", "清除"),
+    READ("read", "标为已读");
+
+    companion object {
+        fun of(key: String): InboxSwipeAction = entries.firstOrNull { it.key == key } ?: NONE
+    }
+}
+
+/** 三种条目各自能选的滑动动作：自建待办能完成、删除；学校和各系统推来的待办只能忽略；消息能清除或标已读。 */
+enum class InboxSwipeKind(val label: String, val choices: List<InboxSwipeAction>) {
+    SELF("我的待办", listOf(InboxSwipeAction.NONE, InboxSwipeAction.COMPLETE, InboxSwipeAction.DELETE)),
+    TODO("作业等其他待办", listOf(InboxSwipeAction.NONE, InboxSwipeAction.IGNORE)),
+    MESSAGE("消息", listOf(InboxSwipeAction.NONE, InboxSwipeAction.CLEAR, InboxSwipeAction.READ)),
+}
+
+/**
+ * 左滑（手指往左）、右滑各做什么，按 [InboxSwipeKind] 分开配。
+ * 默认：自建待办右滑删除、左滑完成；其他待办两边都是忽略；消息两边都是清除。
+ */
+@Serializable
+data class InboxSwipeSettings(
+    val selfLeft: String = InboxSwipeAction.COMPLETE.key,
+    val selfRight: String = InboxSwipeAction.DELETE.key,
+    val todoLeft: String = InboxSwipeAction.IGNORE.key,
+    val todoRight: String = InboxSwipeAction.IGNORE.key,
+    val messageLeft: String = InboxSwipeAction.CLEAR.key,
+    val messageRight: String = InboxSwipeAction.CLEAR.key,
+) {
+    /** 这一类往这一边滑做什么；存的值不在这一类的可选项里（手改过数据之类）就当不操作。 */
+    fun actionOf(kind: InboxSwipeKind, left: Boolean): InboxSwipeAction {
+        val key = when (kind) {
+            InboxSwipeKind.SELF -> if (left) selfLeft else selfRight
+            InboxSwipeKind.TODO -> if (left) todoLeft else todoRight
+            InboxSwipeKind.MESSAGE -> if (left) messageLeft else messageRight
+        }
+        return InboxSwipeAction.of(key).takeIf { it in kind.choices } ?: InboxSwipeAction.NONE
+    }
+
+    fun with(kind: InboxSwipeKind, left: Boolean, action: InboxSwipeAction): InboxSwipeSettings = when (kind) {
+        InboxSwipeKind.SELF -> if (left) copy(selfLeft = action.key) else copy(selfRight = action.key)
+        InboxSwipeKind.TODO -> if (left) copy(todoLeft = action.key) else copy(todoRight = action.key)
+        InboxSwipeKind.MESSAGE -> if (left) copy(messageLeft = action.key) else copy(messageRight = action.key)
+    }
+}
 
 /** 同类消息折叠后的一组：只显示最新一条。 */
 data class InboxGroup(val latest: InboxItem, val ids: List<String>, val unread: Boolean) {
@@ -160,7 +215,7 @@ object InboxRules {
     /** 来源、标题相同的消息只显示最新一条；过期、被关掉的分类、读过超过 7 天的不显示。按最新时间倒序。 */
     fun groups(data: InboxData, now: Long): List<InboxGroup> =
         data.messages
-            .filter { m -> m.category !in data.off && visible(m, now) && data.readAt[m.id].let { it == null || now - it < FINISHED_KEEP_MS } }
+            .filter { m -> m.category !in data.off && m.id !in data.cleared && visible(m, now) && data.readAt[m.id].let { it == null || now - it < FINISHED_KEEP_MS } }
             .groupBy { it.category to it.title }
             .values
             .map { same ->
@@ -199,6 +254,21 @@ object InboxRules {
         IMPORTANCE_MEDIUM -> "重要"
         IMPORTANCE_HIGH -> "紧急"
         else -> null
+    }
+
+    /**
+     * 过了截止多久，写成「已逾期 …」：一小时内报分钟，一天内报小时和分钟，再久报天数。
+     * 不到一分钟算刚逾期，不写「0 分钟」。
+     */
+    fun overdueText(overdueMs: Long): String {
+        val minutes = overdueMs / 60_000
+        val hours = minutes / 60
+        return when {
+            minutes < 1 -> "刚刚逾期"
+            minutes < 60 -> "已逾期 $minutes 分钟"
+            hours < 24 -> if (minutes % 60 == 0L) "已逾期 $hours 小时" else "已逾期 $hours 小时 ${minutes % 60} 分钟"
+            else -> "已逾期 ${hours / 24} 天"
+        }
     }
 
     /** 最近办完或忽略的待办，新的在前。 */
@@ -243,6 +313,24 @@ object InboxRules {
         )
     }
 
+    /** 撤销忽略：从「已完成」里拿掉那条已忽略的记录，来源还报着就回到待办。 */
+    fun unignore(data: InboxData, id: String): InboxData = data.copy(
+        ignored = data.ignored - id,
+        finished = data.finished.filterNot { it.item.id == id && it.ignored },
+    )
+
+    /** 滑掉消息：不再显示，同时记成已读，角标随之减掉。 */
+    fun clear(data: InboxData, ids: Collection<String>, now: Long): InboxData = data.copy(
+        cleared = data.cleared + ids,
+        readAt = ids.filter { it !in data.readAt }.associateWith { now } + data.readAt,
+    )
+
+    /** 撤销清除：消息回到列表，已读状态还原成清除之前的 [readBefore]（清除前没读的重新算未读）。 */
+    fun unclear(data: InboxData, ids: Collection<String>, readBefore: Map<String, Long>): InboxData = data.copy(
+        cleared = data.cleared - ids.toSet(),
+        readAt = data.readAt - ids.toSet() + readBefore.filterKeys { it in ids },
+    )
+
     /** 老数据的已读集合换成带时刻的，读的时刻不知道就算现在。 */
     fun migrate(data: InboxData, now: Long): InboxData =
         if (data.read.isEmpty()) data
@@ -261,7 +349,12 @@ object InboxRules {
         incoming.forEach { n -> byId[n.id] = byId[n.id]?.let { n.copy(time = it.time) } ?: n }
         val kept = byId.values.filter { now - it.time < KEEP_MS && !(InboxCategories.isSchool(it.category) && isShortLived(it.source)) }
         val ids = kept.mapTo(HashSet()) { it.id }
-        return data.copy(messages = kept, readAt = data.readAt.filterKeys { it in ids }, bubbled = data.bubbled.filterTo(HashSet()) { it in ids })
+        return data.copy(
+            messages = kept,
+            readAt = data.readAt.filterKeys { it in ids },
+            bubbled = data.bubbled.filterTo(HashSet()) { it in ids },
+            cleared = data.cleared.filterTo(HashSet()) { it in ids },
+        )
     }
 
     /** 学校正文末尾括号里的落款，如「(公寓用电管理系统)」，拿来当来源名。 */
@@ -386,6 +479,21 @@ object InboxStore {
     }
 
     fun ignoreTodo(id: String) = update(AccountContext.activeAccountId) { InboxRules.ignore(it, id, Clock.System.now().toEpochMilliseconds()) }
+
+    fun unignoreTodo(id: String, account: String? = AccountContext.activeAccountId) = update(account) { InboxRules.unignore(it, id) }
+
+    /** 滑掉一组消息。返回清除前这些消息的已读记录，撤销时交给 [unclearMessages]。 */
+    fun clearMessages(ids: Collection<String>): Map<String, Long> {
+        val readBefore = load().readAt.filterKeys { it in ids }
+        update(AccountContext.activeAccountId) { InboxRules.clear(it, ids, Clock.System.now().toEpochMilliseconds()) }
+        return readBefore
+    }
+
+    fun unclearMessages(ids: Collection<String>, readBefore: Map<String, Long>) =
+        update(AccountContext.activeAccountId) { InboxRules.unclear(it, ids, readBefore) }
+
+    fun setSwipe(kind: InboxSwipeKind, left: Boolean, action: InboxSwipeAction) =
+        update(AccountContext.activeAccountId) { it.copy(swipe = it.swipe.with(kind, left, action)) }
 
     /** 给一条待办标重要程度；只影响角标与通知措辞，不影响排序。 */
     fun setImportance(id: String, level: Int) =

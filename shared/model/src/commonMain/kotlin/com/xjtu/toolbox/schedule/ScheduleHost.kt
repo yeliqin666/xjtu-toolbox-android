@@ -98,6 +98,12 @@ interface ScheduleHost {
     /** 「接下来」的作业截止：只读别处写好的落盘缓存，日程页**不为作业发任何请求**。 */
     suspend fun dueHomeworks(accountId: String): List<LmsDue> = emptyList()
 
+    /**
+     * 系统日历里 [from]..[to] 之间的日程，合进今日时间轴和「接下来」。
+     * 用户没在设置里打开、没授权、或这一端读不到系统日历时返回空表（默认值）。
+     */
+    suspend fun systemCalendarEvents(from: kotlin.time.Instant, to: kotlin.time.Instant): List<SystemCalendarEvent> = emptyList()
+
     /** 课程详情里的下钻（思源学堂、本次考勤）。`null` = 这一端没接。 */
     val courseLinks: CourseLinkAccess?
 

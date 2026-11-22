@@ -1610,6 +1610,15 @@ private fun EditorialFrontPage(
                 it.save(appearanceStore, dark)
                 showAppearance = false
             },
+            // 经典布局没有长按进主页设置的入口，从这里转过去（#434）：这边立刻关，那边立刻开
+            onOpenHomeSettings = if (host.hasHomeSettings) {
+                {
+                    showAppearance = false
+                    host.onOpenHomeSettings()
+                }
+            } else {
+                null
+            },
         )
     }
 }
@@ -2041,7 +2050,7 @@ private fun DeleteGroupDialog(group: HomeGroup, onDismiss: () -> Unit, onConfirm
                     text = "删除",
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                 )
             }
         }

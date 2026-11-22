@@ -19,9 +19,11 @@ import com.xjtu.toolbox.auth.XJTULogin
 class LmsLogin(
     session: OkHttpClient? = null,
     visitorId: String? = null,
-    cachedRsaKey: String? = null
+    cachedRsaKey: String? = null,
+    /** 从哪儿进统一认证。平时是学堂首页；要把统一认证的登录态也补新时用 [CAS_LOGIN_URL]。 */
+    entryUrl: String = LMS_LOGIN_URL,
 ) : XJTULogin(
-    loginUrl = LMS_LOGIN_URL,
+    loginUrl = entryUrl,
     existingClient = session,
     visitorId = visitorId,
     cachedRsaKey = cachedRsaKey
@@ -34,6 +36,13 @@ class LmsLogin(
 
         /** CAS 登录入口 — OkHttp 自动跟随重定向到 login.xjtu.edu.cn */
         const val LMS_LOGIN_URL = "https://lms.xjtu.edu.cn"
+
+        /**
+         * 学堂自己的 CAS 回调入口。不管学堂会话还在不在，访问它都会经 identity1 → login.xjtu.edu.cn
+         * 走一遍统一认证再带票回来，所以既能探「统一认证的登录态还活着没有」，也能在它过期时
+         * 用密码重新建起来（学堂首页做不到：学堂会话还在时根本不去统一认证）。
+         */
+        const val CAS_LOGIN_URL = "https://lms.xjtu.edu.cn/api/cas-login"
     }
 
     override fun postLogin(response: Response) {

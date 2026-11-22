@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.lms.lmsTermOrder
+import com.xjtu.toolbox.library.hintText
 import com.xjtu.toolbox.lms.newestTermCourses
 import kotlin.math.roundToInt
 import kotlin.time.Clock
@@ -266,9 +267,9 @@ object HomeStatsRefresher {
 
         // 成绩：一天一次。成绩出分是低频事件，但"出了没出"用户很在意，一天一查是平衡点。
         //
-        // 这里除了给首页写摘要，还负责**算出"新增了几门"**供屁岱主动提醒使用：
-        // 把总门数记在一个独立的游标里，与上次对比。游标只在成功取到数据时前移，
-        // 否则一次失败会把基线冲掉，之后永远判不出"新增"。
+        // 这里除了给首页写摘要，还负责**算出"新出了哪几门"**供屁岱主动提醒使用：
+        // 游标记见过的课程（学期 + 课程号），与后台成绩检查共用，同一门只报一次（#428）。
+        // 游标只在成功取到数据时前移，否则一次失败会把基线冲掉。
         Source(AppRoute.JwappScore, 1 * DAY, LoginType.JWAPP) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
@@ -279,12 +280,16 @@ object HomeStatsRefresher {
                 Log.d(TAG, "score: ${terms.size} 个学期，共 $total 门")
                 if (total == 0) return@withContext null
 
-                val newCount = HomeStats.bumpScoreCursor(ctx, total, roundAccount)
+                val fresh = HomeStats.advanceGradeCursor(ctx, terms, roundAccount)
+                val newCount = fresh.size
                 // 累加而非覆盖：气泡可能还没冒出来就又刷了一轮，直接覆盖会把待提醒的数吞掉。
                 // 冒过一次后由 MainActivity 清零。
                 if (newCount > 0) {
                     HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx, roundAccount) + newCount, roundAccount)
-                    InboxStore.post(OwnInbox.grade(newCount, total), roundAccount)
+                    InboxStore.post(
+                        OwnInbox.grade(newCount, total, fresh.map { com.xjtu.toolbox.jwapp.NewGradeCursor.displayName(it.courseName) }),
+                        roundAccount,
+                    )
                 }
                 // 只报本学期：教务的学期信息和日程页缓存都是同一套学期号，本学期还没出分就如实说没有，
                 // 不拿上学期的顶上。取不到当前学期号时才退回「有成绩的最新学期」。
@@ -336,10 +341,11 @@ object HomeStatsRefresher {
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 // 查失败算这个源失败，不能当成「没有预约」把待办和提醒清掉
-                val b = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site)).fetchMyBooking().getOrThrow()
+                val api = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site))
+                val b = api.fetchMyBooking().getOrThrow()
                 // 在图书馆自助机上约的座位不会经过本 App 的图书馆页，首页这一轮是唯一能发现它的地方。
                 com.xjtu.toolbox.library.LibraryStatus.publish(ctx, b, roundAccount)
-                if (b == null) return@withContext null
+                if (b == null) return@withContext lastSeatStat(api)
                 Log.d(
                     TAG,
                     "library: seat=${b.seatId} area=${b.area} status=${b.statusText} " +
@@ -382,6 +388,26 @@ object HomeStatsRefresher {
             )
         },
     )
+
+    /**
+     * 没有预约时说说上次约的座位（#461）：和账号同校区才顺带只读地拉一次那个区域的座位状态，
+     * 拉不到就只报座位号；别的校区不查。从没约过返回 null，和以前一样。
+     */
+    private suspend fun lastSeatStat(api: com.xjtu.toolbox.library.LibraryApi): HomeStat? {
+        val account = com.xjtu.toolbox.account.AccountContext.suffixFor(roundAccount)
+        val last = com.xjtu.toolbox.library.LibraryLastSeat.load(account) ?: return null
+        val campus = com.xjtu.toolbox.library.LibraryLastSeat.accountCampus(account)
+        val states = if (campus?.id != last.campusId) null else runCatching {
+            api.getSeatLayout(last.areaCode).seats.associate { it.seatId to com.xjtu.toolbox.library.SeatOccupancy.of(it) }
+        }.getOrNull()
+        val hint = com.xjtu.toolbox.library.suggestSeat(last, campus, states)
+        val text = hint.hintText()
+        Log.d(TAG, "library: no booking, last=${last.seatId} hint=${hint::class.simpleName}")
+        val seats = text.links.map { (label, seatId) ->
+            HomeLine(label, com.xjtu.toolbox.library.LibraryLastSeat.link(last, seatId), "相邻空座".takeIf { text.lead.isNotEmpty() })
+        }
+        return HomeStat("未预约", text.summary, seats + listOfNotNull(text.tail.takeIf { it.isNotEmpty() }?.let { HomeLine(it) }))
+    }
 
     /**
      * 思源学堂最新的作业/资料两条。

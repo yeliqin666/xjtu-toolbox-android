@@ -84,4 +84,44 @@ class CommunityTimeTest {
         assertNull(mentionQuery("hi @" + "a".repeat(40), 44)) // 超过 39 个字符
         assertEquals("a-b", mentionQuery("（@a-b", 5))
     }
+
+    @Test
+    fun `GitHub 自动短链：仓库引用、issue 与讨论链接、标签`() {
+        val repo = "https://github.com/yeliqin666/xjtu-toolbox-android"
+        assertEquals("[Hz6826/CampusNetLogin#1](https://github.com/Hz6826/CampusNetLogin/issues/1)", linkGithubRefs("Hz6826/CampusNetLogin#1"))
+        assertEquals("看 [#451]($repo/issues/451)。", linkGithubRefs("看 $repo/issues/451。"))
+        assertEquals(
+            "[#383 (comment)]($repo/discussions/383#discussioncomment-19713207)",
+            linkGithubRefs("$repo/discussions/383#discussioncomment-19713207"),
+        )
+        assertEquals("[a/b#2](https://github.com/a/b/pull/2)", linkGithubRefs("https://github.com/a/b/pull/2"))
+        assertEquals("[✨ Type:Feature]($repo/labels/%e2%9c%a8%20Type%3aFeature)", linkGithubRefs("$repo/labels/%e2%9c%a8%20Type%3aFeature"))
+        // 没编码完整的标签链接、别的锚点、已经写成 Markdown 链接的都不动
+        assertEquals("$repo/labels/✨", linkGithubRefs("$repo/labels/✨"))
+        assertEquals("$repo/issues/1#event-2", linkGithubRefs("$repo/issues/1#event-2"))
+        assertEquals("[x]($repo/issues/1)", linkGithubRefs("[x]($repo/issues/1)"))
+        assertEquals("`a/b#1`", linkGithubRefs("`a/b#1`"))
+    }
+
+    @Test
+    fun `GH-编号 查到后才变链接`() {
+        assertEquals(setOf(451), issueNumbersIn("GH-451"))
+        val kinds = mapOf(451 to GithubRefKind.ISSUE)
+        assertEquals("[GH-451](https://github.com/yeliqin666/xjtu-toolbox-android/issues/451)", linkIssues("GH-451", kinds))
+        assertEquals("GH-452", linkIssues("GH-452", kinds))
+    }
+
+    @Test
+    fun `引用块里独占一行的图片切成引用图片块`() {
+        val md = "> <img width=\"10\" height=\"20\" alt=\"a\" src=\"https://x/a.png\" />\n>\n> ![b](https://x/b.png)\n\n/attachcomment #468"
+        assertEquals(
+            listOf(
+                PostPart.QuotedImages(listOf(PostPart.Image("https://x/a.png", "a", 10, 20), PostPart.Image("https://x/b.png", "b", null, null))),
+                PostPart.Text("/attachcomment #468"),
+            ),
+            splitBlockImages(md),
+        )
+        // 引用里还有文字时文字照常留给 Markdown
+        assertEquals(PostPart.Text("> 原文"), splitBlockImages("> 原文\n> ![b](https://x/b.png)").first())
+    }
 }

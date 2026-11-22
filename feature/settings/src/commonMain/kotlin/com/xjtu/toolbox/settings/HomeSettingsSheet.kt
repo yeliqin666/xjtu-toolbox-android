@@ -34,6 +34,11 @@ import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.layout.onGloballyPositioned
+import top.yukonga.miuix.kmp.layout.BottomSheetDefaults
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -96,20 +101,35 @@ fun HomeSettingsSheet(
         if (show) HomeSettingsOverlay.open = true
         onDispose { if (show) HomeSettingsOverlay.open = false }
     }
+    // 拖背景滑条时只留滑条（#433）：底色、遮罩、标题、拖动条都收起，内容只画那根滑条
+    val peek = remember { HomeSliderPeek() }
+    val peeking = peek.active
     OverlayBottomSheet(
         show = show,
-        title = "主页设置",
+        // 收起时标题留一个空格占住原高度：标题行一消失，下面整块上移，滑条就从手指底下跑了
+        title = if (peeking) " " else "主页设置",
         // 默认左右 24dp 内边距再叠卡片的 16dp 就成了 40dp；去掉这一层，标题与卡片的对齐和设置页一致
         insideMargin = DpSize(0.dp, 0.dp),
         // 默认底色 background 在浅色下是纯白，和卡片的 surfaceVariant 一样白，分组就看不出来了
-        backgroundColor = MiuixTheme.colorScheme.surface,
+        backgroundColor = if (peeking) Color.Transparent else MiuixTheme.colorScheme.surface,
+        enableWindowDim = !peeking,
+        dragHandleColor = if (peeking) Color.Transparent else BottomSheetDefaults.dragHandleColor(),
         onDismissRequest = onDismiss,
     ) {
-        // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上
-        HomeSettingsBody(
-            onDismiss = onDismiss,
-            modifier = Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding(),
-        )
+        CompositionLocalProvider(LocalHomeSliderPeek provides peek) {
+            Box(Modifier.fillMaxWidth().onGloballyPositioned { peek.container = it }) {
+                // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上
+                HomeSettingsBody(
+                    onDismiss = onDismiss,
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .onGloballyPositioned { peek.content = it }
+                        .drawWithContent { drawOnlyActiveSlider(peek) }
+                        .navigationBarsPadding(),
+                )
+                if (peeking) HomeSliderPeekLabel(peek)
+            }
+        }
     }
 }
 
@@ -189,6 +209,8 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
                         opacity = it.roundToInt()
                         store.backgroundOpacity = opacity
                     },
+                    // 拖的时候首页跟着变，抽屉收起只留滑条（#433）
+                    livePreview = { store.notifyChanged() },
                 )
             }
             // 圆角只有卡片组有；编辑态悬浮条恒为全圆，不吃这个值。存的仍是 dp，老存档按最近一档显示
@@ -369,15 +391,44 @@ internal fun SettingsSliderRow(
     color: Color,
     onChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit = {},
+    /**
+     * 拖动中节流通知首页重读（#433）。非 null 且在主页设置抽屉里时，这条滑条拖动期间抽屉收起、
+     * 只留滑条和数值小字（见 [HomeSliderPeek]）；只给背景那两条用。
+     */
+    livePreview: (() -> Unit)? = null,
 ) {
+    val peek = if (livePreview != null) LocalHomeSliderPeek.current else null
+    if (peek != null && peek.owner == title) {
+        SideEffect { peek.valueText = valueText }
+    }
     SliderPreference(
         value = value,
-        onValueChange = onChange,
+        onValueChange = { v ->
+            if (peek != null && livePreview != null) {
+                if (peek.owner != title) peek.start(title, valueText)
+                onChange(v)
+                peek.live(livePreview)
+            } else {
+                onChange(v)
+            }
+        },
         title = title,
         valueText = valueText,
         startAction = { SettingsIcon(icon, color) },
+        // 滑条正上方的 0 高锚点：收起时按它裁出那根滑条、摆数值小字
+        bottomAction = if (peek != null) {
+            { Box(Modifier.fillMaxWidth().height(0.dp).onGloballyPositioned { peek.anchor(title, it) }) }
+        } else {
+            null
+        },
         valueRange = range,
-        onValueChangeFinished = onValueChangeFinished,
+        onValueChangeFinished = {
+            if (peek != null && livePreview != null && peek.owner == title) {
+                peek.finish()
+                livePreview()
+            }
+            onValueChangeFinished()
+        },
     )
 }
 

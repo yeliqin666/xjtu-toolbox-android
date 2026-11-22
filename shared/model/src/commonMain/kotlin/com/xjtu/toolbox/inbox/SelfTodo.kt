@@ -420,6 +420,15 @@ object SelfTodoStore {
         })
     }
 
+    /**
+     * 撤销完成或删除：把操作前的那份 [snapshot] 原样放回去，收纳里「已忽略」的记录一并拿掉。
+     * 完成留下的「已完成」记录不用管：条目重新报上来时收纳自己会把它拿掉。
+     */
+    fun restore(snapshot: SelfTodo, account: String? = AccountContext.activeAccountId) {
+        InboxStore.unignoreTodo(SelfTodoRules.inboxId(snapshot.id), account)
+        save(account, all(account).filter { it.id != snapshot.id } + snapshot)
+    }
+
     /** 删除：先按「忽略」记进收纳的已完成区（标已忽略），再从存储里去掉，免得显示成「已完成」。 */
     fun delete(id: String, account: String? = AccountContext.activeAccountId) {
         InboxStore.ignoreTodo(SelfTodoRules.inboxId(id))

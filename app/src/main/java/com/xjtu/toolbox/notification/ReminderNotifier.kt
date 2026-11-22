@@ -14,7 +14,7 @@ import com.xjtu.toolbox.util.RequestCodes
  * 三类后台提醒的系统通知。
  *
  * 图书馆走 [AppNotificationChannels.CHANNEL_REMINDER]：截止时间是硬的，过点就丢座位。
- * 课表变更、考试、作业走 [AppNotificationChannels.CHANNEL_APP]：要紧但不按分钟算。
+ * 课表变更、考试、作业、新成绩走 [AppNotificationChannels.CHANNEL_APP]：要紧但不按分钟算。
  *
  * 权限判断复用 [NoticeNotifier.canPost]，没授权就不发——不绕过用户的开关。
  */
@@ -25,6 +25,7 @@ internal object ReminderNotifier {
     private const val ID_EXAM = 3203
     private const val ID_LMS = 3204
     private const val ID_EXAM_CHANGE = 3205
+    private const val ID_GRADE = 3206
 
     fun canPost(context: Context): Boolean = NoticeNotifier.canPost(context)
 
@@ -76,7 +77,7 @@ internal object ReminderNotifier {
         id = ID_SCHEDULE,
         requestCode = RequestCodes.REMINDER_SCHEDULE,
         channel = AppNotificationChannels.CHANNEL_APP,
-        icon = R.drawable.ic_notification_notice,
+        icon = R.drawable.ic_notification_app,
         title = "课表有变动",
         text = summary,
         route = AppRoute.Schedule,
@@ -88,7 +89,7 @@ internal object ReminderNotifier {
         id = ("self_todo:$todoId").hashCode(),
         requestCode = RequestCodes.REMINDER_TODO,
         channel = AppNotificationChannels.CHANNEL_APP,
-        icon = R.drawable.ic_notification_notice,
+        icon = R.drawable.ic_notification_app,
         title = "待办：$title",
         text = detail,
         route = AppRoute.Inbox,
@@ -101,7 +102,7 @@ internal object ReminderNotifier {
         // 与通知 id 一致：每份推送各带各的定位 extras，点旧通知不会跳到最新那条
         requestCode = ("pidai:$key").hashCode(),
         channel = AppNotificationChannels.CHANNEL_APP,
-        icon = R.drawable.ic_notification_notice,
+        icon = R.drawable.ic_notification_app,
         title = title,
         text = text,
         route = if (pushAt != null) AppRoute.Agent else AppRoute.Inbox,
@@ -114,7 +115,7 @@ internal object ReminderNotifier {
         id = ID_EXAM,
         requestCode = RequestCodes.REMINDER_EXAM,
         channel = AppNotificationChannels.CHANNEL_APP,
-        icon = R.drawable.ic_notification_notice,
+        icon = R.drawable.ic_notification_app,
         title = "$courseName$label",
         text = detail,
         route = AppRoute.Schedule,
@@ -130,7 +131,7 @@ internal object ReminderNotifier {
             id = ID_EXAM_CHANGE,
             requestCode = RequestCodes.REMINDER_EXAM_CHANGE,
             channel = AppNotificationChannels.CHANNEL_APP,
-            icon = R.drawable.ic_notification_notice,
+            icon = R.drawable.ic_notification_app,
             title = "考试安排有变",
             text = changes.first(),
             route = AppRoute.Schedule,
@@ -147,13 +148,28 @@ internal object ReminderNotifier {
             id = ID_LMS,
             requestCode = RequestCodes.REMINDER_LMS,
             channel = AppNotificationChannels.CHANNEL_APP,
-            icon = R.drawable.ic_notification_notice,
+            icon = R.drawable.ic_notification_app,
             title = if (items.size == 1) "作业快截止了" else "${items.size} 份作业快截止了",
             text = items.first(),
             route = AppRoute.Lms(),
             style = inbox,
         )
     }
+
+    /**
+     * 出新成绩（#428）。只写课名和门数，不写分数：通知在锁屏上也看得见。点开跳成绩页。
+     * @param summary 形如「高等数学 等 2 门出分了」，见 [com.xjtu.toolbox.jwapp.NewGradeCursor.summary]。
+     */
+    fun notifyNewGrades(context: Context, summary: String): Boolean = post(
+        context = context,
+        id = ID_GRADE,
+        requestCode = RequestCodes.REMINDER_GRADE,
+        channel = AppNotificationChannels.CHANNEL_APP,
+        icon = R.drawable.ic_notification_app,
+        title = "出新成绩了",
+        text = summary,
+        route = AppRoute.JwappScore,
+    )
 
     private fun post(
         context: Context,

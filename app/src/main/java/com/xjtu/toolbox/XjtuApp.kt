@@ -113,6 +113,7 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)
+            com.xjtu.toolbox.notification.GradeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.CommunityWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.agent.PidaiJobScheduler.apply(this@XjtuApp)
         }

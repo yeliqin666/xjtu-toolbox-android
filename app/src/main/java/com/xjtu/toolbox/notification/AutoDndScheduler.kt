@@ -3,6 +3,7 @@ package com.xjtu.toolbox.notification
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import com.xjtu.toolbox.schedule.AutoDndAccess
 
@@ -10,6 +11,11 @@ import com.xjtu.toolbox.schedule.AutoDndAccess
  * 自动勿扰：上课（课前、课后各留 3 分钟）和在图书馆入座（预约状态「使用中」）时把系统勿扰切到「仅优先」，
  * 两者都不满足时还原。只还原本应用切过的那一次：用户中途手动改过勿扰，就不去动它。
  * 排程挂在 [DynamicScheduleScheduler.refresh] 里，与通知共用同一个精确闹钟。
+ *
+ * Android 15 起（targetSdk ≥ 35）应用改不了全局勿扰：[NotificationManager.setInterruptionFilter]
+ * 只是开关系统给本应用建的那条「隐式勿扰规则」。所以在新系统上还原时一律传 ALL 关掉自己那条规则，
+ * 不能照旧把记下的过滤级别写回去——用户上课前本来就开着勿扰时，记下的是 PRIORITY，
+ * 写回去等于把本应用的规则又打开一次，下课后勿扰就一直关不掉。
  */
 internal object AutoDndScheduler {
     private const val PREFS = "auto_dnd"
@@ -76,10 +82,13 @@ internal object AutoDndScheduler {
         val p = prefs(context)
         if (!p.getBoolean(KEY_APPLIED, false)) return
         val nm = manager(context)
-        if (nm != null && hasAccess(context) &&
-            nm.currentInterruptionFilter == NotificationManager.INTERRUPTION_FILTER_PRIORITY
-        ) {
-            nm.setInterruptionFilter(p.getInt(KEY_SAVED_FILTER, NotificationManager.INTERRUPTION_FILTER_ALL))
+        if (nm != null && hasAccess(context)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                // 只关本应用自己的隐式规则，碰不到用户手动开的勿扰，也就不必判断用户改没改过。
+                nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+            } else if (nm.currentInterruptionFilter == NotificationManager.INTERRUPTION_FILTER_PRIORITY) {
+                nm.setInterruptionFilter(p.getInt(KEY_SAVED_FILTER, NotificationManager.INTERRUPTION_FILTER_ALL))
+            }
         }
         p.edit().putBoolean(KEY_APPLIED, false).remove(KEY_SAVED_FILTER).apply()
     }

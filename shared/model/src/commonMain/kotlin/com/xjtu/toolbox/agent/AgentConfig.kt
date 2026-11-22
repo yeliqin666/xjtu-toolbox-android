@@ -38,6 +38,11 @@ data class AgentConfig(
     val mcpEnabled: Boolean = false,
     val mcpEndpoint: String = "",
     val mcpToken: String = "",
+    /**
+     * 接口格式（#427）：[API_CHAT] = `/chat/completions`，[API_RESPONSES] = OpenAI 的 `/responses`。
+     * 空串 = 按服务商默认，实际用哪个看 [effectiveApiFormat]。
+     */
+    val apiFormat: String = "",
 ) {
     val effectiveName: String get() = sanitizeAgentTitle(assistantName, DEFAULT_ASSISTANT_NAME)
 
@@ -56,10 +61,23 @@ data class AgentConfig(
             else -> searchApiKey
         }.trim()
 
+    /**
+     * 实际走哪种接口：OpenAI 官方默认走 Responses（o1-pro、o3-pro、codex 系列只在这上面提供，
+     * 也只有它返回推理摘要），可以手动切回 Chat；DeepSeek 只有 Chat Completions；
+     * 自定义默认 Chat，可以手动切到 Responses。
+     */
+    val effectiveApiFormat: String
+        get() = when (provider) {
+            PROVIDER_OPENAI -> if (apiFormat == API_CHAT) API_CHAT else API_RESPONSES
+            PROVIDER_CUSTOM -> if (apiFormat == API_RESPONSES) API_RESPONSES else API_CHAT
+            else -> API_CHAT
+        }
+
     val effectiveModel: String
         get() = model.ifBlank {
             when (provider) {
-                PROVIDER_OPENAI -> "gpt-4o-mini"
+                // gpt-4o-mini 太旧：不是推理模型，「思考」区和强度档位对它都没用
+                PROVIDER_OPENAI -> "gpt-5-mini"
                 // `deepseek-v4-flash` 是旧名，模型已退役，请求被转到 V4.1-Flash 计费。
                 // 直接用现名，免得日后旧名真的下线。
                 else -> "deepseek-flash"
@@ -88,6 +106,17 @@ data class AgentConfig(
         val SEARCH_ENGINES = listOf(SEARCH_DEEPSEEK, SEARCH_OFF)
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
+
+        /** Chat Completions（`/chat/completions`）。 */
+        const val API_CHAT = "chat"
+        /** OpenAI Responses API（`/responses`）。 */
+        const val API_RESPONSES = "responses"
+        val API_FORMATS = listOf(API_CHAT, API_RESPONSES)
+
+        fun apiFormatLabel(format: String) = when (format) {
+            API_RESPONSES -> "Responses"
+            else -> "Chat Completions"
+        }
         /**
          * DeepSeek 新版思考参数族是 `none / low / high / max`（`minimal`→low，
          * `medium`、`xhigh`→high）。这里少了 `low`，用户只能在「高」和「最大」之间选，

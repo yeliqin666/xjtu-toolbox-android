@@ -2,6 +2,7 @@ package com.xjtu.toolbox.widget.smart
 
 import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.inbox.InboxItem
+import com.xjtu.toolbox.inbox.InboxRules
 import com.xjtu.toolbox.library.LibrarySeatFact
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.XjtuTime
@@ -572,13 +573,13 @@ internal object SmartArbiter {
     /**
      * 待办的截止距离，写成一句能被立刻看懂的话。
      *
-     * 一小时以内给分钟（「还有 20 分钟」比「21:00 截止」更催人），当天给时刻，跨天给日期。
+     * 一小时以内给分钟（「还有 20 分钟」比「21:00 截止」更催人），当天给时刻，跨天给日期；过了截止报逾期多久，和收纳列表同一套措辞。
      */
     internal fun deadlineText(facts: SmartFacts, todo: InboxItem): String {
         if (todo.expiresAt <= 0L) return "不限时"
         val left = minutesLeft(facts, todo)
         return when {
-            left <= 0 -> "已截止"
+            left <= 0 -> InboxRules.overdueText(-left * 60_000L)
             left < 60 -> "还有 $left 分钟"
             left < 24 * 60 -> "${clock(facts.minuteOf(todo.expiresAt))} 截止"
             else -> "${(left / (24 * 60))} 天后截止"

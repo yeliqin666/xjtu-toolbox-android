@@ -8,7 +8,7 @@ import android.content.Context
  * [SELF_TODO] 是例外：它只用得到去重游标，**没有开关**（扫一遍本机待办是零代价，
  * 不值得再让用户去设置里打开一次），所以设置页不列它。
  */
-enum class ReminderKind(val key: String, val title: String) {
+enum class ReminderKind(val key: String, val title: String, val defaultEnabled: Boolean = false) {
     /** 图书馆预约后的签到 / 返座催办。 */
     LIBRARY("library", "图书馆签到/返座提醒"),
 
@@ -26,12 +26,18 @@ enum class ReminderKind(val key: String, val title: String) {
 
     /** 自建待办快截止。没有开关，只有去重游标（见类注释）。 */
     SELF_TODO("self_todo", "自建待办截止提醒"),
+
+    /**
+     * 出新成绩（#428）。默认开：出没出分是大家最在意的事，查一次成绩的代价也只是一天几次
+     * 移动教务的静默登录。去重游标不在这里，和首页共用 `HomeStats` 里按账号存的那一份。
+     */
+    GRADE("grade", "新成绩提醒", defaultEnabled = true),
 }
 
 /**
  * 后台提醒的开关与去重游标。
  *
- * 开关默认**全关**。学校的三项要在后台悄悄登录学校系统（图书馆 / 教务 / 思源学堂），
+ * 开关默认**全关**（[ReminderKind.GRADE] 例外，见其注释）。学校的三项要在后台悄悄登录学校系统（图书馆 / 教务 / 思源学堂），
  * 社区两项要用 GitHub 令牌定时查询，都跟只抓公开页面的教务通知盯梢不是一回事——
  * 与「课表显示考勤」同理，有额外代价的功能由用户自己打开。
  *
@@ -49,7 +55,7 @@ internal object ReminderStore {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun isEnabled(context: Context, kind: ReminderKind): Boolean =
-        prefs(context).getBoolean("enabled_${kind.key}", DEFAULT_ENABLED)
+        prefs(context).getBoolean("enabled_${kind.key}", kind.defaultEnabled)
 
     /** 关掉时连基线一起清掉：再打开重新建基线，关着期间的旧事不补推。 */
     fun setEnabled(context: Context, kind: ReminderKind, value: Boolean) {

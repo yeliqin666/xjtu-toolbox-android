@@ -20,6 +20,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,7 @@ import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.ensureLmsWebSso
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.browser.BrowserScreen
 import com.xjtu.toolbox.bulletin.NoticeDetailScreen
@@ -123,6 +125,7 @@ import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import com.xjtu.toolbox.yellowpage.appYellowPageApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.nav.core.LocalNavTransitionScope
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
@@ -440,6 +443,8 @@ fun NavEntryBuilder.appPageEntries(
                 LaunchedEffect(Unit) { back() }
             } else {
                 val lmsContext = LocalContext.current
+                val lmsScope = rememberCoroutineScope()
+                var lmsWebOpen by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
                 val accountId = loginState.accountId
                 val hintPrefs = remember { lmsContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
                 LmsScreen(
@@ -460,9 +465,21 @@ fun NavEntryBuilder.appPageEntries(
                     onAskAgent = { sendToPidai(it, router::open) },
                     // 「去提交作业」：只开官方 h5 提交页，提交本身在学堂网页里做。走 App 内置浏览器，
                     // 它会先把 App 的登录态 cookie（含统一认证的 TGC）注进 WebView，UA 也与 OkHttp
-                    // 同一串（TGC 绑定 UA）—— 和图书馆、教务那些站点的自动登录是同一条链路，
-                    // 所以到了 lms-h5 也是 SSO 直通，不用再输密码。
-                    onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
+                    // 同一串（TGC 绑定 UA），到了 lms-h5 就是 SSO 直通。打开之前先把统一认证的登录态
+                    // 补新（学堂会话比它活得久，过期的 TGC 注进去网页照样要重新登录），见 ensureLmsWebSso。
+                    onOpenUrl = { url ->
+                        if (lmsWebOpen?.isActive != true) lmsWebOpen = lmsScope.launch {
+                            try {
+                                manager.ensureLmsWebSso()
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                // 补不上（没网、取消了短信验证）也照样打开：网页里还能自己登录
+                                android.util.Log.w("AppNavHost", "lms web SSO warm-up failed: ${e.message}")
+                            }
+                            router.open(AppRoute.Browser(url))
+                        }
+                    },
                     // 附件「已经下过就不再重复下载、点一下打开」用的登记表 —— 与「我的-下载管理」同一份
                     files = remember(lmsContext) { com.xjtu.toolbox.media.AppDownloadedFilesHost(lmsContext) },
                 )

@@ -124,6 +124,8 @@ fun ScheduleScreen(
     val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     val vm: ScheduleViewModel = viewModel(key = "schedule") { ScheduleViewModel(host) }
     LaunchedEffect(campusNow.date, vm.startOfTerm, vm.totalWeeks) { vm.refreshClock(campusNow.date) }
+    // 系统日历（设置里打开才有）：进页面、跨天时重读；从设置或日历 App 回来时 onResume 也会重读
+    LaunchedEffect(campusNow.date) { vm.refreshSystemCalendar(campusNow.date) }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
@@ -186,8 +188,8 @@ fun ScheduleScreen(
     // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用
     // 取 dev 那一份（它把 `campusNow` 带进了 buildUpcoming / ExamCountdown），
     // 并保留 parity 那一条新加的「作业截止没接就带一句缺口说明」
-    val upcomingItems = remember(vm.exams, vm.homeworkDue, campusNow.date, campusNow.hour, campusNow.minute) {
-        buildUpcoming(vm.exams, vm.homeworkDue, campusNow)
+    val upcomingItems = remember(vm.exams, vm.homeworkDue, vm.systemCalendarEvents, campusNow.date, campusNow.hour, campusNow.minute) {
+        buildUpcoming(vm.exams, vm.homeworkDue, campusNow, vm.systemCalendarEvents)
     }
     // 作业截止这一档没接的端，「接下来」里永远没有作业；把宿主的那一句带到时间轴底下。
     val dueHomeworkGap = remember(host) {
@@ -663,6 +665,7 @@ fun ScheduleScreen(
                                     dueHomeworkGap = dueHomeworkGap,
                                     onAddPlan = vm::addPlanItems,
                                     onNavigate = onNavigate,
+                                    calendarEvents = vm.systemCalendarEvents,
                                 )
                             }
                         }
@@ -787,6 +790,7 @@ fun ScheduleScreen(
                             dueHomeworkGap = dueHomeworkGap,
                             onAddPlan = vm::addPlanItems,
                             onNavigate = onNavigate,
+                            calendarEvents = vm.systemCalendarEvents,
                         )
                     }
                 }

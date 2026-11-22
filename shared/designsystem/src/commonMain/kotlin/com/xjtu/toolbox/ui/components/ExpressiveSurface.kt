@@ -54,6 +54,21 @@ fun appTonalTextButtonColors(): top.yukonga.miuix.kmp.basic.TextButtonColors {
     )
 }
 
+/**
+ * 删除、退出登录、放弃编辑这类做了就回不去的操作：红底白字的 [top.yukonga.miuix.kmp.basic.TextButton]。
+ * 只把红色写在字上分量不够，和旁边的普通按钮一眼看不出轻重。
+ */
+@Composable
+fun appDangerTextButtonColors(): top.yukonga.miuix.kmp.basic.TextButtonColors {
+    val scheme = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    return top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColors(
+        color = scheme.error,
+        disabledColor = scheme.error.copy(alpha = 0.38f),
+        textColor = scheme.onError,
+        disabledTextColor = scheme.onError.copy(alpha = 0.6f),
+    )
+}
+
 /** 卡片内部再嵌一层时用（比卡片略重），例如统计块、内嵌列表行。 */
 val AppInsetColor: Color
     @Composable get() = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)

@@ -124,5 +124,16 @@ internal fun DynamicSchedulePreference() {
                     }
                 },
             )
+            // 只开自动勿扰、没开动态通知的人，以前看不到上面那一行精确闹钟的入口
+            if (dndOn && !exact) {
+                ArrowPreference(
+                    title = "准时切换勿扰",
+                    summary = "还没允许精确闹钟，不打开应用时可能要晚很久才切换，建议允许",
+                    startAction = { SettingsIcon(Icons.Default.Alarm, SettingsColors.Orange) },
+                    onClick = {
+                        openSettings(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
+                    },
+                )
+            }
     }
 }

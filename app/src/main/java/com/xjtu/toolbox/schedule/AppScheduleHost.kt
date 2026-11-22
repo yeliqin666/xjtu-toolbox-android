@@ -58,6 +58,9 @@ internal class AppScheduleHost(
 
     override suspend fun dueHomeworks(accountId: String): List<LmsDue> = LmsDueStore.load(accountId)
 
+    override suspend fun systemCalendarEvents(from: kotlin.time.Instant, to: kotlin.time.Instant): List<SystemCalendarEvent> =
+        com.xjtu.toolbox.calendar.SystemCalendar.events(app, from, to)
+
     override suspend fun roomSeatCount(location: String): Int? =
         com.xjtu.toolbox.emptyroom.EmptyRoomApi().getRoomSeatCount(location)
 

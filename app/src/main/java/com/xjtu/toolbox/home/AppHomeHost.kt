@@ -363,6 +363,10 @@ internal fun rememberAppHome(
         override fun onOpenLink(link: String) {
             if (link.startsWith("app:")) {
                 com.xjtu.toolbox.nav.appRouteOf(link.removePrefix("app:"))?.let(::onRoute)
+            } else if (link.startsWith(com.xjtu.toolbox.library.LibraryLastSeat.LINK_PREFIX)) {
+                // 上次预约推荐里的座位：进图书馆页选中它，预约要用户自己点
+                com.xjtu.toolbox.library.LibraryLastSeat.parseLink(link)?.let(com.xjtu.toolbox.library.LibraryFocus::request)
+                onRoute(AppRoute.Library)
             } else if (link.startsWith("agent:")) {
                 com.xjtu.toolbox.agent.AgentPendingPrompt.set(link.removePrefix("agent:"), draftOnly = true)
                 onRoute(AppRoute.Agent)
