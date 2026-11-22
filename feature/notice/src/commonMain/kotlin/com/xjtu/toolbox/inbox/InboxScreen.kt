@@ -92,6 +92,10 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
+import top.yukonga.miuix.kmp.basic.SnackbarResult
 import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -160,6 +164,48 @@ fun InboxScreen(
         if (tab == 0 && todoIds.isNotEmpty()) InboxStore.markTodosSeen(todoIds)
     }
 
+    val snackbar = remember { SnackbarHostState() }
+    val swipe = data.swipe
+
+    /** 滑掉一条之后给个「撤销」，几秒内点了就还原。 */
+    fun offerUndo(message: String, undo: () -> Unit) {
+        scope.launch {
+            val result = snackbar.showSnackbar(message, actionLabel = "撤销", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) undo()
+        }
+    }
+
+    fun swipeTodo(item: InboxItem, action: InboxSwipeAction) {
+        val selfId = SelfTodoRules.todoIdOf(item.id)
+        val snapshot = selfId?.let { id -> SelfTodoStore.all().firstOrNull { it.id == id } }
+        when {
+            action == InboxSwipeAction.IGNORE && selfId == null -> {
+                InboxStore.ignoreTodo(item.id)
+                offerUndo("已忽略") { InboxStore.unignoreTodo(item.id) }
+            }
+            snapshot == null -> Unit
+            action == InboxSwipeAction.COMPLETE -> {
+                SelfTodoStore.complete(snapshot.id)
+                offerUndo("已完成") { SelfTodoStore.restore(snapshot) }
+            }
+            action == InboxSwipeAction.DELETE -> {
+                SelfTodoStore.delete(snapshot.id)
+                offerUndo("已删除") { SelfTodoStore.restore(snapshot) }
+            }
+        }
+    }
+
+    fun swipeMessage(ids: List<String>, action: InboxSwipeAction) {
+        when (action) {
+            InboxSwipeAction.CLEAR -> {
+                val readBefore = InboxStore.clearMessages(ids)
+                offerUndo("已清除") { InboxStore.unclearMessages(ids, readBefore) }
+            }
+            InboxSwipeAction.READ -> InboxStore.markRead(ids)
+            else -> Unit
+        }
+    }
+
     fun refresh() = scope.launch {
         refreshing = true
         error = null
@@ -215,6 +261,7 @@ fun InboxScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             GlassTopAppBar(
                 title = "消息",
@@ -272,8 +319,8 @@ fun InboxScreen(
             topPadding = glassTop,
             modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize(),
         ) {
-            // 待办、消息两栏可以左右滑：标签行和页面同步
-            AppTabPager(pageCount = 2, selectedTabIndex = tab, onTabSelected = { tab = it }, modifier = Modifier.fillMaxSize()) { page ->
+            // 左右滑留给条目上的操作，两栏只靠标签切换，免得一滑既切栏又触发操作
+            AppTabPager(pageCount = 2, selectedTabIndex = tab, onTabSelected = { tab = it }, modifier = Modifier.fillMaxSize(), swipeEnabled = false) { page ->
                 // 顶栏按钮轮廓按列表实际位置来（滚动事件里混着回弹的距离，不能当位置用）
                 val listState = androidx.compose.foundation.lazy.rememberLazyListState()
                 com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
@@ -300,9 +347,13 @@ fun InboxScreen(
                         }
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
                             section(title, list.map {
+                                val kind = if (SelfTodoRules.todoIdOf(it.id) != null) InboxSwipeKind.SELF else InboxSwipeKind.TODO
                                 Entry(
                                     it, it.id, unread = it.id !in seenAtOpen && it.id !in openedTodos, count = 1, accent = accentOf(it),
                                     importance = InboxRules.importanceOf(data, it.id),
+                                    swipeLeft = swipe.actionOf(kind, left = true),
+                                    swipeRight = swipe.actionOf(kind, left = false),
+                                    onSwipe = { action -> swipeTodo(it, action) },
                                     onLongClick = {
                                         val selfId = SelfTodoRules.todoIdOf(it.id)
                                         actions = if (selfId != null) {
@@ -351,6 +402,10 @@ fun InboxScreen(
                                 }
                                 Entry(
                                     g.latest, g.latest.id, g.unread, g.count, dimmed = !g.unread,
+                                    // 已读的再「标为已读」没有意义，这一边就不让滑
+                                    swipeLeft = swipe.actionOf(InboxSwipeKind.MESSAGE, left = true).takeUnless { it == InboxSwipeAction.READ && !g.unread } ?: InboxSwipeAction.NONE,
+                                    swipeRight = swipe.actionOf(InboxSwipeKind.MESSAGE, left = false).takeUnless { it == InboxSwipeAction.READ && !g.unread } ?: InboxSwipeAction.NONE,
+                                    onSwipe = { action -> swipeMessage(g.ids, action) },
                                     onLongClick = if (rowActions.isNotEmpty()) {
                                         { actions = RowActions(g.latest, rowActions) }
                                     } else null,
@@ -408,6 +463,10 @@ private class Entry(
     /** 用户标的重要程度（[InboxRules.IMPORTANCE_*]）：只在标题旁画个角标，不参与排序。 */
     val importance: Int = InboxRules.IMPORTANCE_NONE,
     val onLongClick: (() -> Unit)? = null,
+    /** 手指往左 / 往右滑到底执行的动作，见 [InboxSwipeSettings]。 */
+    val swipeLeft: InboxSwipeAction = InboxSwipeAction.NONE,
+    val swipeRight: InboxSwipeAction = InboxSwipeAction.NONE,
+    val onSwipe: (InboxSwipeAction) -> Unit = {},
     val onClick: () -> Unit,
 )
 
@@ -467,7 +526,10 @@ private fun LazyListScope.section(title: String, entries: List<Entry>) {
         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 6.dp)) {
             entries.forEachIndexed { i, e ->
                 key(e.key) {
-                    InboxRow(e)
+                    SwipeActionRow(
+                        swipeLeft = swipeSpecOf(e.swipeLeft) { e.onSwipe(e.swipeLeft) },
+                        swipeRight = swipeSpecOf(e.swipeRight) { e.onSwipe(e.swipeRight) },
+                    ) { InboxRow(e) }
                     if (i != entries.lastIndex) {
                         com.xjtu.toolbox.ui.components.RowDivider(startInset = 64.dp)
                     }
@@ -738,8 +800,40 @@ private fun InboxSettingsSheet(show: Boolean, data: InboxData, onDismiss: () -> 
                 "关掉的类别不进列表、不计数，小岱也不再提。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(start = 4.dp, top = 12.dp),
+            )
+            SwipeSettingsGroup(data.swipe)
+            Text(
+                "滑过一小段松手就执行，几秒内可以撤销；长按条目也能做同样的操作。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 12.dp),
             )
+        }
+    }
+}
+
+/** 左右滑各做什么：每类条目两行下拉，选项只列这一类能做的。 */
+@Composable
+private fun SwipeSettingsGroup(swipe: InboxSwipeSettings) {
+    Text(
+        "左右滑动",
+        style = MiuixTheme.textStyles.footnote1,
+        fontWeight = FontWeight.SemiBold,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 6.dp),
+    )
+    com.xjtu.toolbox.ui.components.AppOptionGroup {
+        InboxSwipeKind.entries.forEach { kind ->
+            listOf(true, false).forEach { left ->
+                val current = swipe.actionOf(kind, left)
+                com.xjtu.toolbox.ui.components.AppDropdownPreference(
+                    title = "${kind.label} · ${if (left) "左滑" else "右滑"}",
+                    items = kind.choices.map { it.label },
+                    selectedIndex = kind.choices.indexOf(current).coerceAtLeast(0),
+                    onSelectedIndexChange = { InboxStore.setSwipe(kind, left, kind.choices[it]) },
+                )
+            }
         }
     }
 }
