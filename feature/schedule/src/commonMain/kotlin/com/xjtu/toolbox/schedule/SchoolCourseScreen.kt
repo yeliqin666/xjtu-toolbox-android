@@ -131,7 +131,7 @@ fun SchoolCourseScreen(
                 onBack = onBack,
             )
         },
-        snackbarHost = { SnackbarHost(snackbarState) }
+        snackbarHost = { SnackbarHost(snackbarState, modifier = Modifier.tabContentBottomPadding()) }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
         if (vm.isInitializing) {
