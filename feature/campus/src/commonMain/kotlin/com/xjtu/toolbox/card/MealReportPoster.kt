@@ -19,7 +19,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,7 +47,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.theme.Editorial
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -50,19 +59,63 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.number
 
 /**
- * 海报始终是浅纸深墨，不跟深浅色走：存成图发出去，在别人手机上也该是同一张。
+ * 两套纸墨（#473）：
+ * - 入口卡片跟着系统深浅色走，暗色下不再是一块刺眼的白纸；
+ * - 海报默认仍是浅纸深墨（存成图发出去，在别人手机上也该是同一张），弹窗里可以手动切成暗色那张。
  * 强调色（数字、条形、落款印）取主题色，纸面也略带一点主题色。
  */
-private val INK = Color(0xFF1F1B16)
-private val INK_MUTED = Color(0xFF6E665B)
-private val RULE = Color(0x331F1B16)
-private val PAPER_BASE = Color(0xFFF7F6F3)
+@Immutable
+private class PosterColors(
+    val ink: Color,
+    val inkMuted: Color,
+    val rule: Color,
+    val paper: Color,
+    val paperInset: Color,
+    val accent: Color,
+)
 
-/** 主题色；深色模式下的主题色偏亮，在浅纸上压暗一些保证对比。 */
-private val Accent: Color
-    @Composable get() = MiuixTheme.colorScheme.primary.let { if (it.luminance() > 0.4f) lerp(it, Color.Black, 0.3f) else it }
-private val Paper: Color @Composable get() = lerp(PAPER_BASE, Accent, 0.05f)
-private val PaperInset: Color @Composable get() = lerp(PAPER_BASE, Accent, 0.11f)
+private val PAPER_BASE = Color(0xFFF7F6F3)
+private val PAPER_BASE_DARK = Color(0xFF1C1A17)
+
+@Composable
+private fun posterColors(dark: Boolean): PosterColors {
+    val primary = MiuixTheme.colorScheme.primary
+    return remember(dark, primary) {
+        if (!dark) {
+            // 深色模式下的主题色偏亮，在浅纸上压暗一些保证对比
+            val accent = if (primary.luminance() > 0.4f) lerp(primary, Color.Black, 0.3f) else primary
+            PosterColors(
+                ink = Color(0xFF1F1B16),
+                inkMuted = Color(0xFF6E665B),
+                rule = Color(0x331F1B16),
+                paper = lerp(PAPER_BASE, accent, 0.05f),
+                paperInset = lerp(PAPER_BASE, accent, 0.11f),
+                accent = accent,
+            )
+        } else {
+            // 反过来：偏暗的主题色在深纸上提亮一些
+            val accent = if (primary.luminance() < 0.25f) lerp(primary, Color.White, 0.35f) else primary
+            PosterColors(
+                ink = Color(0xFFEDE8E0),
+                inkMuted = Color(0xFFA39A8D),
+                rule = Color(0x33EDE8E0),
+                paper = lerp(PAPER_BASE_DARK, accent, 0.06f),
+                paperInset = lerp(PAPER_BASE_DARK, accent, 0.13f),
+                accent = accent,
+            )
+        }
+    }
+}
+
+/** 入口卡片和海报各自在最外层提供，里面的小组件都从这里取色。 */
+private val LocalPosterColors = staticCompositionLocalOf<PosterColors> { error("PosterColors not provided") }
+
+private val INK: Color @Composable get() = LocalPosterColors.current.ink
+private val INK_MUTED: Color @Composable get() = LocalPosterColors.current.inkMuted
+private val RULE: Color @Composable get() = LocalPosterColors.current.rule
+private val Accent: Color @Composable get() = LocalPosterColors.current.accent
+private val Paper: Color @Composable get() = LocalPosterColors.current.paper
+private val PaperInset: Color @Composable get() = LocalPosterColors.current.paperInset
 
 /**
  * 海报「存图」交给宿主：Android 存进缓存再弹系统分享，桌面弹保存对话框写 PNG。
@@ -77,6 +130,13 @@ private fun LocalDate.dotted(): String =
 /** 消费分析页里的入口：一行标题加人设，点开看整张海报。 */
 @Composable
 internal fun MealReportEntry(report: MealReport, onOpen: () -> Unit) {
+    CompositionLocalProvider(LocalPosterColors provides posterColors(LocalIsDarkTheme.current)) {
+        MealReportEntryContent(report, onOpen)
+    }
+}
+
+@Composable
+private fun MealReportEntryContent(report: MealReport, onOpen: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -107,6 +167,8 @@ internal fun MealReportEntry(report: MealReport, onOpen: () -> Unit) {
 internal fun MealReportDialog(report: MealReport, exporter: MealReportExport, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     val layer = rememberGraphicsLayer()
+    // 默认浅色那张（与以前一致），想要暗色的自己切；切了存图也是暗色那张
+    var darkPoster by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f)).systemBarsPadding()) {
             Box(
@@ -119,8 +181,16 @@ internal fun MealReportDialog(report: MealReport, exporter: MealReportExport, on
                         layer.record { this@drawWithContent.drawContent() }
                         drawLayer(layer)
                     },
+                    dark = darkPoster,
                 )
             }
+            AppSegmentedTabs(
+                tabs = listOf("浅色海报", "暗色海报"),
+                selectedTabIndex = if (darkPoster) 1 else 0,
+                onTabSelected = { darkPoster = it == 1 },
+                modifier = Modifier.padding(horizontal = 16.dp).padding(top = 12.dp),
+                compact = true,
+            )
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = onDismiss, modifier = Modifier.weight(1f), colors = com.xjtu.toolbox.ui.components.appTonalButtonColors()) { Text("关闭") }
                 Button(
@@ -142,7 +212,14 @@ internal fun MealReportDialog(report: MealReport, exporter: MealReportExport, on
  * 版式按竖排杂志页来：左对齐、大留白。
  */
 @Composable
-fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
+fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier, dark: Boolean = false) {
+    CompositionLocalProvider(LocalPosterColors provides posterColors(dark)) {
+        MealReportPosterContent(report, modifier)
+    }
+}
+
+@Composable
+private fun MealReportPosterContent(report: MealReport, modifier: Modifier) {
     fun money(v: Double) = "¥" + if (v >= 100) money0(v) else money1(v)
     fun clock(tx: Transaction) = tx.time.substringAfter(' ', "").take(5)
     val body = TextStyle(fontSize = 13.sp, lineHeight = 19.sp, color = INK_MUTED)
