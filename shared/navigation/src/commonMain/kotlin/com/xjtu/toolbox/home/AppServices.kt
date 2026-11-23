@@ -110,6 +110,12 @@ object AppServices {
                 "集体活动：一键找讲座、报告、分享会这类常能开集体活动证明的活动",
                 "课外学分参考：活动的课程性质、素养能力与积分构成",
                 "一键报名与取消：附件或团体报名跳网页", "现场签到签退：输入现场 6 位验证码", "我的报名：报名状态与审核结果", "小岱找活动：按主题查活动并帮你报名")),
+        AppService(AppRoute.TermReport, "学期总结", "这学期的数据回顾", ServiceCategory.PLAY,
+            listOf("学期总结", "学期报告", "学期回顾", "年终总结", "年度报告", "总结", "回顾"),
+            features = listOf(
+                "全屏竖滑回顾：课程与早八、GPA 与分数段、待办完成率、校园卡支出与干饭、体测、小游戏时长、和小岱聊了多少",
+                "学期之最与称号：最晚一顿、最常去的食堂、最爱的游戏等，结尾一张可存图分享",
+                "点了「开始回顾」才生成，只在本机计算")),
 
         AppService(AppRoute.DownloadManager, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(AppRoute.Settings, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
