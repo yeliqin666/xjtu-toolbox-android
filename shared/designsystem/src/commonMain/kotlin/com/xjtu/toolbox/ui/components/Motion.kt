@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
@@ -116,6 +117,15 @@ fun rememberEnterProgress(index: Int, maxAnimated: Int = ENTER_MAX): State<Float
 /** 这一页的控件要不要各自错峰入场。整页一起放大进来时关掉，否则控件和页面不同步。 */
 val LocalEnterAnimations = androidx.compose.runtime.compositionLocalOf { true }
 
+/**
+ * 这一页正随导航转场进出：常驻循环先停。页面画面不动，顶栏模糊和材质就沿用上一帧，不必逐帧重算。
+ * 与可见性无关，[LocalPageVisible] 照旧。
+ */
+val LocalPageSettling = androidx.compose.runtime.compositionLocalOf { false }
+
+/** 设置里的「简化光效」：保留玻璃与模糊，去掉浮层光晕、投影和背景流动动画。 */
+val LocalReducedEffects = androidx.compose.runtime.compositionLocalOf { false }
+
 /** 切页错峰的档数、每档延迟与跟上的弹性（照 SleepDown 的主页切换：6 档、18ms、阻尼 .74 / 刚度 260）。 */
 private const val SWITCH_STAGGER_MS = 18L
 private const val SWITCH_DAMPING = 0.74f
@@ -129,16 +139,21 @@ private const val SWITCH_STIFFNESS = 260f
  */
 @Stable
 class TabSwitchMotion(
-    /** 这一页第几次被切进来：变了就重播错峰。 */
-    val generation: Int,
     /** 页面滑动进度 0 → 1。 */
     val progress: () -> Float,
     /** 进场方向：+1 从右边进来，-1 从左边进来。 */
     val direction: () -> Float,
     /** 页面宽度（px），把「进度差」换算成像素。 */
     val width: () -> Int,
-)
+) {
+    /** 这一页第几次被切进来：变了就重播错峰。 */
+    var generation by androidx.compose.runtime.mutableIntStateOf(0)
 
+    /** 这一页正被切进来，元素才按档跟进。只在绘制阶段读。 */
+    var active by mutableStateOf(false)
+}
+
+/** 每页一个、终身不换的对象：切页只改它里面的状态，不让整页因 Local 换值而重组。 */
 val LocalTabSwitch = androidx.compose.runtime.staticCompositionLocalOf<TabSwitchMotion?> { null }
 
 /**
@@ -148,7 +163,7 @@ val LocalTabSwitch = androidx.compose.runtime.staticCompositionLocalOf<TabSwitch
 @Composable
 fun rememberLoopPhase(periodMillis: Long = LOOP_MS): State<Float> {
     val phase = remember { mutableFloatStateOf(0f) }
-    if (LocalPageVisible.current) {
+    if (LocalPageVisible.current && !LocalPageSettling.current) {
         LaunchedEffect(periodMillis) {
             val start = TimeSource.Monotonic.markNow()
             while (true) {
@@ -177,7 +192,7 @@ fun Modifier.enterOnce(index: Int, maxAnimated: Int = ENTER_MAX): Modifier {
         val v = p.value
         alpha = v
         translationY = (1f - v) * 8.dp.toPx()
-        if (switch != null && track != null) {
+        if (switch != null && track != null && switch.active) {
             val width = switch.width().toFloat()
             if (width > 0f) {
                 // 页面在滑，这一块按自己的进度跟：进度差 × 页宽 = 还差多少没跟上。
@@ -195,9 +210,11 @@ private fun rememberTabSwitchTrack(switch: TabSwitchMotion, index: Int): State<F
     // 第一帧就不会被「页面进度 1、自己进度 0」推出一整页宽再弹回来。
     val track = remember { Animatable(1f) }
     // 记下这一块出生时的世代：同世代里才组合出来的块（晚到的内容）不参与这次错峰。
-    val initialGeneration = remember { switch.generation }
-    LaunchedEffect(switch.generation) {
-        if (switch.generation == initialGeneration) return@LaunchedEffect
+    val initialGeneration = remember { androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { switch.generation } }
+    // 只有带入场的这些块因世代变化重组，页面其余部分不动
+    val generation = switch.generation
+    LaunchedEffect(generation) {
+        if (generation == initialGeneration) return@LaunchedEffect
         track.snapTo(0f)
         if (index > 0) delay(index * SWITCH_STAGGER_MS)
         track.animateTo(

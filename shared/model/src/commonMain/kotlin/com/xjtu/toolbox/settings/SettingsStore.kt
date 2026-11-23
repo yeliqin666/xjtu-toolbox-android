@@ -35,6 +35,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString(KEY_DARK_MODE) ?: DARK_MODE_SYSTEM
         set(value) = store.putString(KEY_DARK_MODE, value)
 
+    /** 简化光效：玻璃风格下去掉浮层光晕、投影和背景流动动画。默认关闭。 */
+    var reducedEffects: Boolean
+        get() = store.getBoolean(KEY_REDUCED_EFFECTS, false)
+        set(value) = store.putBoolean(KEY_REDUCED_EFFECTS, value)
+
     /** 跟随系统壁纸 / 调色盘动态取色（Material You / Monet）。默认关闭。 */
     var dynamicColor: Boolean
         get() = store.getBoolean(KEY_DYNAMIC_COLOR, false)
@@ -253,6 +258,7 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         const val HERO_IMAGE_BRIGHTNESS_MAX = 100
 
         private const val KEY_NAV_BAR_STYLE = "nav_bar_style"
+        private const val KEY_REDUCED_EFFECTS = "reduced_effects"
         private const val KEY_DARK_MODE = "dark_mode"
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_DEFAULT_TAB = "default_tab"

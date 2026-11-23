@@ -115,6 +115,11 @@ class CredentialStore(context: Context) {
         get() = settings.navBarStyle
         set(value) { settings.navBarStyle = value }
 
+    /** 简化光效，见 [SettingsStore.reducedEffects]。 */
+    var reducedEffects: Boolean
+        get() = settings.reducedEffects
+        set(value) { settings.reducedEffects = value }
+
     /**
      * 课表格子上叠考勤角标。**默认开**。
      *

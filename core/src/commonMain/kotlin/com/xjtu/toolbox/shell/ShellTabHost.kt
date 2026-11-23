@@ -139,26 +139,25 @@ fun ShellTabHost(
                         else -> tabOffset.snapTo(offsetTarget)
                     }
                 }
-                // 切页错峰：这一页每次被切进来就 +1，页面里带 enterOnce 的元素据此重播「按档跟进」
-                var switchGeneration by remember { androidx.compose.runtime.mutableIntStateOf(0) }
                 // 进场方向在这一刻定死：页面落位后偏移回到 0，实时判方向会把回弹判到反方向去
                 var switchDirection by remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
-                LaunchedEffect(isActive) {
-                    if (isActive && slideOnly) {
-                        switchDirection = if (tabOffset.value >= 0f) 1f else -1f
-                        switchGeneration++
-                    }
-                }
                 val switchProgress = remember(tabOffset) {
                     derivedStateOf { (1f - kotlin.math.abs(tabOffset.value)).coerceIn(0f, 1f) }
                 }
-                val tabSwitch = remember(switchGeneration, tabOffset) {
+                // 切页错峰：每页一个对象，世代与「正被切进来」都是它里面的状态，切页不换对象、不整页重组
+                val tabSwitch = remember(tabOffset) {
                     TabSwitchMotion(
-                        generation = switchGeneration,
                         progress = { switchProgress.value },
                         direction = { switchDirection },
                         width = { hostWidth },
                     )
+                }
+                SideEffect { tabSwitch.active = isActive && slideOnly }
+                LaunchedEffect(isActive) {
+                    if (isActive && slideOnly) {
+                        switchDirection = if (tabOffset.value >= 0f) 1f else -1f
+                        tabSwitch.generation++
+                    }
                 }
                 val tabScale by animateFloatAsState(
                     targetValue = if (isActive || slideOnly) 1f else 0.96f,
@@ -235,8 +234,8 @@ fun ShellTabHost(
                         LocalPageVisible provides (pageVisible && LocalPageVisible.current),
                         // 切过来的页签不演内部入场：整页淡入已经够了，控件再各自动一遍会显得很吵
                         LocalEnterAnimations provides !openedBySwitch,
-                        // 只有正切进来的那一页参与错峰跟进
-                        LocalTabSwitch provides if (isActive && slideOnly) tabSwitch else null,
+                        // 只有正切进来的那一页参与错峰跟进（由 tabSwitch.active 在绘制阶段决定）
+                        LocalTabSwitch provides if (slideOnly) tabSwitch else null,
                     ) {
                         // 同一份对象：host 重组（选中项变化）时，没变的页不跟着重组
                         content(remember(tab) { ShellPage(tab.target, tab) })

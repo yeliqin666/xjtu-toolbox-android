@@ -28,7 +28,8 @@ actual fun HeroPixelBackground(modifier: Modifier, animated: Boolean) {
     if (!couiEffectsSupported) return CpuHeroPixelBackground(modifier)
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
-    val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+    val running = animated && LocalPageVisible.current && !LocalPageSettling.current && !LocalReducedEffects.current &&
+        lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
     val seconds = remember { mutableFloatStateOf(0f) }
     if (running) {
         LaunchedEffect(Unit) {

@@ -20,41 +20,24 @@ import java.nio.ShortBuffer
 import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.round
 
 /** 普通投影的 caster, 与组件材质的裁剪轮廓分开。 */
 enum class CouiShadowOutline { Oval, SmoothCapsule, RoundRect }
 
 /** 原 Skia 网格、A8 表与厂商 inverse clip 的公开 API 承载; 每个主体仅保留当前两路资源。 */
 class CouiShadowRenderer(surfaceCount: Int = 1) {
-    private val specifications by lazy { Array(4) { index ->
-        MeshSpecification.make(arrayOf(
-            MeshSpecification.Attribute(MeshSpecification.TYPE_FLOAT2, 0, "position"),
-            MeshSpecification.Attribute(MeshSpecification.TYPE_FLOAT3, 8, "shadow")), 20,
-            arrayOf(MeshSpecification.Varying(MeshSpecification.TYPE_FLOAT3, "shadow")),
-            ShadowVertexShader, shadowFragmentShader(fast = index < 2, oval = index % 2 == 0))
-    } }
-    private val lut = Bitmap.createBitmap(128, 1, Bitmap.Config.ALPHA_8).apply {
-        val bytes = ByteBuffer.allocate(rowBytes)
-        repeat(128) { i ->
-            val d = 1f - i / 127f
-            bytes.put(floor((exp(-4f * d * d) - 0.018f) * 255f + 0.5f).toInt().toByte())
-        }
-        bytes.rewind()
-        copyPixelsFromBuffer(bytes)
-    }
-    private val lutShader = BitmapShader(lut, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-    private val clipShaders by lazy {
-        arrayOf(RuntimeShader(shadowClipShader(oval = true, image = true)),
-            RuntimeShader(shadowClipShader(oval = false, image = true)))
-    }
-    private val materialClipSource = shadowClipShader(oval = false, image = false)
     private val slots = Array(surfaceCount) { arrayOfNulls<ProjectionDraw>(2) }
+
+    // 胶囊裁剪挂在 Paint 上跨帧复用，uniform 是这一路自己的，不能进共享缓存；每路建一次，重建网格时只换 uniform
+    private val capsuleClips = Array(surfaceCount) { arrayOfNulls<RuntimeShader>(2) }
 
     init {
         // 创建时检查裁剪片段, 不把失败延迟到首次绘制。
-        if (couiEffectsSupported) RuntimeShader(materialClipSource)
+        if (couiEffectsSupported) CouiShaderCache.get(materialClipSource)
     }
 
     /** 长度均为像素; 网格包含轴向缩放, Canvas 只承接平移, alpha 不再由外层重复相乘。 */
@@ -65,7 +48,12 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
         if (!couiEffectsSupported) return
         if (alpha <= 0f || width <= 0f || height <= 0f || sx <= 0f || sy <= 0f || elevation <= 0f) return
         require(!clipping || outline != CouiShadowOutline.RoundRect) { "普通圆角投影尚未提供 inverse clip" }
-        val fast = isFastShadowGeometry(width, height, sx, sy, outline == CouiShadowOutline.Oval)
+        // 按压、形变时缩放每帧都在变：网格按档生成，剩下不到 1% 的差由 Canvas 缩放补齐，不必逐帧重建
+        val qx = quantizeScale(sx)
+        val qy = quantizeScale(sy)
+        val fast = isFastShadowGeometry(width, height, qx, qy, outline == CouiShadowOutline.Oval)
+        canvas.save()
+        if (qx != sx || qy != sy) canvas.scale(sx / qx, sy / qy)
         for (index in 0..1) {
             // override spot 不乘 renderer 的全局 spot alpha; ambient 先转原厂 JNI 字节值。
             val multiplier = if (index == 0) 9f / 255f else 1f
@@ -74,11 +62,11 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
             val argb = (color and 0xFFFFFF) or (opacity shl 24)
             // 光源随主体平移; ambient 与 fast spot 用局部原点复用资源, generic spot 保留量化前坐标。
             val localOrigin = index == 0 || fast
-            val key = ShadowKey(width, height, sx, sy,
+            val key = ShadowKey(width, height, qx, qy,
                 if (localOrigin) 0f else windowX, if (localOrigin) 0f else windowY, alpha < 1f,
                 elevation, lightY, lightZ, lightRadius, outline,
                 radius.coerceIn(0f, min(width, height) * 0.5f), clipping)
-            val draw = slots[slot][index]?.takeIf { it.key == key } ?: makeDraw(key, index == 1).also {
+            val draw = slots[slot][index]?.takeIf { it.key == key } ?: makeDraw(key, slot, index).also {
                 slots[slot][index] = it
             }
             updateColor(draw, argb)
@@ -91,9 +79,11 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
                 canvas.restore()
             }
         }
+        canvas.restore()
     }
 
-    private fun makeDraw(key: ShadowKey, spot: Boolean): ProjectionDraw {
+    private fun makeDraw(key: ShadowKey, slot: Int, index: Int): ProjectionDraw {
+        val spot = index == 1
         val oval = key.outline == CouiShadowOutline.Oval
         val projection = floatingShadowGeometry(key.width, key.height, key.sx, key.sy, key.x, key.y,
             key.elevation, key.lightY, key.lightZ, key.lightRadius, key.transparent, oval, spot,
@@ -115,8 +105,10 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
         val mesh = Mesh(spec, Mesh.TRIANGLES, FloatBuffer.wrap(data.vertices), data.vertices.size / 5,
             ShortBuffer.wrap(data.indices), bounds)
         if (oval && key.clipping) mesh.setFloatUniform("u_rect", rect.left, rect.top, rect.right, rect.bottom)
-        val capsuleClip = if (!oval && key.clipping) RuntimeShader(materialClipSource).apply {
-            setFloatUniform("u_rect", rect.left, rect.top, rect.right, rect.bottom)
+        val capsuleClip = if (!oval && key.clipping) {
+            (capsuleClips[slot][index] ?: RuntimeShader(materialClipSource).also { capsuleClips[slot][index] = it }).apply {
+                setFloatUniform("u_rect", rect.left, rect.top, rect.right, rect.bottom)
+            }
         } else null
         paint.shader = if (projection.fast) lutShader else capsuleClip
         return ProjectionDraw(key, projection, paint, mesh = mesh,
@@ -202,5 +194,36 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
         val mesh: Mesh? = null, val node: RenderNode? = null, val path: Path? = null,
         val clipShader: RuntimeShader? = null) {
         var color: Int? = null
+    }
+
+    /** 不随主体变化的资源全进程共用：网格规格、A8 表都不可变，裁剪片段只经 RenderEffect 使用（快照 uniform）。 */
+    private companion object {
+        val specifications by lazy { Array(4) { index ->
+            MeshSpecification.make(arrayOf(
+                MeshSpecification.Attribute(MeshSpecification.TYPE_FLOAT2, 0, "position"),
+                MeshSpecification.Attribute(MeshSpecification.TYPE_FLOAT3, 8, "shadow")), 20,
+                arrayOf(MeshSpecification.Varying(MeshSpecification.TYPE_FLOAT3, "shadow")),
+                ShadowVertexShader, shadowFragmentShader(fast = index < 2, oval = index % 2 == 0))
+        } }
+        val lutShader by lazy {
+            val lut = Bitmap.createBitmap(128, 1, Bitmap.Config.ALPHA_8).apply {
+                val bytes = ByteBuffer.allocate(rowBytes)
+                repeat(128) { i ->
+                    val d = 1f - i / 127f
+                    bytes.put(floor((exp(-4f * d * d) - 0.018f) * 255f + 0.5f).toInt().toByte())
+                }
+                bytes.rewind()
+                copyPixelsFromBuffer(bytes)
+            }
+            BitmapShader(lut, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        val clipShaders by lazy {
+            arrayOf(CouiShaderCache.get(shadowClipShader(oval = true, image = true)),
+                CouiShaderCache.get(shadowClipShader(oval = false, image = true)))
+        }
+        val materialClipSource = shadowClipShader(oval = false, image = false)
+
+        /** 约 1.5% 一档，静止时（1）精确落在档上。 */
+        fun quantizeScale(s: Float): Float = exp(round(ln(s) / 0.015f) * 0.015f)
     }
 }

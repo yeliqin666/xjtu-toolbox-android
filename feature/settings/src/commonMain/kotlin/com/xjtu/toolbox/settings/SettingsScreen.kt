@@ -9,6 +9,7 @@ import com.xjtu.toolbox.settings.SettingsColors.Pink as cPink
 import com.xjtu.toolbox.settings.SettingsColors.Purple as cPurple
 import com.xjtu.toolbox.settings.SettingsColors.Teal as cTeal
 import androidx.compose.material.icons.automirrored.filled.FactCheck
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Home
@@ -126,6 +127,7 @@ fun SettingsScreen(
     val launcherShortcuts = host.launcherShortcutPreference
 
     var navBarStyle by remember { mutableStateOf(store.navBarStyle) }
+    var reducedEffects by remember { mutableStateOf(store.reducedEffects) }
     var darkMode by remember { mutableStateOf(store.darkMode) }
     var dynamicColor by remember { mutableStateOf(store.dynamicColor) }
     var customColorEnabled by remember { mutableStateOf(store.customColorEnabled) }
@@ -192,7 +194,7 @@ fun SettingsScreen(
         SettingsStore.DARK_MODE_LIGHT,
         SettingsStore.DARK_MODE_DARK
     )
-    val navStyleOptions = listOf("玻璃", "经典")
+    val navStyleOptions = listOf("玻璃", "经典（更流畅省电）")
     val navStyleValues = listOf(
         SettingsStore.NAV_STYLE_FLOATING,
         SettingsStore.NAV_STYLE_CLASSIC
@@ -286,6 +288,19 @@ fun SettingsScreen(
                         host.onAppearanceChanged()
                     }
                 )
+                if (navBarStyle == SettingsStore.NAV_STYLE_FLOATING) {
+                    SwitchPreference(
+                        title = "简化光效",
+                        summary = "保留玻璃与模糊，去掉光晕、投影和背景流动",
+                        checked = reducedEffects,
+                        startAction = { SettingsIcon(Icons.Default.AutoAwesome, cBlue) },
+                        onCheckedChange = { v ->
+                            reducedEffects = v
+                            store.reducedEffects = v
+                            host.onAppearanceChanged()
+                        }
+                    )
+                }
             }
         }
         if (showHomeHero) HomeSettingsBody(onDismiss = {})

@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.ui.glass.coui.menu
 
 import android.graphics.RenderEffect
-import android.graphics.RuntimeShader
+import com.xjtu.toolbox.ui.glass.coui.CouiShaderCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
@@ -46,8 +46,9 @@ class CouiMenuBlur internal constructor(
     private val radius: Int,
     private val layers: List<GraphicsLayer>,
 ) {
-    private val downsampleShader by lazy { RuntimeShader(MenuDownsampleShader) }
-    private val blurShaders by lazy { List(9) { RuntimeShader(MenuKawaseShader) } }
+    // 每次建 effect 前重设全部 uniform，全进程共用一份程序（见 CouiShaderCache）
+    private val downsampleShader by lazy { CouiShaderCache.get(MenuDownsampleShader) }
+    private val blurShader by lazy { CouiShaderCache.get(MenuKawaseShader) }
     private var firstSize = IntSize.Zero
     private var recordedBlurSize = IntSize.Zero
     private var recordedDensity: Density? = null
@@ -143,7 +144,8 @@ class CouiMenuBlur internal constructor(
         downsampleShader.setFloatUniform("inputSize", captureSize.width.toFloat(), captureSize.height.toFloat())
         layers[0].renderEffect = RenderEffect.createRuntimeShaderEffect(downsampleShader, "child")
             .asComposeRenderEffect()
-        blurShaders.forEachIndexed { index, shader ->
+        val shader = blurShader
+        repeat(9) { index ->
             shader.setFloatUniform("inputSize", blurSize.width.toFloat(), blurSize.height.toFloat())
             // fastKawase 的 radius 分支先减十, p=10, 再执行 i=1..9; 160 对应原菜单取样。
             shader.setFloatUniform("in_blurOffset", (index + 1) * ((radius - 10f) / (9f * 10f)) / 8f)

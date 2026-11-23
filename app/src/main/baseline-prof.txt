@@ -35,3 +35,13 @@ HSPLcom/xjtu/toolbox/profile/ComposableSingletons$ProfileTabKt*;->**(**)**
 # 主界面（玻璃底栏、拖动形变、浮层材质）根本没被绘制，自动采集永远采不到这段。
 # 按上面同样的办法把整个 coui 包整类标成热点，让首帧真正跑的代码也在安装时 AOT。
 HSPLcom/xjtu/toolbox/ui/glass/coui/Coui*;->**(**)**
+# 首页以后高频走的路径同样采不到：子页转场与导航、底栏切页壳、首页卡片、设置、一镜到底宿主、
+# 设计系统其余组件（含 coui 子包与非 Coui 前缀的文件），以及各功能页的 *Screen 文件。
+HSPLcom/xjtu/toolbox/nav/**;->**(**)**
+HSPLcom/xjtu/toolbox/shell/**;->**(**)**
+HSPLcom/xjtu/toolbox/home/**;->**(**)**
+HSPLcom/xjtu/toolbox/settings/**;->**(**)**
+HSPLcom/xjtu/toolbox/sharedview/**;->**(**)**
+HSPLcom/xjtu/toolbox/ui/**;->**(**)**
+HSPLcom/xjtu/toolbox/*/*Screen*;->**(**)**
+HSPLtop/yukonga/miuix/kmp/nav/**;->**(**)**

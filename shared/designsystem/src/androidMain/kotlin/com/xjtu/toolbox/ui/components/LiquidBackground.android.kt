@@ -34,7 +34,8 @@ internal actual fun PlatformLiquidBackground(
     if (!couiEffectsSupported) return FallbackLiquidBackground(modifier = modifier, colors = colors)
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
-    val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+    val running = animated && LocalPageVisible.current && !LocalPageSettling.current && !LocalReducedEffects.current &&
+        lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
     // 着色器时间按 30 帧/秒推进：液体本身流得很慢，无限动画只会让整个窗口按 120Hz 白白重合成。
     val seconds = remember { mutableFloatStateOf(0f) }
     if (running) {
