@@ -22,6 +22,8 @@ data class AttendanceUiState(
     val stats: List<CourseAttendanceStat> = emptyList(),
     val window: LeaveSemesterWindow? = null,
     val leaves: List<LeaveRecord> = emptyList(),
+    /** 请假栏单独拉取失败的原因（如学校暂停请假「功能暂未上线」），不影响其它栏。 */
+    val leaveError: String? = null,
     val loading: Boolean = true,
     val refreshing: Boolean = false,
     val error: String? = null,
@@ -89,6 +91,13 @@ class AttendanceViewModel(
             if (e is SessionExpiredFailure) throw e
             emptyList()
         }
+        // 请假接口学校可能单独关停（回「功能暂未上线」），不能拖垮考勤记录
+        val leaves = try {
+            Result.success(source.getLeavePage().records)
+        } catch (e: Exception) {
+            if (e is SessionExpiredFailure) throw e
+            Result.failure(e)
+        }
         return AttendanceUiState(
             studentName = name,
             terms = terms,
@@ -97,7 +106,8 @@ class AttendanceViewModel(
             streams = streams,
             stats = stats,
             window = runCatching { source.getSemesterWindow() }.getOrNull(),
-            leaves = source.getLeavePage().records,
+            leaves = leaves.getOrDefault(emptyList()),
+            leaveError = leaves.exceptionOrNull()?.let { FriendlyError.of(it, "加载请假记录") },
         )
     }
 

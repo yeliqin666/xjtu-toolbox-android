@@ -225,6 +225,7 @@ fun AttendanceScreen(
                             2 -> StatList(state.stats, source.capabilities.stats, glassTop)
                             else -> LeaveList(
                                 leaves = state.leaves,
+                                error = state.leaveError,
                                 supported = source.capabilities.leave,
                                 onOpen = { detail = it },
                                 onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
@@ -509,6 +510,7 @@ private fun StatList(
 @Composable
 private fun LeaveList(
     leaves: List<LeaveRecord>,
+    error: String?,
     /** 本端这一份取数真拿得到请假记录吗（见 [AttendanceCapabilities.leave]）。 */
     supported: Boolean,
     onOpen: (LeaveRecord) -> Unit,
@@ -520,11 +522,15 @@ private fun LeaveList(
         isEmpty = leaves.isEmpty(),
         empty = {
             EmptyState(
-                title = if (supported) "还没请过假" else "本端拿不到请假记录",
-                subtitle = if (supported) {
-                    "点右上角加号提交病假或私事假申请"
-                } else {
-                    "当前版本暂不支持请假和销假，请使用 App 或桌面版。"
+                title = when {
+                    error != null -> "请假记录暂时拿不到"
+                    supported -> "还没请过假"
+                    else -> "本端拿不到请假记录"
+                },
+                subtitle = when {
+                    error != null -> error
+                    supported -> "点右上角加号提交病假或私事假申请"
+                    else -> "当前版本暂不支持请假和销假，请使用 App 或桌面版。"
                 },
                 modifier = it,
             )
