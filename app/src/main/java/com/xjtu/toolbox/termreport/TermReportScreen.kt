@@ -174,6 +174,11 @@ fun TermReportScreen(onBack: () -> Unit, onAskAgent: (AgentForward) -> Unit, onN
                 }
                 s?.current?.takeIf { ended != null }?.let { (t, week) -> Small("${t.name}进行到第 $week 周，结束后再来看它的总结") }
                 error?.let { Body(it, color = Color(0xFFFFB4A9)) }
+                // 调试版专用：不受学期门槛限制，用一整套示例数据看排版和文案，不落盘
+                if (com.xjtu.toolbox.BuildConfig.DEBUG) Pill("用示例数据预览（调试版）", filled = false) {
+                    val demo = demoTermReport()
+                    viewing = Viewing(demo.toHtml(), demo.agentSnapshot(), null)
+                }
                 val older = saved.filter { it != ended?.code }
                 if (older.isNotEmpty()) {
                     Spacer(Modifier.height(16.dp))
