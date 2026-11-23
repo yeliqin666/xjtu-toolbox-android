@@ -12,30 +12,29 @@ import org.junit.Test
 class TelTest {
 
     @Test
-    fun `裸号码原样返回`() {
+    fun `手机号原样返回，8 位固话补 029`() {
         assertEquals("13812345678", "13812345678".toDialableTel())
-        assertEquals("82668888", "82668888".toDialableTel())
+        assertEquals("02982668888", "82668888".toDialableTel())
     }
 
     @Test
-    fun `黄页那种带区号的固话行为不变`() {
-        // 黄页 dialNumber 迁移过来之前就是取第一段 7 位以上数字，即丢掉 029。
-        // 校内拨固话本来就只拨后 8 位，这个行为不能因为重构而改变。
-        assertEquals("82668888", "029-82668888".toDialableTel())
+    fun `带区号的固话不重复补`() {
+        assertEquals("02982668888", "029-82668888".toDialableTel())
+        assertEquals("02982668888", "02982668888".toDialableTel())
     }
 
     @Test
     fun `空白被抹掉，分段写的手机号能拼起来`() {
         assertEquals("13812345678", "138 1234 5678".toDialableTel())
         // 全角空格
-        assertEquals("13812345678", "138\u30001234\u30005678".toDialableTel())
-        assertEquals("82668888", "8266 8888".toDialableTel())
+        assertEquals("13812345678", "138　1234　5678".toDialableTel())
+        assertEquals("02982668888", "8266 8888".toDialableTel())
     }
 
     @Test
     fun `连字符不能被抹掉，否则分机号会被粘进主号码`() {
-        assertEquals("82668888", "82668888-101".toDialableTel())
-        assertEquals("82668888", "82668888 转 801".toDialableTel())
+        assertEquals("02982668888", "82668888-101".toDialableTel())
+        assertEquals("02982668888", "82668888 转 801".toDialableTel())
     }
 
     @Test
@@ -54,7 +53,7 @@ class TelTest {
 
     @Test
     fun `多个号码取第一个`() {
-        assertEquals("88968888", "创新港：8896 8888，兴庆：8266 8888".toDialableTel())
+        assertEquals("02988968888", "创新港：8896 8888，兴庆：8266 8888".toDialableTel())
     }
 
     @Test
@@ -68,17 +67,25 @@ class TelTest {
 
     @Test
     fun `多个号码按分隔符逐个取出`() {
-        assertEquals(listOf("13812345678", "82668888"), "138 1234 5678 / 029-82668888".toDialableTels())
-        assertEquals(listOf("82668888", "82668889"), "82668888、82668889".toDialableTels())
-        assertEquals(listOf("82668888", "13812345678"), "82668888；13812345678".toDialableTels())
-        assertEquals(listOf("82668888", "82668889"), "82668888或82668889".toDialableTels())
+        assertEquals(listOf("13812345678", "02982668888"), "138 1234 5678 / 029-82668888".toDialableTels())
+        assertEquals(listOf("02982668888", "02982668889"), "82668888、82668889".toDialableTels())
+        assertEquals(listOf("02982668888", "13812345678"), "82668888；13812345678".toDialableTels())
+        assertEquals(listOf("02982668888", "02982668889"), "82668888或82668889".toDialableTels())
     }
 
     @Test
     fun `多号码去重，分机号与空格分段不拆成多个`() {
-        assertEquals(listOf("82668888"), "82668888，029-82668888".toDialableTels())
-        assertEquals(listOf("82668888"), "82668888-101".toDialableTels())
+        assertEquals(listOf("02982668888"), "82668888，029-82668888".toDialableTels())
+        assertEquals(listOf("02982668888"), "82668888-101".toDialableTels())
         assertEquals(listOf("13812345678"), "138 1234 5678".toDialableTels())
         assertEquals(emptyList<String>(), "见年级群".toDialableTels())
+    }
+
+    @Test
+    fun `显示时给裸固话补区号`() {
+        assertEquals("029-82668888", "82668888".withXianAreaCode())
+        assertEquals("029-82668888", "029-82668888".withXianAreaCode())
+        assertEquals("029-82668888-101", "82668888-101".withXianAreaCode())
+        assertEquals("13812345678", "13812345678".withXianAreaCode())
     }
 }

@@ -408,13 +408,7 @@ class AgentToolRegistry(
                 category = args.argStr("category"),
                 limit = args.argInt("limit") ?: 10
             )
-            // 给 value 是记下，不给是删掉
-            "preference" -> {
-                val key = args.argStr("key") ?: ""
-                val value = (args.argStr("value")).orEmpty()
-                if (value.isBlank()) memory.forget(key)
-                else memory.remember(key, value)
-            }
+            "preference" -> memory.handleTool(args)
             "find_faculty" -> findFaculty(
                 name = args.argStr("name") ?: "",
                 college = args.argStr("college"),

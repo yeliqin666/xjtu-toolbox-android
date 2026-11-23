@@ -557,10 +557,12 @@ private fun GroupRoundButton(
 @Composable
 private fun PaymentCodeOverlay(fetch: suspend () -> String?, radius: Dp) {
     val now = rememberCampusNow()
-    val active = LocalPageVisible.current && isMealPaymentTime(now.time)
-    val code by produceState<String?>(null, active) {
-        value = null
-        while (active) {
+    val mealTime = isMealPaymentTime(now.time)
+    val visible = LocalPageVisible.current
+    // 页面被盖住只停刷新、不清码：否则点开别的卡片时这块会瞬间缩回普通大卡，回来还要等一次取码
+    val code by produceState<String?>(null, mealTime, visible) {
+        if (!mealTime) value = null
+        while (mealTime && visible) {
             value = try {
                 fetch()
             } catch (e: CancellationException) {
@@ -572,7 +574,7 @@ private fun PaymentCodeOverlay(fetch: suspend () -> String?, radius: Dp) {
             delay(PAYMENT_REFRESH_MS)
         }
     }
-    val matrix = remember(code, active) { code?.takeIf { active }?.let { qrCodeModules(it) } } ?: return
+    val matrix = remember(code, mealTime) { code?.takeIf { mealTime }?.let { qrCodeModules(it) } } ?: return
     Column(
         Modifier
             .fillMaxSize()

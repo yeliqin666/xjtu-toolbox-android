@@ -76,7 +76,7 @@ import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
@@ -180,7 +180,7 @@ fun CampusCardScreen(
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
     var wideTab by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             CouiPageTopAppBar(
                 title = "校园卡",

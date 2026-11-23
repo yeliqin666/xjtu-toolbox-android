@@ -26,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import com.xjtu.toolbox.ui.components.showReplacing
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 
@@ -245,7 +246,7 @@ class AppRouter(
 
     private fun notify(message: String) {
         if (navigator.backStack.size <= 1) {
-            scope.launch { messages.showSnackbar(message, duration = SnackbarDuration.Short) }
+            scope.launch { messages.showReplacing(message, duration = SnackbarDuration.Short) }
         } else {
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }

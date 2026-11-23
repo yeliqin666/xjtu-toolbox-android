@@ -94,7 +94,8 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
+import com.xjtu.toolbox.ui.components.showReplacing
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.SnackbarResult
 import com.xjtu.toolbox.ui.components.SmallTitle
@@ -168,10 +169,10 @@ fun InboxScreen(
     val snackbar = remember { SnackbarHostState() }
     val swipe = data.swipe
 
-    /** 滑掉一条之后给个「撤销」，几秒内点了就还原。 */
+    /** 滑掉一条之后给个「撤销」，几秒内点了就还原；连着滑时新提示顶掉旧的。 */
     fun offerUndo(message: String, undo: () -> Unit) {
         scope.launch {
-            val result = snackbar.showSnackbar(message, actionLabel = "撤销", duration = SnackbarDuration.Short)
+            val result = snackbar.showReplacing(message, actionLabel = "撤销", duration = SnackbarDuration.Short)
             if (result == SnackbarResult.ActionPerformed) undo()
         }
     }
@@ -262,7 +263,7 @@ fun InboxScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar, modifier = Modifier.tabContentBottomPadding()) },
+        snackbarHost = { AppSnackbarHost(snackbar, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             GlassTopAppBar(
                 title = "消息",

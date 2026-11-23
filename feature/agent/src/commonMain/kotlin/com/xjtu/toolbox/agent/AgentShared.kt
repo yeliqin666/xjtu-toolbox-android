@@ -32,6 +32,7 @@ fun agentToolLabel(name: String): String = when (name) {
     "add_schedule_event"    -> "添加日程…"
     "add_todo"              -> "记待办…"
     "propose_plan"          -> "列出可加的安排…"
+    "propose_post"          -> "起草社区帖子…"
     "get_todos"             -> "查看待办…"
     "complete_todo"         -> "标记完成…"
     "get_library"           -> "查询图书馆…"

@@ -57,7 +57,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -210,7 +210,7 @@ fun JwappScoreScreen(
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             CouiPageTopAppBar(
                 title = if (gpaSelectMode) "选课算 GPA" else "成绩查询",

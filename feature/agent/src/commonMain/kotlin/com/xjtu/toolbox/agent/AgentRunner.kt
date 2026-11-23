@@ -311,6 +311,11 @@ class AgentRunner(
                         val card = AgentPlanCard.parse(tc.arguments)
                         present(tc.id, listOf(card))
                         AgentPlanCard.receipt(card)
+                    } else if (tc.name == AgentPostCard.TOOL) {
+                        // 只出预览卡；真正发帖要用户在卡上点「发布」
+                        val card = AgentPostCard.parse(tc.arguments)
+                        present(tc.id, listOf(card))
+                        AgentPostCard.receipt(card)
                     } else if (tc.name == AgentRetitle.TOOL && retitle != null) {
                         val args = AppJson.parseToJsonElement(tc.arguments).jsonObject
                         val title = args.argStr("title")
@@ -318,7 +323,7 @@ class AgentRunner(
                     } else interruptible { tools.execute(tc.name, tc.arguments) }
                 }
                 // 查询保留快照，展示在拿到结果后单独决定。
-                val made = if (tc.name == AgentWidgetPresentation.TOOL || tc.name == AgentPlanCard.TOOL) emptyList() else tools.drainWidgets()
+                val made = if (tc.name == AgentWidgetPresentation.TOOL || tc.name == AgentPlanCard.TOOL || tc.name == AgentPostCard.TOOL) emptyList() else tools.drainWidgets()
                 var result: String
                 val toolErrorMsg: String?
                 if (toolResult.isSuccess) {

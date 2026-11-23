@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.yellowpage
 
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.util.withXianAreaCode
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
@@ -233,8 +234,9 @@ private fun DepartmentCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            department.phoneItems.forEach { item ->
-                val number = department.dialNumber(item)
+            department.phoneItems.forEach { raw ->
+                val item = raw.withXianAreaCode()
+                val number = department.dialNumber(raw)
                 Row(
                     Modifier
                         .clip(RoundedCornerShape(50))

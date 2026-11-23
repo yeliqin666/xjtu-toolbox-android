@@ -63,7 +63,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.EventAvailable
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -472,7 +472,7 @@ fun ScheduleScreen(
     Scaffold(
         snackbarHost = {
             Box(Modifier.padding(bottom = contentBottomPadding)) {
-                SnackbarHost(snackbarHostState)
+                AppSnackbarHost(snackbarHostState)
             }
         },
     ) { _ ->

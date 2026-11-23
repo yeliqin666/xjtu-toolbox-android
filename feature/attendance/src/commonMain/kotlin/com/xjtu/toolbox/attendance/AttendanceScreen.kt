@@ -64,7 +64,7 @@ import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -131,7 +131,7 @@ fun AttendanceScreen(
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             GlassTopAppBar(
                 title = "考勤",

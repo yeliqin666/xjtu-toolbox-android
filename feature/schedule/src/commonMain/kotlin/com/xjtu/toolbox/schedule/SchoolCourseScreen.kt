@@ -37,6 +37,7 @@ import com.xjtu.toolbox.ui.components.AppChipTabRow
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
@@ -131,7 +132,7 @@ fun SchoolCourseScreen(
                 onBack = onBack,
             )
         },
-        snackbarHost = { SnackbarHost(snackbarState, modifier = Modifier.tabContentBottomPadding()) }
+        snackbarHost = { AppSnackbarHost(snackbarState, modifier = Modifier.tabContentBottomPadding()) }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
         if (vm.isInitializing) {

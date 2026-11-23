@@ -140,6 +140,7 @@ internal object AgentWidgetPresentation {
             is LibraryWidget -> if (w.areas.isNotEmpty()) w.areas.map { "${it.name}｜${it.free}/${it.total}" } else w.seats.map { it.seatId }
             is CampusMapWidget -> w.places
             is PlanWidget -> w.items.map { "${it.date} ${it.start}｜${it.title}" }
+            is PostWidget -> listOf("${w.category}｜${w.title}")
             is BusWidget -> w.items.map { "${it.time} ${it.line}｜${it.route}｜余${it.seatsLeft}" }
             is LmsFileWidget -> w.items.map { it.name + if (it.mine) "｜用户提交" else "｜老师发布" }
         }
@@ -172,7 +173,7 @@ internal object AgentWidgetPresentation {
         require(options.keys.all { it in known }) { "不支持的展示选项：${(options.keys - known).joinToString()}" }
         return widgets.map { w ->
             val kind = when (w) {
-                is PlanWidget -> return@map w   // 由 propose_plan 直接出卡，没有筛选项
+                is PlanWidget, is PostWidget -> return@map w   // 由 propose_plan / propose_post 直接出卡，没有筛选项
                 is NoticeWidget -> "notices"
                 is GradeWidget -> "grades"; is ScheduleWidget -> "schedule"; is ExamWidget -> "exams"
                 is RoomWidget, is LiveRoomWidget -> "rooms"; is AttendanceWidget -> "attendance"
@@ -305,7 +306,7 @@ internal object AgentWidgetPresentation {
                     val areas = if (w.areas.isEmpty()) w.areas else o.select(w.areas)
                     w.copy(areas = areas, highlightedSeats = ids, display = o.display(w.seats.size, view = view))
                 }
-                is PlanWidget -> w
+                is PlanWidget, is PostWidget -> w
                 is CampusMapWidget -> {
                     val names = o.strings("place_names")
                     require(names == null || names.all { it in w.places }) { "place_names 只能选择本次结果已有地点" }

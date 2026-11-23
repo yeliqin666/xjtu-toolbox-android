@@ -4,6 +4,7 @@ import android.content.Context
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.withXianAreaCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.xjtu.toolbox.home.HomeLine
@@ -319,7 +320,7 @@ object HomeStats {
                 data.departments.firstOrNull { name in it.name && it.phoneItems.isNotEmpty() }
             }.distinct().ifEmpty { data.departments.filter { it.phoneItems.isNotEmpty() }.take(4) }
             out.lines(AppRoute.YellowPage.id, "", null,
-                picks.map { d -> HomeLine(d.name, "tel:" + d.dialNumber(d.phoneItems.first()), d.phoneItems.first()) })
+                picks.map { d -> HomeLine(d.name, "tel:" + d.dialNumber(d.phoneItems.first()), d.phoneItems.first().withXianAreaCode()) })
         }
         val games = com.xjtu.toolbox.game.GameStore.recentRoutes().mapNotNull { id ->
             com.xjtu.toolbox.game.GameStore.titles[id]?.let { HomeLine(it, "app:$id", com.xjtu.toolbox.game.GameStore.summary(id)) }

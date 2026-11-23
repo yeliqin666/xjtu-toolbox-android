@@ -113,12 +113,7 @@ internal class DesktopAgentTools(
             "calculate" -> agentCalculate(args.argStr("expression").orEmpty())
             "app_guide" -> APP_GUIDE
             "search_campus_guide" -> campusGuideText(args.argStr("query"), args.argStr("section"), args.argInt("limit"))
-            // 给 value 是记下，不给是删掉（与 `:app` 同一条判据）
-            "preference" -> {
-                val key = args.argStr("key") ?: ""
-                val value = args.argStr("value").orEmpty()
-                if (value.isBlank()) memory.forget(key) else memory.remember(key, value)
-            }
+            "preference" -> memory.handleTool(args)
             "search_yellow_page" -> searchYellowPage(
                 query = args.argStr("query"),
                 category = args.argStr("category"),

@@ -243,6 +243,20 @@ fun HeroAppearanceDialog(
             )
         } else {
             Column {
+                // 放在标题下：长按卡片后手指就在上半屏，不用再够到底部
+                if (onOpenHomeSettings != null) {
+                    Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "打开主页设置",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClick = onOpenHomeSettings)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
                 Column(
                     Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -421,19 +435,6 @@ fun HeroAppearanceDialog(
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),
                     )
-                }
-                if (onOpenHomeSettings != null) {
-                    Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
-                        Text(
-                            "打开主页设置",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable(onClick = onOpenHomeSettings)
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
                 }
             }
         }

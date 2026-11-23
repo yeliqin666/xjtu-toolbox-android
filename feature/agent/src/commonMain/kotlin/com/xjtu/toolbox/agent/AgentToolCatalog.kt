@@ -84,12 +84,13 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "limit" to agentIntProp("条数，默认 10，上限 20。"),
         )))
     arr.add(agentTool("preference",
-        "在本机长期保存或删除一条用户偏好或个人信息。只存可复用的信息，不存一次性事项。" +
+        "在本机长期保存、修改、删除或列出用户偏好与个人信息，返回改后的完整清单。只存可复用的信息，不存一次性事项。" +
             "用户纠正校区、学院、专业、年级、书院时用固定键名（校区/学院/专业/年级/书院）记下，会压过学校系统里的旧信息。",
         agentParams(
-            "key" to agentStrProp("偏好名，同名覆盖。"),
+            "action" to agentEnumProp("list 只列出当前偏好；缺省：按 key/value 写入或删除。", "list"),
+            "key" to agentStrProp("偏好名。同名或与已有键互相包含（如 所在校区/校区）时覆盖那一条。"),
             "value" to agentStrProp("内容，一句。缺省：删除该偏好。"),
-            required = listOf("key"),
+            "old_key" to agentStrProp("改名时的旧键名，写入后删掉它。"),
         )))
     arr.add(agentTool("find_faculty",
         "本校在职教师主页：学院、职称、研究方向、办公地点、邮箱、主页地址。不含学生、行政人员、校外人士。",

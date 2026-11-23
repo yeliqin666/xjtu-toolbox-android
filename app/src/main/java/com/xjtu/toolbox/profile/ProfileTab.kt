@@ -59,6 +59,7 @@ import com.xjtu.toolbox.platform.rememberPhoneDialer
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.util.toDialableTels
+import com.xjtu.toolbox.util.withXianAreaCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -162,6 +163,7 @@ private fun MentorLine(label: String, name: String, phone: String) {
     val dial = rememberPhoneDialer()
     val copy = rememberCopyText()
     val numbers = remember(phone) { phone.toDialableTels() }
+    val shown = remember(phone) { phone.withXianAreaCode() }
     var choosing by remember { mutableStateOf(false) }
 
     Row(
@@ -186,7 +188,7 @@ private fun MentorLine(label: String, name: String, phone: String) {
             Spacer(Modifier.width(8.dp))
             Box {
                 Text(
-                    phone,
+                    shown,
                     style = MiuixTheme.textStyles.footnote1,
                     color = if (numbers.isEmpty()) MiuixTheme.colorScheme.onSurfaceVariantSummary
                     else MiuixTheme.colorScheme.primary,
@@ -194,11 +196,11 @@ private fun MentorLine(label: String, name: String, phone: String) {
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .then(
-                            if (numbers.isEmpty()) Modifier.copyOnLongPress(phone, copy)
+                            if (numbers.isEmpty()) Modifier.copyOnLongPress(shown, copy)
                             else Modifier.combinedClickable(
                                 onClickLabel = if (numbers.size == 1) "拨打 ${numbers[0]}" else "选择号码拨打",
                                 onLongClickLabel = "复制号码",
-                                onLongClick = { copy(phone) },
+                                onLongClick = { copy(shown) },
                             ) { if (numbers.size == 1) dial(numbers[0]) else choosing = true }
                         )
                         .padding(horizontal = 8.dp, vertical = 6.dp)

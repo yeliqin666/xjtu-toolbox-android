@@ -154,7 +154,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -483,7 +483,7 @@ internal fun MainScreen(
                 .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
         },
         tabArt = tabArt,
-        snackbarHost = { SnackbarHost(router.messages) },
+        snackbarHost = { AppSnackbarHost(router.messages) },
         topBar = { shellTab, handles ->
             // 顶栏留在这一端：它有 Android 的扫一扫图标（`R.drawable.ic_scan`）与每格自己的表头槽位。
             // 每页一份，按这一页自己的格子画，不看当前选中项
