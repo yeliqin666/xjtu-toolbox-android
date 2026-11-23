@@ -144,6 +144,13 @@ object FeedbackStore {
     /** 是否该弹一次轻量评价。 */
     fun shouldPrompt(versionCode: Int, usageCount: Int, isConfigured: Boolean): Boolean {
         if (!isConfigured) return false
+        // 新版本装上满几天再问：刚升级时用户还没用过，也免得和更新日志叠着弹
+        val seen = store.getString(K_VERSION_SEEN)?.split(':')
+        if (seen?.firstOrNull()?.toIntOrNull() != versionCode) {
+            store.putString(K_VERSION_SEEN, "$versionCode:${now()}")
+            return false
+        }
+        if (now() - (seen.getOrNull(1)?.toLongOrNull() ?: 0L) < MIN_VERSION_AGE_MS) return false
         if (usageCount < MIN_USAGE) return false
         if (store.getString(K_PROMPT_DONE)?.toIntOrNull() == versionCode) return false
         val last = store.getString(K_PROMPT_AT)?.toLongOrNull() ?: 0L
@@ -158,6 +165,8 @@ object FeedbackStore {
 
     private const val MIN_USAGE = 8
     private const val MIN_GAP_MS = 14L * 24 * 60 * 60 * 1000
+    private const val MIN_VERSION_AGE_MS = 3L * 24 * 60 * 60 * 1000
+    private const val K_VERSION_SEEN = "prompt_version_seen"
 
     data class Ticket(
         val id: String,

@@ -1,5 +1,11 @@
 package com.xjtu.toolbox.ss
 
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.mutableStateMapOf
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -98,7 +104,7 @@ internal class SsActivityViewModel(site: SiteSession) : ViewModel() {
         detailId = id; detail = null; detailError = null
         viewModelScope.launch {
             runCatching { io { api.detail(id) } }
-                .onSuccess { if (detailId == id) detail = it }
+                .onSuccess { record(it); if (detailId == id) detail = it }
                 .onFailure { if (detailId == id) detailError = message(it) }
         }
     }
@@ -113,7 +119,7 @@ internal class SsActivityViewModel(site: SiteSession) : ViewModel() {
                 .onSuccess {
                     toast = done
                     runCatching { io { api.detail(id) } }.onSuccess { if (detailId == id) detail = it }
-                    if (mine != null) loadMine()
+                    loadMine()
                 }
                 .onFailure { toast = message(it) }
             busy = false
@@ -129,6 +135,52 @@ internal class SsActivityViewModel(site: SiteSession) : ViewModel() {
     fun cancel() = act("已取消报名") { api.cancel(it) }
 
     fun signIn(code: String) = act("签到 / 签退成功") { api.signIn(it, code) }
+
+    /** 封面缩略图：按地址缓存解码结果（含取不到的 null），最多留 120 张。 */
+    private val covers = object : LinkedHashMap<String, ImageBitmap?>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap?>?) = size > 120
+    }
+
+    /** 列表卡片按详情补的信息：列表接口不带正文，明写的标签和是否要报名只能从详情拿。 */
+    data class CardInfo(val explicitTags: List<String>, val needApply: Boolean)
+
+    val cardInfo = mutableStateMapOf<String, CardInfo>()
+    private val prefetchGate = Semaphore(3)
+    private val prefetching = HashSet<String>()
+
+    /** 卡片出现时调：后台拉一次详情（不调浏览记分接口），最多同时 3 个。 */
+    fun prefetch(id: String) {
+        if (id in cardInfo || !prefetching.add(id)) return
+        viewModelScope.launch {
+            prefetchGate.withPermit {
+                runCatching { io { api.detail(id) } }.onSuccess { record(it) }
+            }
+            prefetching.remove(id)
+        }
+    }
+
+    private fun record(d: SsActivityDetail) {
+        cardInfo[d.base.id] = CardInfo(d.explicitTags, d.needApply)
+    }
+
+    fun cachedCover(url: String): ImageBitmap? = covers[url]
+
+    suspend fun cover(url: String): ImageBitmap? {
+        if (covers.containsKey(url)) return covers[url]
+        val bitmap = io { api.image(url)?.let(::decodeThumb) }
+        covers[url] = bitmap
+        return bitmap
+    }
+
+    /** 按长边约 480px 降采样，列表里的小图不必解整张原图。 */
+    private fun decodeThumb(bytes: ByteArray): ImageBitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 480) sample *= 2
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?.asImageBitmap()
+    }
 
     companion object { const val PAGE = 20 }
 }

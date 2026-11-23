@@ -31,10 +31,18 @@ data class SsActivity(
     /** 课程性质（必修 / 选修）与素养能力类别：课外学分认定看这两项。 */
     val nature: String = "",
     val ability: String = "",
+    /** 是否要报名；接口没给这个字段时为 null（不显示「无需报名」）。 */
+    val needApply: Boolean? = null,
 ) {
     /** 讲座、报告、分享会一类：常能开集体活动证明，活动描述里多半不写。 */
     val likelyGroupProof: Boolean get() = GROUP_PROOF_WORDS.any { it in title }
 }
+
+/** 描述里出现即可确认的标签词；详情正文里也按这几个词高亮。 */
+val EXPLICIT_TAG_WORDS = listOf("集体活动", "校级活动", "院级活动")
+
+/** HTML 标签、实体空格与各种空白：「集<span>体</span> 活动」也要认得。 */
+private val TAGS_AND_SPACE = Regex("""<[^>]*>|&nbsp;|&#160;|[\s　 ]""")
 
 /** 集体活动证明的常见来源（#465）：按这些词搜名称。 */
 val GROUP_PROOF_WORDS = listOf("讲座", "报告", "分享", "宣讲", "论坛", "沙龙", "交流会", "座谈")
@@ -56,13 +64,22 @@ data class SsActivityDetail(
     val quota: Int?,
     val needReview: Boolean,
     val applied: Boolean,
+    /** 与官方详情页同一判据：已报名、仍在报名期内、且不在签到期（或在签到期但还没签到）。 */
     val canCancel: Boolean,
     val onsiteSignIn: Boolean,
     /** 发布范围，如「院级活动」。 */
     val scope: String = "",
     /** 积分构成，如「浏览 1 · 报名 2 · 签到 5」。 */
     val pointsBreakdown: String = "",
+    /** 正文 + 须知去掉 HTML 与空白后的文本（这几个字常被标签拆开）。 */
+    val searchText: String = "",
 ) {
+    /**
+     * 描述里明写的「集体活动 / 校级活动 / 院级活动」（区别于按标题猜的 [SsActivity.likelyGroupProof]）。
+     * 只认正文和须知：发布范围（谁主办）不等于活动能算哪一级。
+     */
+    val explicitTags: List<String> get() = EXPLICIT_TAG_WORDS.filter { it in searchText }
+
     /** 现在能不能报名；不能时给出原因（小岱报名前也走这一道）。 */
     fun applyBlocker(now: LocalDateTime): String? = when {
         !needApply -> "这个活动不用报名"
@@ -76,7 +93,10 @@ data class SsActivityDetail(
 }
 
 /** 我的报名里的一条。 */
-data class SsMyApply(val activityId: String, val title: String, val review: String, val activityStatus: String, val start: String)
+data class SsMyApply(
+    val activityId: String, val title: String, val review: String, val activityStatus: String, val start: String,
+    val cover: String? = null,
+)
 
 class SsException(message: String) : RuntimeException(message)
 
@@ -155,12 +175,14 @@ class SsActivityApi(private val site: SiteSession) {
             quota = o["BMXZRS"].safeStringOrNull()?.toIntOrNull()?.takeIf { it > 0 },
             needReview = o["BMSH"].flag(),
             applied = o["HASAPPLY"].flag(),
-            canCancel = o["SFQXBM"].flag(),
+            canCancel = o["HASAPPLY"].flag() && o["SFXYBM"].flag() && o["SFZBMSJN"].flag() &&
+                (!o["SFZQDSJN"].flag() || (o["SFXCQD"].flag() && o["YZMZT"].safeString() == "1")),
             onsiteSignIn = o["SFXCQD"].flag(),
             scope = o["FBFW_DISPLAY"].safeString(),
             pointsBreakdown = listOf("浏览" to "LLF", "报名" to "BMF", "签到" to "QDF", "机动" to "JDF")
                 .mapNotNull { (label, key) -> o[key].safeString().takeIf { it.isNotBlank() && it != "0" }?.let { "$label $it" } }
                 .joinToString(" · "),
+            searchText = (o["HDNR"].safeString() + "|" + o["HDXZ"].safeString()).replace(TAGS_AND_SPACE, ""),
         )
     }
 
@@ -181,7 +203,7 @@ class SsActivityApi(private val site: SiteSession) {
     }
 
     suspend fun myApplies(page: Int = 1, pageSize: Int = 30): List<SsMyApply> =
-        rows(call("myInfoController/getWdbmInfo.do", buildJsonObject { put("PAGENUM", page); put("PAGESIZE", pageSize) }))
+        rows(call("myInfoController/getWdbmInfo.do", buildJsonObject { put("PAGENUM", page); put("PAGESIZE", pageSize); put("querySetting", "[]") }))
             .map {
                 SsMyApply(
                     activityId = it["HDDM"].safeString(),
@@ -196,6 +218,9 @@ class SsActivityApi(private val site: SiteSession) {
                         else -> if (z.all(Char::isDigit)) SsActivityStatus.ENDED else status(z)
                     }.label,
                     start = it["HDKSSJ"].safeString().ifBlank { it["HDRQ"].safeString() },
+                    // 封面这里给的是文件 token，与官方「我的报名」页同一取图地址
+                    cover = it["HDFM"].safeStringOrNull()?.takeIf { t -> t.isNotBlank() }
+                        ?.let { t -> absolute("/xsfw/sys/emapcomponent/file/getSingleImageByToken.do?fileToken=$t&type=3") },
                 )
             }
 
@@ -211,10 +236,18 @@ class SsActivityApi(private val site: SiteSession) {
         status = status(this["HDZT"].safeString()),
         participants = this["CYRS"].safeInt(),
         points = this["HDZF"].safeString(),
-        cover = this["ZPURL"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let { absolute(it) },
+        cover = (this["ZPURL"].safeStringOrNull() ?: this["HDFM_URL"].safeStringOrNull())?.takeIf { it.isNotBlank() }?.let { absolute(it) },
         nature = this["KCXZ_DISPLAY"].safeString(),
         ability = this["SYNLDM_DISPLAY"].safeString(),
+        needApply = this["SFXYBM"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let { it.trim() == "1" },
     )
+
+    /** 封面原图（站内地址要带会话 cookie）；取不到给 null。 */
+    suspend fun image(url: String): ByteArray? = runCatching {
+        site.client.newCall(Request.Builder().url(url).header("Referer", SsSession.APP_INDEX).build()).execute().use { r ->
+            r.body.bytes().takeIf { r.isSuccessful && r.header("Content-Type")?.startsWith("image") == true }
+        }
+    }.getOrNull()
 
     private fun absolute(url: String) = if (url.startsWith("http")) url else "https://${SsSession.HOST}${if (url.startsWith("/")) "" else "/"}$url"
 

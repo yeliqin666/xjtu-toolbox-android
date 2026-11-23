@@ -62,6 +62,8 @@ fun FeedbackPromptSheet(
 
     var note by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
+    /** 点了「有问题」但没写内容：光一个「有问题」排查不了，先请他写一句 */
+    var needDetail by remember { mutableStateOf(false) }
 
     fun close() {
         FeedbackStore.markPrompted(versionCode)
@@ -128,20 +130,28 @@ fun FeedbackPromptSheet(
             Spacer(Modifier.height(16.dp))
             TextField(
                 value = note,
-                onValueChange = { note = it },
-                label = "有什么想说的？（选填）",
+                onValueChange = { note = it; needDetail = false },
+                label = if (needDetail) "哪里有问题？在哪个页面、做了什么" else "有什么想说的？（选填）",
                 singleLine = false,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 96.dp),
             )
+            if (needDetail) {
+                Text(
+                    "写一句就能帮我们定位；要附截图或详细描述，可以到首页「社区」发帖。",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             Spacer(Modifier.height(12.dp))
             // 底部弹窗惯例：左次要、右主要，两个。「别问了」删了——下滑/点外面关掉就是不再问，
             // 和两个评价并排反而像三选一。
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
                     text = "有问题",
-                    onClick = { send("有问题", note.trim()) },
+                    onClick = { if (note.isBlank()) needDetail = true else send("有问题", note.trim()) },
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(

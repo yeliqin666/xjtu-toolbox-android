@@ -1,7 +1,21 @@
 package com.xjtu.toolbox.ss
 
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -164,7 +178,8 @@ private fun ActivityList(vm: SsActivityViewModel, padding: PaddingValues, glassT
             }
             else -> {
                 items(vm.activities, key = { it.id }) { a ->
-                    ActivityCard(a) { vm.open(a.id) }
+                    LaunchedEffect(a.id) { vm.prefetch(a.id) }
+                    ActivityCard(a, vm, vm.cardInfo[a.id]) { vm.open(a.id) }
                     if (a.id == vm.activities.last().id) LaunchedEffect(a.id) { vm.loadMore() }
                 }
                 if (!vm.endReached) item(key = "more") {
@@ -190,17 +205,54 @@ private fun MineList(vm: SsActivityViewModel, padding: PaddingValues, glassTop: 
         else -> LazyColumn(Modifier.fillMaxSize().overScrollVertical(), contentPadding = padding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(mine) { m ->
                 Card(Modifier.fillMaxWidth().clickable(enabled = m.activityId.isNotBlank()) { vm.open(m.activityId) }) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(m.title, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            listOf(m.start, m.activityStatus, m.review).filter { it.isNotBlank() }.joinToString(" · "),
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Cover(m.cover, vm, Modifier.padding(end = 12.dp).size(width = 72.dp, height = 54.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(m.title, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                listOf(m.start, m.activityStatus, m.review).filter { it.isNotBlank() }.joinToString(" · "),
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+/** 站内封面（要带会话 cookie）：有地址就先占位，文字不会在图到了以后再被挤开；图到了淡入，缓存过的直接显示。 */
+@Composable
+private fun Cover(url: String?, vm: SsActivityViewModel, modifier: Modifier) {
+    if (url == null) return
+    val image by produceState(vm.cachedCover(url), url) { if (value == null) value = vm.cover(url) }
+    val alpha by animateFloatAsState(if (image != null) 1f else 0f, tween(260), label = "cover")
+    Box(modifier.clip(RoundedCornerShape(10.dp)).background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f))) {
+        image?.let {
+            Image(
+                it, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize().graphicsLayer { this.alpha = alpha },
+            )
+        }
+    }
+}
+
+/** 正文里明写的「集体活动 / 校级活动 / 院级活动」加粗染主题色。 */
+@Composable
+private fun highlightTagWords(text: String): AnnotatedString {
+    val accent = MiuixTheme.colorScheme.primary
+    return remember(text, accent) {
+        val pattern = Regex(EXPLICIT_TAG_WORDS.joinToString("|"))
+        buildAnnotatedString {
+            var last = 0
+            pattern.findAll(text).forEach { m ->
+                append(text, last, m.range.first)
+                withStyle(SpanStyle(color = accent, fontWeight = FontWeight.Bold)) { append(m.value) }
+                last = m.range.last + 1
+            }
+            append(text, last, text.length)
         }
     }
 }
@@ -240,9 +292,11 @@ private fun Tag(text: String, highlight: Boolean) {
 }
 
 @Composable
-private fun ActivityCard(a: SsActivity, onClick: () -> Unit) {
+private fun ActivityCard(a: SsActivity, vm: SsActivityViewModel, info: SsActivityViewModel.CardInfo?, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Column(Modifier.padding(14.dp)) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Cover(a.cover, vm, Modifier.padding(end = 12.dp).size(width = 84.dp, height = 64.dp))
+        Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.Top) {
                 Text(a.title, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
@@ -251,9 +305,14 @@ private fun ActivityCard(a: SsActivity, onClick: () -> Unit) {
             Spacer(Modifier.height(6.dp))
             val meta = listOf(a.type, a.org).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) Text(meta, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val tags = listOfNotNull("可开集体活动证明".takeIf { a.likelyGroupProof }, a.nature.ifBlank { null }, a.ability.ifBlank { null })
-            if (tags.isNotEmpty()) Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                tags.forEach { Tag(it, highlight = it == "可开集体活动证明") }
+            // 详情（后台预取）到了用明写的标签；没到之前只能按标题推测
+            val explicit = info?.explicitTags.orEmpty()
+            val tags = explicit.map { it to true } + listOfNotNull(
+                (GUESSED_GROUP to false).takeIf { a.likelyGroupProof && "集体活动" !in explicit },
+                (NO_APPLY to false).takeIf { (info?.needApply ?: a.needApply) == false },
+            ) + listOf(a.nature, a.ability).filter { it.isNotBlank() }.map { it to false }
+            if (tags.isNotEmpty()) FlowRow(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                tags.forEach { (label, confirmed) -> Tag(label, highlight = confirmed) }
             }
             Text(
                 listOfNotNull(
@@ -264,8 +323,12 @@ private fun ActivityCard(a: SsActivity, onClick: () -> Unit) {
                 style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
+        }
     }
 }
+
+private const val GUESSED_GROUP = "疑似集体活动"
+private const val NO_APPLY = "无需报名"
 
 @Composable
 private fun ActivitySheet(vm: SsActivityViewModel, onOpenWeb: (String) -> Unit) {
@@ -314,14 +377,25 @@ private fun DetailBody(d: SsActivityDetail, vm: SsActivityViewModel, onOpenWeb: 
         ("地点" to d.place).takeIf { d.place.isNotBlank() },
         ("主办" to a.org).takeIf { a.org.isNotBlank() },
         ("报名" to "${d.applyStart} 至 ${d.applyEnd}").takeIf { d.needApply && (d.applyStart.isNotBlank() || d.applyEnd.isNotBlank()) },
+        ("报名" to "无需报名，按时参加即可").takeIf { !d.needApply },
         ("名额" to "${d.quota} 人，已有 ${a.participants} 人").takeIf { d.quota != null },
         ("范围" to d.scope).takeIf { d.scope.isNotBlank() },
         ("课外学分" to listOf(a.nature, a.ability).filter { it.isNotBlank() }.joinToString(" · ")).takeIf { a.nature.isNotBlank() || a.ability.isNotBlank() },
         ("积分" to listOf(a.points, d.pointsBreakdown.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()).joinToString("")).takeIf { a.points.isNotBlank() && a.points != "0" },
-        ("集体活动" to "讲座类活动通常可开证明，以主办方为准").takeIf { a.likelyGroupProof },
+        ("集体活动" to "标题像讲座类活动，通常可开证明，以主办方为准").takeIf { a.likelyGroupProof && "集体活动" !in d.explicitTags },
         ("我的状态" to "已报名").takeIf { d.applied },
     )
+    // 描述里明写的标签直接确认；没写「集体活动」但标题像讲座的，标成「疑似」
+    val tags = d.explicitTags.map { it to true } +
+        listOfNotNull(
+            (GUESSED_GROUP to false).takeIf { a.likelyGroupProof && "集体活动" !in d.explicitTags },
+            (NO_APPLY to false).takeIf { !d.needApply },
+        )
     Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+        Cover(a.cover, vm, Modifier.padding(bottom = 10.dp).fillMaxWidth().aspectRatio(16f / 9f))
+        if (tags.isNotEmpty()) FlowRow(Modifier.padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            tags.forEach { (label, confirmed) -> Tag(label, highlight = confirmed) }
+        }
         facts.forEach { (k, v) ->
             Row(Modifier.padding(vertical = 3.dp)) {
                 Text(k, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(64.dp))
@@ -334,7 +408,7 @@ private fun DetailBody(d: SsActivityDetail, vm: SsActivityViewModel, onOpenWeb: 
         }
         if (body.isNotBlank()) {
             Spacer(Modifier.height(10.dp))
-            Text(body, style = MiuixTheme.textStyles.body2)
+            Text(highlightTagWords(body), style = MiuixTheme.textStyles.body2)
         }
     }
     Spacer(Modifier.height(14.dp))
@@ -355,7 +429,7 @@ private fun DetailBody(d: SsActivityDetail, vm: SsActivityViewModel, onOpenWeb: 
                     Text(if (vm.busy) "提交中…" else blocker ?: "一键报名", color = MiuixTheme.colorScheme.onPrimary)
                 }
         }
-        if (d.applied && d.canCancel && a.status == SsActivityStatus.UPCOMING) {
+        if (d.canCancel) {
             TextButton(text = "取消报名", onClick = { vm.cancel() }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth())
         }
         TextButton(text = "在网页中打开", onClick = { onOpenWeb(web) }, modifier = Modifier.fillMaxWidth())
