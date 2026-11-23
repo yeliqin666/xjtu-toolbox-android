@@ -115,6 +115,8 @@ import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.settings.rememberAppSettingsHost
 import com.xjtu.toolbox.social.AppMatchScreen
+import com.xjtu.toolbox.termreport.TermReportScreen
+import com.xjtu.toolbox.termreport.TrackGamePlaytime
 import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.venue.VenueSlideCaptchaHost
@@ -160,7 +162,7 @@ fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
 
 /** [appPageEntries] 里以 data object 形式注册过的页面（带参数的上面单独判断）。 */
 private val standaloneHostedRoutes: Set<AppRoute> = setOf(
-    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity,
+    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity, AppRoute.TermReport,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
     AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress,
@@ -741,26 +743,37 @@ fun NavEntryBuilder.appPageEntries(
         entry<AppRoute.Games>(transition = expand(AppRoute.Games::class)) {
             GamesScreen(onBack = back, onNavigate = router::open)
         }
+        // 每个游戏页都记时长，给学期总结用
         entry<AppRoute.Game2048>(transition = expand(AppRoute.Game2048::class)) {
+            TrackGamePlaytime("2048")
             Gpa2048Screen(onBack = back)
         }
         entry<AppRoute.GameMerge>(transition = expand(AppRoute.GameMerge::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("合成")
             MergeGameScreen(onBack = back)
         }
         entry<AppRoute.GameBlocks>(transition = expand(AppRoute.GameBlocks::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("方块")
             BlocksScreen(onBack = back)
         }
         entry<AppRoute.GameHop>(transition = expand(AppRoute.GameHop::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("跳一跳")
             HopScreen(onBack = back, landmarkImages = rememberHopLandmarkImages())
         }
         entry<AppRoute.GameGomoku>(transition = expand(AppRoute.GameGomoku::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("五子棋")
             GomokuScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
         entry<AppRoute.GameGo>(transition = expand(AppRoute.GameGo::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("围棋")
             GoScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
         entry<AppRoute.GameXiangqi>(transition = expand(AppRoute.GameXiangqi::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("象棋")
             XiangqiScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
+        }
+        entry<AppRoute.TermReport>(transition = expand(AppRoute.TermReport::class), swipeDismiss = NavSwipeDirection.None) {
+            TermReportScreen(onBack = back, onAskAgent = { sendToPidai(it, router::open) }, onNavigate = router::open)
         }
         entry<AppRoute.Match>(transition = expand(AppRoute.Match::class)) {
             AppMatchScreen(onBack = back)

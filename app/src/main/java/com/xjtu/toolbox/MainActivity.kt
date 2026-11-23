@@ -132,6 +132,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         SessionKeepAlive.start()
+        lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.termreport.recordAppLaunch() }
         lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.shortcuts.LauncherShortcuts.sync(this@MainActivity) }
         // 后台预热金标联盟一镜到底的能力探测：首次点击公告卡不再付反射探测的钱。
         lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.sharedview.KitOneTake.prewarm() }

@@ -3,6 +3,7 @@ package com.xjtu.toolbox.home
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.Celebration
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
@@ -53,6 +54,7 @@ object HomeIcons {
         AppRoute.JwappScore -> Icons.Default.Assessment
         AppRoute.Judge -> Icons.Default.RateReview
         AppRoute.SsActivity -> Icons.Default.Celebration
+        AppRoute.TermReport -> Icons.Default.AutoAwesome
         AppRoute.Jiaocai -> Icons.AutoMirrored.Filled.MenuBook
         AppRoute.Jiaocai1 -> Icons.AutoMirrored.Filled.LibraryBooks
         AppRoute.Library -> Icons.Default.Chair

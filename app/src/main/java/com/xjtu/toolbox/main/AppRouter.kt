@@ -127,6 +127,8 @@ class AppRouter(
             notify("$label 学校系统维护中，暂不可用")
             return
         }
+        // 学期总结用：只记功能页，带参数的（网址、帖子号）不记
+        if (route.id.none { it == '?' || it == '/' }) com.xjtu.toolbox.termreport.AppUsage.add("open:${route.id}")
         val type = route.loginType
         when {
             type != null -> openWithLogin(route, type)

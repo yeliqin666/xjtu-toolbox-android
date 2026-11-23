@@ -406,7 +406,9 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
             errorMessage = CONTEXT_EXHAUSTED_MESSAGE
             return
         }
-        if (currentSessionId == null) currentSessionId = store?.create()?.id
+        val newChat = currentSessionId == null
+        if (newChat) currentSessionId = store?.create()?.id
+        AgentUsage.message(newChat)
         errorMessage = null
         // 带了上下文却没说来源的（提醒气泡、外部入口），也要标出来：用户该知道这条不只是他打的那句
         val label = contextLabel ?: if (!llmAnnex.isNullOrBlank()) "App 快照" else null
@@ -600,6 +602,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                         // 换气泡前先把攒着的分片落到旧气泡上。
                         flushStream()
                         streamIdx = -1
+                        AgentUsage.tool(name)
                         val label = agentToolLabel(name)
                         if (currentSessionId == turnSid) {
                             messages.add(ChatMessage("tool_event", label, isToolCall = true))

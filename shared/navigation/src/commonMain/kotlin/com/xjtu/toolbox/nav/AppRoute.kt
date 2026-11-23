@@ -76,6 +76,8 @@ sealed interface AppRoute : NavKey {
         override val id get() = "ss_activity"
         override val loginType get() = LoginType.SS
     }
+    /** 学期总结，只读本机缓存。 */
+    @Serializable data object TermReport : AppRoute { override val id get() = "term_report" }
     @Serializable data object JwappScore : AppRoute {
         override val id get() = "jwapp_score"
         override val loginType get() = LoginType.JWAPP
@@ -224,7 +226,7 @@ sealed interface AppRoute : NavKey {
 /** 不带参数的路由：字符串和对象一一对应。 */
 private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.Zyxf, AppRoute.PaymentCode,
-    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity,
+    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity, AppRoute.TermReport,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
