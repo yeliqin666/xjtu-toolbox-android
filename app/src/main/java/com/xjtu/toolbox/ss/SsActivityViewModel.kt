@@ -65,7 +65,7 @@ internal class SsActivityViewModel(site: SiteSession) : ViewModel() {
             if (silent) refreshing = true else loading = true
             error = null
             runCatching { io { if (groupProof) api.groupProofCandidates() else api.list(keyword, order, 1, PAGE) } }
-                .onSuccess { activities = it; page = 1; endReached = groupProof || it.size < PAGE }
+                .onSuccess { activities = it.distinctBy { a -> a.id }; page = 1; endReached = groupProof || it.size < PAGE }
                 .onFailure { error = message(it) }
             loading = false; refreshing = false
         }

@@ -121,8 +121,9 @@ fun SsActivityScreen(site: SiteSession, onBack: () -> Unit, onOpenWeb: (String) 
                 }
             }
         }
+        // 必须在 Scaffold 内容里：miuix 的 Overlay 只有 Scaffold 提供宿主，放外面不显示
+        ActivitySheet(vm, onOpenWeb)
     }
-    ActivitySheet(vm, onOpenWeb)
 }
 
 @Composable
@@ -185,8 +186,9 @@ private fun MineList(vm: SsActivityViewModel, padding: PaddingValues, glassTop: 
         mine.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) {
             EmptyState(title = "还没有报名记录", subtitle = "在「活动」里找感兴趣的报名", modifier = Modifier.fillMaxSize())
         }
+        // 不设 key：同一活动可能有多条报名记录（重新提交、取消后再报），重复 key 会直接崩
         else -> LazyColumn(Modifier.fillMaxSize().overScrollVertical(), contentPadding = padding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(mine, key = { it.activityId.ifBlank { it.title } }) { m ->
+            items(mine) { m ->
                 Card(Modifier.fillMaxWidth().clickable(enabled = m.activityId.isNotBlank()) { vm.open(m.activityId) }) {
                     Column(Modifier.padding(14.dp)) {
                         Text(m.title, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)

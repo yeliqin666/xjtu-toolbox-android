@@ -186,8 +186,15 @@ class SsActivityApi(private val site: SiteSession) {
                 SsMyApply(
                     activityId = it["HDDM"].safeString(),
                     title = it["HDMC"].safeString(),
-                    review = it["SHZT_DISPLAY"].safeStringOrNull() ?: it["SHZT"].safeString(),
-                    activityStatus = status(it["HDZT"].safeString()).label,
+                    review = it["SHZT_DISPLAY"].safeStringOrNull()?.takeIf { s -> s.isNotBlank() }
+                        ?: when (it["SHZT"].safeString()) { "" -> ""; "99" -> "已通过"; else -> "审核中" },
+                    // 这个接口的 HDZT 是数字：1 未开始 / 2 进行中 / 其余已结束（与官方「我的报名」页一致）
+                    activityStatus = when (val z = it["HDZT"].safeString()) {
+                        "1" -> SsActivityStatus.UPCOMING
+                        "2" -> SsActivityStatus.ONGOING
+                        "" -> status(z)
+                        else -> if (z.all(Char::isDigit)) SsActivityStatus.ENDED else status(z)
+                    }.label,
                     start = it["HDKSSJ"].safeString().ifBlank { it["HDRQ"].safeString() },
                 )
             }
