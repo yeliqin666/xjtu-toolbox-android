@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forum
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -957,17 +958,24 @@ private fun PlanProposalRow(p: PlanProposal, state: PlanAddState, onAdd: ((Boole
     }
 }
 
-/** 发过的帖子按原稿记在本机：重绘历史消息、重启后仍显示「已发布」，不会重复发。 */
+/** 发过 / 取消过的帖子按原稿记在本机：重绘历史消息、重启后仍是「已发布」或「已取消」，不会重复发。 */
 private object PostPublishedLog {
+    private const val CANCELLED = "cancelled"
     private val store get() = com.xjtu.toolbox.platform.keyValueStore("agent_post_published" + com.xjtu.toolbox.account.AccountContext.safeSuffix())
     private fun keyOf(w: PostWidget) = (w.title + "\u0001" + w.body).hashCode().toString()
-    fun numberOf(w: PostWidget): Int? = store.getString(keyOf(w))?.toIntOrNull()
+    fun stateOf(w: PostWidget): PostState = when (val v = store.getString(keyOf(w))) {
+        null -> PostState.Idle
+        CANCELLED -> PostState.Cancelled
+        else -> v.toIntOrNull()?.let { PostState.Done(it) } ?: PostState.Idle
+    }
     fun put(w: PostWidget, number: Int) = store.putString(keyOf(w), number.toString())
+    fun cancel(w: PostWidget) = store.putString(keyOf(w), CANCELLED)
 }
 
 private sealed interface PostState {
     data object Idle : PostState
     data object Busy : PostState
+    data object Cancelled : PostState
     data class Done(val number: Int) : PostState
     data class Failed(val message: String) : PostState
 }
@@ -985,14 +993,16 @@ private fun PostWidgetView(
     var category by androidx.compose.runtime.saveable.rememberSaveable(w) { androidx.compose.runtime.mutableStateOf(w.category) }
     var editing by androidx.compose.runtime.saveable.rememberSaveable(w) { androidx.compose.runtime.mutableStateOf(false) }
     var state by androidx.compose.runtime.remember(w) {
-        androidx.compose.runtime.mutableStateOf<PostState>(PostPublishedLog.numberOf(w)?.let { PostState.Done(it) } ?: PostState.Idle)
+        androidx.compose.runtime.mutableStateOf(PostPublishedLog.stateOf(w))
     }
     val done = state as? PostState.Done
-    val canEdit = onTool != null && done == null
+    val cancelled = state == PostState.Cancelled
+    val canEdit = onTool != null && done == null && !cancelled
     WidgetCard(
         title = "社区帖子", icon = Icons.Default.Forum, accent = MiuixTheme.colorScheme.primary,
         subtitle = when {
             done != null -> "已发布到「$category」"
+            cancelled -> "已取消，不会发布"
             onTool == null -> category
             else -> "$category · 核对后点「发布」才会发出"
         },
@@ -1034,7 +1044,16 @@ private fun PostWidgetView(
                 if (done != null) {
                     com.xjtu.toolbox.ui.components.PidaiChip("查看帖子 #${done.number}", icon = Icons.Default.Check,
                         onClick = { onNavigate(AppRoute.CommunityPost(done.number)) })
+                } else if (cancelled) {
+                    com.xjtu.toolbox.ui.components.PidaiChip("已取消", icon = Icons.Default.Close, enabled = false, onClick = {})
                 } else if (onTool != null) {
+                    com.xjtu.toolbox.ui.components.PidaiChip("取消", icon = Icons.Default.Close,
+                        enabled = state != PostState.Busy,
+                        onClick = {
+                            editing = false
+                            PostPublishedLog.cancel(w)
+                            state = PostState.Cancelled
+                        })
                     com.xjtu.toolbox.ui.components.PidaiChip(if (editing) "改好了" else "修改",
                         enabled = state != PostState.Busy, onClick = { editing = !editing })
                     com.xjtu.toolbox.ui.components.PidaiChip(
