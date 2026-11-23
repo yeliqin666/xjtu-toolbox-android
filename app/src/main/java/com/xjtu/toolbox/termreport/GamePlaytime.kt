@@ -6,9 +6,18 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xjtu.toolbox.util.DailyCounters
+import com.xjtu.toolbox.util.nowOnCampus
 
 /** 小游戏每天各玩了多少秒（项 = 游戏名）。 */
 val GamePlaytime = DailyCounters("game_playtime")
+
+/** App 本身的使用：`launch` 回到前台、`hour:<0–23>` 那次的钟点、`open:<路由 id>` 打开了哪个功能。 */
+val AppUsage = DailyCounters("app_usage")
+
+fun recordAppLaunch() {
+    AppUsage.add("launch")
+    AppUsage.add("hour:${nowOnCampus().hour}")
+}
 
 /** 单次超过这么久多半是忘了关，按上限记。 */
 private const val MAX_SESSION_S = 4 * 60 * 60L

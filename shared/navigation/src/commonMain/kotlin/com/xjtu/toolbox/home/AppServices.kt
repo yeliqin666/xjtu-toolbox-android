@@ -113,9 +113,9 @@ object AppServices {
         AppService(AppRoute.TermReport, "学期总结", "这学期的数据回顾", ServiceCategory.PLAY,
             listOf("学期总结", "学期报告", "学期回顾", "年终总结", "年度报告", "总结", "回顾"),
             features = listOf(
-                "全屏竖滑回顾：课程与早八、GPA 与分数段、待办完成率、校园卡支出与干饭、体测、小游戏时长、和小岱聊了多少",
-                "学期之最与称号：最晚一顿、最常去的食堂、最爱的游戏等，结尾一张可存图分享",
-                "点了「开始回顾」才生成，只在本机计算")),
+                "全屏竖滑回顾：课程与早八、考勤与全勤、GPA 与分数段、待办完成率、校园卡支出与干饭、体测、小游戏、和小岱聊了多少、最常用的功能",
+                "称号与学期之最：四十来个称号挑最贴切的一个，外加副标签、彩蛋和写给下学期的话，可截图分享",
+                "学期所有周结束后才生成，只在本机计算；最近一学期每次打开按最新数据刷新，往期存档随时回顾")),
 
         AppService(AppRoute.DownloadManager, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(AppRoute.Settings, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
