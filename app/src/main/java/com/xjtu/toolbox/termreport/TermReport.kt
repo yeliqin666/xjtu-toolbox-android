@@ -21,23 +21,25 @@ import com.xjtu.toolbox.jwapp.appJwappScoreCache
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.score.ScoreCalculator
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
 /**
  * 学期总结（#282）：只读本机已有的缓存与计数，不新登录、不上传。
- * 某一块读不到（没打开过那个页面、缓存过期）就是 null，页面跳过那一页并提示去刷新。
+ * 某一块读不到（没打开过那个页面、缓存过期）就是 null，那一页跳过并提示去刷新。
  */
 data class TermReport(
-    val termName: String,
-    val start: LocalDate,
-    val end: LocalDate,
-    val today: LocalDate,
+    val term: KnownTerm,
     val courses: CourseStats?,
     val grades: GradeStats?,
     val todos: TodoStats?,
@@ -46,14 +48,18 @@ data class TermReport(
     val games: GameStats?,
     val agent: AgentStats?,
 ) {
-    val ended get() = today > end
-    val until get() = minOf(today, end)
-    val days get() = (until.toEpochDays() - start.toEpochDays() + 1).toInt().coerceAtLeast(0)
+    val termName get() = term.name
+    val start get() = term.startDate
+    val end get() = term.endDate
+    val days get() = (end.toEpochDays() - start.toEpochDays() + 1).toInt()
 
-    val missing: List<String>
+    /** 本机没缓存到的几块，以及去哪一页加载一次就能补上。 */
+    val missing: List<Pair<String, AppRoute>>
         get() = listOfNotNull(
-            "课表".takeIf { courses == null }, "成绩".takeIf { grades == null }, "校园卡".takeIf { card == null },
-            "体测".takeIf { fitness == null },
+            ("课表" to AppRoute.Schedule).takeIf { courses == null },
+            ("成绩" to AppRoute.JwappScore).takeIf { grades == null },
+            ("校园卡" to AppRoute.CampusCard).takeIf { card == null },
+            ("体测" to AppRoute.Fitness).takeIf { fitness == null },
         )
 }
 
@@ -107,27 +113,53 @@ data class AgentStats(
     val lateNight: Long,
 )
 
-/** 取最近一个已开学的学期，逐块读缓存。只有校历要联网（公开接口）。 */
-suspend fun loadTermReport(context: Context): TermReport = withContext(Dispatchers.IO) {
-    val today = todayOnCampus()
-    val term = SchoolCalendarApi().terms().sortedBy { it.startDate }.lastOrNull { it.startDate <= today }
-        ?: error("校历里还没有已开学的学期")
-    val code = TermCodeMapper.termCodeOf(term.yearName, term.termName)
-    val until = minOf(today, term.endDate)
+/** 校历里见过的学期，记在本机：换学年后校历可能不再列上学期，总结也不能跟着丢。 */
+@Serializable
+data class KnownTerm(val code: String, val name: String, val start: String, val end: String, val weeks: Int) {
+    val startDate get() = LocalDate.parse(start)
+    /** 全部教学周过完的那天：校历结束日与「开学 + 周数」取较晚的（常规 18–19 周，小学期 4 周）。 */
+    val endDate get() = LocalDate.parse(end)
+}
+
+/** [ended]：最近一个所有周都已过完的学期；[current]：今天所在的学期及第几周。 */
+data class TermStatus(val ended: KnownTerm?, val current: Pair<KnownTerm, Int>?)
+
+private val termMemory get() = keyValueStore("term_report_terms")
+
+/** 拉校历并和本机记过的合并；拉不到就只用记过的。 */
+suspend fun termStatus(today: LocalDate = todayOnCampus()): TermStatus = withContext(Dispatchers.IO) {
+    val remembered = runCatching {
+        AppJson.decodeFromString<List<KnownTerm>>(termMemory.getString("terms") ?: "[]")
+    }.getOrDefault(emptyList())
+    val fetched = runCatching { SchoolCalendarApi().terms() }.getOrDefault(emptyList()).mapNotNull { t ->
+        val code = TermCodeMapper.termCodeOf(t.yearName, t.termName).ifBlank { return@mapNotNull null }
+        val weeksEnd = t.startDate.plus(t.totalWeeks * 7 - 1, DateTimeUnit.DAY)
+        KnownTerm(code, t.termName, t.startDate.toString(), maxOf(t.endDate, weeksEnd).toString(), t.totalWeeks)
+    }
+    val all = (remembered.filter { r -> fetched.none { it.code == r.code } } + fetched).sortedBy { it.start }.takeLast(16)
+    if (fetched.isNotEmpty()) termMemory.putString("terms", AppJson.encodeToString(all))
+    val current = all.firstOrNull { today >= it.startDate && today <= it.endDate }
+    TermStatus(
+        ended = all.lastOrNull { it.endDate < today },
+        current = current?.let { it to ((today.toEpochDays() - it.startDate.toEpochDays()) / 7 + 1).toInt() },
+    )
+}
+
+/** 按日期范围逐块读缓存，所以学期结束后过一阵再生成也一样准。 */
+suspend fun loadTermReport(context: Context, term: KnownTerm): TermReport = withContext(Dispatchers.IO) {
     val account = AccountContext.activeAccountId
+    val start = term.startDate
+    val end = term.endDate
     TermReport(
-        termName = term.termName,
-        start = term.startDate,
-        end = term.endDate,
-        today = today,
-        courses = runCatching { courseStats(context, account, code, term.totalWeeks) }.getOrNull(),
-        grades = runCatching { gradeStats(context, account, code) }.getOrNull(),
-        todos = runCatching { todoStats(term.startDate, until) }.getOrNull(),
-        card = runCatching { cardStats(context, account, term.startDate, until) }.getOrNull(),
+        term = term,
+        courses = runCatching { courseStats(context, account, term.code, term.weeks) }.getOrNull(),
+        grades = runCatching { gradeStats(context, account, term.code) }.getOrNull(),
+        todos = runCatching { todoStats(start, end) }.getOrNull(),
+        card = runCatching { cardStats(context, account, start, end) }.getOrNull(),
         fitness = runCatching { HomeStats.pushed(context, AppRoute.Fitness) }.getOrNull()
             ?.let { listOfNotNull(it.value.ifBlank { null }, it.detail?.ifBlank { null }).joinToString(" · ") }?.ifBlank { null },
-        games = gameStats(term.startDate, until),
-        agent = agentStats(term.startDate, until),
+        games = gameStats(start, end),
+        agent = agentStats(start, end),
     )
 }
 
@@ -272,7 +304,7 @@ fun TermReport.highlights(): List<String> = buildList {
 
 /** 给小岱点评用的摘要。 */
 fun TermReport.agentSnapshot(): String = buildString {
-    append("用户的「$termName」学期总结（$start 至 $until，本机统计，部分数据可能不全）：\n")
+    append("用户的「$termName」学期总结（$start 至 $end，本机统计，部分数据可能不全）：\n")
     courses?.let { append("课程 ${it.courses} 门，共 ${it.totalSections} 节，周均 ${it.weeklyAvg} 节，早八 ${it.earlyClasses} 次。\n") }
     grades?.let { append("成绩 ${it.count} 门，学分 %.1f，GPA %.2f，均分 %.1f，不及格 ${it.failed} 门%s。\n".format(it.credits, it.gpa, it.average, it.previousGpa?.let { p -> "，上学期 GPA %.2f".format(p) }.orEmpty())) }
     todos?.let { append("自建待办 ${it.created} 条，完成 ${it.done} 条，逾期未完成 ${it.overdue} 条。\n") }

@@ -773,7 +773,7 @@ fun NavEntryBuilder.appPageEntries(
             XiangqiScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
         entry<AppRoute.TermReport>(transition = expand(AppRoute.TermReport::class), swipeDismiss = NavSwipeDirection.None) {
-            TermReportScreen(onBack = back, onAskAgent = { sendToPidai(it, router::open) })
+            TermReportScreen(onBack = back, onAskAgent = { sendToPidai(it, router::open) }, onNavigate = router::open)
         }
         entry<AppRoute.Match>(transition = expand(AppRoute.Match::class)) {
             AppMatchScreen(onBack = back)

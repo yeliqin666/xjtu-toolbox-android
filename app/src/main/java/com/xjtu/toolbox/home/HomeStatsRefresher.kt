@@ -177,6 +177,12 @@ object HomeStatsRefresher {
             HomeStat(term.currentWeek(today).takeIf { it > 0 }?.let { "第 $it 周" } ?: "学期未开始", term.termName,
                 events.map { HomeLine("${it.startDate.monthNumber}/${it.startDate.dayOfMonth} · ${it.name}") })
         },
+        // 学期总结卡：刚结束的学期还没生成时亮「已就绪」，进入新学期也照样提醒
+        Source(AppRoute.TermReport, 1 * DAY, null) { ctx, _ ->
+            val ended = com.xjtu.toolbox.termreport.termStatus().ended ?: return@Source HomeStat("还没到时候", "学期结束后生成")
+            val done = ended.code in com.xjtu.toolbox.termreport.TermReportStore.codes(ctx)
+            HomeStat(if (done) "可回顾" else "已就绪", ended.name)
+        },
         Source(AppRoute.Community, 30 * 60 * 1000L, null) { _, _ ->
             val session = com.xjtu.toolbox.community.SecureGithubSession.get()
             if (session.login.value == null) return@Source null
