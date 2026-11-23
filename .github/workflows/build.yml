@@ -31,6 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # 发正式版时汇总项目数据（project_story.py）要读 issue、PR、讨论区
+      issues: read
+      pull-requests: read
+      discussions: read
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       released: ${{ steps.gh_release.outcome }}
@@ -387,6 +391,21 @@ jobs:
           PY
           # 不再从 runner 抽查公网 CDN：跨境访问几乎每次超时，SDK 校验已证明对象就位
           echo "OSS primary publish verified"
+
+      # 学期总结「关于岱宗盒子」那几页的线上数据；App 读不到就用源码里的快照。失败不影响发版。
+      - name: Publish project story to OSS
+        if: github.ref == 'refs/heads/main' && steps.oss_sdk.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          python3 .github/scripts/project_story.py /tmp/project_story.json
+          python3 .github/scripts/oss_upload.py /tmp/project_story.json "xjtu-toolbox/project_story.json" "no-cache"
 
       - name: Delete existing tag (if any)
         if: github.ref == 'refs/heads/main'

@@ -126,10 +126,7 @@ class JwappScoreViewModel(
     private suspend fun fetch(source: JwappScoreSource): List<TermScore> = coroutineScope {
         val jwxt = jwxt ?: return@coroutineScope source.getGrade(null)
         val precise = async { preciseScores(jwxt) }
-        var grades = source.getGrade(null)
-        grades = withPreciseScores(grades, precise.await())
-        grades = grades.map { ts -> ts.copy(scoreList = ts.scoreList.map(::withCourseGroup)) }
-        withReportFill(grades)
+        withReportFill(source.getGrade(null).withPreciseScores(precise.await()))
     }
 
     private suspend fun preciseScores(jwxt: JwxtScoreSupplement): List<CjcxScore>? = try {
@@ -139,37 +136,6 @@ class JwappScoreViewModel(
     } catch (e: Exception) {
         Log.w(TAG, "xscjcx 失败，用 jwapp 的数: ${e.message}")
         null
-    }
-
-    /** 教务的 xscjcx 有精确总评和绩点，按学期 + 课程名（退而求其次按课程号）对上就替换。 */
-    private fun withPreciseScores(grades: List<TermScore>, precise: List<CjcxScore>?): List<TermScore> {
-        if (precise == null) return grades
-        val lookup = precise.associateBy { "${it.termCode}|${normalizeCjcxCourseName(it.courseName)}" }
-        val byCode = precise.associateBy { it.kch }
-        return grades.map { ts ->
-            ts.copy(scoreList = ts.scoreList.map { score ->
-                val p = lookup["${ts.termCode}|${normalizeCjcxCourseName(score.courseName)}"]
-                    ?: score.courseCode?.let { byCode[it] }
-                if (p == null) score
-                else score.copy(
-                    scoreValue = p.zcj,
-                    gpa = p.xfjd,
-                    courseCategory = p.kclbdm.ifBlank { null },
-                    courseCode = p.kch.ifBlank { score.courseCode },
-                )
-            })
-        }
-    }
-
-    /** 课程号前缀区分通核 / 通选。 */
-    private fun withCourseGroup(score: ScoreItem): ScoreItem {
-        val code = score.courseCode?.uppercase() ?: return score
-        val group = when {
-            code.startsWith("CORE") -> CourseGroup.GEN_CORE
-            code.startsWith("GNED") -> CourseGroup.GEN_ELECTIVE
-            else -> return score
-        }
-        return score.copy(courseGroup = group)
     }
 
     /**

@@ -119,6 +119,39 @@ fun normalizeCjcxCourseName(name: String): String = name.trim()
     .replace(Regex("\\([A-Z]{2,}\\d{4,}\\)$"), "")
     .trim().lowercase()
 
+/**
+ * 用教务 xscjcx 的精确总评与绩点替换 jwapp 的粗分（等级制课程也有具体分数），并标出通核 / 通选。
+ * 按学期 + 课程名对，对不上再按课程号。成绩页和学期总结的补齐共用这一份，写进缓存的数据才一致。
+ */
+fun List<TermScore>.withPreciseScores(precise: List<CjcxScore>?): List<TermScore> {
+    val lookup = precise?.associateBy { "${it.termCode}|${normalizeCjcxCourseName(it.courseName)}" }.orEmpty()
+    val byCode = precise?.associateBy { it.kch }.orEmpty()
+    return map { ts ->
+        ts.copy(scoreList = ts.scoreList.map { score ->
+            val p = lookup["${ts.termCode}|${normalizeCjcxCourseName(score.courseName)}"]
+                ?: score.courseCode?.let { byCode[it] }
+            val merged = if (p == null) score else score.copy(
+                scoreValue = p.zcj,
+                gpa = p.xfjd,
+                courseCategory = p.kclbdm.ifBlank { null },
+                courseCode = p.kch.ifBlank { score.courseCode },
+            )
+            merged.withCourseGroup()
+        })
+    }
+}
+
+/** 课程号前缀区分通核 / 通选。 */
+private fun ScoreItem.withCourseGroup(): ScoreItem {
+    val code = courseCode?.uppercase() ?: return this
+    val group = when {
+        code.startsWith("CORE") -> CourseGroup.GEN_CORE
+        code.startsWith("GNED") -> CourseGroup.GEN_ELECTIVE
+        else -> return this
+    }
+    return copy(courseGroup = group)
+}
+
 /** 「该课程暂无分项成绩」的文案判据。 */
 fun isNoScoreDetailMessage(msg: String?): Boolean {
     if (msg.isNullOrBlank()) return false

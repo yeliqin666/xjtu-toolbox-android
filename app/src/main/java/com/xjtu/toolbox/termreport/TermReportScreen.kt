@@ -22,7 +22,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SmartToy
@@ -50,6 +60,7 @@ import androidx.core.view.drawToBitmap
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.agent.AgentForward
 import com.xjtu.toolbox.card.shareImage
 import com.xjtu.toolbox.error.FriendlyError
@@ -68,6 +79,8 @@ private data class Viewing(
     val agentSnapshot: String?,
     val term: KnownTerm?,
     val missing: List<Pair<String, AppRoute>> = emptyList(),
+    /** false = 调试版指定学期生成的，刷新时也不存进往期。 */
+    val archive: Boolean = true,
 )
 
 /**
@@ -88,28 +101,75 @@ fun TermReportScreen(onBack: () -> Unit, onAskAgent: (AgentForward) -> Unit, onN
     var refreshOnReturn by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { status = termStatus() }
 
-    fun show(term: KnownTerm) {
+    /** 非空 = 正在补数据，盖一层加载窗。 */
+    var fillSteps by remember { mutableStateOf<List<FillStep>?>(null) }
+    var fillJob by remember { mutableStateOf<Job?>(null) }
+    var showJob by remember { mutableStateOf<Job?>(null) }
+    var skipping by remember { mutableStateOf(false) }
+
+    /**
+     * 先补齐本机不全的数据（加载窗里逐项显示，可跳过），再生成。[archive] 为 false 时不存进往期（调试版指定学期）。
+     * 整个过程只有一个协程：返回 / 关闭取消它，finally 里把加载窗和 busy 一并收掉，不会卡住。
+     */
+    fun show(archive: Boolean = true, resolve: suspend () -> KnownTerm?) {
         if (busy) return
-        scope.launch {
-            busy = true
-            error = null
-            runCatching {
-                val r = loadTermReport(context, term)
-                val html = r.toHtml()
-                val snapshot = r.agentSnapshot()
-                withContext(Dispatchers.IO) { TermReportStore.save(context, term.code, html, snapshot) }
-                Viewing(html, snapshot, term, r.missing)
-            }.onSuccess {
-                viewing = it
-                saved = TermReportStore.codes(context)
-            }.onFailure { e ->
-                // 重算失败就退回存档，别让用户什么都看不到
-                val html = TermReportStore.load(context, term.code)
-                if (html != null) viewing = Viewing(html, TermReportStore.agentSnapshot(context, term.code), term)
-                else error = FriendlyError.of(e, "生成学期总结")
+        busy = true
+        error = null
+        showJob = scope.launch {
+            try {
+                val term = resolve() ?: run { error = "没找到这个学期"; return@launch }
+                val filler = TermDataFill(context, term)
+                val plan = filler.plan()
+                if (plan.isNotEmpty()) {
+                    var steps = plan
+                    fillSteps = steps
+                    val job = launch {
+                        for (i in plan.indices) {
+                            steps = steps.toMutableList().also { it[i] = it[i].copy(state = FillState.RUNNING) }
+                            fillSteps = steps
+                            val done = filler.runStep(plan[i])
+                            steps = steps.toMutableList().also { it[i] = done }
+                            fillSteps = steps
+                        }
+                        delay(600) // 让最后一项的结果看得见再关
+                    }
+                    fillJob = job
+                    job.join() // 点了「跳过」只取消这个子任务，这里照常往下生成
+                    fillJob = null
+                    fillSteps = null
+                }
+                runCatching {
+                    val r = loadTermReport(context, term)
+                    val html = r.toHtml()
+                    val snapshot = r.agentSnapshot()
+                    if (archive) withContext(Dispatchers.IO) { TermReportStore.save(context, term.code, html, snapshot) }
+                    // 学校那边就没有的那几块，不再提示「去加载」
+                    val unavailable = unavailableBlocks(AccountContext.activeAccountId, term.code)
+                    Viewing(html, snapshot, term, r.missing.filterNot { MISSING_LABEL_KEYS[it.first] in unavailable }, archive)
+                }.onSuccess {
+                    viewing = it
+                    saved = TermReportStore.codes(context)
+                }.onFailure { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    // 重算失败就退回存档，别让用户什么都看不到
+                    val html = if (archive) TermReportStore.load(context, term.code) else null
+                    if (html != null) viewing = Viewing(html, TermReportStore.agentSnapshot(context, term.code), term)
+                    else error = FriendlyError.of(e, "生成学期总结")
+                }
+            } finally {
+                fillSteps = null
+                fillJob = null
+                skipping = false
+                busy = false
             }
-            busy = false
         }
+    }
+
+    fun show(term: KnownTerm, archive: Boolean = true) = show(archive) { term }
+
+    fun cancelShow() {
+        showJob?.cancel()
+        showJob = null
     }
 
     fun openArchived(code: String) {
@@ -122,21 +182,23 @@ fun TermReportScreen(onBack: () -> Unit, onAskAgent: (AgentForward) -> Unit, onN
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME && refreshOnReturn) {
                 refreshOnReturn = false
-                viewing?.term?.let(::show)
+                viewing?.let { v -> v.term?.let { show(it, v.archive) } }
             }
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
 
-    BackHandler(enabled = viewing != null) { viewing = null }
+    BackHandler(enabled = viewing != null || fillSteps != null) {
+        if (fillSteps != null) cancelShow() else viewing = null
+    }
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B1F4B), Color(0xFF16122E))))) {
         val v = viewing
         if (v != null) {
             ReportViewer(
                 v,
                 busy = busy,
-                onRefresh = { v.term?.let(::show) },
+                onRefresh = { v.term?.let { show(it, v.archive) } },
                 onAskAgent = onAskAgent,
                 onLoad = { route -> refreshOnReturn = true; onNavigate(route) },
             )
@@ -179,6 +241,10 @@ fun TermReportScreen(onBack: () -> Unit, onAskAgent: (AgentForward) -> Unit, onN
                     val demo = demoTermReport()
                     viewing = Viewing(demo.toHtml(), demo.agentSnapshot(), null)
                 }
+                // 调试版专用：拿 2025-2026-2 的真实数据走一遍「补齐 + 生成」，不存进往期
+                if (com.xjtu.toolbox.BuildConfig.DEBUG) Pill(if (busy) "正在整理…" else "用 2025-2026-2 真实数据（调试版）", filled = false) {
+                    show(archive = false) { resolveTerm(DEBUG_TERM) }
+                }
                 val older = saved.filter { it != ended?.code }
                 if (older.isNotEmpty()) {
                     Spacer(Modifier.height(16.dp))
@@ -194,7 +260,73 @@ fun TermReportScreen(onBack: () -> Unit, onAskAgent: (AgentForward) -> Unit, onN
             }
         }
         RoundButton(Icons.Default.Close, "关闭", Modifier.statusBarsPadding().padding(12.dp)) {
-            if (viewing != null) viewing = null else onBack()
+            when {
+                fillSteps != null -> cancelShow()
+                viewing != null -> viewing = null
+                else -> onBack()
+            }
+        }
+        fillSteps?.let { steps ->
+            FillOverlay(
+                steps,
+                skipping = skipping,
+                onSkip = { if (!skipping) { skipping = true; fillJob?.cancel() } },
+                onCancel = ::cancelShow,
+            )
+        }
+    }
+}
+
+private const val DEBUG_TERM = "2025-2026-2"
+
+/** 补数据的加载窗：盖住整页、吃掉点击，逐项显示进度；可跳过（用已有的生成）或取消。 */
+@Composable
+private fun FillOverlay(steps: List<FillStep>, skipping: Boolean, onSkip: () -> Unit, onCancel: () -> Unit) {
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f))
+            .pointerInput(Unit) { detectTapGestures { } }
+            .navigationBarsPadding().statusBarsPadding().padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().widthIn(max = 420.dp).clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF232849)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("正在补齐这学期的数据", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            Small("本机缺的部分从学校系统拉一次，只存在这台手机上")
+            steps.forEach { s ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                        when (s.state) {
+                            FillState.RUNNING -> CircularProgressIndicator(Modifier.size(20.dp))
+                            FillState.WAITING -> Box(Modifier.size(8.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.3f)))
+                            else -> Icon(
+                                when (s.state) {
+                                    FillState.DONE -> Icons.Default.Check
+                                    FillState.SKIPPED, FillState.UNAVAILABLE -> Icons.Default.Remove
+                                    else -> Icons.Default.ErrorOutline
+                                },
+                                contentDescription = null,
+                                tint = when (s.state) {
+                                    FillState.DONE -> Color(0xFF86EFAC)
+                                    FillState.SKIPPED, FillState.UNAVAILABLE -> Color.White.copy(alpha = 0.5f)
+                                    else -> Color(0xFFFDBA74)
+                                },
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(s.label, color = Color.White.copy(alpha = if (s.state == FillState.WAITING) 0.55f else 1f), fontSize = 15.sp)
+                        if (s.note.isNotBlank()) Text(s.note, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 2)
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)) {
+                Pill("取消", filled = false, onClick = onCancel)
+                Pill(if (skipping) "正在生成…" else "跳过，用已有的", onClick = onSkip)
+            }
         }
     }
 }
@@ -212,12 +344,31 @@ private fun ReportViewer(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var webView by remember { mutableStateOf<WebView?>(null) }
-    Box(Modifier.fillMaxSize()) {
+    // 背景音乐默认关；第一次打开才去取直链
+    var musicOn by remember { mutableStateOf(false) }
+    var musicUsed by remember { mutableStateOf(false) }
+    if (musicUsed) BackgroundMusic(musicOn)
+    var hintClosed by remember(v.html) { mutableStateOf(false) }
+    // 提示条放在报告下面而不是盖在上面：WebView 让出高度，页面按剩下的空间排，不会被挡住
+    Column(Modifier.fillMaxSize().background(Color(0xFF101426))) {
+    Box(Modifier.fillMaxWidth().weight(1f)) {
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
+                    // 缺省 WRAP_CONTENT 时页面视口高度为 0，`height:100%` 的滚动容器塌掉，整页空白
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
                     setBackgroundColor(0xFF101426.toInt())
                     settings.javaScriptEnabled = true
+                    // 报告里的链接（去 GitHub 点星）交给浏览器，不在报告里跳走
+                    webViewClient = object : android.webkit.WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
+                            runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, request.url)) }
+                            return true
+                        }
+                    }
                     webView = this
                 }
             },
@@ -239,6 +390,10 @@ private fun ReportViewer(
                 if (busy) CircularProgressIndicator(Modifier.size(28.dp))
                 else RoundButton(Icons.Default.Refresh, "按最新数据刷新", onClick = onRefresh)
             }
+            RoundButton(if (musicOn) Icons.Default.MusicNote else Icons.Default.MusicOff, if (musicOn) "关闭背景音乐" else "打开背景音乐") {
+                musicUsed = true
+                musicOn = !musicOn
+            }
             RoundButton(Icons.Default.Share, "截这一页分享") {
                 val w = webView ?: return@RoundButton
                 scope.launch { shareImage(context, w.drawToBitmap().asImageBitmap(), "term-report.png", "分享学期总结") }
@@ -249,13 +404,23 @@ private fun ReportViewer(
                 }
             }
         }
-        if (v.missing.isNotEmpty()) {
+    }
+        if (v.missing.isNotEmpty() && !hintClosed) {
             Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(12.dp)
-                    .clip(RoundedCornerShape(18.dp)).background(Color.Black.copy(alpha = 0.45f)).padding(14.dp),
+                Modifier.fillMaxWidth().background(Color(0xFF16122E)).navigationBarsPadding()
+                    .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Small("还没读到${v.missing.joinToString("、") { it.first }}：打开对应页面加载一次，回来自动补上")
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        "还没读到${v.missing.joinToString("、") { it.first }}：可能没登录或学校系统暂时连不上。也可以打开对应页面加载一次，回来自动补上",
+                        color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, modifier = Modifier.weight(1f).padding(top = 6.dp),
+                    )
+                    Box(
+                        Modifier.size(32.dp).clip(CircleShape).clickable { hintClosed = true },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Default.Close, contentDescription = "关闭提示", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp)) }
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     v.missing.forEach { (name, route) -> Pill("去加载$name", filled = false) { onLoad(route) } }
                 }

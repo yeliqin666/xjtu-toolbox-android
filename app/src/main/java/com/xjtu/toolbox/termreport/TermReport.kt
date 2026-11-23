@@ -53,6 +53,14 @@ data class TermReport(
     val games: GameStats?,
     val agent: AgentStats?,
     val usage: UsageStats?,
+    /** 挑文案、称号的种子：学期 + 账号，同一人每次打开一样，不同人不重样。只在本机用，不写进 HTML。 */
+    val seed: String = term.code,
+    /** 学期里每天的动静（打卡 + 刷卡 + 打开盒子 + 找小岱），从开学那天排起；画学期日历用。 */
+    val daily: List<Int> = emptyList(),
+    /** 「关于岱宗盒子」那两页的数据，生成时取最新的一份写进 HTML。 */
+    val project: ProjectStory? = null,
+    /** 本机第一次装上岱宗盒子的日期。 */
+    val installedOn: LocalDate? = null,
 ) {
     val termName get() = term.name
     val start get() = term.startDate
@@ -86,6 +94,10 @@ data class CourseStats(
     /** 上课最多的楼（教室号前面那段）和节数。 */
     val topBuilding: Pair<String, Int>?,
     val customEvents: Int,
+    /** 节数最多的几门课。 */
+    val topCourses: List<Pair<String, Int>> = emptyList(),
+    /** 上午（1–4 节）/ 下午（5–8）/ 晚上（9 节起）各上了多少节。 */
+    val periods: List<Int> = emptyList(),
 )
 
 data class AttendanceStats(
@@ -103,6 +115,10 @@ data class AttendanceStats(
     val topPlace: Pair<String, Int>?,
     /** 最长连续正常打卡次数。 */
     val longestStreak: Int,
+    /** 全勤的课名（最多 3 个）。 */
+    val perfectNames: List<String> = emptyList(),
+    /** 迟到缺勤最多的星期几（0 = 周一）和次数。 */
+    val slipWeekday: Pair<Int, Int>? = null,
 )
 
 data class GradeStats(
@@ -112,14 +128,28 @@ data class GradeStats(
     val average: Double,
     val best: ScoreItem?,
     val failed: Int,
-    /** 95 分及以上的门数。 */
+    /** 95 分及以上（含 A+ / 优+）的门数。 */
     val top95: Int,
-    /** 90+ / 80–89 / 70–79 / 60–69 / 60 以下 的门数，只算百分制。 */
+    /** 90+ / 80–89 / 70–79 / 60–69 / 60 以下 的门数；等级制按等效分归档，通过/不通过不算。 */
     val bands: List<Pair<String, Int>>,
     val previousGpa: Double?,
+    /** 分数最高的几门：课名、显示用的分（「A+ · 98」）、等效分。 */
+    val top: List<Triple<String, String, Double>> = emptyList(),
+    /** 到这学期为止每学期的 GPA（「25秋」→ 3.61），按时间排。 */
+    val history: List<Pair<String, Double>> = emptyList(),
+    /** 学分最重的一门。 */
+    val heaviest: ScoreItem? = null,
 )
 
-data class TodoStats(val created: Int, val done: Int, val overdue: Int) {
+data class TodoStats(
+    val created: Int,
+    val done: Int,
+    val overdue: Int,
+    /** 每月新建几件（"2025-09" → 件数）。 */
+    val monthly: List<Pair<String, Int>> = emptyList(),
+    /** 小岱代建的件数。 */
+    val byAgent: Int = 0,
+) {
     val rate get() = if (created == 0) 0f else done.toFloat() / created
 }
 
@@ -138,6 +168,10 @@ data class CardStats(
     val recharges: Int,
     /** 吃饭跨度最长的一天：日期、第一顿、最后一顿（HH:mm）。 */
     val longestMealDay: Triple<LocalDate, String, String>?,
+    /** 周一到周日各花了多少。 */
+    val perWeekday: List<Double> = emptyList(),
+    /** 最长连着几天没刷卡：从哪天起、几天。 */
+    val quietStreak: Pair<LocalDate, Int>? = null,
 )
 
 data class GameStats(
@@ -147,6 +181,8 @@ data class GameStats(
     val longestDay: Pair<LocalDate, Long>?,
     /** 各游戏的历史战绩，如「合成西交大：最高 8192」。 */
     val records: List<String>,
+    /** 各游戏玩了几分钟，多的在前。 */
+    val perGame: List<Pair<String, Long>> = emptyList(),
 )
 
 data class AgentStats(
@@ -158,6 +194,8 @@ data class AgentStats(
     val peakHour: Int?,
     /** 23 点到凌晨 4 点发的消息数。 */
     val lateNight: Long,
+    /** 0–23 点各发了几句。 */
+    val hourly: List<Long> = emptyList(),
 )
 
 data class UsageStats(
@@ -167,6 +205,12 @@ data class UsageStats(
     /** 凌晨 0–4 点打开的次数。 */
     val lateLaunches: Long,
     val payCodeOpens: Long,
+    /** 0–23 点各打开几次。 */
+    val hourly: List<Long> = emptyList(),
+    /** 用过几个功能。 */
+    val features: Int = 0,
+    /** 打开最多的一天和次数。 */
+    val busiestDay: Pair<LocalDate, Long>? = null,
 )
 
 /** 校历里见过的学期，记在本机：换学年后校历可能不再列上学期，总结也不能跟着丢。 */
@@ -183,7 +227,7 @@ data class TermStatus(val ended: KnownTerm?, val current: Pair<KnownTerm, Int>?)
 private val termMemory get() = keyValueStore("term_report_terms")
 
 /** 拉校历并和本机记过的合并；拉不到就只用记过的。 */
-suspend fun termStatus(today: LocalDate = todayOnCampus()): TermStatus = withContext(Dispatchers.IO) {
+suspend fun knownTerms(): List<KnownTerm> = withContext(Dispatchers.IO) {
     val remembered = runCatching {
         AppJson.decodeFromString<List<KnownTerm>>(termMemory.getString("terms") ?: "[]")
     }.getOrDefault(emptyList())
@@ -194,8 +238,13 @@ suspend fun termStatus(today: LocalDate = todayOnCampus()): TermStatus = withCon
     }
     val all = (remembered.filter { r -> fetched.none { it.code == r.code } } + fetched).sortedBy { it.start }.takeLast(16)
     if (fetched.isNotEmpty()) termMemory.putString("terms", AppJson.encodeToString(all))
+    all
+}
+
+suspend fun termStatus(today: LocalDate = todayOnCampus()): TermStatus {
+    val all = knownTerms()
     val current = all.firstOrNull { today >= it.startDate && today <= it.endDate }
-    TermStatus(
+    return TermStatus(
         ended = all.lastOrNull { it.endDate < today },
         current = current?.let { it to ((today.toEpochDays() - it.startDate.toEpochDays()) / 7 + 1).toInt() },
     )
@@ -212,14 +261,41 @@ suspend fun loadTermReport(context: Context, term: KnownTerm): TermReport = with
         attendance = runCatching { attendanceStats(account, term.code) }.getOrNull(),
         grades = runCatching { gradeStats(context, account, term.code) }.getOrNull(),
         todos = runCatching { todoStats(start, end) }.getOrNull(),
-        card = runCatching { cardStats(context, account, start, end) }.getOrNull(),
+        card = runCatching { cardStats(context, account, term.code, start, end) }.getOrNull(),
         fitness = runCatching { HomeStats.pushed(context, AppRoute.Fitness) }.getOrNull()
             ?.let { listOfNotNull(it.value.ifBlank { null }, it.detail?.ifBlank { null }).joinToString(" · ") }?.ifBlank { null },
         games = runCatching { gameStats(start, end) }.getOrNull(),
         agent = runCatching { agentStats(start, end) }.getOrNull(),
         usage = runCatching { usageStats(start, end) }.getOrNull(),
+        seed = "${term.code}:${account.orEmpty()}",
+        daily = runCatching { dailyActivity(context, account, term.code, start, end) }.getOrDefault(emptyList()),
+        project = runCatching { loadProjectStory() }.getOrNull(),
+        installedOn = installDate(context),
     )
 }
+
+/** 每天的动静：考勤打卡、校园卡笔数、打开盒子、找小岱的句数相加。 */
+private suspend fun dailyActivity(context: Context, account: String?, code: String, start: LocalDate, until: LocalDate): List<Int> {
+    val n = (until.toEpochDays() - start.toEpochDays() + 1).toInt().coerceIn(0, 400)
+    val out = IntArray(n)
+    fun bump(date: LocalDate?, by: Int = 1) {
+        val i = date?.let { (it.toEpochDays() - start.toEpochDays()).toInt() } ?: return
+        if (i in 0 until n) out[i] += by
+    }
+    (AttendanceRecordStore.load(false, code, account) ?: AttendanceRecordStore.load(true, code, account))
+        ?.records?.forEach { bump(dateOf(it.date)) }
+    (termCardTransactions(context, account, code) ?: appCampusCardStore(context).load(account)?.transactions)
+        ?.forEach { bump(dateOf(it.time)) }
+    AppUsage.between(start, until).filter { it.second == "launch" }.forEach { bump(it.first, it.third.toInt()) }
+    AgentUsage.between(start, until).filter { it.second == "msg" }.forEach { bump(it.first, it.third.toInt()) }
+    return if (out.any { it > 0 }) out.toList() else emptyList()
+}
+
+/** "2025-09-08 12:03:21" / "2025-09-08" → 日期。 */
+private fun dateOf(s: String): LocalDate? = runCatching { LocalDate.parse(s.take(10)) }.getOrNull()
+
+private fun <K> Map<K, Int>.ranked(n: Int): List<Pair<K, Int>> =
+    entries.sortedByDescending { it.value }.take(n).map { it.toPair() }
 
 private fun <K> Map<K, Int>.top(): Pair<K, Int>? = maxByOrNull { it.value }?.toPair()
 
@@ -233,6 +309,8 @@ private suspend fun courseStats(context: Context, account: String?, code: String
     val perDay = HashMap<Int, Int>()
     val teachers = HashMap<String, Int>()
     val buildings = HashMap<String, Int>()
+    val byCourse = HashMap<String, Int>()
+    val periods = IntArray(3)
     var total = 0
     var early = 0
     for (c in items) {
@@ -245,6 +323,10 @@ private suspend fun courseStats(context: Context, account: String?, code: String
         c.teacher.split(',', '，', '、').map { it.trim() }.filter { it.isNotEmpty() }
             .forEach { teachers.merge(it, active.size * sections, Int::plus) }
         if (c.location.isNotBlank()) buildings.merge(buildingOf(c.location), active.size * sections, Int::plus)
+        if (c.courseName.isNotBlank()) byCourse.merge(c.courseName.trim(), active.size * sections, Int::plus)
+        for (s in c.startSection..c.endSection.coerceAtLeast(c.startSection)) {
+            periods[if (s <= 4) 0 else if (s <= 8) 1 else 2] += active.size
+        }
     }
     val busiest = perDay.maxByOrNull { it.value }
     val customs = runCatching {
@@ -261,6 +343,8 @@ private suspend fun courseStats(context: Context, account: String?, code: String
         topTeacher = teachers.top(),
         topBuilding = buildings.top(),
         customEvents = customs,
+        topCourses = byCourse.ranked(4),
+        periods = periods.toList(),
     )
 }
 
@@ -279,6 +363,8 @@ private fun attendanceStats(account: String?, code: String): AttendanceStats? {
     records.sortedWith(compareBy({ it.date }, { it.startTime })).forEach {
         if (it.status == WaterType.NORMAL) best = maxOf(best, ++streak) else if (it.status != WaterType.LEAVE) streak = 0
     }
+    val slips = records.filter { it.status == WaterType.LATE || it.status == WaterType.ABSENCE }
+    val perfect = byCourse.filter { (_, l) -> l.size >= 3 && l.all { it.status == WaterType.NORMAL || it.status == WaterType.LEAVE } }
     return AttendanceStats(
         total = records.size,
         normal = normal,
@@ -287,10 +373,12 @@ private fun attendanceStats(account: String?, code: String): AttendanceStats? {
         leave = leave,
         rate = (normal + late).toFloat() / counted,
         courses = byCourse.size,
-        perfectCourses = byCourse.count { (_, l) -> l.size >= 3 && l.all { it.status == WaterType.NORMAL || it.status == WaterType.LEAVE } },
+        perfectCourses = perfect.size,
         mostLate = records.filter { it.status == WaterType.LATE }.groupingBy { it.courseName }.eachCount().top(),
         topPlace = records.filter { it.location.isNotBlank() }.groupingBy { it.location }.eachCount().top(),
         longestStreak = best,
+        perfectNames = perfect.values.sortedByDescending { it.size }.mapNotNull { l -> l.first().courseName.ifBlank { null } }.take(3),
+        slipWeekday = slips.mapNotNull { dateOf(it.date)?.dayOfWeek?.ordinal }.groupingBy { it }.eachCount().top(),
     )
 }
 
@@ -300,13 +388,16 @@ private suspend fun gradeStats(context: Context, account: String?, code: String)
     val info = ScoreCalculator.calculateGpaForCourses(list)
     val previous = terms.filter { it.termCode < code && it.scoreList.isNotEmpty() }.maxByOrNull { it.termCode }
         ?.let { ScoreCalculator.calculateGpaForCourses(it.scoreList).gpa }
-    val numeric = list.mapNotNull { it.scoreValue }
+    // 分档按「等效分」：数字成绩直接用，等级制（A+ / 优- 等）按绩点折回该档下限分；通过/不通过不分档
+    val level = list.associateWith { equivalentScore(it) }
+    val numeric = level.values.filterNotNull()
     return GradeStats(
         count = list.size,
         credits = list.sumOf { it.coursePoint },
         gpa = info.gpa,
         average = info.averageScore,
-        best = list.filter { it.scoreValue != null }.maxByOrNull { it.scoreValue!! },
+        // 同档时数字分优先（92 比 A 更具体）
+        best = list.filter { level[it] != null }.maxWithOrNull(compareBy({ level[it] }, { it.scoreValue ?: 0.0 })),
         failed = list.count { !ScoreCalculator.isPassed(it) },
         top95 = numeric.count { it >= 95 },
         bands = listOf(
@@ -317,7 +408,48 @@ private suspend fun gradeStats(context: Context, account: String?, code: String)
             "60 以下" to numeric.count { it < 60 },
         ),
         previousGpa = previous,
+        top = list.mapNotNull { item -> level[item]?.let { Triple(item.courseName, scoreLabel(item), it) } }
+            .sortedByDescending { it.third }.take(5),
+        history = terms.filter { it.termCode <= code && it.scoreList.isNotEmpty() }.sortedBy { it.termCode }
+            .map { termShortName(it.termCode) to ScoreCalculator.calculateGpaForCourses(it.scoreList).gpa }
+            .filter { it.second > 0 }.takeLast(8),
+        heaviest = list.filter { it.coursePoint > 0 }.maxByOrNull { it.coursePoint },
     )
+}
+
+/** 成绩怎么显示：等级制带上教务给的具体分（「A+ · 98」），数字分原样。 */
+fun scoreLabel(item: ScoreItem): String {
+    val raw = item.score.trim()
+    val value = item.scoreValue ?: return raw
+    val num = if (value % 1.0 == 0.0) value.toInt().toString() else "%.1f".format(value)
+    return when {
+        raw.isEmpty() -> num
+        raw.toDoubleOrNull() != null -> raw
+        else -> "$raw · $num"
+    }
+}
+
+/** "2025-2026-1" → 「25秋」，"-2" → 「26春」，"-3" → 「26夏」。 */
+fun termShortName(code: String): String {
+    val parts = code.split('-')
+    val from = parts.getOrNull(0)?.takeLast(2) ?: return code
+    val to = parts.getOrNull(1)?.takeLast(2) ?: return code
+    return when (parts.getOrNull(2)) {
+        "1" -> "${from}秋"
+        "2" -> "${to}春"
+        "3" -> "${to}夏"
+        else -> code
+    }
+}
+
+/** 绩点 → 该档的下限分（西交 4.3 制）：A+ 95、A 90、A- 85、B+ 81、B 78、B- 75、C+ 72、C 68、C- 64、D 60。 */
+private val GPA_FLOOR = listOf(4.3 to 95.0, 4.0 to 90.0, 3.7 to 85.0, 3.3 to 81.0, 3.0 to 78.0, 2.7 to 75.0,
+    2.3 to 72.0, 2.0 to 68.0, 1.7 to 64.0, 1.3 to 60.0)
+
+private fun equivalentScore(item: ScoreItem): Double? {
+    item.scoreValue?.let { return it }
+    val gpa = ScoreCalculator.scoreToGpa(item.score.trim()) ?: return null
+    return GPA_FLOOR.firstOrNull { gpa >= it.first - 0.01 }?.second ?: 0.0
 }
 
 private fun todoStats(start: LocalDate, until: LocalDate): TodoStats? {
@@ -330,16 +462,26 @@ private fun todoStats(start: LocalDate, until: LocalDate): TodoStats? {
         created = inTerm.size,
         done = inTerm.count { it.done },
         overdue = inTerm.count { t -> !t.done && due(t)?.let { it < until } == true },
+        monthly = inTerm.mapNotNull { t -> (created(t) ?: due(t))?.toString()?.take(7) }
+            .groupingBy { it }.eachCount().toList().sortedBy { it.first },
+        byAgent = inTerm.count { it.source == "agent" },
     )
 }
 
-private suspend fun cardStats(context: Context, account: String?, start: LocalDate, until: LocalDate): CardStats? {
-    val snapshot = appCampusCardStore(context).load(account) ?: return null
-    fun dateOf(tx: Transaction) = runCatching { LocalDate.parse(tx.time.take(10)) }.getOrNull()
-    val txs = snapshot.transactions.filter { tx -> dateOf(tx)?.let { it in start..until } == true }
+private suspend fun cardStats(context: Context, account: String?, code: String, start: LocalDate, until: LocalDate): CardStats? {
+    // 优先用生成前补齐的整学期流水；没补过才用校园卡页那份快照（可能只有最近几页）
+    val source = termCardTransactions(context, account, code)
+        ?: appCampusCardStore(context).load(account)?.transactions
+        ?: return null
+    fun dateOf(tx: Transaction) = dateOf(tx.time)
+    val txs = source.filter { tx -> dateOf(tx)?.let { it in start..until } == true }
     val spent = txs.filter { it.amount < 0 }
     if (spent.isEmpty()) return null
     val byDay = spent.groupBy { dateOf(it)!! }
+    // 相邻两个刷卡日之间空了几天；开学前、期末后不算
+    val quiet = byDay.keys.sorted().zipWithNext().maxByOrNull { (a, b) -> b.toEpochDays() - a.toEpochDays() }
+        ?.let { (a, b) -> a.plus(1, DateTimeUnit.DAY) to (b.toEpochDays() - a.toEpochDays() - 1).toInt() }
+        ?.takeIf { it.second >= 4 }
     val meals = spent.filter { categoryOf(it) == "餐饮" && it.time.length >= 16 }
     val mealDay = meals.groupBy { dateOf(it)!! }
         .mapValues { (_, l) -> l.minOf { it.time.substring(11, 16) } to l.maxOf { it.time.substring(11, 16) } }
@@ -358,6 +500,8 @@ private suspend fun cardStats(context: Context, account: String?, start: LocalDa
         recharges = txs.count { it.amount > 0 },
         longestMealDay = mealDay?.takeIf { (_, s) -> minutesOf(s.second) - minutesOf(s.first) >= 12 * 60 }
             ?.let { (d, s) -> Triple(d, s.first, s.second) },
+        perWeekday = (0..6).map { d -> byDay.filterKeys { it.dayOfWeek.ordinal == d }.values.sumOf { l -> l.sumOf { -it.amount } } },
+        quietStreak = quiet,
     )
 }
 
@@ -376,7 +520,16 @@ private fun gameStats(start: LocalDate, until: LocalDate): GameStats? {
         favorite = rows.groupBy { it.second }.maxByOrNull { (_, l) -> l.sumOf { it.third } }?.key,
         longestDay = byDay.maxByOrNull { it.value }?.toPair(),
         records = records,
+        perGame = rows.groupBy { it.second }.map { (g, l) -> g to l.sumOf { it.third } / 60 }
+            .filter { it.second > 0 }.sortedByDescending { it.second }.take(4),
     )
+}
+
+/** `hour:<0–23>` 计数摊成 24 格。 */
+private fun hourly(rows: List<Triple<LocalDate, String, Long>>): List<Long> {
+    val out = LongArray(24)
+    rows.forEach { (_, key, n) -> key.removePrefix("hour:").takeIf { key.startsWith("hour:") }?.toIntOrNull()?.takeIf { it in 0..23 }?.let { out[it] += n } }
+    return out.toList()
 }
 
 private fun agentStats(start: LocalDate, until: LocalDate): AgentStats? {
@@ -395,6 +548,7 @@ private fun agentStats(start: LocalDate, until: LocalDate): AgentStats? {
         days = rows.filter { it.second == "msg" }.map { it.first }.distinct().size,
         peakHour = hours.maxByOrNull { it.value }?.key?.takeIf { it >= 0 },
         lateNight = hours.filterKeys { it >= 23 || it in 0..3 }.values.sum(),
+        hourly = hourly(rows),
     )
 }
 
@@ -410,7 +564,10 @@ private fun usageStats(start: LocalDate, until: LocalDate): UsageStats? {
         days = launches.map { it.first }.distinct().size,
         topFeatures = opens.filterKeys { it in titles && it != AppRoute.TermReport.id }.entries
             .sortedByDescending { it.value }.take(3).map { titles.getValue(it.key) to it.value },
-        lateLaunches = rows.filter { it.second.removePrefix("hour:").toIntOrNull() in 0..4 && it.second.startsWith("hour:") }.sumOf { it.third },
+        lateLaunches = rows.filter { it.second.removePrefix("hour:").toIntOrNull() in 0..3 && it.second.startsWith("hour:") }.sumOf { it.third },
         payCodeOpens = opens[AppRoute.PaymentCode.id] ?: 0,
+        hourly = hourly(rows),
+        features = opens.keys.count { it in titles },
+        busiestDay = launches.groupBy { it.first }.mapValues { (_, l) -> l.sumOf { it.third } }.maxByOrNull { it.value }?.toPair(),
     )
 }
