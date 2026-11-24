@@ -300,6 +300,8 @@ jobs:
         id: oss_publish
         if: github.ref == 'refs/heads/main' && steps.oss_sdk.outcome == 'success'
         continue-on-error: true
+        # 平时十几秒；OSS 偶尔卡住不报错（6.2.0 首发卡了 12 分钟），超时就交给后面的「Fail if OSS…」判红，Release 照发
+        timeout-minutes: 8
         env:
           VERSION: ${{ steps.version.outputs.version }}
           VERSION_CODE: ${{ steps.version.outputs.version_code }}

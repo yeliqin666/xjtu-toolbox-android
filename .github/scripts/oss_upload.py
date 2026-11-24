@@ -2,6 +2,7 @@
 """Upload a local file to the release OSS bucket."""
 import os
 import sys
+import time
 
 import oss2
 
@@ -22,12 +23,22 @@ def main() -> int:
     if not endpoint.startswith(("http://", "https://")):
         endpoint = "https://" + endpoint
 
+    # 连接或读写 30 秒没动静就算失败重来，别让一次卡住的连接把整个发版挂着
     bucket = oss2.Bucket(
         oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
         endpoint,
         os.environ["OSS_BUCKET"],
+        connect_timeout=30,
     )
-    bucket.put_object_from_file(key, src, headers=headers)
+    for attempt in range(1, 4):
+        try:
+            bucket.put_object_from_file(key, src, headers=headers)
+            break
+        except (oss2.exceptions.RequestError, oss2.exceptions.ServerError) as e:
+            if attempt == 3:
+                raise
+            print(f"upload {key} attempt {attempt} failed: {e}; retrying", file=sys.stderr)
+            time.sleep(10 * attempt)
     print(f"uploaded {src} -> oss://{os.environ['OSS_BUCKET']}/{key}")
     return 0
 
