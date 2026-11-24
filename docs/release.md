@@ -41,7 +41,7 @@ GitHub Pre-release 与 OSS 上的预览 APK 都只保留最近 5 个：CI 按版
 | 对象键 | 用途 |
 |---|---|
 | `xjtu-toolbox/apk/<versionName>/app-release.apk` | 按版本归档，`stable.json` 的 `apkUrl` 指向这里 |
-| `xjtu-toolbox/apk/latest/app-release.apk` | 固定别名，每次发版覆盖，`Cache-Control: no-cache`（ESA 规则里实际缓存 30 天，靠发版后刷新） |
+| `xjtu-toolbox/apk/latest/app-release.apk` | 固定别名，每次发版覆盖，`Cache-Control: no-cache`（ESA 跟随源站：边缘每次回源校验；发版后 CI 仍刷一次兜底） |
 | `xjtu-toolbox/stable.json`、`history/stable-<versionName>.json` | 更新清单与历史清单 |
 
 固定下载链接（官网、二维码等长期入口使用）：
