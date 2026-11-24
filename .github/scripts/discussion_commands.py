@@ -23,6 +23,11 @@ admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正�
 * 楼中楼里 GitHub 自动带上的 `>` 引用块：有 details 时去掉 details 开头的引用块，
   没有 details 且命令正文开头就是引用块时，把引用正文当作附加内容。
 
+    /reply [私密]   /skip
+
+* 只在「反馈日报」分类的帖子里用：在某条反馈的楼里回复，工单号从那层楼的隐藏标记读；
+  执行逻辑（写飞书回复表、更新帖子标记、关帖）在 feedback_digest.py，见那边的说明。
+
 这是给以后更多讨论区命令用的最小框架：命令注册在 HANDLERS，每个 handler 只负责
 解析自己的参数并返回回复正文，GitHub 读写统一走 GitHub 类。
 """
@@ -256,6 +261,8 @@ query($id: ID!) {
         title
         body
         url
+        closed
+        category { name }
         author { login }
         repository { id }
       }
@@ -333,7 +340,7 @@ mutation($discussionId: ID!, $replyToId: ID, $body: String!) {
 ADD_ISSUE_COMMENT_MUTATION = """
 mutation($input: AddCommentInput!) {
   addComment(input: $input) {
-    commentEdge { node { id url } }
+    comment { id url }
   }
 }
 """
@@ -348,6 +355,8 @@ class Discussion:
     url: str
     author_login: str
     repository_id: str
+    closed: bool = False
+    category: str = ""
 
 
 @dataclass
@@ -463,6 +472,8 @@ def fetch_comment(client: GitHub, node_id: str) -> Comment:
         url=discussion_data.get("url") or "",
         author_login=(discussion_data.get("author") or {}).get("login") or "",
         repository_id=(discussion_data.get("repository") or {}).get("id") or "",
+        closed=bool(discussion_data.get("closed")),
+        category=(discussion_data.get("category") or {}).get("name") or "",
     )
     return Comment(
         node_id=node["id"],
@@ -915,7 +926,7 @@ def add_issue_comment(client: GitHub, issue_id: str, body: str) -> str:
         # 不重试 mutation：服务端可能已经建好评论，只是响应丢了。
         retries=1,
     )
-    return data["addComment"]["commentEdge"]["node"]["url"]
+    return data["addComment"]["comment"]["url"]
 
 
 class ToIssueHandler(CommandHandler):
@@ -1040,7 +1051,7 @@ class AttachCommentHandler(CommandHandler):
         try:
             comment_url = add_issue_comment(ctx.client, issue["id"], body)
         except GitHubError as error:
-            log(f"::error::往 issue #{issue['number']} 写评论失败：{error}；{json.dumps(error.errors, ensure_ascii=False)}")
+            log(f"::error::往 issue #{issue['number']} 写评论失败：{error}")
             raise CommandFailure(public_api_message(error), fatal=True) from None
 
         state_note = "（当前 issue 已关闭）" if issue.get("state") == "CLOSED" else ""
@@ -1050,9 +1061,46 @@ class AttachCommentHandler(CommandHandler):
         )
 
 
+class FeedbackHandler(CommandHandler):
+    """`/reply`、`/skip`：反馈日报帖里回复某条反馈，写回飞书回复表。执行逻辑在 feedback_digest.py。"""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.usage = ""
+
+    def handle(self, ctx: "Context", args: list[str]) -> str:
+        import feedback_digest as fd  # 用到才加载：它出问题不影响 /toissue
+
+        self.usage = fd.USAGE_TEXT
+        c = ctx.comment
+        d = c.discussion
+        if not fd.is_feedback_discussion(d.category):
+            raise CommandFailure(f"只能在「{fd.env('FEEDBACK_DISCUSSION_CATEGORY', '反馈日报')}」分类的帖子里用")
+        if d.closed:
+            raise CommandFailure("这期反馈日报已经关闭了")
+        node = {
+            "id": c.node_id,
+            "body": c.body,
+            "replyTo": {"id": c.reply_to_node_id, "body": c.reply_to_body} if c.reply_to_node_id else None,
+            "discussion": {"id": d.node_id, "number": d.number, "body": d.body,
+                           "closed": d.closed, "category": {"name": d.category}},
+        }
+        try:
+            out = fd.run_discussion_commands(lambda q, **v: ctx.client.graphql(q, v), None, node)
+        except Exception as error:  # noqa: BLE001 —— 飞书 / GraphQL 出错都当一次失败回给操作者
+            raise CommandFailure(str(error)) from None
+        if out is None:
+            raise CommandFailure("没找到可执行的命令")
+        if out.errors and not out.notes:
+            raise CommandFailure("；".join(out.errors))
+        return fd.result_lines(out)
+
+
 HANDLERS: dict[str, CommandHandler] = {
     ToIssueHandler.name: ToIssueHandler(),
     AttachCommentHandler.name: AttachCommentHandler(),
+    "/reply": FeedbackHandler("/reply"),
+    "/skip": FeedbackHandler("/skip"),
 }
 
 
@@ -1246,7 +1294,7 @@ def self_test() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="处理 Discussion 里的讨论命令（/toissue、/attachcomment）")
+    parser = argparse.ArgumentParser(description="处理 Discussion 里的讨论命令（/toissue、/attachcomment、/reply、/skip）")
     parser.add_argument(
         "--comment-node-id",
         default=os.environ.get("COMMENT_NODE_ID") or "",

@@ -4,8 +4,8 @@
 
     python3 feedback_digest.py digest            # 每日：发日报，再扫一遍漏处理的命令
     python3 feedback_digest.py scan              # 只扫命令
-    python3 feedback_digest.py dcomment NODE_ID  # discussion_comment 事件：处理这一条评论
     python3 feedback_digest.py comment ISSUE ID  # 旧的反馈日报 issue 里的评论
+    讨论里的 /reply、/skip 由 discussion_commands.py 接收，调这里的 run_discussion_commands。
 
 日报
 * 从上一期的水位往后拉（见 watermark），按工单号去重，停跑多久都能补齐。
@@ -80,9 +80,7 @@ QUESTION_RE = re.compile(r"^\s*问题\s*[:：]\s*(.+)$")
 PRIVATE_WORDS = {"私密", "不公开", "否", "private", "no", "false", "0"}
 TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
 
-USAGE = """<details open><summary>用法</summary>
-
-在那条反馈的楼里**回复**（不用写工单号）：
+USAGE_TEXT = """在那条反馈的楼里**回复**（不用写工单号）：
 
 ```
 /reply [私密]
@@ -93,9 +91,8 @@ USAGE = """<details open><summary>用法</summary>
 - 默认进应用内「大家在问」；加 `私密`（或 `不公开`、`private`）则只有提问的人能看到
 - 不回复：`/skip`；转 issue：`/toissue bug 1`
 - 在顶层评论里也行，但要写工单号：`/reply T工单号`、`/skip T工单号 …`；`/skip all` 跳过本期剩下全部
-- 处理完 bot 在楼里回一条结果，那条反馈标 🎉（已回复）/ 👀（跳过）；都处理完自动关闭
-
-</details>"""
+- 处理完 bot 在楼里回一条结果，那条反馈标 🎉（已回复）/ 👀（跳过）；都处理完自动关闭"""
+USAGE = f"<details open><summary>用法</summary>\n\n{USAGE_TEXT}\n\n</details>"
 
 ITEM_LIMIT = 1500
 BODY_BUDGET = 60000
@@ -896,16 +893,21 @@ _COMMENT_FIELDS = """id body authorAssociation
     discussion{id number body closed category{name}}"""
 
 
-def handle_discussion(gh: GitHub, fs: Optional[Feishu], c: dict) -> Optional[Feishu]:
-    """处理讨论里的一条评论。回复某层楼时工单从那层楼的标记认；顶层评论里得写工单号（或 /skip all）。"""
-    if c.get("authorAssociation") not in TRUSTED:
-        return fs
+def is_feedback_discussion(category: str) -> bool:
+    return category == env("FEEDBACK_DISCUSSION_CATEGORY", "反馈日报")
+
+
+def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict) -> Optional[Outcome]:
+    """执行讨论里一条评论的 /reply、/skip：写飞书、更新帖子标记、给反馈楼标反应、都处理完关帖。
+    回复某层楼时工单从那层楼的标记认；顶层评论里得写工单号（或 /skip all）。
+    结果消息由调用方发（事件走 discussion_commands.py 的框架，兜底扫描走 [handle_discussion]）。
+    [gwrite]：(query, **variables) -> data。不归这里管（不是反馈日报、已关闭、没有命令）返回 None。"""
     disc = c["discussion"]
-    if disc["category"]["name"] != env("FEEDBACK_DISCUSSION_CATEGORY", "反馈日报") or disc["closed"]:
-        return fs
+    if not is_feedback_discussion(disc["category"]["name"]) or disc["closed"]:
+        return None
     cmds = parse_commands(c.get("body") or "")
     if not cmds:
-        return fs
+        return None
     parent = c.get("replyTo")
     default = None
     if parent:
@@ -916,34 +918,40 @@ def handle_discussion(gh: GitHub, fs: Optional[Feishu], c: dict) -> Optional[Fei
     if out.newly - done:
         done |= out.newly
         disc["body"] = MARK_DONE.sub(f"<!-- feedback-done={ids(done)} -->", disc["body"])
-        gh.gwrite("""mutation($d:ID!,$b:String!){updateDiscussion(input:{discussionId:$d,body:$b}){discussion{id}}}""",
-                  d=disc["id"], b=disc["body"])
-    # 和 /toissue 一样显式回一条：成功写了什么、失败为什么，都在命令所在的那串楼里（讨论只有两层）
-    lines = [f"✅ {n}" for n in out.notes] + [f"⚠️ {e}" for e in out.errors]
-    if lines:
-        msg = "\n".join(f"- {x}" for x in lines)
-        if out.errors:
-            msg = MARK_FAILED.format(c["id"]) + "\n" + msg + "\n\n" + USAGE
-        gh.gwrite("""mutation($d:ID!,$r:ID!,$b:String!){
-            addDiscussionComment(input:{discussionId:$d,replyToId:$r,body:$b}){comment{id}}}""",
-                  d=disc["id"], r=(parent or c)["id"], b=msg)
-    react = """mutation($s:ID!,$e:ReactionContent!){addReaction(input:{subjectId:$s,content:$e}){reaction{content}}}"""
+        gwrite("""mutation($d:ID!,$b:String!){updateDiscussion(input:{discussionId:$d,body:$b}){discussion{id}}}""",
+               d=disc["id"], b=disc["body"])
     # 那层反馈楼上标一下：回复过 🎉，跳过 👀，扫一眼就知道哪条还没处理
     if parent and default in out.newly:
-        gh.gwrite(react, s=parent["id"], e="HOORAY" if default in out.replied else "EYES")
+        gwrite("""mutation($s:ID!,$e:ReactionContent!){addReaction(input:{subjectId:$s,content:$e}){reaction{content}}}""",
+               s=parent["id"], e="HOORAY" if default in out.replied else "EYES")
     if pending and pending <= done:
-        gh.gwrite("""mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:RESOLVED}){discussion{id}}}""",
-                  d=disc["id"])
+        gwrite("""mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:RESOLVED}){discussion{id}}}""",
+               d=disc["id"])
         disc["closed"] = True
+        out.notes.append("本期都处理完了，已关闭")
         log(f"讨论 #{disc['number']} 全部处理完，已关闭")
+    return out
+
+
+def result_lines(out: Outcome) -> str:
+    return "\n".join([f"- ✅ {n}" for n in out.notes] + [f"- ⚠️ {e}" for e in out.errors])
+
+
+def handle_discussion(gh: GitHub, fs: Optional[Feishu], c: dict) -> Optional[Feishu]:
+    """兜底扫描用：执行后自己在那串楼里回一条结果（事件触发时这一步由框架做）。"""
+    if c.get("authorAssociation") not in TRUSTED:
+        return fs
+    out = run_discussion_commands(gh.gwrite, fs, c)
+    if out is None:
+        return fs
+    msg = result_lines(out)
+    if out.errors:
+        msg = MARK_FAILED.format(c["id"]) + "\n" + msg + "\n\n" + USAGE
+    if msg:
+        gh.gwrite("""mutation($d:ID!,$r:ID!,$b:String!){
+            addDiscussionComment(input:{discussionId:$d,replyToId:$r,body:$b}){comment{id}}}""",
+                  d=c["discussion"]["id"], r=(c.get("replyTo") or c)["id"], b=msg)
     return out.fs
-
-
-def on_discussion_comment(node_id: str) -> None:
-    gh = GitHub()
-    c = gh.graphql(f"query($id:ID!){{node(id:$id){{... on DiscussionComment{{{_COMMENT_FIELDS}}}}}}}", id=node_id)["node"]
-    if c:
-        handle_discussion(gh, None, c)
 
 
 def scan_discussions() -> None:
@@ -992,8 +1000,6 @@ def main() -> None:
         scan_discussions()
     elif cmd == "comment" and len(sys.argv) == 4:
         on_comment(int(sys.argv[2]), int(sys.argv[3]))
-    elif cmd == "dcomment" and len(sys.argv) == 3:
-        on_discussion_comment(sys.argv[2])
     else:
         print(__doc__)
         raise SystemExit(2)
