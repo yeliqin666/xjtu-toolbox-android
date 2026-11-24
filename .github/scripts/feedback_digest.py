@@ -312,11 +312,12 @@ def ids(xs) -> str:
     return ",".join(sorted(set(xs)))
 
 
+_DOTS = {"red": "🔴", "orange": "🟠", "brightgreen": "🟢", "blue": "🔵", "informational": "🔵", "lightgrey": "⚪"}
+
+
 def badge(label: str, message: str, color: str) -> str:
-    """shields.io 静态徽章。"""
-    def esc(s: str) -> str:
-        return urllib.parse.quote(s.replace("-", "--").replace("_", "__").replace(" ", "_"), safe="")
-    return f"![{label} {message}](https://img.shields.io/badge/{esc(label)}-{esc(message)}-{color})"
+    """徽章用 <kbd> + 色点：外链图片要走 camo.githubusercontent.com，国内常打不开。"""
+    return f"<kbd>{_DOTS.get(color, '⚪')} {label} {message}</kbd>"
 
 
 CATEGORY_ICONS = {"功能坏了": "🐞", "有点难用": "😣", "想要新功能": "✨", "其他": "💬", RATING_PREFIX: "⭐"}
