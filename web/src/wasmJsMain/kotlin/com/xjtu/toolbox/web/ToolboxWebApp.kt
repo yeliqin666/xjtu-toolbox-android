@@ -801,6 +801,8 @@ private fun AppPage(
             onBack = back,
         )
 
+        AppRoute.Tips -> com.xjtu.toolbox.tips.TipsScreen(onBack = back, onRoute = { onNavigate(WebTarget.App(it)) })
+
         // 兜底：清单说能开却没有分支 ⇒ 本端 bug，画指名道姓的页；其余路由显示「没搬过来」。
         else -> if (WebSupport.isOpenable(route)) WebSupportMismatchScreen(route, onNavigate)
         else NotPortedScreen(onNavigate)

@@ -50,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -327,6 +329,16 @@ private fun ActivityCard(a: SsActivity, vm: SsActivityViewModel, info: SsActivit
     }
 }
 
+/** 需定位签到时不能签的原因；null = 在范围内。签到点读不出来就请用户去官方页，不放行。 */
+private fun signLocationBlocker(d: SsActivityDetail, here: Pair<Double, Double>?): String? {
+    val spot = d.signSpot
+    val radius = d.signRadiusMeters
+    if (spot == null || radius == null) return "这个活动要定位签到，但没读到签到点，请到网页完成"
+    if (here == null) return "没拿到定位：请允许定位权限、打开定位后再试"
+    if (SsActivityApi.withinSignRange(here, spot, radius)) return null
+    return "不在签到范围内：离签到点约 ${SsActivityApi.signDistanceMeters(here, spot).toInt()} 米，要在 $radius 米内"
+}
+
 private const val GUESSED_GROUP = "疑似集体活动"
 private const val NO_APPLY = "无需报名"
 
@@ -334,13 +346,25 @@ private const val NO_APPLY = "无需报名"
 private fun ActivitySheet(vm: SsActivityViewModel, onOpenWeb: (String) -> Unit) {
     var signing by remember { mutableStateOf(false) }
     var code by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val d = vm.detail
+    // 需定位的活动和官方页同一条规则：先用手机真实定位确认人在签到范围内，再让输验证码
+    fun startSign(detail: SsActivityDetail) {
+        code = ""
+        if (!detail.locationRequired) { signing = true; return }
+        scope.launch {
+            vm.toast = "正在确认位置…"
+            val blocker = signLocationBlocker(detail, com.xjtu.toolbox.agent.AgentLocation.current(context))
+            if (blocker == null) signing = true else vm.toast = blocker
+        }
+    }
     OverlayBottomSheet(show = vm.detailId != null, title = d?.base?.title ?: "活动详情", onDismissRequest = { vm.close() }) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
             when {
                 vm.detailError != null -> Text(vm.detailError.orEmpty(), color = MiuixTheme.colorScheme.error)
                 d == null -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                else -> DetailBody(d, vm, onOpenWeb, onSign = { code = ""; signing = true })
+                else -> DetailBody(d, vm, onOpenWeb, onSign = { startSign(d) })
             }
         }
     }
@@ -418,7 +442,7 @@ private fun DetailBody(d: SsActivityDetail, vm: SsActivityViewModel, onOpenWeb: 
         when {
             d.applied && d.onsiteSignIn && a.status != SsActivityStatus.ENDED ->
                 Button(onClick = onSign, enabled = !vm.busy, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColorsPrimary()) {
-                    Text("现场签到 / 签退", color = MiuixTheme.colorScheme.onPrimary)
+                    Text(if (d.locationRequired) "现场签到 / 签退（需定位）" else "现场签到 / 签退", color = MiuixTheme.colorScheme.onPrimary)
                 }
             d.needApply && !d.applied && d.applyMode != SsApplyMode.ONE_CLICK ->
                 Button(onClick = { onOpenWeb(web) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColorsPrimary()) {

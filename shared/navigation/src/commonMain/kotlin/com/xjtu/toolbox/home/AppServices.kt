@@ -116,7 +116,7 @@ object AppServices {
             features = listOf(
                 "全屏竖滑回顾：课程与早八、考勤与全勤、GPA 与分数段、待办完成率、校园卡支出与干饭、体测、小游戏、和小岱聊了多少、最常用的功能",
                 "称号与学期之最：四十来个称号挑最贴切的一个，外加副标签、彩蛋和写给下学期的话，可截图分享",
-                "学期所有周结束后才生成，只在本机计算；最近一学期每次打开按最新数据刷新，往期存档随时回顾")),
+                "生成与存档：学期所有周结束后才生成，只在本机计算；最近一学期每次打开按最新数据刷新，往期存档随时回顾")),
 
         AppService(AppRoute.DownloadManager, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(AppRoute.Settings, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),

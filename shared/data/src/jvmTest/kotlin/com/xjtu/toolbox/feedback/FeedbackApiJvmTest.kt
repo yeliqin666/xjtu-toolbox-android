@@ -17,6 +17,7 @@ import com.xjtu.toolbox.feedback.FeedbackFakeUpstream.Companion.TICKET
 import com.xjtu.toolbox.feedback.FeedbackFakeUpstream.Companion.VERSION_LABEL
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
@@ -127,12 +128,11 @@ class FeedbackApiJvmTest {
 
 
     @Test
-    fun `filter 被飞书拒（1254018）：本版只记一行日志、不重试（搬动前后同构）`() = withFakeFeedback { fake ->
+    fun `filter 被飞书拒（1254018）：抛异常让调用方保留缓存，不重试`() = withFakeFeedback { fake ->
         fake.feedback.rejectFilter = true
-        val found = runBlocking { FeedbackApi.replies(listOf(TICKET)) }
-        // 钉的是现有行为：`continue` 回到 do/while 条件，pageToken 刚被置空 ⇒ 循环当场结束。
+        val error = assertFailsWith<IllegalStateException> { runBlocking { FeedbackApi.replies(listOf(TICKET)) } }
+        assertTrue("1254018" in error.message.orEmpty(), "错误信息要带上飞书的错误码：${error.message}")
         assertEquals(1, fake.feedback.searchCalls.get(), "被拒之后不再重试")
-        assertEquals(emptyMap(), found, "兜底没生效 ⇒ 这一版拿不到回复")
 
         // 反向对照：上游不拒时同一条链拿得到回复（证明上面是兜底没生效，不是解析坏了）
         fake.feedback.rejectFilter = false
@@ -152,9 +152,10 @@ class FeedbackApiJvmTest {
         assertEquals(QA_CATEGORY, only.category)
         assertFalse(
             qa.any { it.question == QA_PRIVATE_QUESTION },
-            "没勾公开的那条绝不能出现在屏上（那是「绝不退回整表拉取」那条判据的反面）",
+            "没勾公开的那条绝不能出现在屏上",
         )
-        assertTrue(fake.feedback.lastSearchBody.orEmpty().contains("公开"), fake.feedback.lastSearchBody.orEmpty())
+        // 拉全表再按工单取最新一条：后来改成私密的回复要能把之前公开的撤下，所以不按「公开」筛
+        assertFalse(fake.feedback.lastSearchBody.orEmpty().contains("\"filter\""), fake.feedback.lastSearchBody.orEmpty())
     }
 
     @Test

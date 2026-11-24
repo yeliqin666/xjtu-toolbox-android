@@ -10,7 +10,10 @@ import kotlin.time.Clock
 
 enum class TipKind(val label: String) { FEATURE("冷门功能"), LOOKS_LIKE_BUG("看着像 bug"), MEME("梗") }
 
-/** 一条小贴士。[route] 非空时带「去试试」；[newcomer] 的装机头两周优先出（#458 新手引导并在这里）。 */
+/**
+ * 一条小贴士。[route] 非空时带「去试试」；[newcomer] 的装机头两周优先出（#458 新手引导并在这里）。
+ * [agentSettings]：讲的是小岱设置页里的项，「去试试」进小岱页后直接打开设置（见 [com.xjtu.toolbox.nav.AgentSettingsRequest]）。
+ */
 data class Tip(
     val id: String,
     val kind: TipKind,
@@ -18,6 +21,7 @@ data class Tip(
     val body: String,
     val route: AppRoute? = null,
     val newcomer: Boolean = false,
+    val agentSettings: Boolean = false,
 )
 
 /** 内置的小贴士（#460）。只写代码里核实过的行为；改了功能记得回来改这里。 */
@@ -59,7 +63,7 @@ object Tips {
             "卡片组布局下，长按首页空白处进入编辑，拖动卡片调整位置。"),
         Tip("pidai-proactive", TipKind.FEATURE, "小岱的提醒气泡可以调",
             "底栏小岱头上的提醒气泡（上课、余额、考试、新成绩等）嫌多，可以在小岱页右上角设置的「主动提醒」里调频率或关掉。",
-            AppRoute.Agent),
+            AppRoute.Agent, agentSettings = true),
         Tip("card-bill", TipKind.FEATURE, "干饭人账单",
             "校园卡的消费分析里，会按你的吃饭习惯生成一张海报，可以存图分享。", AppRoute.CampusCard),
         Tip("venue-captcha", TipKind.FEATURE, "场馆预订自动过滑块",
@@ -90,13 +94,13 @@ object Tips {
         Tip("android-12-14", TipKind.LOOKS_LIKE_BUG, "Android 12–14 上玻璃效果变成了纯色？",
             "系统限制：Android 12–14 上液态玻璃会换成纯色或模糊样式，动态背景变为静态，小岱读 PDF 改用识图。Android 15 及以上不受影响。"),
         Tip("pidai-quiet", TipKind.LOOKS_LIKE_BUG, "戳小岱它不说话？",
-            "小岱页设置里的「主动提醒」关掉以后，戳它也不回话，只会切到小岱页。", AppRoute.Agent),
+            "小岱页设置里的「主动提醒」关掉以后，戳它也不回话，只会切到小岱页。", AppRoute.Agent, agentSettings = true),
 
         // ── 梗 ──
         Tip("pidai-combo", TipKind.MEME, "连戳小岱三下",
             "连戳底栏中间的小岱三下，它会被戳成陀螺转两圈，停下来晕头转向。"),
         Tip("pidai-cast", TipKind.MEME, "小岱可以换角色",
-            "小岱页右上角设置 → 小岱形象：除了经典小岱，还有早八人、木鱼、喵、仓鼠和 MJ。", AppRoute.Agent),
+            "小岱页右上角设置 → 小岱形象：除了经典小岱，还有早八人、木鱼、喵、仓鼠和 MJ。", AppRoute.Agent, agentSettings = true),
         Tip("pidai-nickname", TipKind.MEME, "搜「屁岱」也行",
             "全局搜索里输「屁岱」，一样能找到小岱。"),
     )

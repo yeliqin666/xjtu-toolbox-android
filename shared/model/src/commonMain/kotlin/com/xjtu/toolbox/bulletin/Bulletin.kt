@@ -93,6 +93,9 @@ data class Bulletin(
 /** 投票的一个选项拿到几票。 */
 data class PollResult(val option: String, val votes: Int)
 
+/** 这条公告在消息收纳里的条目 id（首页、弹窗、收纳三处对账都靠它）。 */
+val Bulletin.inboxId: String get() = "bulletin:$id"
+
 object BulletinRules {
     private val beijing = CampusTimeZone
 
@@ -190,6 +193,8 @@ object BulletinRules {
         snoozedIds: Set<String>,
     ): Boolean {
         if (bulletin.id in snoozedIds) return true
+        // 「必须升级」不能被永久关掉：只认本次启动里的推迟
+        if (bulletin.level == BulletinLevel.FORCE_UPDATE) return false
         if (bulletin.id in dismissedIds) return true
         if (bulletin.level == BulletinLevel.CRITICAL && bulletin.mustAck && bulletin.id in ackedIds) {
             return true
@@ -213,8 +218,9 @@ object BulletinRules {
     ): List<Bulletin> {
         return items
             .filter { isActive(it, now, currentVersion, currentVersionCode) }
-            .filterNot { isHidden(it, dismissedIds, ackedIds, snoozedIds) }
+            // 先按版本升级成「必须升级」再判断关没关过：以「更新」关掉的公告后来加了强制门槛，照样要出现
             .map { resolveForVersion(it, currentVersion) }
+            .filterNot { isHidden(it, dismissedIds, ackedIds, snoozedIds) }
             .sortedWith(
                 compareByDescending<Bulletin> { it.level.rank }
                     .thenByDescending { it.id },

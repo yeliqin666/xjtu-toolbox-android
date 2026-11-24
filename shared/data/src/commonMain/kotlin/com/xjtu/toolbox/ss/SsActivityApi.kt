@@ -73,6 +73,11 @@ data class SsActivityDetail(
     val pointsBreakdown: String = "",
     /** 正文 + 须知去掉 HTML 与空白后的文本（这几个字常被标签拆开）。 */
     val searchText: String = "",
+    /** 签到要定位（SFDW）：人得在 [signSpot] 的 [signRadiusMeters] 米内，和官方页同一条规则。 */
+    val locationRequired: Boolean = false,
+    /** 签到点 (纬度, 经度)，来自 DDXX；解析不出时为 null。 */
+    val signSpot: Pair<Double, Double>? = null,
+    val signRadiusMeters: Int? = null,
 ) {
     /**
      * 描述里明写的「集体活动 / 校级活动 / 院级活动」（区别于按标题猜的 [SsActivity.likelyGroupProof]）。
@@ -183,6 +188,9 @@ class SsActivityApi(private val site: SiteSession) {
                 .mapNotNull { (label, key) -> o[key].safeString().takeIf { it.isNotBlank() && it != "0" }?.let { "$label $it" } }
                 .joinToString(" · "),
             searchText = (o["HDNR"].safeString() + "|" + o["HDXZ"].safeString()).replace(TAGS_AND_SPACE, ""),
+            locationRequired = o["SFDW"].flag(),
+            signSpot = parseSignSpot(o["DDXX"].safeString()),
+            signRadiusMeters = o["YXFW"].safeStringOrNull()?.toDoubleOrNull()?.toInt()?.takeIf { it > 0 },
         )
     }
 
@@ -197,7 +205,7 @@ class SsActivityApi(private val site: SiteSession) {
         call("ykHdController/cancelBm.do", buildJsonObject { put("HDDM", id) })
     }
 
-    /** 现场签到 / 签退：输入现场给的 6 位验证码（不做定位）。 */
+    /** 现场签到 / 签退：输入现场给的 6 位验证码。需定位的活动由调用方先核对位置（[withinSignRange]）。 */
     suspend fun signIn(id: String, code: String) {
         call("ykHdController/saveCcQdqt.do", buildJsonObject { put("HDDM", id); put("YZM", code.trim()) })
     }
@@ -259,6 +267,65 @@ class SsActivityApi(private val site: SiteSession) {
         }
 
         internal fun JsonElement?.flag() = safeString().trim().lowercase() in setOf("1", "true", "是", "y", "yes")
+
+        /**
+         * DDXX 里的签到点：格式没实测过（可能是「经度,纬度」也可能反过来、或包一层 JSON），
+         * 取前两个小数、按量级分经纬（国内经度 > 70，纬度 < 60）。
+         */
+        internal fun parseSignSpot(raw: String): Pair<Double, Double>? {
+            val nums = Regex("""-?\d+\.\d+""").findAll(raw).map { it.value.toDouble() }.take(2).toList()
+            if (nums.size < 2) return null
+            val (a, b) = nums
+            return when {
+                a > 70 && b < 60 -> b to a
+                b > 70 && a < 60 -> a to b
+                else -> null
+            }
+        }
+
+        /**
+         * 人在不在签到范围内。签到点的坐标系没实测（国内地图多用 GCJ-02，手机定位是 WGS-84，两者差几百米），
+         * 手机坐标按两套各算一次，任一落在范围内就算在场：只在边界上宽一点，不会把真不在场的人放进来。
+         */
+        fun withinSignRange(here: Pair<Double, Double>, spot: Pair<Double, Double>, radiusMeters: Int): Boolean =
+            signDistanceMeters(here, spot) <= radiusMeters
+
+        /** 离签到点多远（两套坐标系取近的那个，见 [withinSignRange]）。 */
+        fun signDistanceMeters(here: Pair<Double, Double>, spot: Pair<Double, Double>): Double =
+            minOf(distanceMeters(here, spot), distanceMeters(wgsToGcj(here), spot))
+
+        /** 两点球面距离（米，haversine）。 */
+        fun distanceMeters(a: Pair<Double, Double>, b: Pair<Double, Double>): Double {
+            fun rad(d: Double) = d * kotlin.math.PI / 180
+            val dLat = rad(b.first - a.first)
+            val dLng = rad(b.second - a.second)
+            val h = kotlin.math.sin(dLat / 2).let { it * it } +
+                kotlin.math.cos(rad(a.first)) * kotlin.math.cos(rad(b.first)) * kotlin.math.sin(dLng / 2).let { it * it }
+            return 2 * 6_371_000.0 * kotlin.math.asin(kotlin.math.sqrt(h))
+        }
+
+        /** WGS-84 → GCJ-02（国测局公开的偏移算法，国内范围内适用）。 */
+        internal fun wgsToGcj(p: Pair<Double, Double>): Pair<Double, Double> {
+            val (lat, lng) = p
+            val a = 6378245.0
+            val ee = 0.00669342162296594323
+            val x = lng - 105.0
+            val y = lat - 35.0
+            var dLat = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * kotlin.math.sqrt(kotlin.math.abs(x))
+            dLat += (20.0 * kotlin.math.sin(6.0 * x * kotlin.math.PI) + 20.0 * kotlin.math.sin(2.0 * x * kotlin.math.PI)) * 2.0 / 3.0
+            dLat += (20.0 * kotlin.math.sin(y * kotlin.math.PI) + 40.0 * kotlin.math.sin(y / 3.0 * kotlin.math.PI)) * 2.0 / 3.0
+            dLat += (160.0 * kotlin.math.sin(y / 12.0 * kotlin.math.PI) + 320 * kotlin.math.sin(y * kotlin.math.PI / 30.0)) * 2.0 / 3.0
+            var dLng = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * kotlin.math.sqrt(kotlin.math.abs(x))
+            dLng += (20.0 * kotlin.math.sin(6.0 * x * kotlin.math.PI) + 20.0 * kotlin.math.sin(2.0 * x * kotlin.math.PI)) * 2.0 / 3.0
+            dLng += (20.0 * kotlin.math.sin(x * kotlin.math.PI) + 40.0 * kotlin.math.sin(x / 3.0 * kotlin.math.PI)) * 2.0 / 3.0
+            dLng += (150.0 * kotlin.math.sin(x / 12.0 * kotlin.math.PI) + 300.0 * kotlin.math.sin(x / 30.0 * kotlin.math.PI)) * 2.0 / 3.0
+            val radLat = lat / 180.0 * kotlin.math.PI
+            val magic = 1 - ee * kotlin.math.sin(radLat) * kotlin.math.sin(radLat)
+            val sqrtMagic = kotlin.math.sqrt(magic)
+            dLat = dLat * 180.0 / ((a * (1 - ee)) / (magic * sqrtMagic) * kotlin.math.PI)
+            dLng = dLng * 180.0 / (a / sqrtMagic * kotlin.math.cos(radLat) * kotlin.math.PI)
+            return (lat + dLat) to (lng + dLng)
+        }
 
         /** 列表接口的 data 有时直接是数组，有时包一层 `{rows: [...]}`，按第一个数组取。 */
         internal fun rows(data: JsonElement?): List<JsonObject> = when (data) {

@@ -80,7 +80,13 @@ class FeedbackStoreJvmTest {
     }
 
     @Test
-    fun `弹问卷的三重闸门：没配后端不弹、用得太少不弹、记过账就不再弹`() {
+    fun `弹问卷的闸门：没配后端不弹、新版本刚装不弹、用得太少不弹、记过账就不再弹`() {
+        assertFalse(
+            FeedbackStore.shouldPrompt(versionCode = 90, usageCount = 100, isConfigured = true),
+            "新版本第一次见到 ⇒ 只记下装上的时间，满 3 天才问",
+        )
+        // 89 版很早以前就装上了
+        raw.putString("prompt_version_seen", "89:0")
         assertFalse(
             FeedbackStore.shouldPrompt(versionCode = 89, usageCount = 100, isConfigured = false),
             "后端没配 ⇒ 从不弹（搬迁前读的是 FeedbackApi.isConfigured）",

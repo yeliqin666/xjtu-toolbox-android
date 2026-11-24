@@ -107,7 +107,7 @@ fun HomeTipPanel(onRoute: (AppRoute) -> Unit, bottomGap: Dp) {
                     Text(tip.body, style = MiuixTheme.textStyles.footnote1, color = muted)
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        tip.route?.let { route -> TipAction("去试试 →") { onRoute(route) } }
+                        tip.route?.let { route -> TipAction("去试试 →") { tip.open(route, onRoute) } }
                         Spacer(Modifier.weight(1f))
                         TipAction("更多小贴士", primary = false) { onRoute(AppRoute.Tips) }
                     }
@@ -172,7 +172,7 @@ fun TipsScreen(onBack: () -> Unit, onRoute: (AppRoute) -> Unit) {
                             Text(tip.body, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                             tip.route?.let { route ->
                                 Spacer(Modifier.height(8.dp))
-                                TipAction("去试试 →") { onRoute(route) }
+                                TipAction("去试试 →") { tip.open(route, onRoute) }
                             }
                         }
                     }
@@ -181,4 +181,10 @@ fun TipsScreen(onBack: () -> Unit, onRoute: (AppRoute) -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/** 「去试试」：讲小岱设置的那几条先挂上「打开设置」的请求，进小岱页就直接是设置页。 */
+private fun Tip.open(route: AppRoute, onRoute: (AppRoute) -> Unit) {
+    if (agentSettings) com.xjtu.toolbox.nav.AgentSettingsRequest.request()
+    onRoute(route)
 }

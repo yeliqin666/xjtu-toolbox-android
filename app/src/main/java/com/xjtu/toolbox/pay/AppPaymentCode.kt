@@ -8,6 +8,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.platform.keyValueStore
 
@@ -18,7 +19,6 @@ fun PaymentCodeDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
     // 录屏、投屏、共享屏幕时系统把付款码这块遮掉（不影响自己截图）
     val view = LocalView.current
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM) DisposableEffect(view) {
@@ -26,8 +26,12 @@ fun PaymentCodeDialog(
         view.contentSensitivity = View.CONTENT_SENSITIVITY_SENSITIVE
         onDispose { view.contentSensitivity = old }
     }
-    DisposableEffect(Unit) {
-        val window = activity?.window ?: return@DisposableEffect onDispose {}
+    // 调亮付款码所在的那个窗口：放在 Compose Dialog 里时是 Dialog 自己的窗口
+    // （那里的 LocalContext 是包了一层的 ContextThemeWrapper，强转 Activity 会落空，亮度就一直没变）
+    DisposableEffect(view) {
+        val window = (view.parent as? DialogWindowProvider)?.window
+            ?: (context as? Activity)?.window
+            ?: return@DisposableEffect onDispose {}
         val orig = window.attributes.screenBrightness
         window.attributes = window.attributes.apply {
             screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL

@@ -259,6 +259,12 @@ class DesktopHomeJvmTest {
         assertFalse(critical.showLaunchDialog.value)
         assertNull(critical.launchBulletin)
         assertFalse(BulletinStore().ackedIds.contains(criticalId), "CRITICAL 的「稍后」不记已确认")
+        // 「知道了」才是确认：记已确认，下次冷启动不再弹
+        runBlocking { critical.check() }
+        critical.confirmDialog(critical.launchBulletin!!)
+        assertTrue(BulletinStore().ackedIds.contains(criticalId), "CRITICAL 点「知道了」要记已确认，否则每次冷启动都弹")
+        runBlocking { critical.check() }
+        assertNull(critical.launchBulletin, "确认过的重要公告不该再弹")
 
         // FORCE_UPDATE：「稍后」只记在**进程内**（下次冷启动照旧出现）⇒ 条上立刻消失
         val forcedId = "fixture-forced-1"

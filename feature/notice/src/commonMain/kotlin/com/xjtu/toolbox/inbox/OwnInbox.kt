@@ -2,6 +2,7 @@ package com.xjtu.toolbox.inbox
 
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.bulletin.BulletinRules
+import com.xjtu.toolbox.bulletin.inboxId
 import com.xjtu.toolbox.community.CommunityActivity
 import com.xjtu.toolbox.community.CommunityActivityKind
 import com.xjtu.toolbox.library.MyBookingInfo
@@ -66,7 +67,7 @@ object OwnInbox {
     fun bulletin(b: Bulletin): InboxItem {
         val dated = BulletinRules.parseInstant(b.id.take(10))?.toEpochMilliseconds()
         return InboxItem(
-            id = "bulletin:${b.id}", category = InboxCategories.BULLETIN, source = "工具箱",
+            id = b.inboxId, category = InboxCategories.BULLETIN, source = "工具箱",
             title = b.title, body = b.body, time = b.startsAt?.toEpochMilliseconds() ?: dated ?: Clock.System.now().toEpochMilliseconds(),
             route = b.url?.let { AppRoute.Browser(it).id },
         )

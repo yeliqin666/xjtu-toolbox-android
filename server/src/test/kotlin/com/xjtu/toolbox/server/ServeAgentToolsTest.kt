@@ -89,9 +89,9 @@ class ServeAgentToolsTest {
             assertTrue(canteen.contains("梧桐苑"), "校园指南没查到兴庆食堂：$canteen")
 
             // preference：给 value 是记下，不给是删掉（与 :app 同一条判据）
-            assertEquals("记住了：常在 = 兴庆", tools.execute("preference", """{"key":"常在","value":"兴庆"}"""))
+            assertEquals("记住了：常在 = 兴庆\n当前偏好：常在 = 兴庆", tools.execute("preference", """{"key":"常在","value":"兴庆"}"""))
             assertTrue(tools.memoryBlock().contains("- 常在：兴庆"), "偏好没进系统提示：${tools.memoryBlock()}")
-            assertEquals("忘掉了「常在」。", tools.execute("preference", """{"key":"常在"}"""))
+            assertEquals("忘掉了「常在」。\n当前没有记住的偏好。", tools.execute("preference", """{"key":"常在"}"""))
             assertTrue(tools.memoryBlock().isEmpty(), "删掉之后不该还在：${tools.memoryBlock()}")
         }
 

@@ -851,6 +851,10 @@ private fun DesktopPage(
         is AppRoute.NoticeDetail -> NotPortedScreen(onNavigate)
         // 扫一扫是 Android 顶栏的相机入口，桌面端没有这一屏。
         AppRoute.QrScan -> NotPortedScreen(onNavigate)
+        AppRoute.Tips -> com.xjtu.toolbox.tips.TipsScreen(onBack = back, onRoute = { onNavigate(DesktopTarget.App(it)) })
+        // 活动报名、学期总结的屏都在 :app（安卓专属），桌面端没有。
+        AppRoute.SsActivity -> NotPortedScreen(onNavigate)
+        AppRoute.TermReport -> NotPortedScreen(onNavigate)
 
         // 其余路由显示「没搬过来」，不拿有数据的屏冒充。
         else -> NotPortedScreen(onNavigate)

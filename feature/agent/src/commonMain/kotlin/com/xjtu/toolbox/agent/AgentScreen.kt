@@ -142,6 +142,12 @@ fun AgentScreen(
         )
     }
 
+    // 从小贴士「去试试」进来：直接打开设置页（同样等这一页真显示着再取）
+    LaunchedEffect(com.xjtu.toolbox.nav.AgentSettingsRequest.generation) {
+        androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
+        if (com.xjtu.toolbox.nav.AgentSettingsRequest.consume()) showConfig = true
+    }
+
     // 点屁岱推送的通知进来：切到「推送记录」，定位并闪一下那一条（#194）
     // 正开着这个会话时后台追加了推送也重读；生成中不读，结束写盘时会并回推送并重读
     LaunchedEffect(host.accountId, AgentPushFocus.generation, AgentPushFocus.appended) {

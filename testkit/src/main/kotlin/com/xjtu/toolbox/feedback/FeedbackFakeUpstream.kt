@@ -116,11 +116,8 @@ class FeedbackFakeUpstream {
                     )
                     return
                 }
-                when {
-                    // 公开问答那一档：`{"公开": "is" ["true"]}`
-                    "\"公开\"" in body -> respondJson(exchange, publicQaResponse())
-                    else -> respondJson(exchange, repliesResponse())
-                }
+                // 带 filter（按工单号查回复）回那几条回复；不带 filter（公开问答拉全表、自己挑公开的）回整张表
+                respondJson(exchange, if (filtered) recordsResponse(replyRecords) else recordsResponse(replyRecords + qaRecords))
             }
             else -> respond(
                 exchange,
@@ -137,36 +134,20 @@ class FeedbackFakeUpstream {
 
         private set
 
-    /** 回复表的记录：工单号与回复都是富文本数组，另有一条不在 wanted 里的记录。 */
-    private fun repliesResponse(): String = """
-        {"code":0,"msg":"ok","data":{"has_more":false,"items":[
-          {"record_id":"recA","fields":{
-            "工单号":[{"type":"text","text":"$TICKET"}],
-            "回复":[{"type":"text","text":"$REPLY_TEXT"}],
-            "回复时间":"2026-10-01 12:00"
-          }},
-          {"record_id":"recB","fields":{
-            "工单号":"TOTHER999",
-            "回复":"别人的回复",
-            "回复时间":"2026-09-30 09:00"
-          }}
-        ]}}
-    """.trimIndent()
+    private fun recordsResponse(records: List<String>): String =
+        """{"code":0,"msg":"ok","data":{"has_more":false,"items":[${records.joinToString(",")}]}}"""
 
-    /** 回复表里的公开那几条（一条勾了「公开」，一条没勾）。 */
-    private fun publicQaResponse(): String = """
-        {"code":0,"msg":"ok","data":{"has_more":false,"items":[
-          {"record_id":"recQ1","fields":{
-            "公开":true,
-            "问题":[{"type":"text","text":"$QA_QUESTION"}],
-            "回复":[{"type":"text","text":"$QA_ANSWER"}],
-            "类型":"$QA_CATEGORY"
-          }},
-          {"record_id":"recQ2","fields":{
-            "公开":false,
-            "问题":"$QA_PRIVATE_QUESTION",
-            "回复":"不该被读到的回答"
-          }}
-        ]}}
-    """.trimIndent()
+    /** 回复表的记录：工单号与回复都是富文本数组，另有一条不在 wanted 里的记录。 */
+    private val replyRecords = listOf(
+        """{"record_id":"recA","fields":{"工单号":[{"type":"text","text":"$TICKET"}],""" +
+            """"回复":[{"type":"text","text":"$REPLY_TEXT"}],"回复时间":"2026-10-01 12:00"}}""",
+        """{"record_id":"recB","fields":{"工单号":"TOTHER999","回复":"别人的回复","回复时间":"2026-09-30 09:00"}}""",
+    )
+
+    /** 回复表里带问题的问答（一条勾了「公开」，一条没勾）。 */
+    private val qaRecords = listOf(
+        """{"record_id":"recQ1","fields":{"公开":true,"问题":[{"type":"text","text":"$QA_QUESTION"}],""" +
+            """"回复":[{"type":"text","text":"$QA_ANSWER"}],"类型":"$QA_CATEGORY"}}""",
+        """{"record_id":"recQ2","fields":{"公开":false,"问题":"$QA_PRIVATE_QUESTION","回复":"不该被读到的回答"}}""",
+    )
 }

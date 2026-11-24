@@ -88,6 +88,8 @@ class SeamlessPageActivity : ComponentActivity() {
             finish()
             return
         }
+        // 这里也能打开要定位的页（活动签到、小岱地图）：权限弹窗得由盖在最上面的这个 Activity 发起
+        com.xjtu.toolbox.agent.AgentLocation.register(this)
         val appearance = AppearanceSettings.get(this)
         setContent {
             val darkMode by appearance.darkMode.collectAsStateWithLifecycle()

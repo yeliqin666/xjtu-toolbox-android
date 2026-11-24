@@ -407,9 +407,10 @@ fun BulletinLaunchDialog(
                     colors = com.xjtu.toolbox.ui.components.appTonalTextButtonColors(),
                 )
             } else {
+                // 「知道了」是确认（记账后不再弹）；划走、点外面才是「稍后」
                 TextButton(
                     text = "知道了",
-                    onClick = onDismiss,
+                    onClick = onPrimary,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                 )

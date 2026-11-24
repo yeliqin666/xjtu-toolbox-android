@@ -66,7 +66,7 @@ class DesktopSettingsJvmTest {
     @Test
     fun `桌面宿主的如实降级：只声明真会照办的四行，没有的行与组是 null`() {
         var ticked = 0
-        val host = DesktopSettingsHost { ticked++ }
+        val host = DesktopSettingsHost(notifyAppearanceChanged = { ticked++ })
 
         assertEquals(
             setOf(
@@ -86,7 +86,7 @@ class DesktopSettingsJvmTest {
             host.dataPrivacySection,
             "S5 起「数据与隐私」是真组：导出数据存档 / 导入数据存档两行（Android 那两样仍然没有）",
         )
-        assertNull(host.updateSection, "桌面是 .deb/tar.gz，没有「下载并安装 APK」那条路 ⇒ 整组不画")
+        assertNotNull(host.updateSection, "桌面有自己的「检查更新」组（DesktopUpdateSection），不走 APK 安装")
         assertNull(host.onNetworkModeChanged, "桌面只按直连走 ⇒ 连接模式那一行不画")
         assertTrue(host.scheduleSourceOptions.isEmpty(), "桌面还没有改课表来源的入口 ⇒ 那一行不画")
         assertTrue(host.changelog.isEmpty(), "更新日志属 :app 的更新域，没搬 ⇒ 那一行不画")
