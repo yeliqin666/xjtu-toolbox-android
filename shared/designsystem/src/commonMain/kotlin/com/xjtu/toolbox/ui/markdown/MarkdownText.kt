@@ -202,20 +202,20 @@ private fun ListRow(indent: Int, marker: String, style: TextStyle, markerColor: 
     }
 }
 
-/** 正文行高倍数（my_blog 是 1.85，手机气泡窄一些，略收）。 */
-private const val BODY_LINE_HEIGHT = 1.75f
+/** 正文行高倍数：中文正文行距常取字号的 0.5～1 倍（行高 1.5～2.0），手机上对话取偏紧的 1.6，一屏多放几行。 */
+private const val BODY_LINE_HEIGHT = 1.6f
 
 /**
- * 块前留白：标题前空得多（层级越高越多），同一列表的相邻项挨得紧，其余段落之间 10dp。
+ * 块前留白：标题前空得多（层级越高越多），同一列表的相邻项挨得紧，其余段落之间 8dp（约半行）。
  * 照 my_blog 的 post-md：h2 前 2.6em、h3 前 38px、p 14px、li 5px，按手机正文换算后收紧。
  */
 private fun blockGap(prev: MdBlock, next: MdBlock): androidx.compose.ui.unit.Dp {
     fun isList(b: MdBlock) = b is MdBlock.Bullet || b is MdBlock.Numbered || b is MdBlock.Task
     return when {
-        next is MdBlock.Heading -> when (next.level) { 1 -> 22.dp; 2 -> 20.dp; 3 -> 16.dp; else -> 12.dp }
+        next is MdBlock.Heading -> when (next.level) { 1 -> 18.dp; 2 -> 16.dp; 3 -> 14.dp; else -> 10.dp }
         prev is MdBlock.Heading -> 6.dp
-        isList(prev) && isList(next) -> 4.dp
-        else -> 10.dp
+        isList(prev) && isList(next) -> 3.dp
+        else -> 8.dp
     }
 }
 

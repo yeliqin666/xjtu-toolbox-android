@@ -264,7 +264,8 @@ internal fun ChatPanel(
                         .fillMaxSize()
                         .overScrollVertical()
                         .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier),
-                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
+                    // 页边距照 Material 紧凑窗口 16dp；助手正文再内收 2dp，总约 18dp（原来 24 + 8 = 32dp，一行少四五个字）
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
             // 这一端的屁岱缺什么，放在对话最前面
@@ -740,7 +741,7 @@ private fun MessageBubble(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 2.dp),
                 horizontalAlignment = Alignment.Start
             ) {
                 if (showReasoning && msg.reasoningContent.isNotBlank() || streaming && msg.content.isBlank()) {

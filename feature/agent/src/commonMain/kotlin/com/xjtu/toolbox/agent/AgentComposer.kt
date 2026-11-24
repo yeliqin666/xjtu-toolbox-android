@@ -113,7 +113,8 @@ internal fun AgentComposer(
         Modifier
             .fillMaxWidth()
             .windowInsetsPadding(bottomInsets)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            // 悬浮底栏的 reserve 本来就按上限留了空隙，下边再加 8dp 输入框就悬得偏高
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = if (bottomReserve > 0.dp) 0.dp else 8.dp),
     ) {
         // 待发送的图片：贴在输入框上方，每张右上角一个叉。
         if (attachments.isNotEmpty()) {
@@ -303,7 +304,7 @@ internal fun PushLogFooter(bottomReserve: Dp, onNewChat: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .windowInsetsPadding(resting)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = if (bottomReserve > 0.dp) 0.dp else 8.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(MiuixTheme.colorScheme.surfaceVariant)
             .border(1.dp, MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
