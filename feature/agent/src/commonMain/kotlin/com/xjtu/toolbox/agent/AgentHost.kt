@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.ui.graphics.ImageBitmap
+import com.xjtu.toolbox.ui.markdown.MarkdownImageLoader
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -148,27 +149,7 @@ class AgentMfaRequest(val siteName: String)
 /** 一张解好的本地图 + 它的原始宽度。 */
 class DecodedPlanImage(val image: ImageBitmap, val originalWidth: Int)
 
-/** 回复里远程图的取图引擎（`:app` = OkHttp + `BitmapFactory` 那一段，见那个模块的 `AndroidAgentImages`）。 */
-interface AgentImageLoader {
-
-    /** 已经在内存里的那张图（重组时先看这里，避免反复读盘/重下）。 */
-    fun cached(url: String): ImageBitmap?
-
-    /** 这张图此前加载失败过：屏上直接画「加载失败，点开看原图」，不再重试。 */
-    fun hasFailed(url: String): Boolean
-
-    /** 拉一张图并解码；失败返回 null（调用方据此标 [hasFailed]）。 */
-    suspend fun load(url: String): ImageBitmap?
-
-    companion object {
-        /** 没有取图引擎的端：一切都「加载不出来」，于是退成一行可点的链接。 */
-        val None: AgentImageLoader = object : AgentImageLoader {
-            override fun cached(url: String): ImageBitmap? = null
-            override fun hasFailed(url: String): Boolean = false
-            override suspend fun load(url: String): ImageBitmap? = null
-        }
-    }
-}
+typealias AgentImageLoader = MarkdownImageLoader
 
 /** 系统相册挑图的注入点（`:app` 用 `rememberLauncherForActivityResult` 实现，见那个模块的 `rememberAndroidAgentImagePicker`）。 */
 fun interface AgentImagePicker {

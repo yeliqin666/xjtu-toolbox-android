@@ -57,6 +57,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
+import com.xjtu.toolbox.ui.markdown.BulletinMarkdown
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -121,7 +122,7 @@ private fun OpenPollCard(
         }
         Text(poll.title, style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.SemiBold)
         if (poll.body.isNotBlank()) {
-            Text(poll.body, style = MiuixTheme.textStyles.body2, color = colors.onSurfaceVariantSummary)
+            BulletinMarkdown(poll.body)
         }
         if (voting) {
             PollChoices(poll, myVote.orEmpty(), onCancel = if (changing) ({ changing = false }) else null) { selected, onDone ->
@@ -389,7 +390,7 @@ private fun PastPollRow(poll: Bulletin, mine: List<String>, expanded: Boolean, o
         ) {
             Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (poll.body.isNotBlank()) {
-                    Text(poll.body, style = MiuixTheme.textStyles.body2, color = colors.onSurfaceVariantSummary)
+                    BulletinMarkdown(poll.body)
                 }
                 PollResults(poll, mine)
                 Text(

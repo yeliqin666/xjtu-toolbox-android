@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.agent
+package com.xjtu.toolbox.ui.markdown
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -64,24 +64,26 @@ fun MarkdownText(
     color: Color,
     modifier: Modifier = Modifier,
     onLink: (String) -> Unit = {},
-    /** 内联图的取图引擎（见 [AgentImageLoader]）：默认没有 ⇒ 图退成一行可点的链接。 */
-    images: AgentImageLoader = AgentImageLoader.None,
-    /** 为 false 时公式只显示源码。 */
+    /** 内联图的取图引擎（见 [MarkdownImageLoader]）：默认没有 ⇒ 图退成一行可点的链接。 */
+    images: MarkdownImageLoader = MarkdownImageLoader.None,
+    /** 为 false 时跳过块级和行内公式解析。 */
     typesetMath: Boolean = true,
     /** 正文字号；标题不会比它小。思考块传小一号的，和流式阶段的纯文本一致。 */
     bodyStyle: TextStyle = MiuixTheme.textStyles.body1,
 ) {
-    val blocks = remember(text) { parseBlocks(text) }
+    val blocks = remember(text, typesetMath) { parseBlocks(text, parseMath = typesetMath) }
     // 小字正文里标题不放大，只加粗
     val compact = bodyStyle.fontSize < MiuixTheme.textStyles.body1.fontSize
     // 文本停止变化后才排版公式，排版过就不再退回源码
     var stableText by remember { mutableStateOf(text) }
     var typesetOnce by remember { mutableStateOf(false) }
-    LaunchedEffect(text) {
-        if (text != stableText) { delay(MATH_SETTLE_MS); stableText = text }
-    }
     val mathLive = typesetMath && (typesetOnce || text == stableText)
-    LaunchedEffect(mathLive) { if (mathLive) typesetOnce = true }
+    if (typesetMath) {
+        LaunchedEffect(text) {
+            if (text != stableText) { delay(MATH_SETTLE_MS); stableText = text }
+        }
+        LaunchedEffect(mathLive) { if (mathLive) typesetOnce = true }
+    }
     // 链接回调做成稳定引用，否则每次重组 onLink 是新 lambda，下面按块缓存的 AnnotatedString 全部失效
     val currentOnLink = rememberUpdatedState(onLink)
     val linkHandler = remember { { url: String -> currentOnLink.value(url) } }
@@ -105,19 +107,19 @@ fun MarkdownText(
                     block.level, compact, body, color, accent,
                 ) { style, headingColor ->
                     MdText(
-                        mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
+                        mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler, parseMath = typesetMath),
                         color = headingColor, style = style, fontWeight = if (compact) FontWeight.Bold else FontWeight.Medium,
                         textAlign = if (!compact && block.level == 1) TextAlign.Center else null,
                         modifier = if (!compact && block.level == 1) Modifier.fillMaxWidth() else Modifier,
                     )
                 }
                 is MdBlock.Bullet -> ListRow(block.indent, "•", body, accent) {
-                    MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
+                    MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler, parseMath = typesetMath), color = color,
                         style = body, modifier = Modifier.weight(1f))
                 }
                 is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐", body, accent) {
                     MdText(
-                        mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
+                        mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler, parseMath = typesetMath),
                         color = if (block.checked) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
                         style = body,
                         textDecoration = if (block.checked) TextDecoration.LineThrough else null,
@@ -125,7 +127,7 @@ fun MarkdownText(
                     )
                 }
                 is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.", body, accent) {
-                    MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
+                    MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler, parseMath = typesetMath), color = color,
                         style = body, modifier = Modifier.weight(1f))
                 }
                 // 引用：大圆角浅底色块，左侧一根圆头的主题色短条，不描边
@@ -138,7 +140,7 @@ fun MarkdownText(
                     Box(Modifier.padding(vertical = 4.dp).width(4.dp).fillMaxHeight()
                         .background(accent.copy(alpha = 0.45f), RoundedCornerShape(2.dp)))
                     Spacer(Modifier.width(10.dp))
-                    MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = quoteColor,
+                    MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler, parseMath = typesetMath), color = quoteColor,
                         style = if (compact) MiuixTheme.textStyles.body2
                         else MiuixTheme.textStyles.body2.let { it.copy(lineHeight = it.fontSize * BODY_LINE_HEIGHT) })
                 }
@@ -167,7 +169,7 @@ fun MarkdownText(
                     val cols = block.headers.size.coerceAtLeast(1)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)) {
                         block.headers.forEach { h ->
-                            MdText(mathLive, rememberInline(h, linkColor, codeBg, errorColor, linkHandler), color = color, fontWeight = FontWeight.Bold,
+                            MdText(mathLive, rememberInline(h, linkColor, codeBg, errorColor, linkHandler, parseMath = typesetMath), color = color, fontWeight = FontWeight.Bold,
                                 style = MiuixTheme.textStyles.footnote1,
                                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                         }
@@ -176,14 +178,14 @@ fun MarkdownText(
                     block.rows.forEach { row ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)) {
                             for (ci in 0 until cols) {
-                                MdText(mathLive, rememberInline(row.getOrElse(ci) { "" }, linkColor, codeBg, errorColor, linkHandler), color = color,
+                                MdText(mathLive, rememberInline(row.getOrElse(ci) { "" }, linkColor, codeBg, errorColor, linkHandler, parseMath = typesetMath), color = color,
                                     style = MiuixTheme.textStyles.footnote1,
                                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                             }
                         }
                     }
                 }
-                is MdBlock.Para -> MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
+                is MdBlock.Para -> MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler, parseMath = typesetMath), color = color,
                     style = body)
                 is MdBlock.Math -> MathBlock(block, color, codeBg, mathLive)
                 is MdBlock.Image -> MdImage(block.alt, block.url, images, linkColor, onClick = { linkHandler(block.url) })
@@ -288,7 +290,7 @@ private val numberedRe = Regex("""^(\d+)[.)]\s+(.*)""")
 private val ruleRe = Regex("""^(-{3,}|\*{3,}|_{3,})$""")
 private val taskRe = Regex("""^\[([ xX])]\s+(.*)""")
 
-internal fun parseBlocks(text: String): List<MdBlock> {
+internal fun parseBlocks(text: String, parseMath: Boolean = true): List<MdBlock> {
     val out = ArrayList<MdBlock>()
     val lines = text.replace("\r\n", "\n").split("\n")
     var i = 0
@@ -341,7 +343,8 @@ internal fun parseBlocks(text: String): List<MdBlock> {
                 out.add(MdBlock.Numbered(m.groupValues[1].toIntOrNull() ?: 1, m.groupValues[2], indent))
             }
             line.isBlank() -> { /* 段间空行由 spacedBy 体现 */ }
-            else -> i = parseParaWithMath(lines, i, out)
+            parseMath -> i = parseParaWithMath(lines, i, out)
+            else -> out.add(MdBlock.Para(line.trimEnd()))
         }
         i++
     }
@@ -440,18 +443,20 @@ private fun rememberInline(
     codeBg: Color,
     errorColor: Color,
     onLink: (String) -> Unit,
-): AnnotatedString = remember(s, linkColor, codeBg, errorColor, onLink) {
-    inlineMarkdown(s, linkColor, codeBg, errorColor, onLink)
+    parseMath: Boolean,
+): AnnotatedString = remember(s, linkColor, codeBg, errorColor, onLink, parseMath) {
+    inlineMarkdown(s, linkColor, codeBg, errorColor, onLink, parseMath = parseMath)
 }
 
 internal fun inlineMarkdown(
     s: String, linkColor: Color, codeBg: Color, errorColor: Color, onLink: (String) -> Unit,
     depth: Int = 0,
+    parseMath: Boolean = true,
 ): AnnotatedString = buildAnnotatedString {
     if (depth >= 16) { append(s); return@buildAnnotatedString }
-    fun nested(text: String) = inlineMarkdown(text, linkColor, codeBg, errorColor, onLink, depth + 1)
+    fun nested(text: String) = inlineMarkdown(text, linkColor, codeBg, errorColor, onLink, depth + 1, parseMath)
     var last = 0
-    for (m in (if (s.length > MAX_MATH_LINE) inlineNoMathRe else inlineRe).findAll(s)) {
+    for (m in (if (!parseMath || s.length > MAX_MATH_LINE) inlineNoMathRe else inlineRe).findAll(s)) {
         if (m.range.first > last) append(s.substring(last, m.range.first))
         val g = m.groupValues
         when {
@@ -620,11 +625,11 @@ private fun MathBlock(block: MdBlock.Math, color: Color, codeBg: Color, live: Bo
 // 可能来自搜到的网页，不能让它随手拉一个巨型文件或明文地址）。
 //
 // 那一段搬去了 `:app` 的 `AndroidAgentImages` —— `:core` 编不出 okhttp（它只有 jvm / android 变体）。
-// 屏这一侧只认 [AgentImageLoader] 那几个动作，默认 [AgentImageLoader.None]：加载不出来就退成
+// 屏这一侧只认 [MarkdownImageLoader] 那几个动作，默认 [MarkdownImageLoader.None]：加载不出来就退成
 // 一行可点的链接（下面 [MdImage] 里本来就有这条退路）。
 
 @Composable
-private fun MdImage(alt: String, url: String, images: AgentImageLoader, linkColor: Color, onClick: () -> Unit) {
+private fun MdImage(alt: String, url: String, images: MarkdownImageLoader, linkColor: Color, onClick: () -> Unit) {
     var bitmap by remember(url) { mutableStateOf(images.cached(url)) }
     var failed by remember(url) { mutableStateOf(images.hasFailed(url)) }
     // 外链图片点了才加载：网页、资料里藏的指令能让模型把数据拼进图片地址，自动加载就等于自动发出去
@@ -637,6 +642,12 @@ private fun MdImage(alt: String, url: String, images: AgentImageLoader, linkColo
     }
     val bmp = bitmap
     when {
+        images === MarkdownImageLoader.None -> Text(
+            "🖼 ${alt.ifBlank { "图片" }}",
+            color = linkColor,
+            style = MiuixTheme.textStyles.body2,
+            modifier = Modifier.clickable(onClick = onClick),
+        )
         !allowed -> Text(
             "🖼 ${alt.ifBlank { "图片" }} · ${url.substringAfter("://", "").substringBefore('/').substringBefore('?').substringAfterLast('@').ifBlank { "外部网站" }}（点一下加载）",
             color = linkColor,

@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.agent
+package com.xjtu.toolbox.ui.markdown
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -10,10 +10,23 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-class AgentMarkdownTest {
+class MarkdownTextTest {
     private val d = "$"
     private fun render(text: String) = inlineMarkdown(text, Color.Blue, Color.Gray, Color.Red, {})
     private fun maths(text: String) = parseBlocks(text).filterIsInstance<MdBlock.Math>()
+
+    @Test fun markdownWithoutMathKeepsDelimitersAndFormatting() {
+        val display = "${d}${d}x^2${d}${d}"
+        val inline = "${d}x^2${d}"
+        val blocks = parseBlocks("### Title\n$display\n- **$inline**", parseMath = false)
+        assertEquals(MdBlock.Heading(3, "Title"), blocks[0])
+        assertEquals(MdBlock.Para(display), blocks[1])
+        val bullet = assertIs<MdBlock.Bullet>(blocks[2])
+        val result = inlineMarkdown(bullet.text, Color.Blue, Color.Gray, Color.Red, {}, parseMath = false)
+        assertEquals(inline, result.text)
+        assertTrue(inlineTexOf(result).isEmpty())
+        assertTrue(result.spanStyles.any { it.item.fontWeight == FontWeight.Bold })
+    }
 
     @Test fun formulaInsideBoldKeepsBothMathAndBold() {
         val result = render("公式 **${d}\\frac{1}{2} + x^2${d}**")
