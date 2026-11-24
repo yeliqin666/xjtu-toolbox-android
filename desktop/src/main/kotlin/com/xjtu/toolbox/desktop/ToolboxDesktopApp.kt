@@ -744,7 +744,13 @@ private fun DesktopPage(
         // 「数据与隐私」已接桌面归档（导出 / 导入数据存档）—— 见那个类的 KDoc 与 honoredRows。
         AppRoute.Settings -> SettingsScreen(
             store = desktopSettings,
-            host = remember { DesktopSettingsHost(onAppearanceChanged) },
+            host = remember {
+                DesktopSettingsHost(
+                    notifyAppearanceChanged = onAppearanceChanged,
+                    onOpenAccounts = { onNavigate(DesktopTarget.App(AppRoute.Accounts)) },
+                    onLogout = { auth.logout() },
+                )
+            },
             onBack = back,
         )
         AppRoute.Accounts -> AccountManagerScreen(

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.desktop
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -63,7 +64,12 @@ internal val desktopSettings: SettingsStore by lazy {
 }
 
 /** 桌面端的设置页宿主（见 [SettingsHost] 与 [SettingsRow]）。 */
-internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Unit) : SettingsHost {
+internal class DesktopSettingsHost(
+    private val notifyAppearanceChanged: () -> Unit,
+    /** 账号管理与退出当前账号：dock 没有「全部」那一格，入口放在设置里。 */
+    private val onOpenAccounts: () -> Unit = {},
+    private val onLogout: () -> Unit = {},
+) : SettingsHost {
 
     /** 版本号显示。 */
     override val versionText: String = "v${DesktopBuildConfig.VERSION_NAME} (desktop)"
@@ -89,7 +95,10 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
 
     override val noticeSection: (@Composable () -> Unit)? = null
 
-    override val dataPrivacySection: (@Composable () -> Unit)? = { DesktopDataPrivacySection() }
+    override val dataPrivacySection: (@Composable () -> Unit)? = {
+        DesktopAccountSection(onOpenAccounts, onLogout)
+        DesktopDataPrivacySection()
+    }
 
     override val updateSection: (@Composable () -> Unit)? = { DesktopUpdateSection() }
 
@@ -99,6 +108,42 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
 
     /** 打开外链：桌面用 `Main.kt` 里那个 `openInBrowser`（`java.awt.Desktop.browse`）。 */
     override val onOpenUrl: (String) -> Unit = { openInBrowser(it) }
+}
+
+/** 「账号」组：账号管理 + 退出当前账号（退出前确认，因为会删掉这个账号存的密码与会话）。 */
+@Composable
+private fun DesktopAccountSection(onOpenAccounts: () -> Unit, onLogout: () -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+    SmallTitle("账号")
+    SettingsCard {
+        ArrowPreference(title = "账号管理", summary = "切换、添加或删除校园账号", onClick = onOpenAccounts)
+        ArrowPreference(
+            title = "退出当前账号",
+            summary = "删除这个账号在本机保存的密码和登录状态",
+            onClick = { confirming = true },
+        )
+    }
+    if (confirming) {
+        OverlayDialog(
+            show = true,
+            title = "退出当前账号？",
+            summary = "本机保存的密码和登录状态会被删除；还有其他账号时会自动切换过去。",
+            onDismissRequest = { confirming = false },
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(text = "取消", onClick = { confirming = false }, modifier = Modifier.weight(1f))
+                TextButton(
+                    text = "退出",
+                    onClick = {
+                        confirming = false
+                        onLogout()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
 }
 
 /** 「更新」组：查 GitHub 发布页，有新版就打开发布页（桌面没有自动安装通道）。 */
