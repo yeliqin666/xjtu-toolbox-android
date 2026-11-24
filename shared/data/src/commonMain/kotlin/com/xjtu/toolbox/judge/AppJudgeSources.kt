@@ -17,6 +17,7 @@ class QmsJudgeSource(site: SiteSession) : JudgeSource<QmsQuestionnaire> {
         course = q.courseName,
         teacher = q.lecturers.joinToString("、").ifEmpty { "未知教师" },
         tag = listOf("期中", "期末", "过程").firstOrNull { it in q.planTitle }?.let { "${it}评教" } ?: "评教",
+        deadline = q.deadline,
     )
     override suspend fun judge(q: QmsQuestionnaire) = api.submitBest(q)
     override val undo: suspend (QmsQuestionnaire) -> String? = { q -> api.recall(q); null }

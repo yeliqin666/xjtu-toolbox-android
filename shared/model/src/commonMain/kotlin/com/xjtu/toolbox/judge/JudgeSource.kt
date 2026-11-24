@@ -1,7 +1,14 @@
 package com.xjtu.toolbox.judge
 
 /** 列表里一门课的展示内容。 */
-data class JudgeCard(val key: String, val course: String, val teacher: String, val tag: String)
+data class JudgeCard(
+    val key: String,
+    val course: String,
+    val teacher: String,
+    val tag: String,
+    /** 评教截止日期；源里没有就是 null（屏上不画那一行）。 */
+    val deadline: kotlinx.datetime.LocalDate? = null,
+)
 
 /** 评教的数据来源：QMS（本科研究生共用），旧的教务 / gste + gmis 源仅桌面端保留。 */
 interface JudgeSource<Q> {
