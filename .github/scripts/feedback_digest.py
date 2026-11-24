@@ -81,18 +81,16 @@ QUESTION_RE = re.compile(r"^\s*问题\s*[:：]\s*(.+)$")
 PRIVATE_WORDS = {"私密", "不公开", "否", "private", "no", "false", "0"}
 TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
 
-USAGE_TEXT = """在那条反馈的楼里**回复**（不用写工单号）：
+USAGE_TEXT = """在某条反馈的楼里**回复**：
 
 ```
-/reply [私密]
-问题：公开问答里显示的问题（可省，默认用反馈原文）
-回复正文，可多行
+/reply
+回复内容
 ```
 
-- 默认进应用内「大家在问」；加 `私密`（或 `不公开`、`private`）则只有提问的人能看到
-- 不回复：`/skip`；转 issue：`/toissue bug 1`
-- 在顶层评论里也行，但要写工单号：`/reply T工单号`、`/skip T工单号 …`；`/skip all` 跳过本期剩下全部
-- 处理完 bot 在楼里回一条结果，那条反馈标 🎉（已回复）/ 👀（跳过）；都处理完自动关闭"""
+- 回复默认会公开到应用内「大家在问」；不想公开就写 `/reply 私密`
+- 不回复用 `/skip`，转 issue 用 `/toissue bug 1`；顶层发 `/skip all` 跳过剩下全部
+- 「大家在问」里默认用反馈原文当问题，想换个说法就在回复内容前加一行 `问题：…`"""
 USAGE = f"<details open><summary>用法</summary>\n\n{USAGE_TEXT}\n\n</details>"
 
 # 回复表里要手动建的可选列；没建也能写，只是少这一项
@@ -582,11 +580,9 @@ def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str
         + ([badge("疑似违规", str(flagged), "orange")] if flagged and mode != "off" else [])
     )
     intro = (f"{counts_line}\n\n<sub>{window} · {audit}</sub>\n\n"
-             "> [!TIP]\n> 每条反馈是下面的一层楼，在那层楼里**回复**：\n"
-             "> - `/reply`（可加 `私密`），下一行起写回复；第一行写 `问题：…` 可改应用内「大家在问」里的问题\n"
-             "> - `/skip`：不回复\n"
-             "> - `/toissue bug 1`：转成 issue（转完仍需 `/reply` 或 `/skip`）\n"
-             "> \n> 在本帖顶层评论 `/skip all` 跳过剩下全部。都处理完本帖自动关闭。")
+             "> [!TIP]\n> 在某条反馈的楼里**回复**：\n> ```\n> /reply\n> 回复内容\n> ```\n"
+             "> 不想公开就写 `/reply 私密`。不回复用 `/skip`，转 issue 用 `/toissue bug 1`。"
+             "顶层发 `/skip all` 跳过剩下全部。都处理完自动关帖。")
     tickets = [r.ticket for r in records] + list(extra)
     marks = (f"<!-- feedback-digest kind=feedback tickets={ids(tickets)}{until_mark(until)} -->\n"
              f"<!-- feedback-pending={ids(t for t, _ in items)} -->\n<!-- feedback-done= -->")
