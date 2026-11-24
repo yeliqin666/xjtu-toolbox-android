@@ -49,12 +49,11 @@ class SmartWidgetLayoutBudgetTest {
             put("widget_smart_status2", SmartLayout.BLOCK_STATUS_DP)
             put("widget_smart_detail2", SmartLayout.BLOCK_DETAIL_DP)
             put("widget_smart_detail2b", SmartLayout.BLOCK_DETAIL_DP)
-            put("widget_smart_bottom_divider", SmartLayout.DIVIDER_DP)
             put("widget_smart_key1a", SmartLayout.KEY_ICON_DP)
             put("widget_smart_key1b", SmartLayout.KEY_ICON_DP)
             put("widget_smart_key2a", SmartLayout.KEY_ICON_DP)
             put("widget_smart_key2b", SmartLayout.KEY_ICON_DP)
-            put("widget_smart_refresh", SmartLayout.KEY_ICON_DP)
+            put("widget_smart_refresh", SmartLayout.REFRESH_DP)
         }
         for (name in both) {
             val actual = rowHeights(layout(name))
@@ -63,14 +62,30 @@ class SmartWidgetLayoutBudgetTest {
     }
 
     @Test
-    fun `两块之间那条分隔线是 1dp`() {
-        // 紧凑卡里它是横线（高度 1dp），宽卡里它是竖线（宽度 1dp）—— 厚度必须都是 1dp
+    fun `两块靠底板和间距分开，不画分隔线`() {
         for (name in both) {
             val text = layout(name).readText()
-            val element = Regex("""<ImageView\s+android:id="@\+id/widget_smart_divider"([^>]*)>""")
-                .find(text)?.groupValues?.get(1) ?: error("$name 找不到分隔线")
-            assertTrue("$name 分隔线要是 1dp 粗", element.contains("\"${SmartLayout.DIVIDER_DP}dp\""))
+            assertTrue("$name 不该再有分隔线", !text.contains("divider"))
+            assertTrue("$name 块 2 要留 ${SmartLayout.TILE_GAP_DP}dp 间距", text.contains("\"${SmartLayout.TILE_GAP_DP}dp\""))
         }
+    }
+
+    @Test
+    fun `单块的短标题放大成主数字，长标题和矮卡不放大`() {
+        fun card(title: String) = com.xjtu.toolbox.widget.smart.SmartCard(
+            blocks = listOf(
+                com.xjtu.toolbox.widget.smart.SmartBlock(
+                    module = com.xjtu.toolbox.widget.smart.SmartModule.ATTENDANCE,
+                    label = "校园卡",
+                    title = title,
+                    status = "更新于 08:05",
+                    route = com.xjtu.toolbox.nav.AppRoute.Attendance,
+                ),
+            ),
+        )
+        assertTrue(SmartLayout.plan(card("¥128.60"), SmartLayout.Form.COMPACT, 160, 172).hero)
+        assertTrue(!SmartLayout.plan(card("高等数学(甲)与工程应用"), SmartLayout.Form.COMPACT, 160, 172).hero)
+        assertTrue("110dp 放不下主数字", !SmartLayout.plan(card("¥128.60"), SmartLayout.Form.COMPACT, 110, 172).hero)
     }
 
     @Test
@@ -111,10 +126,9 @@ class SmartWidgetLayoutBudgetTest {
     }
 
     @Test
-    fun `底栏图标按可用宽度算得出来`() {
-        // 一个块里两个 18dp 图标 + 10dp 间距 = 46dp，2×2 的卡（172dp 起步）绰绰有余
-        assertTrue(SmartLayout.bottomBarWidthDp(2) <= SmartLayout.DEFAULT_HEIGHT_DP)
-        assertTrue(SmartLayout.bottomBarWidthDp(3) <= SmartLayout.WIDE_MIN_WIDTH_DP)
+    fun `块里的图标按钮在最窄的卡里也排得下`() {
+        val content = SmartLayout.DEFAULT_WIDTH_DP - SmartLayout.PAD_H_DP * 2
+        assertTrue(SmartLayout.keysWidthDp(SmartLayout.MAX_KEYS) < content)
     }
 
     @Test

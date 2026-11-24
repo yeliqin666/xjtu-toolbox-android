@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <color name="widget_surface">#FFF3F5F9</color>
-    <color name="widget_surface_variant">#FFE7ECF4</color>
-    <color name="widget_on_surface">#FF1F2937</color>
-    <color name="widget_on_surface_secondary">#FF5B6472</color>
-    <color name="widget_divider">#1F1F2937</color>
+    <!-- 小组件跟随壁纸取色（minSdk 31，system_* 一定存在）。surface 是卡片底，
+         surface_variant 是卡内深一档的块，key 是图标按钮的圆底。 -->
+    <color name="widget_surface">@android:color/system_accent2_50</color>
+    <color name="widget_surface_variant">@android:color/system_accent2_100</color>
+    <color name="widget_on_surface">@android:color/system_neutral1_900</color>
+    <color name="widget_on_surface_secondary">@android:color/system_neutral2_700</color>
+    <color name="widget_accent">@android:color/system_accent1_600</color>
+    <color name="widget_key">@android:color/system_accent1_100</color>
+    <color name="widget_on_key">@android:color/system_accent1_900</color>
     <color name="widget_course_done">#FFC3C9D3</color>
 
     <!-- 启动器 shortcut 底色：白字形必须自己带不透明背景，系统不会垫色圈。 -->

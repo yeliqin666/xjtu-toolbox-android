@@ -150,9 +150,9 @@ data class SmartBlock(
             else -> "$status · $meta"
         }
 
-    /** 这个块要几行：[details] 是细节行数（0/1/2）。 */
-    fun heightDp(details: Int): Int {
-        var h = SmartLayout.BLOCK_LEAD_DP + SmartLayout.BLOCK_TITLE_DP
+    /** 这个块要多高：[details] 是细节行数（0/1/2），[titleDp] 是标题行高（主数字时更高）。 */
+    fun heightDp(details: Int, titleDp: Int = SmartLayout.BLOCK_TITLE_DP): Int {
+        var h = SmartLayout.BLOCK_LEAD_DP + titleDp
         if (statusLine != null) h += SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_STATUS_DP
         if (details >= 1) h += SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_DETAIL_DP
         if (details >= 2) h += SmartLayout.BLOCK_GAP_DP + SmartLayout.BLOCK_DETAIL_DP

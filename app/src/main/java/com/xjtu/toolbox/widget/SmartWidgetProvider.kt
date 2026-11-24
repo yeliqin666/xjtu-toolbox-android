@@ -7,8 +7,11 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.SizeF
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
+import androidx.core.os.BundleCompat
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.account.restoreIfNeeded
@@ -43,6 +46,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
+import kotlin.math.roundToInt
 
 /**
  * 智能卡片（#408）：**只读本机缓存**，按此刻挑一屏，其余一概不联网。
@@ -180,20 +184,35 @@ object SmartWidgetUpdater {
     // ══════ 填 RemoteViews ══════
 
     /**
-     * 按这个实例的**实际尺寸**选布局、排块数。
-     *
-     * 三件事都在这里定：
-     * - **形态**：用户能把它拖成 4×2、2×4，形态得跟着实例宽度走；
-     * - **一个块还是两个**：两个块要两个块的预算，高度不够就退回一个（把细节给它）；
-     * - **每块要不要细节行**：同一个块在 110dp 的实例里只放得下三行，在 160dp 里能多一行。
-     *
-     * 两套布局的控件 id 完全相同：`RemoteViews` 找不到 id 会抛 `ActionException`，
-     * 整张卡片会变成「加载失败」占位，所以差异只能体现在排版上。
+     * 按实例的实际尺寸排版。桌面在竖屏、横屏下给的尺寸不同（`OPTION_APPWIDGET_SIZES`），
+     * 每个尺寸各排一份，交给 `RemoteViews(Map<SizeF, RemoteViews>)` 由桌面按当下尺寸挑；
+     * 拿不到尺寸列表时退回最小宽高排一份。
      */
     private fun render(context: Context, manager: AppWidgetManager, id: Int, card: SmartCard) {
         val options = runCatching { manager.getAppWidgetOptions(id) }.getOrNull()
-        val widthDp = optionDp(options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) ?: 0)
-        val heightDp = optionDp(options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT) ?: 0)
+        val sizes = options
+            ?.let { BundleCompat.getParcelableArrayList(it, AppWidgetManager.OPTION_APPWIDGET_SIZES, SizeF::class.java) }
+            .orEmpty().distinct().take(MAX_SIZES)
+        val views = if (sizes.isEmpty()) {
+            build(
+                context, id, card,
+                widthDp = optionDp(options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) ?: 0),
+                heightDp = optionDp(options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT) ?: 0),
+            )
+        } else {
+            RemoteViews(sizes.associateWith { build(context, id, card, it.width.toInt(), it.height.toInt()) })
+        }
+        manager.updateAppWidget(id, views)
+    }
+
+    /** `RemoteViews(Map)` 最多收 16 个尺寸。 */
+    private const val MAX_SIZES = 16
+
+    /**
+     * 排一个尺寸：形态跟宽度走，块数、主数字、细节行数由 [SmartLayout.plan] 按高度定。
+     * 两套布局的控件 id 完全相同，差异只在排版上。
+     */
+    private fun build(context: Context, id: Int, card: SmartCard, widthDp: Int, heightDp: Int): RemoteViews {
         val form = SmartLayout.formOf(widthDp)
         val plan = SmartLayout.plan(card, form, heightDp, widthDp)
         val layout = when (form) {
@@ -203,12 +222,8 @@ object SmartWidgetUpdater {
         val views = RemoteViews(context.packageName, layout)
 
         // 一个块 / 两个块：每块整块可点，块内的图标各有各的 id，互不覆盖
-        bindBlock(context, views, id, SLOT_BLOCK1, plan.blocks.getOrNull(0), ROW1)
-        bindBlock(context, views, id, SLOT_BLOCK2, plan.blocks.getOrNull(1), ROW2)
-        views.setViewVisibility(
-            R.id.widget_smart_divider,
-            if (plan.twoBlocks) View.VISIBLE else View.GONE,
-        )
+        bindBlock(context, views, id, SLOT_BLOCK1, plan.blocks.getOrNull(0), ROW1, plan.twoBlocks, plan.hero)
+        bindBlock(context, views, id, SLOT_BLOCK2, plan.blocks.getOrNull(1), ROW2, plan.twoBlocks, hero = false)
 
         // 底部那条：次要提示 + 刷新。提示只读、不做点击目标 —— 点空白不该乱跳。
         views.putText(R.id.widget_smart_hint, plan.hint)
@@ -221,8 +236,7 @@ object SmartWidgetUpdater {
         )
         views.setContentDescription(R.id.widget_smart_refresh, "刷新")
         views.setOnClickPendingIntent(R.id.widget_smart_refresh, refreshNowIntent(context))
-
-        manager.updateAppWidget(id, views)
+        return views
     }
 
     /** 一个块的八个 id：容器（整块可点）、场景行、标题、状态、两行细节、两个键。 */
@@ -244,6 +258,8 @@ object SmartWidgetUpdater {
         slot: Int,
         rendered: SmartLayout.RenderedBlock?,
         ids: BlockIds,
+        tiled: Boolean,
+        hero: Boolean,
     ) {
         if (rendered == null) {
             views.setViewVisibility(ids.container, View.GONE)
@@ -251,6 +267,19 @@ object SmartWidgetUpdater {
         }
         val block = rendered.block
         views.setViewVisibility(ids.container, View.VISIBLE)
+
+        // 两件事并列时各垫一层深一档的底板；只有一件事时直接铺在卡上
+        views.setInt(ids.container, "setBackgroundResource", if (tiled) R.drawable.bg_widget_tile else 0)
+        val density = context.resources.displayMetrics.density
+        val padH = if (tiled) (SmartLayout.TILE_PAD_H_DP * density).roundToInt() else 0
+        val padV = if (tiled) (SmartLayout.TILE_PAD_V_DP * density).roundToInt() else 0
+        views.setViewPadding(ids.container, padH, padV, padH, padV)
+
+        val titleSp = if (hero) SmartLayout.SIZE_HERO else SmartLayout.SIZE_TITLE
+        val titleDp = if (hero) SmartLayout.BLOCK_HERO_DP else SmartLayout.BLOCK_TITLE_DP
+        views.setTextViewTextSize(ids.title, TypedValue.COMPLEX_UNIT_SP, titleSp.toFloat())
+        views.setViewLayoutHeight(ids.title, titleDp.toFloat(), TypedValue.COMPLEX_UNIT_DIP)
+
         views.putText(ids.label, block.label)
         views.putText(ids.title, block.title)
         views.putText(ids.status, block.statusLine)
@@ -297,7 +326,7 @@ object SmartWidgetUpdater {
         views.setViewVisibility(keyId, View.VISIBLE)
         views.setImageViewResource(keyId, iconOf(key.kind))
         // 图标是单色矢量，颜色由这里给：android:tint 在 RemoteViews 里不可靠，用标准方法着色
-        views.setInt(keyId, "setColorFilter", context.getColor(R.color.widget_on_surface))
+        views.setInt(keyId, "setColorFilter", context.getColor(R.color.widget_on_key))
         // 无障碍朗读要读出动作名，而不是「图片」
         views.setContentDescription(keyId, key.label)
         views.setOnClickPendingIntent(keyId, keyIntent(context, widgetId, slot, key))

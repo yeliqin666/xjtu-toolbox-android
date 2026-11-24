@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 所有小组件的卡片底：壁纸取色的纯色 + 桌面自己的圆角，不加渐变和描边。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <corners android:radius="16dp" />
-    <gradient
-        android:angle="135"
-        android:startColor="@color/widget_surface"
-        android:endColor="@color/widget_surface_variant" />
-    <stroke
-        android:width="1dp"
-        android:color="@color/widget_divider" />
+    <corners android:radius="@android:dimen/system_app_widget_background_radius" />
+    <solid android:color="@color/widget_surface" />
 </shape>

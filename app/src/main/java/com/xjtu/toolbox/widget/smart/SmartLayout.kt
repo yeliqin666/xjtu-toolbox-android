@@ -8,7 +8,7 @@ package com.xjtu.toolbox.widget.smart
  * 1. **卡片不留大块空白**：块区是 `weight=1`，一个块就撑满整张卡（内容垂直居中），两个块各占一半；
  *    底下的提示条永远在，正好把「块和底栏之间那片空」用起来。
  * 2. **一个块还是两个，按高度算**：两个块要两个块的预算，高度不够就退回一个块（并把细节给它）。
- * 3. **每行能写几个字按宽度算**：同一个 17sp 的标题，172dp 的 2×2 放得下 8 个汉字，
+ * 3. **每行能写几个字按宽度算**：同一个 20sp 的标题，172dp 的 2×2 放得下 7 个汉字，
  *    110dp 只能放 4 个 —— 写死一个数字必然有一头出界。
  */
 object SmartLayout {
@@ -20,46 +20,49 @@ object SmartLayout {
     const val DEFAULT_WIDTH_DP = 110
 
     /**
-     * 左右内边距。
-     *
-     * 14dp 不是随手写的：卡片背景是 16dp 圆角的形状，圆角处的可视区域要满足
-     * `(16−x)² + (16−y)² ≤ 16²`，贴边的字会被圆角切掉；14dp 加上行高，第一行的左边缘落在安全区内。
-     * 同时这也是 Android 12 起「小组件内容要离边」的通行建议。
+     * 卡片内边距。背景用桌面的圆角（常见 16–28dp），首行左上角 (14, 10) 离 28dp 圆心约 23dp，
+     * 不会被圆角切到。
      */
     const val PAD_H_DP = 14
-
-    /** 上下内边距。比左右略小：竖向更贵（一行字就 15dp），圆角对上下第一行的切割也更浅。 */
-    const val PAD_V_DP = 8
+    const val PAD_V_DP = 10
 
     /** 块内各行的行高。与两套布局里的 `layout_height` 逐条对应（单测核对）。 */
-    const val BLOCK_LEAD_DP = 16
-    const val BLOCK_TITLE_DP = 21
+    const val BLOCK_LEAD_DP = 22
+    const val BLOCK_TITLE_DP = 25
+    /** 单块且标题放得下时，标题放大成主数字（余额、座位号这类短标题）。 */
+    const val BLOCK_HERO_DP = 34
     const val BLOCK_STATUS_DP = 17
-    const val BLOCK_DETAIL_DP = 15
-    const val BLOCK_GAP_DP = 1
+    const val BLOCK_DETAIL_DP = 16
+    const val BLOCK_GAP_DP = 2
 
-    /** 两个块之间的分隔线（1dp 线 + 上下各 3dp 留白）。 */
-    const val DIVIDER_DP = 1
-    const val DIVIDER_GAP_DP = 3
+    /** 两个块时各垫一层深一档的底（`bg_widget_tile`）代替分隔线：内边距和两块间距。 */
+    const val TILE_PAD_H_DP = 10
+    const val TILE_PAD_V_DP = 8
+    const val TILE_GAP_DP = 6
 
     /** 底部条：左边次要提示（weight 1），右边刷新图标。 */
-    const val BOTTOM_DP = 22
-    const val BOTTOM_GAP_DP = 3
-    const val KEY_ICON_DP = 18
-    const val KEY_GAP_DP = 10
+    const val BOTTOM_DP = 18
+    const val BOTTOM_GAP_DP = 4
+    const val REFRESH_DP = 18
+    const val REFRESH_GAP_DP = 8
 
-    /** 一个块里最多几个键：块内那一行只排得下两个 18dp 图标 + 间距。 */
+    /** 块里的图标按钮：22dp 圆底，左侧 6dp 间距。 */
+    const val KEY_ICON_DP = 22
+    const val KEY_GAP_DP = 6
+
+    /** 一个块里最多几个键。 */
     const val MAX_KEYS = 2
 
     /** 这个宽度起算「宽卡」（两个块左右并排）。 */
     const val WIDE_MIN_WIDTH_DP = 220
 
     /** 各行的字号（sp）。算「这一行放得下几个字」要用它，改字号必须同时改布局。 */
-    const val SIZE_LABEL = 10
-    const val SIZE_TITLE = 17
-    const val SIZE_STATUS = 12
-    const val SIZE_DETAIL = 11
-    const val SIZE_HINT = 10
+    const val SIZE_LABEL = 12
+    const val SIZE_TITLE = 20
+    const val SIZE_HERO = 28
+    const val SIZE_STATUS = 13
+    const val SIZE_DETAIL = 12
+    const val SIZE_HINT = 11
 
     /** 字数硬上限（宽度算不出来时的保险）。 */
     const val TITLE_MAX = 18
@@ -77,35 +80,29 @@ object SmartLayout {
     private fun chromeDp(): Int = PAD_V_DP * 2 + BOTTOM_GAP_DP + BOTTOM_DP
 
     /**
-     * 一个块能用的高度。宽卡两块是**并排**的，各拿满高；紧凑卡两块上下堆，要除以二
-     * （中间那条分隔线也算进去）。
+     * 一个块的内容能用的高度。单块直接用满；两块时扣掉各自底板的上下内边距，
+     * 宽卡并排各拿满高，紧凑卡上下堆要扣掉间距再对半分。
      */
     private fun blockBudgetDp(form: Form, blocks: Int, availableHeightDp: Int): Int {
-        val chrome = chromeDp()
-        if (blocks <= 1) return availableHeightDp - chrome
-        val divide = DIVIDER_DP + DIVIDER_GAP_DP * 2
+        val area = availableHeightDp - chromeDp()
+        if (blocks <= 1) return area
+        val tile = TILE_PAD_V_DP * 2
         return when (form) {
-            Form.WIDE -> availableHeightDp - chrome
-            Form.COMPACT -> (availableHeightDp - chrome - divide) / 2
+            Form.WIDE -> area - tile
+            Form.COMPACT -> (area - TILE_GAP_DP) / 2 - tile
         }
     }
 
-    /**
-     * 一屏的高度预算（单测用）：宽卡取最高的那个块，紧凑卡把几个块加起来。
-     */
+    /** 一屏的总高度（单测用）：宽卡取最高的那个块，紧凑卡把几个块加起来。 */
     fun heightOf(form: Form, blockHeights: List<Int>): Int {
         val chrome = chromeDp()
-        return when {
-            blockHeights.isEmpty() -> chrome
-            form == Form.WIDE -> chrome + blockHeights.max()
-            else -> chrome + blockHeights.sum() +
-                (if (blockHeights.size > 1) DIVIDER_DP + DIVIDER_GAP_DP * 2 else 0)
-        }
+        if (blockHeights.size <= 1) return chrome + (blockHeights.firstOrNull() ?: 0)
+        val tiles = blockHeights.map { it + TILE_PAD_V_DP * 2 }
+        return chrome + if (form == Form.WIDE) tiles.max() else tiles.sum() + TILE_GAP_DP
     }
 
-    /** 底栏实际占的宽度：`n` 个 18dp 图标 + 间距（放进布局预算测试）。 */
-    fun bottomBarWidthDp(keys: Int): Int =
-        keys * KEY_ICON_DP + (keys - 1).coerceAtLeast(0) * KEY_GAP_DP
+    /** 场景行右侧 `n` 个图标按钮占的宽度（每个带左间距）。 */
+    fun keysWidthDp(keys: Int): Int = keys * (KEY_ICON_DP + KEY_GAP_DP)
 
     /**
      * 落成一屏实际要渲染的东西。
@@ -126,38 +123,48 @@ object SmartLayout {
         availableWidthDp: Int = DEFAULT_WIDTH_DP,
     ): Plan {
         val height = availableHeightDp.coerceAtLeast(DEFAULT_HEIGHT_DP)
-        val textW = textWidthDp(form, availableWidthDp)
 
         // ① 两个块放不放得下
         var blocks = card.blocks.take(2)
-        if (blocks.size == 2 && blockBudgetDp(form, 2, height) < blocks[0].minHeight()) {
+        if (blocks.size == 2 && blockBudgetDp(form, 2, height) < blocks.maxOf { it.minHeight() }) {
             blocks = blocks.take(1)
         }
-
-        // ② 每块能写几行细节
         val budget = blockBudgetDp(form, blocks.size, height)
+        val textW = textWidthDp(form, availableWidthDp, blocks.size)
+
+        // ② 单块时标题能否放大成主数字：高度够、而且放大后一个字都不用截
+        val single = blocks.singleOrNull()
+        val hero = single != null && single.heightDp(0, BLOCK_HERO_DP) <= budget &&
+            clampWidth(single.title, textW, SIZE_HERO) == single.title
+        val titleDp = if (hero) BLOCK_HERO_DP else BLOCK_TITLE_DP
+        val titleSp = if (hero) SIZE_HERO else SIZE_TITLE
+
+        // ③ 每块能写几行细节
         val rendered = blocks.map { b ->
-            val details = (b.detailCount downTo 0).firstOrNull { n -> b.heightDp(n) <= budget } ?: 0
+            val details = (b.detailCount downTo 0).firstOrNull { n -> b.heightDp(n, titleDp) <= budget } ?: 0
+            val keys = b.keys.take(MAX_KEYS)
             RenderedBlock(
                 block = b.copy(
-                    label = fit(b.label, textW, SIZE_LABEL, DETAIL_MAX),
-                    title = fit(b.title, textW, SIZE_TITLE, TITLE_MAX).orEmpty(),
+                    label = fit(b.label, textW - keysWidthDp(keys.size), SIZE_LABEL, DETAIL_MAX),
+                    title = fit(b.title, textW, titleSp, TITLE_MAX).orEmpty(),
                     detail = if (details >= 1) fit(b.detail, textW, SIZE_DETAIL, DETAIL_MAX) else null,
                     detail2 = if (details >= 2) fit(b.detail2, textW, SIZE_DETAIL, DETAIL_MAX) else null,
                     status = fit(b.statusLine, textW, SIZE_STATUS, STATUS_MAX),
                     meta = null,
-                    keys = b.keys.take(MAX_KEYS),
+                    keys = keys,
                 ),
                 details = details,
             )
         }
 
+        val hintW = (availableWidthDp - PAD_H_DP * 2 - REFRESH_DP - REFRESH_GAP_DP).coerceAtLeast(40)
         return Plan(
             form = form,
             blocks = rendered,
             twoBlocks = rendered.size == 2,
-            hint = hintLine(card.hints, textW),
-            heightDp = heightOf(form, rendered.map { it.block.heightDp(it.details) }),
+            hero = hero,
+            hint = hintLine(card.hints, hintW),
+            heightDp = heightOf(form, rendered.map { it.block.heightDp(it.details, titleDp) }),
         )
     }
 
@@ -171,16 +178,19 @@ object SmartLayout {
             if (clampWidth(candidate, widthDp, SIZE_HINT) != candidate) break
             out = candidate
         }
-        return out.takeIf { it.isNotBlank() }
+        // 一条完整的都放不下时，截断显示第一条，不让提示整行消失
+        if (out.isEmpty()) return hints.firstOrNull()?.let { clampWidth(it.text, widthDp, SIZE_HINT) }
+        return out
     }
 
-    /** 这一行实际能用的宽度。宽卡两块并排，各分一半。 */
-    private fun textWidthDp(form: Form, availableWidthDp: Int): Int {
+    /** 块里一行字实际能用的宽度。两块时扣掉底板内边距，宽卡还要再对半分。 */
+    private fun textWidthDp(form: Form, availableWidthDp: Int, blocks: Int): Int {
         val content = (availableWidthDp - PAD_H_DP * 2).coerceAtLeast(40)
+        if (blocks <= 1) return content
+        val tile = TILE_PAD_H_DP * 2
         return when (form) {
-            // 两块 + 中间那条分隔线（含留白）
-            Form.WIDE -> ((content - DIVIDER_DP - DIVIDER_GAP_DP * 2) / 2).coerceAtLeast(40)
-            Form.COMPACT -> content
+            Form.WIDE -> ((content - TILE_GAP_DP) / 2 - tile).coerceAtLeast(40)
+            Form.COMPACT -> (content - tile).coerceAtLeast(40)
         }
     }
 
@@ -252,6 +262,8 @@ object SmartLayout {
         val form: Form,
         val blocks: List<RenderedBlock>,
         val twoBlocks: Boolean,
+        /** 单块的标题按 [SIZE_HERO] / [BLOCK_HERO_DP] 画。 */
+        val hero: Boolean,
         val hint: String?,
         val heightDp: Int,
     )

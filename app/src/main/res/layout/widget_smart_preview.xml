@@ -1,13 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  智能卡片在选择器里的**静态预览**（`android:previewLayout`）。
-
-  为什么单独做一个文件：两套运行时布局的内容全是运行时填进去的，在选择器里预览时一片空白，
-  用户认不出这是什么。这个文件把一屏真实内容写死在里面，只给选择器看；
-  运行时用的是 compact / wide 两套，`initialLayout` 也是 compact。
-
-  结构必须与 `widget_smart_compact.xml` 一致（同样的留白、块内的键、底部提示 + 刷新），
-  否则预览和真机看到的不是一个东西。
+  智能卡片在选择器里的静态预览（`android:previewLayout`）：运行时那两套布局的字全是填进去的，
+  预览时会是一张空卡，所以这里写死一屏真实内容。外观须与 widget_smart_compact.xml 一致。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -15,7 +9,7 @@
     android:background="@drawable/bg_schedule_widget"
     android:orientation="vertical"
     android:paddingHorizontal="14dp"
-    android:paddingVertical="8dp">
+    android:paddingVertical="10dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -26,76 +20,74 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="16dp"
+            android:layout_height="22dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <TextView
                 android:layout_width="0dp"
-                android:layout_height="16dp"
+                android:layout_height="22dp"
                 android:layout_weight="1"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center_vertical"
                 android:includeFontPadding="false"
                 android:maxLines="1"
                 android:text="上课中"
-                android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="10sp" />
+                android:textColor="@color/widget_accent"
+                android:textSize="12sp" />
 
             <ImageView
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:layout_marginStart="10dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_widget_key"
                 android:contentDescription="扫码"
+                android:padding="4dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_widget_qr"
-                android:tint="@color/widget_on_surface" />
+                android:tint="@color/widget_on_key" />
         </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
-            android:layout_height="21dp"
+            android:layout_height="25dp"
             android:ellipsize="end"
+            android:gravity="center_vertical"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:text="高等数学(甲)"
             android:textColor="@color/widget_on_surface"
-            android:textSize="17sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="17dp"
-            android:layout_marginTop="1dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
             android:includeFontPadding="false"
             android:maxLines="1"
-            android:text="已刷卡 · 待结算 · 刷卡 09:58"
+            android:text="已刷卡 · 待结算"
             android:textColor="#FF2E6BE6"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:textSize="13sp" />
 
         <TextView
             android:layout_width="match_parent"
-            android:layout_height="15dp"
-            android:layout_marginTop="1dp"
+            android:layout_height="16dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:text="还剩 35 分钟"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
     </LinearLayout>
-
-    <ImageView
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="3dp"
-        android:background="@color/widget_divider"
-        android:contentDescription="@null"
-        android:importantForAccessibility="no" />
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="22dp"
+        android:layout_height="18dp"
+        android:layout_marginTop="4dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -108,12 +100,12 @@
             android:maxLines="1"
             android:text="余额 ¥128.60 · 考试 3 天"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="10sp" />
+            android:textSize="11sp" />
 
         <ImageView
             android:layout_width="18dp"
             android:layout_height="18dp"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:contentDescription="刷新"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_widget_refresh"

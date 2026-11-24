@@ -103,10 +103,10 @@ class SmartWidgetBlockTest {
     @Test
     fun `一块占满时把细节写满，不留大片空白`() {
         val card = SmartArbiter.card(facts(nowMinute = 650))
-        // 110dp：块预算 69dp，只放得下三行（场景 + 标题 + 状态）
+        // 110dp：块预算 68dp，只放得下三行（场景 + 标题 + 状态）
         assertEquals(0, SmartLayout.plan(card, SmartLayout.Form.COMPACT, 110, 172).blocks.first().details)
-        // 140dp：块预算 99dp，五行（含两行细节）都放得下 —— 卡片被填满
-        val roomy = SmartLayout.plan(card, SmartLayout.Form.COMPACT, 140, 172).blocks.first()
+        // 160dp：块预算 118dp，五行（含两行细节）都放得下 —— 卡片被填满
+        val roomy = SmartLayout.plan(card, SmartLayout.Form.COMPACT, 160, 172).blocks.first()
         assertEquals(2, roomy.details)
         assertEquals("还剩 70 分钟", roomy.block.detail)
         assertEquals("10:10–12:00", roomy.block.detail2)

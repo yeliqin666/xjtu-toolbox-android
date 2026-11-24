@@ -1,26 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  智能卡片 · 紧凑形态（2×2，宽 < 220dp）。
+  智能卡片 · 紧凑形态（宽 < 220dp）：块上下排。
 
-  版式（按真机反馈重排）：
-
-    ┌ 块 1（weight=1，撑满剩余高度，内容垂直居中）
-    │   场景行 ……………… [键][键]     ← 键在块里面，块整块是一个点击目标
-    │   标题
+    ┌ 块 1（weight=1，内容垂直居中）
+    │   场景（强调色）……………… (键)(键)
+    │   标题（单块且放得下时放大成主数字）
     │   状态
-    │   细节（高度够才有）
-    ├ 1dp 分隔线（只有两个块时可见）
-    ┌ 块 2（weight=1）同上
-    └ 底部条：次要提示（weight=1）……………… [刷新]
-
-  「一块占满 / 两块各一半」是用 layout_weight 做的 —— 这样不管实例多高，卡里都不会留一大片空白。
+    │   细节 ×0–2（高度够才有）
+    ├ 块 2（只有两件事时出现；两块各自垫一层深一档的底，代替分隔线）
+    └ 底部条：次要提示 …………………… 刷新
 
   ⚠️ 三件不能破的事：
-  1. 只能出现 RemoteViews 白名单里的控件。裸 <View>（占位撑高）不在白名单里，撞上抛
-     InflateException，桌面显示「加载失败」。撑高用空 TextView 或带 weight 的容器，
-     分隔线用 ImageView（在白名单内）。
-  2. 两套布局的控件 id 必须完全一致 —— RemoteViews 找不到 id 会抛 ActionException。
+  1. 只能用 RemoteViews 白名单里的控件（裸 <View> 会让整张卡加载失败）。
+  2. 两套布局的控件 id 完全一致 —— RemoteViews 找不到 id 会抛 ActionException。
   3. 行高写死 dp，与 SmartLayout 的常量逐条对应（SmartWidgetLayoutBudgetTest 盯着）。
+  块的底色和内边距由 SmartWidgetProvider 按块数设置，这里不写。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_smart_root"
@@ -29,7 +23,7 @@
     android:background="@drawable/bg_schedule_widget"
     android:orientation="vertical"
     android:paddingHorizontal="14dp"
-    android:paddingVertical="8dp">
+    android:paddingVertical="10dp">
 
     <!-- ══════ 块 1 ══════ -->
     <LinearLayout
@@ -40,39 +34,44 @@
         android:gravity="center_vertical"
         android:orientation="vertical">
 
-        <!-- 场景行：左边是情境词，右边是这个块自己的快捷键 -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="16dp"
+            android:layout_height="22dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/widget_smart_label1"
                 android:layout_width="0dp"
-                android:layout_height="16dp"
+                android:layout_height="22dp"
                 android:layout_weight="1"
                 android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center_vertical"
                 android:includeFontPadding="false"
                 android:maxLines="1"
-                android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="10sp" />
+                android:textColor="@color/widget_accent"
+                android:textSize="12sp" />
 
             <ImageView
                 android:id="@+id/widget_smart_key1a"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:layout_marginStart="10dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_widget_key"
                 android:contentDescription="@string/smart_widget_name"
+                android:padding="4dp"
                 android:scaleType="fitCenter"
                 android:visibility="gone" />
 
             <ImageView
                 android:id="@+id/widget_smart_key1b"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:layout_marginStart="10dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_widget_key"
                 android:contentDescription="@string/smart_widget_name"
+                android:padding="4dp"
                 android:scaleType="fitCenter"
                 android:visibility="gone" />
         </LinearLayout>
@@ -80,69 +79,59 @@
         <TextView
             android:id="@+id/widget_smart_title1"
             android:layout_width="match_parent"
-            android:layout_height="21dp"
+            android:layout_height="25dp"
             android:ellipsize="end"
+            android:gravity="center_vertical"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface"
-            android:textSize="17sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_smart_status1"
             android:layout_width="match_parent"
             android:layout_height="17dp"
-            android:layout_marginTop="1dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface"
-            android:textSize="12sp"
-            android:textStyle="bold"
+            android:textSize="13sp"
             android:visibility="gone" />
 
         <TextView
             android:id="@+id/widget_smart_detail1"
             android:layout_width="match_parent"
-            android:layout_height="15dp"
-            android:layout_marginTop="1dp"
+            android:layout_height="16dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:visibility="gone" />
 
-        <!-- 第二行细节：一个块独占整张卡时用它把卡填满（时间区间 / 今日消费 / 考场…） -->
         <TextView
             android:id="@+id/widget_smart_detail1b"
             android:layout_width="match_parent"
-            android:layout_height="15dp"
-            android:layout_marginTop="1dp"
+            android:layout_height="16dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:visibility="gone" />
     </LinearLayout>
-
-    <!-- 两块之间那条横线（只有一个块时 GONE） -->
-    <ImageView
-        android:id="@+id/widget_smart_divider"
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginVertical="3dp"
-        android:background="@color/widget_divider"
-        android:contentDescription="@null"
-        android:importantForAccessibility="no"
-        android:visibility="gone" />
 
     <!-- ══════ 块 2 ══════ -->
     <LinearLayout
         android:id="@+id/widget_smart_block2"
         android:layout_width="match_parent"
         android:layout_height="0dp"
+        android:layout_marginTop="6dp"
         android:layout_weight="1"
         android:gravity="center_vertical"
         android:orientation="vertical"
@@ -150,36 +139,42 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="16dp"
+            android:layout_height="22dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/widget_smart_label2"
                 android:layout_width="0dp"
-                android:layout_height="16dp"
+                android:layout_height="22dp"
                 android:layout_weight="1"
                 android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center_vertical"
                 android:includeFontPadding="false"
                 android:maxLines="1"
-                android:textColor="@color/widget_on_surface_secondary"
-                android:textSize="10sp" />
+                android:textColor="@color/widget_accent"
+                android:textSize="12sp" />
 
             <ImageView
                 android:id="@+id/widget_smart_key2a"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:layout_marginStart="10dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_widget_key"
                 android:contentDescription="@string/smart_widget_name"
+                android:padding="4dp"
                 android:scaleType="fitCenter"
                 android:visibility="gone" />
 
             <ImageView
                 android:id="@+id/widget_smart_key2b"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:layout_marginStart="10dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_widget_key"
                 android:contentDescription="@string/smart_widget_name"
+                android:padding="4dp"
                 android:scaleType="fitCenter"
                 android:visibility="gone" />
         </LinearLayout>
@@ -187,66 +182,57 @@
         <TextView
             android:id="@+id/widget_smart_title2"
             android:layout_width="match_parent"
-            android:layout_height="21dp"
+            android:layout_height="25dp"
             android:ellipsize="end"
+            android:gravity="center_vertical"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface"
-            android:textSize="17sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_smart_status2"
             android:layout_width="match_parent"
             android:layout_height="17dp"
-            android:layout_marginTop="1dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface"
-            android:textSize="12sp"
-            android:textStyle="bold"
+            android:textSize="13sp"
             android:visibility="gone" />
 
         <TextView
             android:id="@+id/widget_smart_detail2"
             android:layout_width="match_parent"
-            android:layout_height="15dp"
-            android:layout_marginTop="1dp"
+            android:layout_height="16dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:visibility="gone" />
 
         <TextView
             android:id="@+id/widget_smart_detail2b"
             android:layout_width="match_parent"
-            android:layout_height="15dp"
-            android:layout_marginTop="1dp"
+            android:layout_height="16dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- 内容与底部条之间那条横线：把「能点的块」和「只读的提示」分开 -->
-    <ImageView
-        android:id="@+id/widget_smart_bottom_divider"
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="3dp"
-        android:background="@color/widget_divider"
-        android:contentDescription="@null"
-        android:importantForAccessibility="no" />
-
-    <!-- ══════ 底部条：次要提示 + 刷新 ══════ -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="22dp"
+        android:layout_height="18dp"
+        android:layout_marginTop="4dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -259,13 +245,13 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="10sp" />
+            android:textSize="11sp" />
 
         <ImageView
             android:id="@+id/widget_smart_refresh"
             android:layout_width="18dp"
             android:layout_height="18dp"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:contentDescription="@string/smart_widget_refresh"
             android:scaleType="fitCenter"
             android:visibility="gone" />

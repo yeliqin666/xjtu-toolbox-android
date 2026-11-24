@@ -67,24 +67,24 @@ class SmartWidgetCapacityTest {
 
     @Test
     fun `常见的 2×2 能把两行细节都写出来`() {
-        val plan = SmartLayout.plan(busy(), SmartLayout.Form.COMPACT, 140, 172)
+        val plan = SmartLayout.plan(busy(), SmartLayout.Form.COMPACT, 160, 172)
         assertEquals(1, plan.blocks.size)
         assertEquals(2, plan.blocks.first().details)
     }
 
     @Test
     fun `撑高之后两块各占一半`() {
-        val plan = SmartLayout.plan(busy(), SmartLayout.Form.COMPACT, 160, 172)
+        val plan = SmartLayout.plan(busy(), SmartLayout.Form.COMPACT, 220, 172)
         assertEquals(2, plan.blocks.size)
         assertTrue(plan.twoBlocks)
-        // 两块的预算只有 56dp，只放得下「场景 + 标题 + 状态」
+        // 扣掉底板内边距，两块的预算只有 70dp，只放得下「场景 + 标题 + 状态」
         assertEquals(0, plan.blocks[0].details)
         assertEquals(0, plan.blocks[1].details)
     }
 
     @Test
     fun `宽卡两块并排，各拿满高、细节写满`() {
-        val plan = SmartLayout.plan(busy(), SmartLayout.Form.WIDE, 140, 344)
+        val plan = SmartLayout.plan(busy(), SmartLayout.Form.WIDE, 170, 344)
         assertEquals(2, plan.blocks.size)
         assertTrue("并排时两块各拿满高", plan.blocks.all { it.details == 2 })
     }
