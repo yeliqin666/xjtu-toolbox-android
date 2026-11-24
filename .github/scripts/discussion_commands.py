@@ -1129,7 +1129,8 @@ class FeedbackHandler(CommandHandler):
                 raise RuntimeError(f"{query.split('(')[0].split()[-1]}：{detail}") from None
 
         try:
-            out = fd.run_discussion_commands(gwrite, None, node)
+            done = fd.discussion_done(gwrite, d.node_id)
+            out = fd.run_discussion_commands(gwrite, None, node, done)
         except Exception as error:  # noqa: BLE001 —— 飞书 / GraphQL 出错都当一次失败回给操作者
             raise CommandFailure(str(error)) from None
         if out is None:

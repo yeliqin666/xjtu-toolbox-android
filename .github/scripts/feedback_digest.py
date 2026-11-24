@@ -19,8 +19,9 @@
 * 在某层反馈楼里回复：/reply [私密] + 下一行起写回复（第一行「问题：…」可改公开问答的问题）；/skip 不回复。
   顶层评论里要写工单号；/skip all 跳过本期剩下全部。/toissue 由 discussion_commands.py 处理。
 * /reply 往回复表追加一条（工单号、回复、回复时间、公开、问题），公开默认勾上。
-* 处理状态记在帖子正文的隐藏标记里（pending / done），不查飞书。结果（写了什么 / 为什么失败）
-  在那串楼里显式回一条，和 /toissue 一致；反馈楼标 🎉 / 👀。都处理完关闭讨论。
+* 待处理的工单写在帖子正文的隐藏标记里（发帖时一次写定，Action 改不了帖子正文）；已处理的记在 bot
+  自己的结果回帖里（只认 bot 发的），不查飞书。结果在那串楼里显式回一条，和 /toissue 一致；
+  反馈楼标 🎉 / 👀。都处理完关闭讨论。
 """
 
 from __future__ import annotations
@@ -786,7 +787,7 @@ def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str],
     for c in cmds:
         if c.verb == "skip" and c.skip_all:
             newly |= pending
-            notes.append(f"已跳过本期剩下的 {len(pending)} 条")
+            notes.append("已跳过本期剩下的全部")
             continue
         if not c.tickets and default:
             c.tickets = [default]
@@ -909,10 +910,30 @@ def is_feedback_discussion(category: str) -> bool:
     return category == env("FEEDBACK_DISCUSSION_CATEGORY", "反馈日报")
 
 
-def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict) -> Optional[Outcome]:
-    """执行讨论里一条评论的 /reply、/skip：写飞书、更新帖子标记、给反馈楼标反应、都处理完关帖。
+BOT_LOGINS = {"github-actions", "github-actions[bot]"}
+# 讨论帖正文 Action 改不了（GITHUB_TOKEN 调 updateDiscussion 报 Resource not accessible by integration），
+# 处理状态记在 bot 自己的结果回帖里：只认 bot 发的，别人伪造不了
+MARK_DONE_ITEM = re.compile(r"<!-- feedback-done:([A-Z0-9,]+) -->")
+
+
+def done_in(comments: list[dict]) -> set[str]:
+    """bot 回帖里记下的已处理工单。[comments] 要带 author{login} 和 body。"""
+    return {t for c in comments if ((c.get("author") or {}).get("login") or "") in BOT_LOGINS
+            for m in MARK_DONE_ITEM.finditer(c.get("body") or "") for t in m.group(1).split(",") if t}
+
+
+def discussion_done(graphql, discussion_id: str) -> set[str]:
+    """[graphql]：(query, **variables) -> data，只读。"""
+    d = graphql("""query($id:ID!){node(id:$id){... on Discussion{comments(first:100){nodes{
+        author{login} body replies(first:100){nodes{author{login} body}}}}}}}""", id=discussion_id)
+    tops = ((d.get("node") or {}).get("comments") or {}).get("nodes") or []
+    return done_in(tops + [r for t in tops for r in (t.get("replies") or {}).get("nodes") or []])
+
+
+def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict, done: set[str]) -> Optional[Outcome]:
+    """执行讨论里一条评论的 /reply、/skip：写飞书、给反馈楼标反应、都处理完关帖。
     回复某层楼时工单从那层楼的标记认；顶层评论里得写工单号（或 /skip all）。
-    结果消息由调用方发（事件走 discussion_commands.py 的框架，兜底扫描走 [handle_discussion]）。
+    [done]：已处理的工单（见 [discussion_done]）。结果消息由调用方发，消息里要带 [result_lines] 给的标记。
     [gwrite]：(query, **variables) -> data。不归这里管（不是反馈日报、已关闭、没有命令）返回 None。"""
     disc = c["discussion"]
     if not is_feedback_discussion(disc["category"]["name"]) or disc["closed"]:
@@ -925,7 +946,8 @@ def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict) -> Optional[O
     if parent:
         m = MARK_ITEM.search(parent.get("body") or "")
         default = m.group(1) if m else None
-    tickets, pending, done = issue_marks(disc["body"])
+    tickets, pending, body_done = issue_marks(disc["body"])
+    done = set(done) | body_done
     out = apply_commands(fs, cmds, tickets, pending, default, f"讨论 #{disc['number']}",
                          (c.get("author") or {}).get("login", ""))
 
@@ -938,35 +960,36 @@ def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict) -> Optional[O
             out.errors.append(f"{what}失败（飞书那边已写好）：{e}")
             return False
 
-    if out.newly - done:
-        done |= out.newly
-        disc["body"] = MARK_DONE.sub(f"<!-- feedback-done={ids(done)} -->", disc["body"])
-        step("更新帖子里的处理标记",
-             """mutation($d:ID!,$b:String!){updateDiscussion(input:{discussionId:$d,body:$b}){discussion{id}}}""",
-             d=disc["id"], b=disc["body"])
+    done |= out.newly
     # 那层反馈楼上标一下：回复过 🎉，跳过 👀，扫一眼就知道哪条还没处理
     if parent and default in out.newly:
         step("给反馈楼加表情",
              """mutation($s:ID!,$e:ReactionContent!){addReaction(input:{subjectId:$s,content:$e}){reaction{content}}}""",
              s=parent["id"], e="HOORAY" if default in out.replied else "EYES")
-    if pending and pending <= done and step(
-            "关闭讨论", """mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:RESOLVED}){discussion{id}}}""",
-            d=disc["id"]):
-        disc["closed"] = True
-        out.notes.append("本期都处理完了，已关闭")
-        log(f"讨论 #{disc['number']} 全部处理完，已关闭")
+    if pending and pending <= done:
+        if step("关闭讨论", """mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:RESOLVED}){discussion{id}}}""",
+                d=disc["id"]):
+            disc["closed"] = True
+            out.notes.append("本期都处理完了，已关闭")
+            log(f"讨论 #{disc['number']} 全部处理完，已关闭")
+        else:
+            out.notes.append("本期都处理完了，请手动关闭本帖")
     return out
 
 
 def result_lines(out: Outcome) -> str:
-    return "\n".join([f"- ✅ {n}" for n in out.notes] + [f"- ⚠️ {e}" for e in out.errors])
+    """结果消息正文；成功的工单记进隐藏标记（处理状态就存在这条 bot 回帖里）。"""
+    text = "\n".join([f"- ✅ {n}" for n in out.notes] + [f"- ⚠️ {e}" for e in out.errors])
+    if out.newly:
+        text += f"\n\n<!-- feedback-done:{ids(out.newly)} -->"
+    return text
 
 
-def handle_discussion(gh: GitHub, fs: Optional[Feishu], c: dict) -> Optional[Feishu]:
+def handle_discussion(gh: GitHub, fs: Optional[Feishu], c: dict, done: set[str]) -> Optional[Feishu]:
     """兜底扫描用：执行后自己在那串楼里回一条结果（事件触发时这一步由框架做）。"""
     if c.get("authorAssociation") not in TRUSTED:
         return fs
-    out = run_discussion_commands(gh.gwrite, fs, c)
+    out = run_discussion_commands(gh.gwrite, fs, c, done)
     if out is None:
         return fs
     msg = result_lines(out)
@@ -996,11 +1019,12 @@ def scan_discussions() -> None:
             flat.append(top)
             flat += top["replies"]["nodes"]
         failed = "".join(x["body"] for x in flat if "feedback-cmd-failed:" in x["body"])
+        done = done_in(flat) | issue_marks(d["body"])[2]
         for c in flat:
             cmds = parse_commands(c.get("body") or "")
             if not cmds or c.get("authorAssociation") not in TRUSTED or MARK_FAILED.format(c["id"]) in failed:
                 continue
-            tickets, pending, done = issue_marks(c["discussion"]["body"])
+            tickets, pending, _ = issue_marks(c["discussion"]["body"])
             parent = MARK_ITEM.search((c.get("replyTo") or {}).get("body") or "")
             targets = {t for x in cmds for t in (x.tickets or ([parent.group(1)] if parent else []))}
             if any(x.skip_all for x in cmds):
@@ -1008,7 +1032,8 @@ def scan_discussions() -> None:
             if c["discussion"]["closed"] or (targets and targets <= done):
                 continue
             log(f"补处理讨论 #{c['discussion']['number']} 评论 {c['id']}")
-            fs = handle_discussion(gh, fs, c)
+            fs = handle_discussion(gh, fs, c, done)
+            done |= targets
 
 
 def main() -> None:
