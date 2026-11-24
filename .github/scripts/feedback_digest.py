@@ -19,8 +19,8 @@
 * 在某层反馈楼里回复：/reply [私密] + 下一行起写回复（第一行「问题：…」可改公开问答的问题）；/skip 不回复。
   顶层评论里要写工单号；/skip all 跳过本期剩下全部。/toissue 由 discussion_commands.py 处理。
 * /reply 往回复表追加一条（工单号、回复、回复时间、公开、问题），公开默认勾上。
-* 处理状态记在帖子正文的隐藏标记里（pending / done），不查飞书。成功时评论 🚀、反馈楼 🎉 / 👀；
-  失败在那串楼里回一条说明。都处理完关闭讨论。
+* 处理状态记在帖子正文的隐藏标记里（pending / done），不查飞书。结果（写了什么 / 为什么失败）
+  在那串楼里显式回一条，和 /toissue 一致；反馈楼标 🎉 / 👀。都处理完关闭讨论。
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ USAGE = """<details open><summary>用法</summary>
 - 默认进应用内「大家在问」；加 `私密`（或 `不公开`、`private`）则只有提问的人能看到
 - 不回复：`/skip`；转 issue：`/toissue bug 1`
 - 在顶层评论里也行，但要写工单号：`/reply T工单号`、`/skip T工单号 …`；`/skip all` 跳过本期剩下全部
-- 处理成功：你的评论 🚀，那条反馈 🎉（已回复）/ 👀（跳过）；都处理完自动关闭
+- 处理完 bot 在楼里回一条结果，那条反馈标 🎉（已回复）/ 👀（跳过）；都处理完自动关闭
 
 </details>"""
 
@@ -767,6 +767,8 @@ class Outcome:
     newly: set[str]
     errors: list[str]
     replied: set[str] = field(default_factory=set)
+    # 成功的每一项一行，讨论里显式回给操作者看
+    notes: list[str] = field(default_factory=list)
 
 
 def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str], pending: set[str],
@@ -774,9 +776,11 @@ def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str],
     """执行一条评论里的命令。[default]：没写工单号时用的工单（讨论里回复的那层楼）。"""
     errors: list[str] = []
     newly: set[str] = set()
+    notes: list[str] = []
     for c in cmds:
         if c.verb == "skip" and c.skip_all:
             newly |= pending
+            notes.append(f"已跳过本期剩下的 {len(pending)} 条")
             continue
         if not c.tickets and default:
             c.tickets = [default]
@@ -789,6 +793,7 @@ def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str],
             continue
         if c.verb == "skip":
             newly.update(c.tickets)
+            notes.append("已跳过 " + "、".join(f"`{t}`" for t in c.tickets))
             continue
         if len(c.tickets) != 1:
             errors.append("`/reply` 一次只回一个工单")
@@ -811,11 +816,14 @@ def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str],
             else:
                 fs.add_reply(fields)
             newly.add(t)
+            notes.append(f"`{t}` 已写入飞书 · "
+                         + ("公开，问题显示为「" + one_line(question, 60).replace("`", "'") + "」" if c.public
+                            else "私密，只有提问的人能看到"))
             log(f"{where} {t} 已写回复（公开={c.public}）")
         except Exception as e:  # noqa: BLE001
             errors.append(f"`{t}` 写入飞书失败：{e}")
     replied = {c.tickets[0] for c in cmds if c.verb == "reply" and c.tickets and c.tickets[0] in newly}
-    return Outcome(fs, newly, errors, replied)
+    return Outcome(fs, newly, errors, replied, notes)
 
 
 def handle(gh: GitHub, fs: Optional[Feishu], issue: dict, comment: dict) -> Optional[Feishu]:
@@ -910,16 +918,17 @@ def handle_discussion(gh: GitHub, fs: Optional[Feishu], c: dict) -> Optional[Fei
         disc["body"] = MARK_DONE.sub(f"<!-- feedback-done={ids(done)} -->", disc["body"])
         gh.gwrite("""mutation($d:ID!,$b:String!){updateDiscussion(input:{discussionId:$d,body:$b}){discussion{id}}}""",
                   d=disc["id"], b=disc["body"])
-    if out.errors:
-        msg = MARK_FAILED.format(c["id"]) + "\n" + "\n".join(f"- {e}" for e in out.errors) + "\n\n" + USAGE
-        # 讨论只有两层：回在命令所在的那串楼里
+    # 和 /toissue 一样显式回一条：成功写了什么、失败为什么，都在命令所在的那串楼里（讨论只有两层）
+    lines = [f"✅ {n}" for n in out.notes] + [f"⚠️ {e}" for e in out.errors]
+    if lines:
+        msg = "\n".join(f"- {x}" for x in lines)
+        if out.errors:
+            msg = MARK_FAILED.format(c["id"]) + "\n" + msg + "\n\n" + USAGE
         gh.gwrite("""mutation($d:ID!,$r:ID!,$b:String!){
             addDiscussionComment(input:{discussionId:$d,replyToId:$r,body:$b}){comment{id}}}""",
                   d=disc["id"], r=(parent or c)["id"], b=msg)
     react = """mutation($s:ID!,$e:ReactionContent!){addReaction(input:{subjectId:$s,content:$e}){reaction{content}}}"""
-    if out.newly and not out.errors:
-        gh.gwrite(react, s=c["id"], e="ROCKET")
-    # 那层反馈楼上也标一下：回复过 🎉，跳过 👀，扫一眼就知道哪条还没处理
+    # 那层反馈楼上标一下：回复过 🎉，跳过 👀，扫一眼就知道哪条还没处理
     if parent and default in out.newly:
         gh.gwrite(react, s=parent["id"], e="HOORAY" if default in out.replied else "EYES")
     if pending and pending <= done:
