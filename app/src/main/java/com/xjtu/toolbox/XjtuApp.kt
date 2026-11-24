@@ -21,9 +21,10 @@ import kotlinx.coroutines.launch
  * 其余启动钩子（性能打点 / 渠道开关）保持空。
  */
 class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
-    /** 图片磁盘缓存封顶，不用 Coil 的默认上限，免得社区看多了占掉一大块空间。 */
+    /** 图片磁盘缓存封顶，免得社区看多了占掉一大块空间；带 SVG 解码（star-history、徽章都是 SVG）。 */
     override fun newImageLoader(context: coil3.PlatformContext): coil3.ImageLoader =
         coil3.ImageLoader.Builder(context)
+            .components { add(coil3.svg.SvgDecoder.Factory()) }
             .diskCache {
                 coil3.disk.DiskCache.Builder()
                     .directory(okio.Path.Companion.run { cacheDir.resolve("coil3_disk_cache").absolutePath.toPath() })

@@ -73,9 +73,10 @@ class FeedbackStoreJvmTest {
 
     @Test
     fun `公开问答的节流：拉过一次之后就不再放行`() {
-        assertTrue(FeedbackStore.shouldFetchPublicQa(), "从没拉过 ⇒ 该拉")
+        assertTrue(FeedbackStore.shouldFetchPublicQa(manual = false), "从没拉过 ⇒ 该拉")
         FeedbackStore.cachePublicQa(listOf(FeedbackPublicQa("示例提问", "示例回答")))
-        assertFalse(FeedbackStore.shouldFetchPublicQa(), "刚拉过 ⇒ 不该再拉")
+        assertFalse(FeedbackStore.shouldFetchPublicQa(manual = false), "刚拉过 ⇒ 不该再拉")
+        assertTrue(FeedbackStore.shouldFetchPublicQa(manual = true), "下拉刷新照拉")
     }
 
     @Test

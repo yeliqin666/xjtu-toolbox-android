@@ -119,9 +119,50 @@ class CommunityTimeTest {
                 PostPart.QuotedImages(listOf(PostPart.Image("https://x/a.png", "a", 10, 20), PostPart.Image("https://x/b.png", "b", null, null))),
                 PostPart.Text("/attachcomment #468"),
             ),
-            splitBlockImages(md),
+            splitPostParts(md),
         )
         // 引用里还有文字时文字照常留给 Markdown
-        assertEquals(PostPart.Text("> 原文"), splitBlockImages("> 原文\n> ![b](https://x/b.png)").first())
+        assertEquals(PostPart.Text("> 原文"), splitPostParts("> 原文\n> ![b](https://x/b.png)").first())
+    }
+
+    @Test
+    fun `套了链接的图片也单独成块`() {
+        val svg = "https://api.star-history.com/svg?repos=a/b&type=Date"
+        assertEquals(
+            listOf(PostPart.Image(svg, "Star History Chart", null, null)),
+            splitPostParts("[![Star History Chart]($svg)](https://star-history.com/#a/b&Date)"),
+        )
+        assertEquals(
+            listOf(PostPart.Image("https://x/a.png", "a", null, null)),
+            splitPostParts("<a href=\"https://x\"><img alt=\"a\" src=\"https://x/a.png\"></a>"),
+        )
+    }
+
+    @Test
+    fun `details 切成折叠块，可嵌套、可在引用里`() {
+        val md = "前文\n<details open><summary>🐞 <b>有bug</b></summary>\n\n正文\n<details><summary>内层</summary>\n\nx\n</details>\n\n</details>\n后文"
+        assertEquals(
+            listOf(
+                PostPart.Text("前文"),
+                PostPart.Details("🐞 <b>有bug</b>", "正文\n<details><summary>内层</summary>\n\nx\n</details>", open = true, quoted = false),
+                PostPart.Text("后文"),
+            ),
+            splitPostParts(md),
+        )
+        assertEquals(
+            listOf(PostPart.Details("日志", "```\nboom\n```", open = false, quoted = true)),
+            splitPostParts("> <details><summary>日志</summary>\n>\n> ```\n> boom\n> ```\n> </details>"),
+        )
+    }
+
+    @Test
+    fun `常见 HTML 换成 Markdown`() {
+        assertEquals("`a` **b** ~~c~~ [d](https://x) ![e](https://x/e.png)",
+            githubHtmlToMarkdown("<kbd>a</kbd> <strong>b</strong> <del>c</del> <a href=\"https://x\">d</a> <img alt=\"e\" src=\"https://x/e.png\">"))
+        assertEquals("说明", githubHtmlToMarkdown("<sub>说明</sub><!-- poll-data:{} -->"))
+        assertEquals("> 一\n> 二", githubHtmlToMarkdown("> 一<br>二"))
+        assertEquals("## 标题\n***", githubHtmlToMarkdown("<h2>标题</h2>\n<hr>"))
+        assertEquals("\\<details\\> 🎉 :core:", githubHtmlToMarkdown("&lt;details&gt; :tada: :core:"))
+        assertEquals("`<b>x</b>`", githubHtmlToMarkdown("`<b>x</b>`"))
     }
 }

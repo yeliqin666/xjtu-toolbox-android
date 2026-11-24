@@ -257,6 +257,7 @@ dependencies {
     implementation(libs.markdown.renderer.coil3)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.svg)
     implementation(libs.okhttp)
     implementation(libs.okhttp.brotli)
     implementation(libs.okhttp.java.net.cookiejar)

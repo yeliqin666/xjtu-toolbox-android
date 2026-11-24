@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.BrokenImage
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -229,7 +230,6 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
     val refNumbers = remember(markdown) { issueNumbersIn(markdown) }
     androidx.compose.runtime.LaunchedEffect(refs, refNumbers) { refs?.request(refNumbers) }
     val knownRefs = refs?.kinds?.filterKeys { it in refNumbers }.orEmpty()
-    val linked = remember(markdown, knownRefs) { linkIssues(linkMentions(linkGithubRefs(markdown)), knownRefs) }
     // 引用垫一层浅底圆角，和正文分得开；内容仍是标准的「> 」引用，只是这边画得像卡片
     val quoteBackground = colors.onSurface.copy(alpha = 0.05f)
     val components = markdownComponents(
@@ -239,19 +239,26 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
             }
         },
     )
-    // 独占一行的图片拆出来自己画：渲染库把图片当行内元素，尺寸一变整段重排，图多时界面连跳好几下
-    val parts = remember(linked) { splitBlockImages(linked) }
-    if (parts.size == 1 && parts[0] is PostPart.Text) {
-        Markdown(linked, markdownColors, typography, modifier, components = components, imageTransformer = Coil3ImageTransformerImpl, annotator = annotator)
+    @Composable
+    fun TextPart(text: String, textModifier: Modifier) {
+        val linked = remember(text, knownRefs) { linkIssues(linkMentions(linkGithubRefs(githubHtmlToMarkdown(text))), knownRefs) }
+        Markdown(linked, markdownColors, typography, textModifier, components = components, imageTransformer = Coil3ImageTransformerImpl, annotator = annotator)
+    }
+    // 独占一行的图片拆出来自己画（渲染库把图片当行内元素，尺寸一变整段重排）；`<details>` 拆成可折叠的卡片
+    val parts = remember(markdown) { splitPostParts(markdown) }
+    val single = parts.singleOrNull()
+    if (single is PostPart.Text) {
+        TextPart(single.markdown, modifier)
         return
     }
+    val bar = typography.quote.color
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         parts.forEach { part ->
             when (part) {
-                is PostPart.Text -> Markdown(part.markdown, markdownColors, typography, Modifier.fillMaxWidth(),
-                    components = components, imageTransformer = Coil3ImageTransformerImpl, annotator = annotator)
+                is PostPart.Text -> TextPart(part.markdown, Modifier.fillMaxWidth())
                 is PostPart.Image -> PostImage(part)
-                is PostPart.QuotedImages -> QuotedImages(part.images, quoteBackground, typography.quote.color)
+                is PostPart.QuotedImages -> QuoteCard(quoteBackground, bar) { part.images.forEach { PostImage(it) } }
+                is PostPart.Details -> if (part.quoted) QuoteCard(quoteBackground, bar) { DetailsBlock(part) } else DetailsBlock(part)
             }
         }
     }
@@ -263,16 +270,62 @@ internal sealed interface PostPart {
     data class Image(val url: String, val alt: String, val width: Int?, val height: Int?) : PostPart
     /** 引用块（`> `）里独占一行的图片，连着的几张放进同一张引用卡片（#470）。 */
     data class QuotedImages(val images: List<Image>) : PostPart
+    /** `<details>` 折叠块：[summary]、[body] 都是 Markdown 原文，[open] 对应 `<details open>`。 */
+    data class Details(val summary: String, val body: String, val open: Boolean, val quoted: Boolean) : PostPart
 }
 
 private val MD_IMAGE_LINE = Regex("""^!\[([^\]]*)]\(<?(https://[^\s)>]+)>?(?:\s+"[^"]*")?\)$""")
-private val HTML_IMAGE_LINE = Regex("""^(?:<p[^>]*>\s*)?<img\b([^>]*?)/?>(?:\s*</p>)?$""", RegexOption.IGNORE_CASE)
+/** 套了链接的图片 `[![说明](图)](链接)`（star-history、徽章常这么写），取里面的图。 */
+private val LINKED_MD_IMAGE = Regex("""^\[(!\[[^\]]*]\([^)]+\))]\([^)\s]+\)$""")
+private val HTML_IMAGE_LINE = Regex("""^(?:<p[^>]*>\s*)?(?:<a\b[^>]*>\s*)?<img\b([^>]*?)/?>(?:\s*</a>)?(?:\s*</p>)?$""", RegexOption.IGNORE_CASE)
 private val QUOTE_PREFIX = Regex("""^(?:>\s?)+""")
 private fun htmlAttr(attrs: String, name: String): String? =
     Regex("""\b$name\s*=\s*["']([^"']*)["']""", RegexOption.IGNORE_CASE).find(attrs)?.groupValues?.get(1)
 
-/** 把独占一行的图片（Markdown 或 `<img>`，引用块里的也算）切成单独的块；代码块里的不动。 */
-internal fun splitBlockImages(markdown: String): List<PostPart> {
+private val DETAILS_OPEN = Regex("""^<details\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val DETAILS_ANY_OPEN = Regex("""<details\b""", RegexOption.IGNORE_CASE)
+private val DETAILS_CLOSE = Regex("""</details\s*>""", RegexOption.IGNORE_CASE)
+private val DETAILS_OPEN_ATTR = Regex("""\bopen\b""", RegexOption.IGNORE_CASE)
+private val SUMMARY_BLOCK = Regex("""^\s*<summary\b[^>]*>([\s\S]*?)</summary\s*>""", RegexOption.IGNORE_CASE)
+
+/** 从 [start] 行的 `<details>` 起，找到与之配对的 `</details>`（可嵌套），返回下一行的下标；没闭合就到引用或全文结束。 */
+private fun detailsEnd(lines: List<String>, start: Int, quoted: Boolean): Int {
+    var depth = 0
+    var fenced = false
+    for (j in start until lines.size) {
+        val t = lines[j].trim()
+        if (quoted && j > start && !t.startsWith(">")) return j
+        val body = if (quoted) t.replace(QUOTE_PREFIX, "") else t
+        if (body.startsWith("```") || body.startsWith("~~~")) { fenced = !fenced; continue }
+        if (fenced) continue
+        val outside = body.split('`').filterIndexed { k, _ -> k % 2 == 0 }.joinToString(" ")
+        depth += DETAILS_ANY_OPEN.findAll(outside).count() - DETAILS_CLOSE.findAll(outside).count()
+        if (depth <= 0) return j + 1
+    }
+    return lines.size
+}
+
+private fun parseDetails(region: String, quoted: Boolean): PostPart.Details {
+    val trimmed = region.trim()
+    val head = DETAILS_OPEN.find(trimmed)
+    var rest = if (head != null) trimmed.substring(head.range.last + 1) else trimmed
+    rest.trimEnd().let { if (it.endsWith("</details>", ignoreCase = true)) rest = it.dropLast("</details>".length) }
+    val summary = SUMMARY_BLOCK.find(rest)
+    val title = summary?.groupValues?.get(1)?.lines()?.joinToString(" ") { it.trim() }?.trim().orEmpty()
+    val body = if (summary != null) rest.substring(summary.range.last + 1) else rest
+    return PostPart.Details(
+        summary = title.ifBlank { "详情" },
+        body = body.trimIndent().trim('\n'),
+        open = head != null && DETAILS_OPEN_ATTR.containsMatchIn(head.value.substring("<details".length)),
+        quoted = quoted,
+    )
+}
+
+/**
+ * 把正文切成块：独占一行的图片（Markdown、`<img>`、套了链接的都算，引用块里的也算）单独成块，
+ * 行首的 `<details>` 连同配对的 `</details>` 切成折叠块；代码块里的不动。
+ */
+internal fun splitPostParts(markdown: String): List<PostPart> {
     val parts = mutableListOf<PostPart>()
     val buffer = StringBuilder()
     fun flush() {
@@ -280,12 +333,25 @@ internal fun splitBlockImages(markdown: String): List<PostPart> {
         if (buffer.lines().any { it.trim().replace(QUOTE_PREFIX, "").isNotBlank() }) parts += PostPart.Text(buffer.toString().trim('\n'))
         buffer.clear()
     }
+    val lines = markdown.split('\n')
     var fenced = false
-    markdown.split('\n').forEach { line ->
+    var i = 0
+    while (i < lines.size) {
+        val line = lines[i]
         val t = line.trim()
         if (t.startsWith("```") || t.startsWith("~~~")) fenced = !fenced
         val quoted = !fenced && t.startsWith(">")
-        val body = if (quoted) t.replace(QUOTE_PREFIX, "").trim() else t
+        val stripped = if (quoted) t.replace(QUOTE_PREFIX, "").trim() else t
+        if (!fenced && DETAILS_OPEN.containsMatchIn(stripped)) {
+            flush()
+            val end = detailsEnd(lines, i, quoted)
+            val region = lines.subList(i, end).joinToString("\n") { if (quoted) it.trimStart().replace(QUOTE_PREFIX, "") else it }
+            parts += parseDetails(region, quoted)
+            i = end
+            continue
+        }
+        i++
+        val body = LINKED_MD_IMAGE.matchEntire(stripped)?.groupValues?.get(1) ?: stripped
         val image = if (fenced) null else MD_IMAGE_LINE.matchEntire(body)?.let { PostPart.Image(it.groupValues[2], it.groupValues[1], null, null) }
             ?: HTML_IMAGE_LINE.matchEntire(body)?.groupValues?.get(1)?.let { attrs ->
                 htmlAttr(attrs, "src")?.takeIf { it.startsWith("https://") }?.let { src ->
@@ -308,9 +374,44 @@ internal fun splitBlockImages(markdown: String): List<PostPart> {
     return parts.ifEmpty { listOf(PostPart.Text(markdown)) }
 }
 
-/** 引用里的图片：和 [MarkdownBlockQuote] 同一张浅底卡片、同一条左侧竖线。 */
+/** 折叠块：点摘要那一行展开 / 收起，`<details open>` 默认展开。 */
 @Composable
-private fun QuotedImages(images: List<PostPart.Image>, background: Color, bar: Color) {
+private fun DetailsBlock(details: PostPart.Details) {
+    var expanded by remember(details) { mutableStateOf(details.open) }
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (expanded) 90f else 0f)
+    val colors = MiuixTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.onSurface.copy(alpha = 0.04f))
+            .animateContentSize(),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = if (expanded) "收起" else "展开",
+                tint = colors.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+            )
+            Spacer(Modifier.width(6.dp))
+            MarkdownText(details.summary, Modifier.weight(1f))
+        }
+        if (expanded && details.body.isNotBlank()) {
+            MarkdownText(details.body, Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 10.dp))
+        }
+    }
+}
+
+/** 引用里的图片、折叠块：和 [MarkdownBlockQuote] 同一张浅底卡片、同一条左侧竖线。 */
+@Composable
+private fun QuoteCard(background: Color, bar: Color, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Box(Modifier.padding(vertical = 2.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(background)) {
         Column(
             Modifier
@@ -321,9 +422,8 @@ private fun QuotedImages(images: List<PostPart.Image>, background: Color, bar: C
                 }
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            images.forEach { PostImage(it) }
-        }
+            content = content,
+        )
     }
 }
 
@@ -427,8 +527,116 @@ internal fun linkMentions(markdown: String): String {
     }
 }
 
+private val HTML_COMMENT = Regex("""<!--.*?-->""")
+private val HTML_IMG = Regex("""<img\b([^>]*?)/?>""", RegexOption.IGNORE_CASE)
+private val HTML_LINK = Regex("""<a\b([^>]*)>(.*?)</a\s*>""", RegexOption.IGNORE_CASE)
+private val HTML_HEADING_START = Regex("""^((?:\s*>)*\s*)<h([1-6])\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val HTML_HR_LINE = Regex("""^((?:\s*>)*\s*)<hr\b[^>]*>\s*$""", RegexOption.IGNORE_CASE)
+private val HTML_LIST_ITEM = Regex("""<li\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val HTML_CELL = Regex("""<(?:td|th)\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val HTML_SUMMARY = Regex("""<summary\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val HTML_INLINE = Regex("""</?(b|strong|i|em|code|kbd|tt|s|del|strike|br)\b[^>]*>""", RegexOption.IGNORE_CASE)
+// 只有排版作用、去掉标签留文字的
+private val HTML_DROP_TAG = Regex(
+    """</?(?:details|summary|div|p|center|span|font|sub|sup|small|big|u|ins|mark|abbr|cite|q|samp|var|dfn|picture|source|video|audio|""" +
+        """table|thead|tbody|tfoot|tr|td|th|caption|colgroup|col|ul|ol|li|dl|dt|dd|pre|blockquote|section|article|header|footer|figure|figcaption|""" +
+        """a|h[1-6]|hr|img|wbr)\b[^>]*>""",
+    RegexOption.IGNORE_CASE,
+)
+private val HTML_ENTITY = Regex("""&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));""")
+private val EMOJI_CODE = Regex("""(?<![\w:]):([a-z0-9_+-]{1,40}):(?![\w:])""")
+private val LINE_QUOTE_PREFIX = Regex("""^\s*(?:>\s?)*""")
+
+/**
+ * 渲染库不认 HTML：行内标签被吞掉，块级 HTML（如 `<details>`）连同同一行的文字整块不显示。
+ * 这里把 GitHub 帖子常见的写法换成等价 Markdown：`<b>`/`<i>`/`<code>`/`<kbd>`/`<del>` 换成对应记号，
+ * `<a>`/`<img>` 换成链接和图片，`<h1>`~`<h6>`/`<hr>`/`<br>`/`<li>` 换成标题、分隔线、换行、列表点，
+ * 其余排版标签去掉留文字，注释删掉，HTML 实体和常用 emoji 短码解码。行首的 `<details>` 由
+ * [splitPostParts] 切成折叠卡片，这里只兜底处理夹在别处的摘要。
+ */
+internal fun githubHtmlToMarkdown(markdown: String): String {
+    if ('<' !in markdown && '&' !in markdown && ':' !in markdown) return markdown
+    return mapOutsideCodeIn(markdown) { text, line ->
+        var s = HTML_COMMENT.replace(text, "")
+        s = HTML_HR_LINE.replace(s) { "${it.groupValues[1]}***" }
+        s = HTML_HEADING_START.replace(s) { "${it.groupValues[1]}${"#".repeat(it.groupValues[2].toInt())} " }
+        s = HTML_IMG.replace(s) { m ->
+            val src = htmlAttr(m.groupValues[1], "src")?.takeIf { it.startsWith("https://") }
+            if (src == null) "" else "![${escapeMarkdown(htmlAttr(m.groupValues[1], "alt").orEmpty())}]($src)"
+        }
+        s = HTML_LINK.replace(s) { m ->
+            val href = htmlAttr(m.groupValues[1], "href")?.takeIf { it.isNotBlank() && ' ' !in it }
+            val label = m.groupValues[2].trim().ifEmpty { href.orEmpty() }
+            if (href == null) label else "[$label]($href)"
+        }
+        s = HTML_LIST_ITEM.replace(s, "• ")
+        s = HTML_CELL.replace(s, " ")
+        s = HTML_SUMMARY.replace(s, "▸ ")
+        val table = line.replace(LINE_QUOTE_PREFIX, "").trimStart().startsWith("|")
+        s = HTML_INLINE.replace(s) { m ->
+            when (m.groupValues[1].lowercase()) {
+                "b", "strong" -> "**"
+                "i", "em" -> "*"
+                "code", "kbd", "tt" -> "`"
+                "s", "del", "strike" -> "~~"
+                // 表格一行不能断开；别处换成真换行，续上这一行的引用前缀
+                else -> if (table) " " else "\n" + (LINE_QUOTE_PREFIX.find(line)?.value ?: "")
+            }
+        }
+        s = HTML_DROP_TAG.replace(s, "")
+        s = EMOJI_CODE.replace(s) { m -> EMOJI[m.groupValues[1]] ?: m.value }
+        HTML_ENTITY.replace(s) { m -> decodeEntity(m) ?: m.value }
+    }
+}
+
+/** GitHub 常用的 emoji 短码；不认识的照原样留着（`:core:` 这类模块名也不会被误换）。 */
+private val EMOJI = mapOf(
+    "+1" to "👍", "-1" to "👎", "thumbsup" to "👍", "thumbsdown" to "👎", "smile" to "😄", "smiley" to "😃",
+    "grinning" to "😀", "grin" to "😁", "laughing" to "😆", "joy" to "😂", "rofl" to "🤣", "wink" to "😉", "blush" to "😊",
+    "slightly_smiling_face" to "🙂", "upside_down_face" to "🙃", "innocent" to "😇", "heart_eyes" to "😍",
+    "star_struck" to "🤩", "sunglasses" to "😎", "partying_face" to "🥳", "thinking" to "🤔", "confused" to "😕",
+    "sweat_smile" to "😅", "sweat" to "😓", "cry" to "😢", "sob" to "😭", "rage" to "😡", "scream" to "😱",
+    "see_no_evil" to "🙈", "facepalm" to "🤦", "shrug" to "🤷", "heart" to "❤️", "broken_heart" to "💔",
+    "rocket" to "🚀", "tada" to "🎉", "fire" to "🔥", "star" to "⭐", "star2" to "🌟", "sparkles" to "✨", "eyes" to "👀",
+    "pray" to "🙏", "clap" to "👏", "ok_hand" to "👌", "muscle" to "💪", "raised_hands" to "🙌", "wave" to "👋",
+    "point_right" to "👉", "point_up" to "☝️", "100" to "💯", "bug" to "🐛", "beetle" to "🐞", "warning" to "⚠️",
+    "x" to "❌", "white_check_mark" to "✅", "heavy_check_mark" to "✔️", "question" to "❓", "exclamation" to "❗",
+    "bulb" to "💡", "memo" to "📝", "pencil2" to "✏️", "wrench" to "🔧", "hammer" to "🔨", "construction" to "🚧",
+    "zap" to "⚡", "boom" to "💥", "coffee" to "☕", "lock" to "🔒", "unlock" to "🔓", "key" to "🔑", "link" to "🔗",
+    "calendar" to "📅", "book" to "📖", "books" to "📚", "mag" to "🔍", "gift" to "🎁", "trophy" to "🏆", "medal" to "🏅",
+    "bell" to "🔔", "pushpin" to "📌", "chart_with_upwards_trend" to "📈", "recycle" to "♻️", "art" to "🎨",
+    "package" to "📦", "hourglass" to "⌛", "alarm_clock" to "⏰", "moon" to "🌙", "sunny" to "☀️", "rainbow" to "🌈",
+    "cat" to "🐱", "dog" to "🐶", "new" to "🆕", "sos" to "🆘", "no_entry" to "⛔", "information_source" to "ℹ️",
+)
+
+private fun decodeEntity(m: MatchResult): String? {
+    val (dec, hex, name) = m.destructured
+    val code = dec.toIntOrNull() ?: hex.toIntOrNull(16)
+    val text = if (code != null) {
+        when (code) {
+            in 1..0xFFFF -> code.toChar().toString()
+            in 0x10000..0x10FFFF -> (code - 0x10000).let { charArrayOf((0xD800 + (it shr 10)).toChar(), (0xDC00 + (it and 0x3FF)).toChar()).concatToString() }
+            else -> return null
+        }
+    } else when (name.lowercase()) {
+        "lt" -> "<"
+        "gt" -> ">"
+        "amp" -> "&"
+        "quot" -> "\""
+        "apos" -> "'"
+        "nbsp" -> " "
+        else -> return null
+    }
+    // 解出来的是 Markdown / HTML 记号就转义，免得 `&lt;b&gt;` 又变回标签
+    return if (text.length == 1 && text[0] in "<>&\\`*_[]") "\\$text" else text
+}
+
 /** 只改代码块和行内代码以外的文字。 */
-private fun mapOutsideCode(markdown: String, transform: (String) -> String): String {
+private fun mapOutsideCode(markdown: String, transform: (String) -> String): String =
+    mapOutsideCodeIn(markdown) { text, _ -> transform(text) }
+
+/** 同 [mapOutsideCode]，[transform] 另外拿到这段文字所在的整行。 */
+private fun mapOutsideCodeIn(markdown: String, transform: (text: String, line: String) -> String): String {
     val out = StringBuilder(markdown.length + 32)
     var fenced = false
     markdown.split('\n').forEachIndexed { i, line ->
@@ -443,7 +651,7 @@ private fun mapOutsideCode(markdown: String, transform: (String) -> String): Str
         // 按反引号切开，奇数段是行内代码
         line.split('`').forEachIndexed { j, part ->
             if (j > 0) out.append('`')
-            out.append(if (j % 2 == 1) part else transform(part))
+            out.append(if (j % 2 == 1) part else transform(part, line))
         }
     }
     return out.toString()

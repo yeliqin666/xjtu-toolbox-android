@@ -10,7 +10,8 @@ import org.intellij.markdown.parser.MarkdownParser
 
 /** A bounded list preview. The original body is always used by the detail reader. */
 fun discussionSummary(markdown: String): String {
-    val source = markdown.take(8_192)
+    // HTML 先换成 Markdown，否则 `<details><summary>` 那一行整块被当 HTML 丢掉
+    val source = githubHtmlToMarkdown(markdown.take(8_192))
     val tree = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(source)
     val plain = StringBuilder()
     fun visit(node: ASTNode) {
