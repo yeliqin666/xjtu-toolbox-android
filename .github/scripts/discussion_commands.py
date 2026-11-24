@@ -23,6 +23,11 @@ admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正�
 * 楼中楼里 GitHub 自动带上的 `>` 引用块：有 details 时去掉 details 开头的引用块，
   没有 details 且命令正文开头就是引用块时，把引用正文当作附加内容。
 
+    /reply [私密]   /skip
+
+* 只在「反馈日报」分类的帖子里用：在某条反馈的楼里回复，工单号从那层楼的隐藏标记读；
+  执行逻辑（写飞书回复表、更新帖子标记、关帖）在 feedback_digest.py，见那边的说明。
+
 这是给以后更多讨论区命令用的最小框架：命令注册在 HANDLERS，每个 handler 只负责
 解析自己的参数并返回回复正文，GitHub 读写统一走 GitHub 类。
 """
@@ -30,6 +35,7 @@ admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正�
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -256,6 +262,8 @@ query($id: ID!) {
         title
         body
         url
+        closed
+        category { name }
         author { login }
         repository { id }
       }
@@ -348,6 +356,8 @@ class Discussion:
     url: str
     author_login: str
     repository_id: str
+    closed: bool = False
+    category: str = ""
 
 
 @dataclass
@@ -463,6 +473,8 @@ def fetch_comment(client: GitHub, node_id: str) -> Comment:
         url=discussion_data.get("url") or "",
         author_login=(discussion_data.get("author") or {}).get("login") or "",
         repository_id=(discussion_data.get("repository") or {}).get("id") or "",
+        closed=bool(discussion_data.get("closed")),
+        category=(discussion_data.get("category") or {}).get("name") or "",
     )
     return Comment(
         node_id=node["id"],
@@ -613,6 +625,18 @@ def pick_source(comment: Comment, command_line_index: int) -> Source:
             fallback_title=f"Discussion #{discussion.number} 的回复",
         )
 
+    feedback = feedback_item_view(comment.reply_to_body)
+    if feedback is not None:
+        title, content = feedback
+        return Source(
+            key=f"discussioncomment-{comment.reply_to_id}",
+            content=content,
+            raw_title=title,
+            link=f"[反馈日报 #{discussion.number} 的这条反馈]({comment.reply_to_url})",
+            where="父评论",
+            fallback_title=f"反馈日报 #{discussion.number} 的反馈",
+        )
+
     return Source(
         key=f"discussioncomment-{comment.reply_to_id}",
         content=comment.reply_to_body,
@@ -621,6 +645,28 @@ def pick_source(comment: Comment, command_line_index: int) -> Source:
         where="父评论",
         fallback_title=f"Discussion #{discussion.number} 的父评论",
     )
+
+
+FEEDBACK_ITEM_RE = re.compile(r"<!-- feedback-ticket:(T[A-Z0-9]{8,16}) -->")
+
+
+def feedback_item_view(body: str) -> Optional[tuple[str, str]]:
+    """反馈日报里的一层楼（feedback_digest.py 发的）转 issue：标题取反馈原文第一句，正文展开、不折叠。
+    不是反馈楼返回 None。"""
+    m = FEEDBACK_ITEM_RE.search(body)
+    if not m:
+        return None
+    text = body[m.end():].strip()
+    folded = re.match(r"<details><summary>(.*?)</summary>\s*(.*?)\s*</details>\s*$", text, re.S)
+    if folded:
+        head, rest = folded.group(1).strip(), folded.group(2).strip()
+    else:
+        head, _, rest = text.partition("\n")
+        rest = rest.strip()
+    quoted = (html.unescape(line[1:]).replace("​", "").strip()
+              for line in rest.splitlines() if line.startswith(">"))
+    title = next((q for q in quoted if q), "")
+    return title, f"{head.strip()}\n\n{rest}"
 
 
 def pick_attachment(ctx: Context) -> Attachment:
@@ -1050,9 +1096,55 @@ class AttachCommentHandler(CommandHandler):
         )
 
 
+class FeedbackHandler(CommandHandler):
+    """`/reply`、`/skip`：反馈日报帖里回复某条反馈，写回飞书回复表。执行逻辑在 feedback_digest.py。"""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.usage = ""
+
+    def handle(self, ctx: "Context", args: list[str]) -> str:
+        import feedback_digest as fd  # 用到才加载：它出问题不影响 /toissue
+
+        self.usage = fd.USAGE_TEXT
+        c = ctx.comment
+        d = c.discussion
+        if not fd.is_feedback_discussion(d.category):
+            raise CommandFailure(f"只能在「{fd.env('FEEDBACK_DISCUSSION_CATEGORY', '反馈日报')}」分类的帖子里用")
+        if d.closed:
+            raise CommandFailure("这期反馈日报已经关闭了")
+        node = {
+            "id": c.node_id,
+            "body": c.body,
+            "author": {"login": c.author_login},
+            "replyTo": {"id": c.reply_to_node_id, "body": c.reply_to_body} if c.reply_to_node_id else None,
+            "discussion": {"id": d.node_id, "number": d.number, "body": d.body,
+                           "closed": d.closed, "category": {"name": d.category}},
+        }
+        def gwrite(query: str, **variables: Any) -> dict[str, Any]:
+            try:
+                return ctx.client.graphql(query, variables)
+            except GitHubError as error:  # 把 GitHub 给的具体原因带出来，光一句「返回错误」没法查
+                detail = "；".join(e.get("message", "") for e in error.errors) or str(error)
+                raise RuntimeError(f"{query.split('(')[0].split()[-1]}：{detail}") from None
+
+        try:
+            done = fd.discussion_done(gwrite, d.node_id)
+            out = fd.run_discussion_commands(gwrite, None, node, done)
+        except Exception as error:  # noqa: BLE001 —— 飞书 / GraphQL 出错都当一次失败回给操作者
+            raise CommandFailure(str(error)) from None
+        if out is None:
+            raise CommandFailure("没找到可执行的命令")
+        if out.errors and not out.notes:
+            raise CommandFailure("；".join(out.errors))
+        return fd.result_lines(out)
+
+
 HANDLERS: dict[str, CommandHandler] = {
     ToIssueHandler.name: ToIssueHandler(),
     AttachCommentHandler.name: AttachCommentHandler(),
+    "/reply": FeedbackHandler("/reply"),
+    "/skip": FeedbackHandler("/skip"),
 }
 
 
@@ -1246,7 +1338,7 @@ def self_test() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="处理 Discussion 里的讨论命令（/toissue、/attachcomment）")
+    parser = argparse.ArgumentParser(description="处理 Discussion 里的讨论命令（/toissue、/attachcomment、/reply、/skip）")
     parser.add_argument(
         "--comment-node-id",
         default=os.environ.get("COMMENT_NODE_ID") or "",
