@@ -501,9 +501,15 @@ fun ScheduleScreen(
             val dndPrompt = host.autoDnd?.takeIf {
                 ScheduleCapability.AUTO_DND in host.honored && filteredMergedCourses.isNotEmpty() && it.shouldPrompt()
             }
-            val staticHeaderShown = (vm.showingStaleData && !vm.isLoading) || dndPrompt != null ||
-                (!vm.isLoading && vm.errorMessage == null &&
-                    ((currentContent == "week" && vm.isSwitching) || nextExam != null))
+            // 每条横幅的显示条件只在这里算一次，下面渲染直接读这几个值：新增横幅必须加进 staticHeaderShown，
+            // 否则它会画在玻璃顶栏底下、列表还多留一截空白（#517 就是漏了「未排课程」那条）
+            val ready = !vm.isLoading && vm.errorMessage == null
+            val showStale = vm.showingStaleData && !vm.isLoading
+            val showSwitching = ready && currentContent == "week" && vm.isSwitching
+            val examBanner = nextExam?.takeIf { ready }
+            val unscheduled = vm.pendingUnscheduled.takeIf { ready && it.isNotEmpty() }
+            val staticHeaderShown = showStale || dndPrompt != null || showSwitching ||
+                examBanner != null || unscheduled != null
             if (staticHeaderShown && contentTopPadding > 0.dp) Spacer(Modifier.height(contentTopPadding))
             val listTopPadding = if (staticHeaderShown) 0.dp else contentTopPadding
             dndPrompt?.let {
@@ -515,7 +521,7 @@ fun ScheduleScreen(
             }
 
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
-            if (vm.showingStaleData && !vm.isLoading) {
+            if (showStale) {
                 Surface(
                     color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                     modifier = Modifier
@@ -561,7 +567,7 @@ fun ScheduleScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                if (currentContent == "week" && vm.isSwitching) {
+                if (showSwitching) {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         height = 2.dp
@@ -570,7 +576,7 @@ fun ScheduleScreen(
                 // 没有独立的「考试」tab，改成常驻横幅——功能不能因为改版就消失。
                 // 点开是完整考试列表。
                 var showExamSheet by remember { mutableStateOf(false) }
-                nextExam?.let { n ->
+                examBanner?.let { n ->
                     ExamCountdownBanner(
                         n,
                         Modifier
@@ -580,7 +586,7 @@ fun ScheduleScreen(
                     )
                 }
                 LaunchedEffect(vm.selectedTermCode, vm.isLoading) { if (!vm.isLoading) vm.loadUnscheduled() }
-                vm.pendingUnscheduled.takeIf { it.isNotEmpty() }?.let { pending ->
+                unscheduled?.let { pending ->
                     UnscheduledBanner(
                         pending,
                         onDismiss = { vm.dismissUnscheduled(it.id) },
