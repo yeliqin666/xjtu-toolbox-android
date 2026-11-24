@@ -55,14 +55,19 @@ LABEL_CRASH = "crash"
 LABEL_DONE = "已处理"
 LABEL_COLORS = {LABEL_FEEDBACK: "0e8a16", LABEL_CRASH: "b60205", LABEL_DONE: "c5def5"}
 
-CATEGORIES = ["功能坏了", "有点难用", "想要新功能", "其他"]
+CATEGORIES = ["有bug", "待改进", "新点子", "其他"]
+# 旧版 App 提交的类别名，归到新名下
+CATEGORY_ALIASES = {"功能坏了": "有bug", "有点难用": "待改进", "想要新功能": "新点子"}
+# 与 App 端 FeedbackScreen 的 DIAGNOSTICS_SEPARATOR 一致
+DIAGNOSTICS_SEPARATOR = "———— 诊断信息 ————"
 RATING_PREFIX = "版本评价"
 VOTE_PREFIX = "投票"
 CRASH = "崩溃"
 EMPTY_NOTES = {"", "（未填写）", "(未填写)"}
 
 TICKET_RE = re.compile(r"T[A-Z0-9]{8,16}")
-MARK_TICKETS = re.compile(r"<!-- feedback-digest kind=(\w+) tickets=([A-Z0-9,]*) -->")
+MARK_TICKETS = re.compile(r"<!-- feedback-digest kind=(\w+) tickets=([A-Z0-9,]*)(?: until=(\d+))? -->")
+OVERLAP_MS = 3600_000  # 水位往回多看 1 小时，防时钟偏差；重叠部分靠工单号去重
 MARK_PENDING = re.compile(r"<!-- feedback-pending=([A-Z0-9,]*) -->")
 MARK_DONE = re.compile(r"<!-- feedback-done=([A-Z0-9,]*) -->")
 MARK_FAILED = "<!-- feedback-cmd-failed:{} -->"
@@ -204,6 +209,21 @@ class Record:
     system: str
     created: datetime
 
+    @property
+    def main(self) -> str:
+        """去掉 App 附的诊断信息之后的正文。"""
+        return self.content.split(DIAGNOSTICS_SEPARATOR, 1)[0].strip()
+
+    @property
+    def diagnostics(self) -> str:
+        """App 附的诊断信息；去掉里面给 Markdown 用的折叠标签和代码围栏，日报自己包一层。"""
+        if DIAGNOSTICS_SEPARATOR not in self.content:
+            return ""
+        raw = self.content.split(DIAGNOSTICS_SEPARATOR, 1)[1]
+        keep = [ln for ln in raw.splitlines()
+                if not re.match(r"\s*(</?details>|<summary>.*</summary>|<details><summary>.*|```)", ln)]
+        return "\n".join(keep).strip()
+
     @staticmethod
     def of(row: dict) -> Optional["Record"]:
         f = row.get("fields") or {}
@@ -213,7 +233,7 @@ class Record:
         ms = row.get("created_time") or 0
         return Record(
             ticket=m.group(0),
-            category=text(f.get("类型")).strip(),
+            category=CATEGORY_ALIASES.get(text(f.get("类型")).strip(), text(f.get("类型")).strip()),
             content=text(f.get("内容")).strip(),
             version=text(f.get("版本")).strip(),
             device=text(f.get("机型")).strip(),
@@ -320,7 +340,7 @@ def badge(label: str, message: str, color: str) -> str:
     return f"<kbd>{_DOTS.get(color, '⚪')} {label} {message}</kbd>"
 
 
-CATEGORY_ICONS = {"功能坏了": "🐞", "有点难用": "😣", "想要新功能": "✨", "其他": "💬", RATING_PREFIX: "⭐"}
+CATEGORY_ICONS = {"有bug": "🐞", "待改进": "🔧", "新点子": "💡", "其他": "💬", RATING_PREFIX: "⭐"}
 VERDICT_COLORS = {"Unsafe": "red", "Controversial": "orange"}
 RATING_COLORS = {"好用": "brightgreen", "有问题": "orange"}
 
@@ -367,14 +387,40 @@ def crash_signature(content: str) -> str:
 
 # ---------------------------------------------------------------- 日报
 
-def seen_tickets(gh: GitHub, days: int) -> set[str]:
-    since = (datetime.now(timezone.utc) - timedelta(days=days + 3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+def watermark(gh: GitHub, fallback_ms: int) -> int:
+    """上次收录到哪一刻（毫秒）：最近几期日报里最大的 until。
+    until 只写在一次运行最后发出的那期里，前一期发了、后一期失败时水位不动，下次照样补。
+    一期都找不到（首次运行、旧日报删了）就退回 [fallback_ms]。"""
+    got = [int(m.group(3))
+           for label in (LABEL_CRASH, LABEL_FEEDBACK)
+           for issue in gh.call("GET", f"/issues?labels={label}&state=all&sort=created&direction=desc&per_page=10")
+           for m in MARK_TICKETS.finditer(issue.get("body") or "") if m.group(3)]
+    return max(got) if got else fallback_ms
+
+
+def seen_tickets(gh: GitHub, since_ms: int) -> set[str]:
+    """水位之后（往前留 3 天余量）发过的日报里已经收录的工单。"""
+    since = datetime.fromtimestamp(since_ms / 1000 - 3 * 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     seen: set[str] = set()
     for label in (LABEL_FEEDBACK, LABEL_CRASH):
         for issue in gh.pages(f"/issues?labels={label}&state=all&since={since}"):
             for m in MARK_TICKETS.finditer(issue.get("body") or ""):
                 seen.update(t for t in m.group(2).split(",") if t)
     return seen
+
+
+def fetch_since(fs: Feishu, since_ms: int) -> list[Record]:
+    """表里有「创建时间」列就让飞书按日期先筛一遍（粒度到天，往前多留一天），没有就整表拉；精确过滤在调用方。"""
+    day_before = since_ms - 86400_000
+    flt = {"conjunction": "and", "conditions": [
+        {"field_name": "创建时间", "operator": "isGreater", "value": ["ExactDate", str(day_before)]}]}
+    try:
+        rows = fs.search(fs.submit_table, flt)
+        log(f"按「创建时间」增量拉取：{len(rows)} 条")
+    except RuntimeError as e:
+        log(f"表里没有可筛选的「创建时间」列，整表拉取（{e}）")
+        rows = fs.search(fs.submit_table)
+    return [r for r in (Record.of(x) for x in rows) if r]
 
 
 def moderate(records: list[Record], mode: str) -> dict[str, tuple[str, list[str]]]:
@@ -387,35 +433,48 @@ def moderate(records: list[Record], mode: str) -> dict[str, tuple[str, list[str]
         return {}
     out: dict[str, tuple[str, list[str]]] = {}
     for r in records:
-        if r.content in EMPTY_NOTES:
+        if r.main in EMPTY_NOTES:
             continue
-        got = feedback_guard.classify(r.content)
+        got = feedback_guard.classify(r.main)
         if got:
             out[r.ticket] = got
     return out
 
 
 def render_item(r: Record, verdict: Optional[tuple[str, list[str]]], mode: str) -> tuple[str, bool]:
-    """返回 (markdown, 是否展示了正文)。"""
-    badges = [badge("版本", short_version(r.version), "blue")]
+    """返回 (markdown, 是否展示了正文)。一条 = 一行头信息 + 引用正文；疑似违规的整条收进一个折叠行。"""
+    def esc(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    parts = [f"<code>{r.ticket}</code>"]
     if r.category.startswith(RATING_PREFIX):
         tier = r.category.split("·")[-1].strip()
-        badges.insert(0, badge("评价", tier, RATING_COLORS.get(tier, "lightgrey")))
+        parts.append(f"{_DOTS.get(RATING_COLORS.get(tier, ''), '⚪')} {esc(tier)}")
+    parts += [esc(x) for x in [short_version(r.version), r.device, r.system.split(" · ")[0]] if x]
+    parts.append(r.created.strftime("%m-%d %H:%M"))
+    head = " · ".join(parts)
+    body = quote(r.main)
+    diag = r.diagnostics
+    if diag:
+        body += ("\n\n<details><summary>诊断信息</summary>\n\n```\n"
+                 + scrub_pii(diag[:4000]).replace("```", "ˋˋˋ") + "\n```\n\n</details>")
     flagged = verdict is not None and verdict[0] != "Safe"
-    if flagged:
-        badges.append(badge("审核", verdict[0], VERDICT_COLORS.get(verdict[0], "lightgrey")))
-    meta = " · ".join(x for x in [r.device, r.system.split(" · ")[0], r.created.strftime("%m-%d %H:%M")] if x)
-    head = f"#### `{r.ticket}` {' '.join(badges)}\n<sub>{meta}</sub>"
-    if flagged:
-        cats = f"（{', '.join(verdict[1])}）" if verdict[1] else ""
-        if mode == "block":
-            return f"{head}\n\n⚠️ 疑似 {verdict[0]}{cats}，正文未展示", False
-        return (f"{head}\n\n<details><summary>⚠️ 疑似 {verdict[0]}{cats}，点开查看</summary>\n\n"
-                f"{quote(r.content)}\n\n</details>"), True
-    return f"{head}\n\n{quote(r.content)}", True
+    if not flagged:
+        return f"{head}\n{body}", True
+    tag = f"{_DOTS.get(VERDICT_COLORS.get(verdict[0], ''), '⚪')} <b>疑似 {verdict[0]}</b>" + (
+        f"（{esc(', '.join(verdict[1]))}）" if verdict[1] else "")
+    if mode == "block":
+        return f"{head} · {tag} · 正文未展示", False
+    return f"<details><summary>{head} · {tag}</summary>\n\n{body}\n\n</details>", True
 
 
-def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str) -> Optional[tuple[str, str]]:
+def until_mark(until: Optional[int]) -> str:
+    return f" until={until}" if until else ""
+
+
+def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str,
+                   until: Optional[int] = None, extra: list[str] = ()) -> Optional[tuple[str, str]]:
+    """[extra]：只记进去重标记、不展示的工单（只有旧版本崩溃、没单独发崩溃日报时）。"""
     ratings = [r for r in records if r.category.startswith(RATING_PREFIX)]
     others = [r for r in records if r not in ratings]
     if not records:
@@ -442,7 +501,7 @@ def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str
         for ver in sorted(counts, key=lambda v: core_version(v) or (0, 0, 0), reverse=True):
             rows.append(f"| {ver} | " + " | ".join(str(counts[ver][t]) for t in tiers) + " |")
         add(f"### {CATEGORY_ICONS[RATING_PREFIX]} 版本评价（{len(ratings)}）\n\n" + "\n".join(rows))
-        noted = [r for r in ratings if r.content not in EMPTY_NOTES]
+        noted = [r for r in ratings if r.main not in EMPTY_NOTES]
         if noted:
             add("有文字的：")
             for r in noted:
@@ -455,7 +514,7 @@ def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str
         group = [r for r in others if r.category == cat]
         if not group:
             continue
-        add(f"---\n\n### {CATEGORY_ICONS.get(cat, '📝')} {cat or '未分类'}（{len(group)}）")
+        add(f"### {CATEGORY_ICONS.get(cat, '📝')} {cat or '未分类'}（{len(group)}）")
         for r in group:
             md, shown = render_item(r, verdicts.get(r.ticket), mode)
             if shown:
@@ -474,19 +533,21 @@ def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str
         ).most_common()]
         + ([badge("疑似违规", str(flagged), "orange")] if flagged and mode != "off" else [])
     )
-    intro = (f"{counts_line}\n\n{window}，{audit}。\n\n"
-             "> [!TIP]\n> 回复：评论 `/reply 工单号`（默认进应用内「大家在问」，末尾加 `私密` 则不进），下一行起写回复；"
-             "第一行写 `问题: …` 可改公开问答里的问题。\n> 不回复：`/skip 工单号` 或 `/skip all`。全部处理完自动关闭。")
-    marks = (f"<!-- feedback-digest kind=feedback tickets={ids(r.ticket for r in records)} -->\n"
+    intro = (f"{counts_line}\n\n<sub>{window} · {audit}</sub>\n\n"
+             "> [!TIP]\n> 回复：`/reply 工单号`，下一行起写回复（默认进应用内「大家在问」，工单号后加 `私密` 则不进）；"
+             "第一行写 `问题：…` 可改公开问答里的问题。\n> 不回复：`/skip 工单号` 或 `/skip all`。全部处理完自动关闭。")
+    tickets = [r.ticket for r in records] + list(extra)
+    marks = (f"<!-- feedback-digest kind=feedback tickets={ids(tickets)}{until_mark(until)} -->\n"
              f"<!-- feedback-pending={ids(pending)} -->\n<!-- feedback-done= -->")
     body = marks + "\n\n" + intro + "\n\n" + "\n\n".join(parts) + "\n"
     return body, f"{len(records)} 条"
 
 
-def build_crash(records: list[Record], min_ver: tuple[int, int, int], window: str) -> Optional[tuple[str, str]]:
-    if not records:
-        return None
+def build_crash(records: list[Record], min_ver: tuple[int, int, int], window: str,
+                until: Optional[int] = None) -> Optional[tuple[str, str]]:
     fresh = [r for r in records if (core_version(r.version) or (0, 0, 0)) >= min_ver]
+    if not fresh:
+        return None
     old = len(records) - len(fresh)
     groups: dict[str, list[Record]] = defaultdict(list)
     for r in fresh:
@@ -498,11 +559,10 @@ def build_crash(records: list[Record], min_ver: tuple[int, int, int], window: st
         devs = Counter(r.device for r in rs if r.device)
         sample = max(rs, key=lambda r: r.created)
         stack = scrub_pii(sample.content[:3000]).replace("```", "ˋˋˋ")
-        md = (f"### {i}. `{one_line(sig, 160).replace('`', 'ˋ')}`\n\n"
-              + " ".join([badge("次数", str(len(rs)), "red")]
-                         + [badge(v, f"×{n}", "blue") for v, n in vers.most_common(4)])
-              + f"\n<sub>机型：{'、'.join(f'{d} ×{n}' for d, n in devs.most_common(5))}</sub>\n\n"
-              f"<details><summary>样例 {sample.ticket}（{sample.created:%m-%d %H:%M}）</summary>\n\n"
+        md = (f"### {i}. `{one_line(sig, 160).replace('`', 'ˋ')}`\n"
+              f"🔴 **{len(rs)} 次** · {'、'.join(f'{v} ×{n}' for v, n in vers.most_common(4))}"
+              f" · {'、'.join(f'{d} ×{n}' for d, n in devs.most_common(3))}\n\n"
+              f"<details><summary>样例 <code>{sample.ticket}</code> · {sample.created:%m-%d %H:%M}</summary>\n\n"
               f"```\n{stack}\n```\n\n</details>")
         if used + len(md) > BODY_BUDGET:
             parts.append(f"另有 {len(groups) - i + 1} 种因篇幅未展开。")
@@ -512,10 +572,8 @@ def build_crash(records: list[Record], min_ver: tuple[int, int, int], window: st
     ver_s = ".".join(map(str, min_ver))
     intro = " ".join([badge("崩溃", str(len(fresh)), "red"), badge("种类", str(len(groups)), "orange"),
                       badge("版本门槛", f"≥{ver_s}", "lightgrey")])
-    intro += f"\n\n{window}。"
-    if old:
-        intro += f"另有 {old} 条 {ver_s} 之前版本的崩溃未列出。"
-    marks = f"<!-- feedback-digest kind=crash tickets={ids(r.ticket for r in records)} -->"
+    intro += f"\n\n<sub>{window}" + (f" · 另有 {old} 条 {ver_s} 之前版本的崩溃未列出" if old else "") + "</sub>"
+    marks = f"<!-- feedback-digest kind=crash tickets={ids(r.ticket for r in records)}{until_mark(until)} -->"
     body = marks + "\n\n" + intro + "\n\n" + "\n\n".join(parts) + "\n"
     return body, f"{len(fresh)} 条 / {len(groups)} 种"
 
@@ -529,16 +587,18 @@ def digest() -> None:
         mode = "mark"
     min_ver = core_version(env("CRASH_MIN_VERSION", "5.1.1")) or (5, 1, 1)
     now = datetime.now(BEIJING)
-    cutoff = now - timedelta(days=days)
+    since_ms = watermark(gh, int((now - timedelta(days=days)).timestamp() * 1000)) - OVERLAP_MS
+    since = datetime.fromtimestamp(since_ms / 1000, BEIJING)
 
-    seen = seen_tickets(gh, days)
-    records = [r for r in (Record.of(x) for x in fs.search(fs.submit_table)) if r]
-    fresh = [r for r in records if r.created >= cutoff and r.ticket not in seen
+    seen = seen_tickets(gh, since_ms)
+    records = fetch_since(fs, since_ms)
+    fresh = [r for r in records if r.created >= since and r.ticket not in seen
              and not r.category.startswith(VOTE_PREFIX)]
     fresh.sort(key=lambda r: r.created)
-    log(f"飞书共 {len(records)} 条，{days} 天内未收录 {len(fresh)} 条")
+    log(f"水位 {since:%m-%d %H:%M}，之后未收录 {len(fresh)} 条")
     if not fresh:
         return
+    until = int(fresh[-1].created.timestamp() * 1000)
     start = fresh[0].created
     window = f"{start:%m-%d %H:%M} ～ {now:%m-%d %H:%M}（北京时间）"
     crashes = [r for r in fresh if r.category == CRASH]
@@ -548,14 +608,17 @@ def digest() -> None:
     # 手动补跑时同一天可能有两期，标题带上时间区分
     manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     date = now.strftime("%Y-%m-%d %H:%M" if manual else "%Y-%m-%d")
-    built = build_crash(crashes, min_ver, window)
+    # 水位只写进本次最后发的那期：先发的成功、后发的失败时水位不动，下次补发
+    built = build_crash(crashes, min_ver, window, None if feedback else until)
     if built:
         body, summary = built
         issue = gh.write("POST", "/issues", {"title": f"[崩溃日报] {date}（{summary}）",
                                              "body": body, "labels": [LABEL_CRASH]})
         log(f"崩溃日报：{issue.get('html_url')}")
+    # 只有旧版本崩溃时不单发崩溃日报，工单号记进反馈日报的去重标记
+    extra = [] if built else [r.ticket for r in crashes]
     verdicts = moderate(feedback, mode)
-    built = build_feedback(feedback, verdicts, mode, window)
+    built = build_feedback(feedback, verdicts, mode, window, until, extra)
     if built:
         body, summary = built
         issue = gh.write("POST", "/issues", {"title": f"[反馈日报] {date}（{summary}）",
@@ -666,7 +729,7 @@ def handle(gh: GitHub, fs: Optional[Feishu], issue: dict, comment: dict) -> Opti
             question = c.question
             if not question:
                 f = fs.submission(t) or {}
-                question = one_line(text(f.get("内容")), QUESTION_LIMIT)
+                question = one_line(text(f.get("内容")).split(DIAGNOSTICS_SEPARATOR, 1)[0], QUESTION_LIMIT)
             fields = {"工单号": t, "回复": c.reply,
                       "回复时间": datetime.now(BEIJING).strftime("%Y-%m-%d %H:%M"),
                       "公开": c.public, "问题": question}
