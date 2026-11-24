@@ -1,33 +1,15 @@
 {
   "bulletins": [
     {
-      "id": "2026-11-17-android12-limited",
-      "level": "info",
-      "title": "Android 12–14 可以升级了，部分特性受限",
-      "body": "从 6.0.2 起，岱宗盒子重新支持 Android 12 及以上的系统。Android 12–14 的同学可以直接更新，日常功能都能用，但部分特性受限：液态玻璃效果会换成普通的纯色或模糊样式，动态背景变为静态，小岱读 PDF 时不能直接取文字和检索（会改用识图），付款码在录屏时不会自动遮挡。Android 15 及以上不受影响。",
-      "minVersion": "6.0.2",
-      "mustAck": false,
-      "block": false
-    },
-    {
-      "id": "2026-10-09-ywtb-maintenance",
-      "level": "warn",
-      "title": "10 月 9 日 0–6 点一网通办维护",
-      "body": "学校一网通办 10 月 9 日 0:00–6:00 停机维护。这段时间里登录、添加账号可能失败，消息收纳和「我的」页个人信息暂不更新；课表、成绩、思源学堂等功能一般不受影响。",
-      "endsAt": "2026-10-09T06:00:00+08:00",
-      "mustAck": false,
-      "block": false
-    },
-    {
-      "id": "2026-10-08-force-5.1.1",
+      "id": "2026-11-24-d513",
       "level": "force_update",
-      "title": "请更新到 5.1.1",
-      "body": "待办补上了漏掉的思源作业，交过的自动消失；屁岱新增 5 个角色；新增待办小组件；教师详情直接看主页简介。",
-      "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "5.1.1",
-      "targetVersionCode": 89,
+      "title": "这是一条测试公告",
+      "body": "这是一条强制更新的测试公告",
+      "minVersion": "4.8",
+      "forceBelow": "6.0.3",
       "mustAck": false,
-      "block": false
+      "block": false,
+      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/513"
     }
   ]
 }
