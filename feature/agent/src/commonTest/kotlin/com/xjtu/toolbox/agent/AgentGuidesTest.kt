@@ -25,6 +25,11 @@ class AgentGuidesTest {
     }
 
     @Test
+    fun `首页小贴士都能被小岱查到`() {
+        com.xjtu.toolbox.tips.Tips.all.forEach { assertTrue(it.body in APP_GUIDE, "指南缺小贴士：${it.title}") }
+    }
+
+    @Test
     fun `干饭人账单能被屁岱查到`() {
         assertTrue("干饭人账单" in APP_GUIDE)
     }

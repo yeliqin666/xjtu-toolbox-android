@@ -106,6 +106,7 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
+import com.xjtu.toolbox.tips.HomeTipPanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.platform.BackHandler
@@ -1105,6 +1106,8 @@ fun HomeCardGroupScreen(
                             onDismiss = host::onBulletinDismiss,
                         )
                         Spacer(Modifier.height(SECTION_GAP))
+                    } else if (HomeCard.TIPS in honored) {
+                        HomeTipPanel(onRoute = host::onRoute, bottomGap = SECTION_GAP)
                     }
                     EditorialFrontPage(
                         modifier = Modifier.enterOnce(0),

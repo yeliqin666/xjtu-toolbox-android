@@ -285,6 +285,7 @@ internal fun rememberAppHome(
     val host = remember(context, loginState) { object : HomeHost {
         override val honoredCards: Set<HomeCard> = buildSet {
             add(HomeCard.BULLETIN_BAR)
+            add(HomeCard.TIPS)
             add(HomeCard.GREETING)
             add(HomeCard.WEEK_NUMBER)
             add(HomeCard.NEXT_UP)

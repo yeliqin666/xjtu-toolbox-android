@@ -2,6 +2,7 @@ package com.xjtu.toolbox.agent
 
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.home.AppServices
+import com.xjtu.toolbox.tips.Tips
 
 /**
  * `app_guide` 的「功能与入口」：功能清单从 [AppServices]（首页宫格与全局搜索共用的那份目录）现生成，
@@ -32,6 +33,9 @@ val APP_GUIDE: String by lazy {
             append('\n')
             s.features.forEach { append("  · ").append(it).append('\n') }
         }
-        append("- 选课、缴学费不在 App 里，要去学校对应系统；交作业在「思源」的作业详情里点「去提交作业」，会打开学堂官方的提交页，提交本身在官方页面里完成。")
+        append("- 选课、缴学费不在 App 里，要去学校对应系统；交作业在「思源」的作业详情里点「去提交作业」，会打开学堂官方的提交页，提交本身在官方页面里完成。\n")
+        // 和首页小贴士同一份：用户问「是不是 bug」「有什么隐藏功能」时口径一致
+        append("小贴士与常见问题（全集在「我的 → 小贴士」，首页没有公告时每天出一条）：\n")
+        Tips.all.forEach { append("- [").append(it.kind.label).append("] ").append(it.title).append("：").append(it.body).append('\n') }
     }
 }

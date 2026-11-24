@@ -172,6 +172,7 @@ private val standaloneHostedRoutes: Set<AppRoute> = setOf(
     AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
     AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi,
     AppRoute.Match,
+    AppRoute.Tips,
 )
 
 /**
@@ -761,6 +762,10 @@ fun NavEntryBuilder.appPageEntries(
                     router.open(AppRoute.Library)
                 },
             )
+        }
+        // 小贴士与常见问题：首页小贴士的「更多」、我的页入口
+        page<AppRoute.Tips>(transition = expand(AppRoute.Tips::class)) {
+            com.xjtu.toolbox.tips.TipsScreen(onBack = back, onRoute = { router.open(it) })
         }
         // 公告详情：首页公告条「查看详情」的落点。ROM 支持金标联盟一镜到底时由
         // sharedview.SeamlessPageActivity 承载同一个屏；其余设备压这条路由，从公告卡放大进来。

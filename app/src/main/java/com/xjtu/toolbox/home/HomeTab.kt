@@ -48,6 +48,7 @@ internal fun HomeTab(
     com.xjtu.toolbox.settings.HomeSettingsSheet(
         home.showSettingsSheet.value,
         onDismiss = { home.showSettingsSheet.value = false },
+        showTips = true,
     )
     HomeScreen(
         host = home.host,

@@ -910,6 +910,10 @@ internal fun ProfileTab(
                     }
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
+                // 没登录的多半是新人：小贴士单独一组放在最前
+                MenuGroup(Modifier.enterOnce(2)) { TipsMenuRow(onNavigate) }
+
+                Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(2)) {
                     ProfileMenuRow(Icons.Default.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
                 }
@@ -963,6 +967,8 @@ internal fun ProfileTab(
                         subtitle = downloadSummary ?: "查看下载进度和记录",
                         route = AppRoute.DownloadManager,
                     )
+                    MenuDivider()
+                    TipsMenuRow(onNavigate)
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(4)) {
@@ -1031,3 +1037,10 @@ internal fun ProfileTab(
         Spacer(Modifier.height(PROFILE_GAP + extraBottomPadding))
     }
 }
+
+@Composable
+private fun TipsMenuRow(onNavigate: (AppRoute) -> Unit) =
+    ProfileMenuRow(
+        Icons.Default.Lightbulb, TINT_ORANGE, "小贴士", subtitle = "冷门功能和常见问题",
+        onClick = { onNavigate(AppRoute.Tips) }, route = AppRoute.Tips,
+    )

@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lightbulb
+import com.xjtu.toolbox.tips.TipsStore
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.WaterDrop
@@ -91,6 +93,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 fun HomeSettingsSheet(
     show: Boolean,
     onDismiss: () -> Unit,
+    showTips: Boolean = false,
 ) {
     // 返回键优先关抽屉：抽屉在前台时不把返回交给下面的页面
     BackHandler(enabled = show) { onDismiss() }
@@ -117,6 +120,7 @@ fun HomeSettingsSheet(
             // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上
             HomeSettingsBody(
                 onDismiss = onDismiss,
+                showTips = showTips,
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
                     .navigationBarsPadding(),
@@ -125,9 +129,12 @@ fun HomeSettingsSheet(
     }
 }
 
-/** 抽屉和设置「外观」页共用的内容；滚动归外层。[onDismiss]：恢复默认或导入后要收起时调用。 */
+/**
+ * 抽屉和设置「外观」页共用的内容；滚动归外层。[onDismiss]：恢复默认或导入后要收起时调用。
+ * [showTips]：首页真会画小贴士的端才给「首页小贴士」开关。
+ */
 @Composable
-internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifier, showTips: Boolean = false) {
     // 卡片组独有：整页布局（分组与格位）、液态折射、圆角、背景不透明度
     val store = remember { HomeLayoutStore() }
     // 两套布局共用：背景、卡片材质
@@ -182,6 +189,15 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
                     HomeLayoutRevision.bump()
                 },
             )
+            if (showTips) {
+                SwitchPreference(
+                    title = "首页小贴士",
+                    summary = "每天一条，有公告时让位",
+                    checked = remember(TipsStore.revision) { TipsStore.enabled },
+                    startAction = { SettingsIcon(Icons.Default.Lightbulb, cOrange) },
+                    onCheckedChange = { TipsStore.enabled = it },
+                )
+            }
         }
 
         // ── 外观：背景与卡片（背景、材质三套布局共用） ──

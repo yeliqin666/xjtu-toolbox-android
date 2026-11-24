@@ -24,6 +24,9 @@ enum class SettingsRow {
     /** 「主页设置」二级页：背景壁纸、卡片材质、网格开关、恢复默认分组和布局。 */
     HOME_SETTINGS,
 
+    /** 主页设置里的「首页小贴士」开关（首页真会画小贴士的端才列）。 */
+    HOME_TIPS,
+
     /** 默认启动 Tab。 */
     DEFAULT_TAB,
 

@@ -304,7 +304,7 @@ fun SettingsScreen(
                 }
             }
         }
-        if (showHomeHero) HomeSettingsBody(onDismiss = {})
+        if (showHomeHero) HomeSettingsBody(onDismiss = {}, showTips = SettingsRow.HOME_TIPS in host.honoredRows)
         if (showHomeHero || showQuickActions) {
             SmallTitle("首页内容")
             SettingsCard {

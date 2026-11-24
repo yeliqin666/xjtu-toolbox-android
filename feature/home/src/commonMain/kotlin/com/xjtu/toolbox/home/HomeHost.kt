@@ -12,6 +12,9 @@ enum class HomeCard {
     /** 顶部那条公告堆叠条（`:core` 的 `BulletinNoticePanel`）。 */
     BULLETIN_BAR,
 
+    /** 公告条位置的「小贴士」（`HomeTipPanel`），没有公告时才出。 */
+    TIPS,
+
     /** 问候与日期（`:core` 的 `Greeting` + 宿主给的日期文案）。 */
     GREETING,
 

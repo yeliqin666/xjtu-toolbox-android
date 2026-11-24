@@ -42,6 +42,7 @@ object ArchiveRegistry {
         "library_favorites" to setOf("favorite_seats"),
         "bulletin_store" to setOf("dismissed_ids", "acked_ids"),
         "feedback" to setOf("read_replies"),
+        "tips" to setOf("dismissed"),
         "notice_watch" to setOf("sources", "baselined_sources"),
         // 课表快照键带学期/来源（`snap3_<term>_<source>`，旧格式是 `snap_*`）⇒ 前缀匹配。
         "schedule_diff" to setOf("snap*"),
@@ -67,6 +68,7 @@ object ArchiveRegistry {
         put("haptics_prefs", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("jiaocai1_reader_prefs", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("feature_hints", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
+        put("tips", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         // payment_code：Android/web 走 plain，桌面走 secure（跨端分歧）；按 Android 基准记 plain。
         put("payment_code", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("home_usage", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))

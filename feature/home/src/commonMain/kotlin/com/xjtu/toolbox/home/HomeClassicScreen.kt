@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
+import com.xjtu.toolbox.tips.HomeTipPanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
@@ -260,6 +261,8 @@ fun HomeClassicScreen(
                         onDismiss = host::onBulletinDismiss,
                     )
                     Spacer(Modifier.height(SECTION_GAP))
+                } else if (HomeCard.TIPS in honored) {
+                    HomeTipPanel(onRoute = host::onRoute, bottomGap = SECTION_GAP)
                 }
                 EditorialFrontPage(
                     modifier = Modifier.enterOnce(0),

@@ -160,6 +160,8 @@ sealed interface AppRoute : NavKey {
         override val loginType get() = LoginType.DZPZ.takeIf { url.startsWith("https://dzpz.xjtu.edu.cn/") }
     }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
+    /** 小贴士与常见问题（`com.xjtu.toolbox.tips.Tips` 全集）。 */
+    @Serializable data object Tips : AppRoute { override val id get() = "tips" }
     /** 消息收纳：待办与消息。 */
     @Serializable data object Inbox : AppRoute { override val id get() = "inbox" }
 
@@ -234,6 +236,7 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
     AppRoute.WebVpnConverter, AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge,
     AppRoute.GameBlocks, AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi, AppRoute.Match,
+    AppRoute.Tips,
 ).associateBy { it.id }
 
 /**
