@@ -94,6 +94,9 @@ USAGE_TEXT = """在那条反馈的楼里**回复**（不用写工单号）：
 - 处理完 bot 在楼里回一条结果，那条反馈标 🎉（已回复）/ 👀（跳过）；都处理完自动关闭"""
 USAGE = f"<details open><summary>用法</summary>\n\n{USAGE_TEXT}\n\n</details>"
 
+# 回复表里要手动建的可选列；没建也能写，只是少这一项
+OPTIONAL_REPLY_FIELDS = {"回复人"}
+
 ITEM_LIMIT = 1500
 BODY_BUDGET = 60000
 QUESTION_LIMIT = 200
@@ -186,8 +189,13 @@ class Feishu:
         return rows[0]["fields"] if rows else None
 
     def add_reply(self, fields: dict) -> None:
-        r = http("POST", f"{FEISHU}/bitable/v1/apps/{self.base}/tables/{self.reply_table}/records",
-                 {"fields": fields}, self.auth)
+        url = f"{FEISHU}/bitable/v1/apps/{self.base}/tables/{self.reply_table}/records"
+        r = http("POST", url, {"fields": fields}, self.auth)
+        # 可选列（「回复人」）还没建时飞书报字段不存在：去掉可选列再写一次，回复本身不能因此失败
+        if r.get("code") != 0 and any(k in fields for k in OPTIONAL_REPLY_FIELDS):
+            log(f"::warning::回复表写入失败（{r.get('code')} {r.get('msg')}），去掉可选列重试")
+            r = http("POST", url, {"fields": {k: v for k, v in fields.items() if k not in OPTIONAL_REPLY_FIELDS}},
+                     self.auth)
         if r.get("code") != 0:
             raise RuntimeError(f"写回复表失败：{r.get('code')} {r.get('msg')}")
 
@@ -769,8 +777,9 @@ class Outcome:
 
 
 def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str], pending: set[str],
-                   default: Optional[str], where: str) -> Outcome:
-    """执行一条评论里的命令。[default]：没写工单号时用的工单（讨论里回复的那层楼）。"""
+                   default: Optional[str], where: str, author: str = "") -> Outcome:
+    """执行一条评论里的命令。[default]：没写工单号时用的工单（讨论里回复的那层楼）；
+    [author]：评论人的 GitHub 用户名，写进「回复人」，App 里显示是谁回的。"""
     errors: list[str] = []
     newly: set[str] = set()
     notes: list[str] = []
@@ -808,6 +817,8 @@ def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str],
             fields = {"工单号": t, "回复": c.reply,
                       "回复时间": datetime.now(BEIJING).strftime("%Y-%m-%d %H:%M"),
                       "公开": c.public, "问题": question}
+            if author:
+                fields["回复人"] = author
             if DRY_RUN:
                 log(f"[dry-run] 回复表 += {json.dumps(fields, ensure_ascii=False)}")
             else:
@@ -836,7 +847,7 @@ def handle(gh: GitHub, fs: Optional[Feishu], issue: dict, comment: dict) -> Opti
     cid = comment["id"]
     body = issue.get("body") or ""
     tickets, pending, done = issue_marks(body)
-    out = apply_commands(fs, cmds, tickets, pending, None, f"#{number}")
+    out = apply_commands(fs, cmds, tickets, pending, None, f"#{number}", (comment.get("user") or {}).get("login", ""))
     fs, newly, errors = out.fs, out.newly, out.errors
     if newly - done:
         done |= newly
@@ -888,7 +899,7 @@ def on_comment(number: int, comment_id: int) -> None:
 
 # ---------------------------------------------------------------- 讨论区命令
 
-_COMMENT_FIELDS = """id body authorAssociation
+_COMMENT_FIELDS = """id body authorAssociation author{login}
     replyTo{id body}
     discussion{id number body closed category{name}}"""
 
@@ -914,7 +925,8 @@ def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict) -> Optional[O
         m = MARK_ITEM.search(parent.get("body") or "")
         default = m.group(1) if m else None
     tickets, pending, done = issue_marks(disc["body"])
-    out = apply_commands(fs, cmds, tickets, pending, default, f"讨论 #{disc['number']}")
+    out = apply_commands(fs, cmds, tickets, pending, default, f"讨论 #{disc['number']}",
+                         (c.get("author") or {}).get("login", ""))
     if out.newly - done:
         done |= out.newly
         disc["body"] = MARK_DONE.sub(f"<!-- feedback-done={ids(done)} -->", disc["body"])
