@@ -410,13 +410,15 @@ jobs:
           python3 .github/scripts/project_story.py /tmp/project_story.json
           python3 .github/scripts/oss_upload.py /tmp/project_story.json "xjtu-toolbox/project_story.json" "no-cache"
 
-      # ESA 不认源站缓存头：清单已改成「不缓存」，只有固定别名 apk/latest 落在 30 天规则里，
-      # 所以发版后要主动刷新一次（#519）；没配 ESA_* secrets 就跳过
+      # ESA 不认源站缓存头：清单已改成「不缓存」，但安装包走 30 天缓存。latest 别名会被覆盖写，
+      # 重跑同一版本时版本目录里的 APK 也会被重新构建（字节不同），所以两处都要主动刷新（#519）；
+      # 没配 ESA_* secrets 就跳过
       - name: Purge ESA cache for stable
         if: github.ref == 'refs/heads/main' && steps.oss_publish.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 5
         env:
+          VERSION: ${{ steps.version.outputs.version }}
           ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
           ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
           ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
@@ -425,7 +427,7 @@ jobs:
             python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
               || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
           fi
-          python3 .github/scripts/esa_purge.py apk/latest/app-release.apk
+          python3 .github/scripts/esa_purge.py "apk/$VERSION/app-release.apk" apk/latest/app-release.apk
 
       - name: Delete existing tag (if any)
         if: github.ref == 'refs/heads/main'
@@ -675,6 +677,24 @@ jobs:
           print("preview manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
           PY
           echo "OSS preview publish verified"
+
+      # 重跑同一版本会重新构建出字节不同的 APK：版本目录里的旧包若已被边缘缓存，清单里的
+      # sha256 就对不上，客户端会报「安装包 SHA-256 校验失败」。清单本身不缓存，只需刷这个 APK。
+      - name: Purge ESA cache for preview APK
+        if: env.PUBLISH_PREVIEW == 'true' && steps.oss_preview_publish.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          VERSION: ${{ steps.preview.outputs.version }}
+          ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
+          ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
+          ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
+        run: |
+          if [ -n "$ESA_SITE_ID" ]; then
+            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
+              || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
+          fi
+          python3 .github/scripts/esa_purge.py "apk/preview/$VERSION/app-preview.apk"
 
       - name: Create GitHub Pre-release
         if: env.PUBLISH_PREVIEW == 'true'

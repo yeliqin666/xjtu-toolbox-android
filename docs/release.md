@@ -65,7 +65,7 @@ CDN（`dzhz.zyxf.top`，阿里云 ESA）的缓存以线上规则为准（2026-11
 
 更新链路是：客户端读 `stable.json` / `preview.json`，按 `publishedAt` / `versionName` 比对版本，再从清单里的 `apkUrl` 下载——安装包按版本归档（不可变），长缓存不会读到旧包；清单带 `no-cache`、边缘每次回源校验，版本号一变客户端立刻能看到。
 
-`apk/latest/app-release.apk` 这个固定别名同样带 `no-cache`，边缘会回源校验；发正式版时 CI 仍主动刷新它一次当兜底。清单 JSON 和按版本归档的 APK 都不需要刷。刷新凭据放在仓库 secrets：
+`apk/latest/app-release.apk` 这个固定别名同样带 `no-cache`，边缘会回源校验；发正式版时 CI 还会主动刷新它和本次版本的 APK 一次当兜底。清单 JSON 不缓存、不需要刷；版本目录的 APK 平时也不用刷，但**重发同一版本**（例如 OSS 主发布失败后重跑）会重新构建出字节不同的包，旧包若已被边缘缓存就会和清单里的 `sha256` 对不上（客户端报「安装包 SHA-256 校验失败」），所以 CI 每次发版都把该版本目录的 APK 一起刷。刷新凭据放在仓库 secrets：
 
 | Secret | 用途 |
 |---|---|
