@@ -1,6 +1,15 @@
 {
   "bulletins": [
     {
+      "id": "2026-11-24-d515",
+      "level": "critical",
+      "title": "关于盒子的反馈入口",
+      "body": "现在可以在**我的-反馈与投票**发送反馈，**无需登录**，可能不会太及时。如果可以的话还是希望登录内置的基于Github Discussion的 **【社区】** 发帖，感谢大家支持！",
+      "mustAck": false,
+      "block": false,
+      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/515"
+    },
+    {
       "id": "2026-11-24-d514",
       "level": "critical",
       "title": "这是一个测试投票",
