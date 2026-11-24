@@ -250,6 +250,30 @@ class GitHub:
         return any((x.get("user") or {}).get("login") == BOT for x in got)
 
 
+_EDGE_L = r"(?<![0-9A-Za-z_.])"
+_EDGE_R = r"(?![0-9A-Za-z_.])"
+_PII = [
+    ("身份证号", re.compile(_EDGE_L + r"\d{17}[0-9Xx]" + _EDGE_R)),
+    ("手机号", re.compile(_EDGE_L + r"(?:\+?86[- ]?)?1[3-9]\d{9}" + _EDGE_R)),
+    ("邮箱", re.compile(_EDGE_L + r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}" + _EDGE_R)),
+]
+
+
+def _id_card_ok(s: str) -> bool:
+    y, m, d = int(s[6:10]), int(s[10:12]), int(s[12:14])
+    if not (1900 <= y <= 2100 and 1 <= m <= 12 and 1 <= d <= 31):
+        return False
+    w = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
+    return "10X98765432"[sum(int(s[i]) * w[i] for i in range(17)) % 11] == s[17].upper()
+
+
+def scrub_pii(s: str) -> str:
+    """发 issue 前再打一次码（前端规则的同款，宁漏勿错）：崩溃日志和旧版应用都不经过前端检查。"""
+    for label, rx in _PII:
+        s = rx.sub(lambda m: f"[{label}]" if label != "身份证号" or _id_card_ok(m.group(0)) else m.group(0), s)
+    return s
+
+
 def mention_safe(s: str) -> str:
     """不让反馈正文里的 @某人、#编号 去通知别人或乱链。"""
     s = re.sub(r"@(?=[A-Za-z0-9])", "@​", s)
@@ -260,7 +284,7 @@ def quote(s: str, limit: int = ITEM_LIMIT) -> str:
     s = s.strip()
     if len(s) > limit:
         s = s[:limit] + "…（截断）"
-    return "\n".join("> " + line if line.strip() else ">" for line in mention_safe(s).splitlines())
+    return "\n".join("> " + line if line.strip() else ">" for line in mention_safe(scrub_pii(s)).splitlines())
 
 
 def one_line(s: str, limit: int = 120) -> str:
@@ -447,14 +471,14 @@ def build_crash(records: list[Record], min_ver: tuple[int, int, int], window: st
     old = len(records) - len(fresh)
     groups: dict[str, list[Record]] = defaultdict(list)
     for r in fresh:
-        groups[crash_signature(r.content)].append(r)
+        groups[scrub_pii(crash_signature(r.content))].append(r)
     parts: list[str] = []
     used = 0
     for i, (sig, rs) in enumerate(sorted(groups.items(), key=lambda kv: -len(kv[1])), 1):
         vers = Counter(short_version(r.version) for r in rs)
         devs = Counter(r.device for r in rs if r.device)
         sample = max(rs, key=lambda r: r.created)
-        stack = sample.content[:3000].replace("```", "ˋˋˋ")
+        stack = scrub_pii(sample.content[:3000]).replace("```", "ˋˋˋ")
         md = (f"### {i}. `{one_line(sig, 160).replace('`', 'ˋ')}`\n\n"
               + " ".join([badge("次数", str(len(rs)), "red")]
                          + [badge(v, f"×{n}", "blue") for v, n in vers.most_common(4)])
