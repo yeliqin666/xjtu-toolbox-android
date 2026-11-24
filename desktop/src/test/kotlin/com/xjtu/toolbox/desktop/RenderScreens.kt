@@ -91,6 +91,8 @@ fun main(args: Array<String>) {
     dataRootOverride = shotsRoot
     // ② 常驻代理 selector + 假上游自签证书的信任库，必须在 `HttpClients.base` 初始化之前装。
     FakeCampusProxy.installFakeUpstreams()
+    // 首启协议页之后的界面才是要截的
+    desktopSettings.eulaAccepted = true
 
     fun shot(
         name: String,

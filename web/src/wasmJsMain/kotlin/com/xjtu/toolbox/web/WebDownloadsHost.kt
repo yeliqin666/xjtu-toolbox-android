@@ -76,20 +76,30 @@ internal class WebDownloadsHost(private val api: ServeDownloadsApi) : DownloadsH
      * ⚠️ 逐条调的好处是**失败只影响那一条**（例如「已完成」那一条会回 409，其余照常）；坏处是 N 发请求。
      */
     override suspend fun pauseAll() {
-        val tasks = api.list().tasks
+        val tasks = listOrNotice("全部暂停") ?: return
         tasks.filter { it.status == STATUS_DOWNLOADING || it.status == STATUS_PENDING }
             .forEach { runCatching { api.pause(it.id) } }
     }
 
     override suspend fun resumeAll() {
-        val tasks = api.list().tasks
+        val tasks = listOrNotice("全部继续") ?: return
         tasks.filter { it.status == STATUS_PAUSED || it.status == STATUS_PENDING }
             .forEach { runCatching { api.resume(it.id) } }
     }
 
     override suspend fun cancelAll() {
-        val tasks = api.list().tasks.filter { it.isActive }
+        val tasks = listOrNotice("全部取消")?.filter { it.isActive } ?: return
         tasks.forEach { runCatching { api.cancel(it.id) } }
+    }
+
+    /** 「全部」动作先拉一次列表；拉不到就发一句提示并放弃（不往屏上的协程里抛）。 */
+    private suspend fun listOrNotice(what: String) = try {
+        api.list().tasks
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        _notices.tryEmit(FriendlyError.of(e, what))
+        null
     }
 
     /**

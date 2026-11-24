@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.desktop
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Home
@@ -49,6 +50,13 @@ internal val DESKTOP_SHELL_TABS: ShellTabs = ShellTabs(
             label = "游戏",
             icon = Icons.Filled.SportsEsports,
             target = ShellTarget.App(AppRoute.Games),
+        ),
+        // 全部页面：设置、账号管理、退出当前账号也在这一页
+        ShellTab(
+            id = "all",
+            label = "全部",
+            icon = Icons.Filled.Apps,
+            target = ShellTarget.AllPages,
         ),
     ),
 )

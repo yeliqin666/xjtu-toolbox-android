@@ -141,27 +141,69 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
             if (mode == ApiMode.SERVE && target != WebTarget.Serve) {
                 afterLogin = target
                 target = WebTarget.Serve
-                showBriefMessage("登录已过期，请重新登录")
+                showBriefMessage("需要重新登录（或重新输入访问令牌）")
             }
         }
         onDispose { WebAuthEvents.onUnauthorized = null }
     }
-    LaunchedEffect(Unit) {
-        browserSearchParam("token")?.let {
-            serveSession.setToken(it)
-            browserStripTokenParam()
+    // 探测连不上服务器时不猜模式：停在「连不上」那一页，点重试再探
+    var detectAttempt by remember { mutableIntStateOf(0) }
+    var detectFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(detectAttempt) {
+        if (detectAttempt == 0) {
+            browserSearchParam("token")?.let {
+                serveSession.setToken(it)
+                browserStripTokenParam()
+            }
         }
-        mode = withTimeoutOrNull(BACKEND_DETECT_TIMEOUT_MS) { detectApiMode(client) } ?: ApiMode.CAMPUS_API
+        detectFailed = false
+        val detected = withTimeoutOrNull(BACKEND_DETECT_TIMEOUT_MS) { detectApiMode(client) }
+        if (detected == null) {
+            detectFailed = true
+            return@LaunchedEffect
+        }
+        mode = detected
         // serve 模式：过不了闸门（没令牌 / 令牌不对）就直接落到「会话」屏去贴令牌。
-        if (mode == ApiMode.SERVE && serveSession.sessionState().isFailure) {
+        if (detected == ApiMode.SERVE && serveSession.sessionState().isFailure) {
+            afterLogin = target
             target = WebTarget.Serve
         }
+    }
+
+    // 浏览器历史：切页写一条 `?route=`，返回键 / 前进键把它读回来
+    var poppedTarget by remember { mutableStateOf<WebTarget?>(null) }
+    var historyStarted by remember { mutableStateOf(false) }
+    LaunchedEffect(target) {
+        val route = target.routeParam()
+        when {
+            !historyStarted -> { browserReplaceRoute(route); historyStarted = true }
+            poppedTarget == target -> poppedTarget = null
+            else -> browserPushRoute(route)
+        }
+    }
+    DisposableEffect(Unit) {
+        browserListenPopState { raw ->
+            val popped = webTargetOf(raw.ifEmpty { null })
+            poppedTarget = popped
+            target = popped
+        }
+        onDispose { browserListenPopState(null) }
+    }
+
+    // 用户协议：没同意过当前版本先看协议（与 App 首启同一份），同意后才进外壳
+    var eulaAccepted by remember { mutableStateOf(shellSettings.eulaAccepted) }
+    if (!eulaAccepted) {
+        EulaScreen(onAccept = {
+            shellSettings.eulaAccepted = true
+            eulaAccepted = true
+        })
+        return
     }
 
     val backend = mode
     // 当前页交给共享壳的导航模型：五格 + 当前页 + 「点了哪一格」。
     val navState = ShellNavState(
-        tabs = webTabs(),
+        tabs = webTabs(serveMode = backend != ApiMode.CAMPUS_API),
         target = target.toShell(),
         onSelect = { tab ->
             // 五格里每一格都有对应的一档；映射不出来就不动（不假装能去）—— 与桌面同一条写法。
@@ -187,8 +229,18 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
             contentWindowInsets = WindowInsets(0),
             page = { opened, insets ->
                 when {
+                    backend == null && detectFailed -> WebUnavailableScreen(
+                        title = "连不上服务器",
+                        why = "请检查网络，或确认服务器已经启动。",
+                    ) {
+                        Button(
+                            onClick = { detectAttempt++ },
+                            colors = ButtonDefaults.buttonColorsPrimary(),
+                        ) { Text("重试", color = MiuixTheme.colorScheme.onPrimary) }
+                    }
+
                     backend == null -> Text(
-                        "正在探测数据源（serve 模式的 :server / 同源反代 campus-api）…",
+                        "正在连接服务器…",
                         color = MiuixTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(16.dp),
                     )
@@ -214,7 +266,7 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
 
                         is ShellTarget.Custom -> when (t.id) {
                             WebRoutes.PROBE -> ProbeScreen()
-                            WebRoutes.EULA -> EulaScreen(onAccept = { target = WebTarget.Probe })
+                            WebRoutes.EULA -> EulaScreen(onAccept = { target = webStartTarget(shellSettings.defaultTab) })
                             WebRoutes.SERVE -> WebServeSessionScreen(serveSession) {
                                 target = afterLogin
                                 afterLogin = WebTarget.App(AppRoute.Schedule)
@@ -227,8 +279,8 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
 
                             WebRoutes.PROFILE -> SettingsScreen(
                                 store = remember { SettingsStore() },
-                                host = remember(onAppearanceChanged) {
-                                    WebSettingsHost(onAppearanceChanged, archiveActions)
+                                host = remember(onAppearanceChanged, backend) {
+                                    WebSettingsHost(onAppearanceChanged, archiveActions, serveMode = backend == ApiMode.SERVE)
                                 },
                                 onBack = { target = WebTarget.App(AppRoute.Schedule) },
                             )
@@ -248,8 +300,8 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
     }
 }
 
-/** 探测后端最多等多久。 */
-private const val BACKEND_DETECT_TIMEOUT_MS = 3_000L
+/** 探测后端最多等多久（serve 冷启动或校园网慢时 3 秒不够）。 */
+private const val BACKEND_DETECT_TIMEOUT_MS = 10_000L
 
 /**
  * 规范化默认启动落点 → 这一端开场那一页（三张映射表之一：另两张是 `:app` 的 `bottomTabOf()`
@@ -270,15 +322,29 @@ internal fun webStartTarget(defaultTab: String): WebTarget =
     }
 
 /** `?route=<id>`。 */
-internal fun initialWebTarget(): WebTarget = when (val raw = browserRouteParam()) {
-    // 没给 `?route=` 时落到设置里那格「默认启动 Tab」（以前写死 Schedule，那一行没人读）。
+internal fun initialWebTarget(): WebTarget = webTargetOf(browserRouteParam())
+
+/** `?route=` 的值 → 这一端的页（浏览器返回键读回来的也走这里）。 */
+internal fun webTargetOf(raw: String?): WebTarget = when (raw) {
+    // 没给 `?route=` 时落到设置里那格「默认启动 Tab」。
     null -> webStartTarget(SettingsStore().defaultTab)
     WebRoutes.PROBE -> WebTarget.Probe
     WebRoutes.EULA -> WebTarget.Eula
-    // `?route=serve`：serve 模式的会话屏（登录 / 短信二验 / 登出）。非 serve 模式下它也在路由表里
-    //（深链不会突然 404），只是底栏不会长出那一格 —— 那一屏不是底栏的一部分，见 WebShell.kt。
+    // `?route=serve`：serve 模式的会话屏（登录 / 短信二验 / 登出）。
     WebRoutes.SERVE -> WebTarget.Serve
+    WebRoutes.SERVICES -> WebTarget.Services
+    WebRoutes.PROFILE -> WebTarget.Profile
     else -> WebTarget.App(appRouteOf(raw) ?: AppRoute.Schedule)
+}
+
+/** 这一页写进地址栏的 `?route=` 值（[webTargetOf] 的反向）。 */
+internal fun WebTarget.routeParam(): String = when (this) {
+    is WebTarget.App -> route.id
+    WebTarget.Probe -> WebRoutes.PROBE
+    WebTarget.Eula -> WebRoutes.EULA
+    WebTarget.Serve -> WebRoutes.SERVE
+    WebTarget.Services -> WebRoutes.SERVICES
+    WebTarget.Profile -> WebRoutes.PROFILE
 }
 
 /** 一屏共享页（或本端的那几张页）。 */
@@ -712,7 +778,9 @@ private fun AppPage(
         // —— 队列 / 进度 / 落盘都真的发生在**运行 serve 那台机器**上（会议 #9 = 丙「做法①」）。
         // 三处如实差异（见 `WebDownloadsHost` 的 KDoc）：没有推送（轮询）、目录那一格要等第一次列表、
         // **不画播放按钮**（文件在那台机器上，浏览器打不开它 ⇒ 传 `onPlayTask = null`）。
-        AppRoute.DownloadManager -> {
+        AppRoute.DownloadManager -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(title = "下载管理")
+        } else {
             val host = remember(client, mode) {
                 WebDownloadsHost(ServeDownloadsApi(client, API_BASE, mode))
             }
@@ -727,7 +795,9 @@ private fun AppPage(
 
         AppRoute.Settings -> SettingsScreen(
             store = remember { SettingsStore() },
-            host = remember(onAppearanceChanged) { WebSettingsHost(onAppearanceChanged, archiveActions) },
+            host = remember(onAppearanceChanged, mode) {
+                WebSettingsHost(onAppearanceChanged, archiveActions, serveMode = mode == ApiMode.SERVE)
+            },
             onBack = back,
         )
 

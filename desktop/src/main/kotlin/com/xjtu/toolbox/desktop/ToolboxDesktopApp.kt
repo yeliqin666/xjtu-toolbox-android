@@ -140,6 +140,10 @@ import com.xjtu.toolbox.ui.components.TextLink
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
+import com.xjtu.toolbox.legal.EulaScreen
+import com.xjtu.toolbox.platform.JvmBriefMessages
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -185,6 +189,15 @@ internal fun ToolboxDesktopApp(
         customDarkColorHex = customDarkColorHex,
     ) {
 
+    // 共享屏的 showBriefMessage 在桌面落到这里（没挂时只打到标准输出，用户看不到）
+    val snackbar = remember { SnackbarHostState() }
+    DisposableEffect(snackbar) {
+        JvmBriefMessages.sink = { message -> scope.launch { snackbar.showSnackbar(message) } }
+        onDispose { JvmBriefMessages.sink = null }
+    }
+    var eulaAccepted by remember { mutableStateOf(desktopSettings.eulaAccepted) }
+
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         // 只读横幅：锁被别人拿走了就在最上面说一句（不遮不盖，也不假装写得了）
         readOnlyReason?.let { DesktopReadOnlyBar(it) }
@@ -192,7 +205,12 @@ internal fun ToolboxDesktopApp(
     // 冷启动：有落盘凭据就直接进主界面（幂等，重复组合无害）
     LaunchedEffect(auth) { auth.restore() }
 
-    if (!auth.loggedIn) {
+    if (!eulaAccepted) {
+        EulaScreen(onAccept = {
+            desktopSettings.eulaAccepted = true
+            eulaAccepted = true
+        })
+    } else if (!auth.loggedIn) {
         LoginScreen(
             title = "岱宗盒子",
             subtitle = "使用统一身份认证账号登录",
@@ -202,6 +220,8 @@ internal fun ToolboxDesktopApp(
             onPasswordChange = { auth.password = it; auth.onLoginInputChanged() },
             state = auth.loginState,
             onSubmit = { scope.launch { auth.login() } },
+            accountType = auth.loginAccountType,
+            onAccountTypeChange = { auth.loginAccountType = it },
         )
     } else {
         // 共享壳（`:core` 的 AppShell）：底栏 / 侧栏 / 当前页那一层 / 形态学全在它里面，
@@ -265,6 +285,8 @@ internal fun ToolboxDesktopApp(
         )
     }
     }
+    SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter))
+    }
 }
 }
 
@@ -319,8 +341,9 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 
     AppRoute.WebVpnConverter to "WebVPN 转换器",
 
-    // 内置浏览器：桌面是外链中转页。`Browser` 是 data class ⇒ 必须写 `()`。
-    AppRoute.Browser() to "浏览器",
+    AppRoute.DegreeProgress to "学业进度",
+
+    AppRoute.Settings to "设置",
 
     AppRoute.Accounts to "账号管理",
 
@@ -402,7 +425,7 @@ private fun DesktopPage(
     onAppearanceChanged: () -> Unit,
     onNavigate: (DesktopTarget) -> Unit,
 ) {
-    val back = { onNavigate(DesktopTarget.App(AppRoute.Library)) }
+    val back = { onNavigate(DesktopTarget.App(AppRoute.Main)) }
     when (route) {
         AppRoute.Main -> DesktopHomeScreen(
             auth = auth,
@@ -896,7 +919,7 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
         }
 
         TextLink(
-            text = "退出登录",
+            text = "退出当前账号",
             onClick = { auth.logout() },
             modifier = Modifier.fillMaxWidth(),
             color = cs.error,

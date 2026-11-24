@@ -20,6 +20,7 @@ import com.xjtu.toolbox.core.net.ServeAccounts
 import com.xjtu.toolbox.core.net.ServeAccountsWrite
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.UserFacingFailure
+import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -74,8 +75,10 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
     override suspend fun switchTo(accountId: String): Account? {
         ensureWritable()
         loggedOutAfterDelete = false
+        val previous = activeAccountId
         val result = requireOk(api.switchAccount(accountId), "切换账号")
         result.snapshot?.let(::applySnapshot)
+        if (activeAccountId != previous) clearAccountCaches()
         return rows.firstOrNull { it.accountId == accountId } ?: rows.firstOrNull { it.accountId == activeAccountId }
     }
 
@@ -89,6 +92,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
         // activate=true：与安卓 / 桌面「添加后切过去」一致。serve 不探活。
         val result = requireOk(api.addAccount(username, password, accountType, activate = true), "添加账号")
         result.snapshot?.let(::applySnapshot)
+        clearAccountCaches()
         // 投影里没有密码：返回的 Account.password 保持空串，避免进入 UI 状态或 toString。
         val added = rows.firstOrNull { it.accountId == activeAccountId } ?: rows.lastOrNull()
             ?: Account(accountId = "", accountType = accountType)
@@ -113,7 +117,16 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
         result.snapshot?.let(::applySnapshot)
         // 与 serve 一致：删的是当前账号 ⇒ 退出登录，不自动切到下一条，页顶请用户再切。
         loggedOutAfterDelete = wasActive && activeAccountId == null
+        if (wasActive) clearAccountCaches()
         return true
+    }
+
+    /**
+     * 浏览器里的课表族缓存不分账号（serve 那一侧换了人，这里不知道是谁）：换账号后清掉，
+     * 免得首页和日程接着显示上一个人的课表；下次进日程会按新账号重新拉。自建日程是本机数据，不动。
+     */
+    private fun clearAccountCaches() {
+        runCatching { keyValueStore(WebScheduleHost.SCHEDULE_CACHE_STORE).clear() }
     }
 
     /** 页顶那一行说明（随服务端的能力开关走；可写且未刚退出时不显示）。 */

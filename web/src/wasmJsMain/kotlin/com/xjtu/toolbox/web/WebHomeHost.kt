@@ -86,6 +86,7 @@ internal fun WebHomeScreen(
     val settings = remember { SettingsStore() }
     HomeScreen(
         host = WebHomeHost(
+            serveMode = mode == ApiMode.SERVE,
             state = state,
             inboxSummary = inbox,
             // 「今天」每次重组现取：跨零点还开着的页面，日期那一行自己就跟上了
@@ -120,6 +121,8 @@ internal class WebHomeState {
 
 /** Web 这一端的首页宿主面。 */
 internal class WebHomeHost(
+    /** 后端是不是 serve：campus-api 形态下只有 serve 才有取数的入口不画。 */
+    private val serveMode: Boolean,
     private val state: WebHomeState,
     private val inboxSummary: HomeInboxSummary?,
     private val today: () -> LocalDate,
@@ -141,9 +144,7 @@ internal class WebHomeHost(
      *
      * 不列 QUICK_ACTIONS（常用功能）：那是丁批要做的事，做完这句自然过时——与其手改文案，不如不说。
      */
-    override val gapNote: String =
-        "网页版首页少两块：公告堆叠条和速览小格。公告要读交大那边的公告接口（serve 端还没转发这一路），" +
-            "速览要各服务此刻的状态（本端只有课表族缓存算得出来）。这两块 App 首页有。"
+    override val gapNote: String = "网页版首页暂不显示公告和速览，可在手机 App 查看。"
 
     /** 目录按本科生那一份筛。 */
     override val audience: AccountType = AccountType.UNDERGRADUATE
@@ -182,7 +183,7 @@ internal class WebHomeHost(
     override val inbox: HomeInboxSummary? get() = inboxSummary
 
     /** 这一端真能打开的路由（[WebSupport] 那份唯一真源）—— 打不开的入口不画。 */
-    override val openableRouteIds: Set<String> = WebSupport.openableRouteIds
+    override val openableRouteIds: Set<String> = WebSupport.usableRouteIds(serveMode)
 
     override fun onRoute(route: AppRoute) {
         onNavigate(WebTarget.App(route))

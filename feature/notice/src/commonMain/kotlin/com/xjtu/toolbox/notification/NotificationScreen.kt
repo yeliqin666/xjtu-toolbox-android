@@ -267,6 +267,8 @@ fun NotificationScreen(
                                         EmptyState(
                                             title = "没有匹配的通知",
                                             subtitle = when {
+                                                // 站内检索失败或不支持时 searchResults 为 null：只能说本地没有
+                                                searching && vm.searchResults == null -> "已加载的通知里没有匹配，换个关键词试试"
                                                 searching -> "站内也没搜到，换个关键词试试"
                                                 vm.selectedTag != null -> "已加载的通知里没有这个分类"
                                                 else -> "请尝试更改搜索关键词"

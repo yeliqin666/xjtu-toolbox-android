@@ -83,15 +83,55 @@ internal object WebSupport {
         AppRoute.DownloadManager::class,
     )
 
+    /**
+     * 只有 serve 契约才有取数的那些：campus-api 形态下 `AppPage` 画「当前服务器不支持」，
+     * 所以首页宫格与学辅目录在那一形态里不列它们（深链照样能进，看到的是那张说明页）。
+     */
+    val serveOnlyRouteTypes: Set<KClass<out AppRoute>> = setOf(
+        AppRoute.Agent::class,
+        AppRoute.CampusBus::class,
+        AppRoute.Transcript::class,
+        AppRoute.Attendance::class,
+        AppRoute.Coupon::class,
+        AppRoute.Lms::class,
+        AppRoute.Jiaocai::class,
+        AppRoute.Jiaocai1::class,
+        AppRoute.Jiaocai1Reader::class,
+        AppRoute.JwappScore::class,
+        AppRoute.DegreeProgress::class,
+        AppRoute.Iclassface::class,
+        AppRoute.PaymentCode::class,
+        AppRoute.WebVpnConverter::class,
+        AppRoute.Feedback::class,
+        AppRoute.Accounts::class,
+        AppRoute.DownloadManager::class,
+    )
+
     /** 这一端真能打开 [route] 吗（见文件头：清单与 `AppPage` 的分支必须同时改）。 */
     fun isOpenable(route: AppRoute): Boolean = route::class in openableRouteTypes
+
+    /** 在 [serveMode] 这一形态下 [route] 有没有取数（没有就不列入口）。 */
+    fun isUsable(route: AppRoute, serveMode: Boolean): Boolean =
+        isOpenable(route) && (serveMode || route::class !in serveOnlyRouteTypes)
 
     /** 服务目录里真能点进去的那些（学辅目录的可点行 + `?route=probe` 自检屏的第一张表）。 */
     val openableCatalog: List<AppService> = AppServices.all.filter { isOpenable(it.route) }
 
+    /** 这一形态下可点的目录。 */
+    fun usableCatalog(serveMode: Boolean): List<AppService> =
+        AppServices.all.filter { isUsable(it.route, serveMode) }
+
     /** 首页按服务入口 id 过滤；从支持类型推导，不为帖子等深链伪造固定参数。 */
     val openableRouteIds: Set<String> = openableCatalog.mapTo(mutableSetOf()) { it.route.id }
 
+    /** 这一形态下首页能列的入口 id。 */
+    fun usableRouteIds(serveMode: Boolean): Set<String> =
+        usableCatalog(serveMode).mapTo(mutableSetOf()) { it.route.id }
+
     /** 目录里有、本端**还没有屏**的那些（同一份推导的另一半，见文件头末段）。 */
     val unsupportedCatalog: List<AppService> = AppServices.all.filterNot { isOpenable(it.route) }
+
+    /** 这一形态下用不了的目录（没有屏的 + campus-api 下只有 serve 才有取数的）。 */
+    fun unusableCatalog(serveMode: Boolean): List<AppService> =
+        AppServices.all.filterNot { isUsable(it.route, serveMode) }
 }

@@ -11,13 +11,13 @@ import kotlin.test.assertTrue
 class DesktopShellJvmTest {
 
     @Test
-    fun `五格的顺序文字与底栏从左到右一致`() {
+    fun `六格的顺序文字与底栏从左到右一致`() {
         assertEquals(
-            listOf("首页", "校历", "图书馆", "黄页", "游戏"),
+            listOf("首页", "校历", "图书馆", "黄页", "游戏", "全部"),
             desktopTabs().tabs.map { it.label },
         )
         assertEquals(
-            listOf("main", "school_calendar", "library", "yellow_page", "games"),
+            listOf("main", "school_calendar", "library", "yellow_page", "games", "all"),
             desktopTabs().ids,
         )
     }
@@ -32,7 +32,7 @@ class DesktopShellJvmTest {
     }
 
     @Test
-    fun `每一格都是共享路由表里的一屏，dock 里没有「全部」`() {
+    fun `前五格是共享路由表里的一屏，第六格是「全部页面」`() {
         assertEquals(
             listOf(
                 ShellTarget.App(AppRoute.Main),
@@ -40,6 +40,7 @@ class DesktopShellJvmTest {
                 ShellTarget.App(AppRoute.Library),
                 ShellTarget.App(AppRoute.YellowPage),
                 ShellTarget.App(AppRoute.Games),
+                ShellTarget.AllPages,
             ),
             desktopTabs().tabs.map { it.target },
         )

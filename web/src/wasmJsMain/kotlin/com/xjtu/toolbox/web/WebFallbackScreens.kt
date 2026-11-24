@@ -81,17 +81,23 @@ internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Un
         Spacer(Modifier.height(6.dp))
 
         ServiceCategory.entries.forEach { category ->
-            val rows = WebSupport.openableCatalog.filter { it.category == category }
+            val rows = WebSupport.usableCatalog(serveMode).filter { it.category == category }
             if (rows.isEmpty()) return@forEach
             Text(category.title, color = cs.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             rows.forEach { service -> ServiceEntryRow(service, onNavigate) }
             Spacer(Modifier.height(6.dp))
         }
 
-        if (WebSupport.unsupportedCatalog.isNotEmpty()) {
-            Text("网页版暂不支持", color = cs.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        val unusable = WebSupport.unusableCatalog(serveMode)
+        if (unusable.isNotEmpty()) {
             Text(
-                WebSupport.unsupportedCatalog.joinToString(" · ") { it.title },
+                if (serveMode) "网页版暂不支持" else "当前服务器暂不支持",
+                color = cs.primary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                unusable.joinToString(" · ") { it.title },
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
             )

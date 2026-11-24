@@ -122,22 +122,25 @@ class ServeTokenHolder {
 /** 全页唯一的那一份令牌（见 [ServeTokenHolder] 的 KDoc）。 */
 val serveToken: ServeTokenHolder = ServeTokenHolder()
 
-/** 探测这一份 `:web` 在对谁说话（见 [ApiMode]）。 */
-suspend fun detectApiMode(client: HttpClient): ApiMode {
+/** 探测这一份 `:web` 在对谁说话（见 [ApiMode]）；连不上服务器返回 null（别猜成 campus-api）。 */
+suspend fun detectApiMode(client: HttpClient): ApiMode? {
     when (browserSearchParam("backend")?.lowercase()) {
         "serve" -> return ApiMode.SERVE
         "api", "campus", "campus-api" -> return ApiMode.CAMPUS_API
         else -> Unit
     }
-    return try {
-        val text = client.get("$API_BASE/api/status").bodyAsText()
-        val status = AppJson.parseToJsonElement(text) as? JsonObject
-        if (status != null && "authenticated" in status && "username" !in status) {
-            ApiMode.SERVE
-        } else {
-            ApiMode.CAMPUS_API
-        }
+    val text = try {
+        client.get("$API_BASE/api/status").bodyAsText()
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Throwable) {
+        return null
+    }
+    // 连上了但不是 serve 的状态形状（含解析不了）：按 campus-api 处理
+    val status = runCatching { AppJson.parseToJsonElement(text) as? JsonObject }.getOrNull()
+    return if (status != null && "authenticated" in status && "username" !in status) {
+        ApiMode.SERVE
+    } else {
         ApiMode.CAMPUS_API
     }
 }

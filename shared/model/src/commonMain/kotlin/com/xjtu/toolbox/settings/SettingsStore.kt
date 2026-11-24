@@ -209,6 +209,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, true)
         set(value) = store.putBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, value)
 
+    /** 桌面 / 网页是否同意过当前版本的用户协议（版本号与 `:app` 的 `CredentialStore.CURRENT_EULA_VERSION` 同步）。 */
+    var eulaAccepted: Boolean
+        get() = store.getInt(KEY_EULA_VERSION, 0) >= EULA_VERSION
+        set(value) = store.putInt(KEY_EULA_VERSION, if (value) EULA_VERSION else 0)
+
     /** 当前学期课表从哪个系统拉，取值见 `ScheduleSource.key`。 */
     var scheduleSource: String
         get() = store.getString(KEY_SCHEDULE_SOURCE) ?: SCHEDULE_SOURCE_JWXT
@@ -266,6 +271,8 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
+        private const val KEY_EULA_VERSION = "eula_accepted_version"
+        const val EULA_VERSION = 4
         private const val KEY_SCHEDULE_SOURCE = "schedule_source"
 
         const val SCHEDULE_SOURCE_JWXT = "jwxt"

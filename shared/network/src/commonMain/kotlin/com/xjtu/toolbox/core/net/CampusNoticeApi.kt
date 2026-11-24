@@ -54,9 +54,25 @@ class CampusNoticeApi(
         )
     }
 
-    /** campus-api 没有检索端点 ⇒ 照实返回「没搜到」而不是抛错。 */
-    override suspend fun search(sources: List<NotificationSource>, keyword: String): MergedNotificationPage =
-        MergedNotificationPage(emptyList(), emptySet(), false)
+    /** serve 走 `/api/notification/search`；campus-api 没有检索端点，如实抛「不支持」，屏上会说只显示本地匹配。 */
+    override suspend fun search(sources: List<NotificationSource>, keyword: String): MergedNotificationPage {
+        if (mode != ApiMode.SERVE) throw NoticeSearchUnsupported()
+        if (sources.isEmpty()) return MergedNotificationPage(emptyList(), emptySet(), false)
+        val data = client.serveData(
+            "站内搜索",
+            baseUrl,
+            "/api/notification/search",
+            listOf(
+                "sources" to sources.joinToString(",") { it.name },
+                "keyword" to keyword,
+            ),
+        )
+        return MergedNotificationPage(
+            items = parseItems(data),
+            skipped = data.arr("skipped").orEmpty().mapNotNull { sourceOf(it.safeString()) }.toSet(),
+            hasMore = false,
+        )
+    }
 
     private suspend fun getList(sources: List<NotificationSource>, page: Int): JsonObject {
         // serve：`sources` 逗号分隔 + `page`；它**没有** campus-api 那个「一次取几页」的 `pages`
@@ -108,3 +124,7 @@ class CampusNoticeApi(
     private fun sourceOf(code: String): NotificationSource? =
         NotificationSource.entries.firstOrNull { it.name == code.trim().uppercase() }
 }
+
+/** 当前服务器没有站内检索端点。 */
+private class NoticeSearchUnsupported :
+    UnsupportedOperationException("当前服务器不支持站内搜索"), com.xjtu.toolbox.error.UserFacingFailure

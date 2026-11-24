@@ -220,8 +220,6 @@ internal class DesktopHomeHost(
 /** 这一端真能打开的路由 id —— 首页宫格按它筛：打不开的入口不画 （与「点了会失败的按钮一个都不画」同一条纪律）。 */
 internal val DESKTOP_OPENABLE_ROUTE_IDS: Set<String> = buildSet {
     DESKTOP_SUPPORTED_ROUTES.forEach { add(it.first.id) }
-    add(AppRoute.Settings.id)
-    add(AppRoute.Main.id)
 }
 
 /** 首页那一次读盘的结果（几样一起算完再上屏，免得一次重组里重读几遍）。 */

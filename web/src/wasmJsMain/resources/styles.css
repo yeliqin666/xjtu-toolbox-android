@@ -15,3 +15,24 @@ body {
   padding: 0;
   overflow: hidden;
 }
+
+/* 首屏加载提示：盖在画布之上，画布挂上来后由 index.html 里的脚本撤掉 */
+#appLoading {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  font: 15px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #555;
+  text-align: center;
+  z-index: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  #appLoading {
+    color: #bbb;
+  }
+}

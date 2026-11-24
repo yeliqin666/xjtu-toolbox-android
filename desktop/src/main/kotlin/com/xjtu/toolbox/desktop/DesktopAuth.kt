@@ -114,6 +114,9 @@ class DesktopAuth(
     /** 登录页的密码输入。登录成功后**立刻清空**，不留在界面状态里。 */
     var password by mutableStateOf("")
 
+    /** 登录页选的身份：CAS 遇到本科/研究生双身份时按它选分支，选错会登不进研究生站点。 */
+    var loginAccountType by mutableStateOf(credentials.accountType.toCoreAccountType())
+
     var loginState by mutableStateOf<LoginUiState>(LoginUiState.Idle)
         private set
 
@@ -162,7 +165,7 @@ class DesktopAuth(
         }
         loginState = LoginUiState.Submitting
         val suffix = AccountContext.suffixFor(user)
-        val accountType = credentials.accountType
+        val accountType = loginAccountType.toXjtuLoginAccountType()
         writeActiveAccountId(user)
         AccountContext.activeAccountType = accountType.toCoreAccountType()
         sessionManager.reconfigureForAccount(suffix)
@@ -262,26 +265,31 @@ class DesktopAuth(
         prewarmJob?.join()
     }
 
-    /** 退出登录：凭据、cookie、站点快照一起删。 */
+    /**
+     * 退出当前账号：它的凭据、cookie、站点快照一起删并移出账号表；还有别的已存账号就切过去，
+     * 没有了才回登录页（与账号管理里删当前账号同一语义）。
+     */
     fun logout() {
         cancelPrewarm()
         val id = AccountContext.activeAccountId
         val suffix = AccountContext.suffixFor(id)
         sessionManager.clearCredentials()
         sessionManager.forgetAllSites()
+        // 先离开这个账号的命名空间再删文件，免得 debounce 写盘把 TGC 写回刚删掉的文件
         sessionManager.reconfigureForAnonymous()
         writeActiveAccountId(null)
         runCatching { SessionBackend.wipe(suffix) }
-        if (id != null) {
-            accountStore.remove(id)
-            accountStore.clearActive()
-        }
+        if (id != null) accountStore.remove(id)
         // 再抹一次旧的单账号凭据文件：兼容从旧版本升级上来、还没重启过的那一瞬。
         credentials.clear()
-        username = ""
-        password = ""
-        loginState = LoginUiState.Idle
-        loggedIn = false
+        val next = accountStore.list().firstOrNull()
+        if (next != null) {
+            accountStore.setActive(next.accountId)
+            adoptAccount(next)
+        } else {
+            accountStore.clearActive()
+            dropToAnonymous()
+        }
     }
 
     // ── 多账号：`AccountsController` 要的内部钩子（切账号要改的四样状态都是这里的私有状态）──

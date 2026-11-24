@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.async
@@ -48,11 +49,17 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
     var password by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var tokenInput by remember { mutableStateOf("") }
+    // 问会话失败（多半是令牌不对被闸门拒了）：令牌框要留着让人改，不然只能刷新页面
+    var sessionFailed by remember { mutableStateOf(false) }
 
     suspend fun refresh() {
         session.sessionState().fold(
-            onSuccess = { authenticated = it; error = null },
-            onFailure = { authenticated = false; error = it.message ?: it.toString() },
+            onSuccess = { authenticated = it; error = null; sessionFailed = false },
+            onFailure = {
+                authenticated = false
+                sessionFailed = true
+                error = it.message ?: it.toString()
+            },
         )
     }
 
@@ -72,7 +79,14 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                 session.mfa().onSuccess { if (it.pending) mfa = it }
             }
             login.await().fold(
-                onSuccess = { authenticated = true; mfa = null },
+                onSuccess = {
+                    authenticated = true
+                    mfa = null
+                    password = ""
+                    code = ""
+                    // 回到被 401 打断前的那一页
+                    onBack()
+                },
                 onFailure = { authenticated = false; mfa = null; error = it.message ?: it.toString() },
             )
             busy = false
@@ -101,13 +115,18 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
         }
 
         // 访问令牌是 `:server` 启动横幅里打印的那一行；只存页面内存，不写 localStorage
-        if (!session.hasToken && authenticated != true) {
-            Text("请输入服务器的访问令牌", color = colors.onBackgroundVariant, fontSize = 12.sp)
+        if (authenticated != true && (!session.hasToken || sessionFailed)) {
+            Text(
+                if (session.hasToken) "访问令牌可能不对，请重新输入服务器启动时打印的令牌" else "请输入服务器的访问令牌",
+                color = colors.onBackgroundVariant,
+                fontSize = 12.sp,
+            )
             TextField(
                 value = tokenInput,
                 onValueChange = { tokenInput = it },
                 label = "访问令牌",
                 singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(
@@ -140,6 +159,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                         onValueChange = { password = it },
                         label = "密码",
                         singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     // 这一发会一直开着等短信验证码（最长 150 秒）
@@ -188,14 +208,26 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
-                        onClick = { scope.launch { session.submitMfa(code.trim()).onSuccess { mfa = it } } },
+                        onClick = {
+                            scope.launch {
+                                session.submitMfa(code.trim())
+                                    .onSuccess { mfa = it }
+                                    .onFailure { error = "验证码没有提交成功：${it.message ?: it}" }
+                            }
+                        },
                         enabled = code.isNotBlank(),
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColorsPrimary(),
                     ) { Text("提交", color = MiuixTheme.colorScheme.onPrimary) }
                     TextLink(
                         text = "取消这次登录",
-                        onClick = { scope.launch { session.cancelMfa().onSuccess { mfa = it } } },
+                        onClick = {
+                            scope.launch {
+                                session.cancelMfa()
+                                    .onSuccess { mfa = it }
+                                    .onFailure { error = "取消没有成功：${it.message ?: it}" }
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                     )
                 }

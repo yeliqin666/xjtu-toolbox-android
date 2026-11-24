@@ -91,7 +91,7 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
 
     override val dataPrivacySection: (@Composable () -> Unit)? = { DesktopDataPrivacySection() }
 
-    override val updateSection: (@Composable () -> Unit)? = null
+    override val updateSection: (@Composable () -> Unit)? = { DesktopUpdateSection() }
 
     override val onNetworkModeChanged: (() -> Unit)? = null
 
@@ -99,6 +99,41 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
 
     /** 打开外链：桌面用 `Main.kt` 里那个 `openInBrowser`（`java.awt.Desktop.browse`）。 */
     override val onOpenUrl: (String) -> Unit = { openInBrowser(it) }
+}
+
+/** 「更新」组：查 GitHub 发布页，有新版就打开发布页（桌面没有自动安装通道）。 */
+@Composable
+private fun DesktopUpdateSection() {
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<DesktopUpdate.CheckResult?>(null) }
+    SmallTitle("更新")
+    SettingsCard {
+        val available = result as? DesktopUpdate.CheckResult.Available
+        ArrowPreference(
+            title = if (available != null) "下载新版 v${available.release.version}" else "检查更新",
+            summary = when (val r = result) {
+                null -> if (checking) "正在检查…" else "当前 v${DesktopBuildConfig.VERSION_NAME}"
+                is DesktopUpdate.CheckResult.Available -> "在浏览器打开发布页下载安装包"
+                DesktopUpdate.CheckResult.UpToDate -> "已是最新版本（v${DesktopBuildConfig.VERSION_NAME}）"
+                is DesktopUpdate.CheckResult.Failed -> r.reason
+            },
+            onClick = {
+                when {
+                    available != null -> openInBrowser(available.release.releaseUrl)
+                    checking -> Unit
+                    else -> {
+                        checking = true
+                        result = null
+                        scope.launch {
+                            result = withContext(Dispatchers.IO) { DesktopUpdate.check() }
+                            checking = false
+                        }
+                    }
+                }
+            },
+        )
+    }
 }
 
 /** 「数据与隐私」组（接上）：两行归档动作 + 一行结果文本。 */

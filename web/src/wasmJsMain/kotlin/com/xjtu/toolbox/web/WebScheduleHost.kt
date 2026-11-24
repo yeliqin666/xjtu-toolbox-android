@@ -23,8 +23,11 @@ import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
+import com.xjtu.toolbox.core.net.serveData
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.datetime.LocalDate
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Web 端的日程页宿主面（`ScheduleHost`）。
@@ -87,7 +90,7 @@ internal class WebScheduleHost(
 
     override val session: ScheduleSession = WebScheduleSession(WebScheduleSource(client, mode))
 
-    override val holidays: HolidaySource = WebHolidaySource
+    override val holidays: HolidaySource = WebHolidaySource(client, mode)
 
     /** 课程详情的两项下钻本端没有 ⇒ 不画。 */
     /**
@@ -164,17 +167,37 @@ internal class WebScheduleSession(private val webSource: WebScheduleSource) : Sc
     )
 }
 
-/** 节假日那一格：只读落盘的那一份，不联网。 */
-private object WebHolidaySource : HolidaySource {
-
-    private const val CACHE_KEY = "holiday_dates"
+/** 节假日那一格：serve 形态从 `/api/calendar/holidays` 取并落进课表缓存；campus-api 没有这条端点，只读缓存。 */
+private class WebHolidaySource(
+    private val client: HttpClient,
+    private val mode: ApiMode,
+) : HolidaySource {
 
     override fun peekCached(cache: ScheduleCacheStore): Map<LocalDate, String> =
         parseHolidays(cache.readJson(CACHE_KEY, Long.MAX_VALUE))
 
-    /** 见本对象 KDoc：本端不联网取节假日 ⇒ 刷新就是再读一次缓存。 */
-    override suspend fun refresh(cache: ScheduleCacheStore, force: Boolean): Map<LocalDate, String> =
-        peekCached(cache)
+    override suspend fun refresh(cache: ScheduleCacheStore, force: Boolean): Map<LocalDate, String> {
+        if (mode != ApiMode.SERVE) return peekCached(cache)
+        val cached = peekCached(cache)
+        val fresh = cache.ageMsOfJson(CACHE_KEY)?.let { it < REFRESH_INTERVAL_MS } == true
+        if (!force && cached.isNotEmpty() && fresh) return cached
+        val data = try {
+            client.serveData("加载节假日", API_BASE, "/api/calendar/holidays")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            return cached
+        }
+        val holidays = data["holidays"] as? JsonObject ?: return cached
+        if (holidays.isEmpty()) return cached
+        cache.writeJson(CACHE_KEY, holidays.toString())
+        return peekCached(cache)
+    }
+
+    private companion object {
+        const val CACHE_KEY = "holiday_dates"
+        const val REFRESH_INTERVAL_MS = 7L * 24 * 3600 * 1000
+    }
 
     private fun parseHolidays(json: String?): Map<LocalDate, String> {
         if (json.isNullOrBlank()) return emptyMap()

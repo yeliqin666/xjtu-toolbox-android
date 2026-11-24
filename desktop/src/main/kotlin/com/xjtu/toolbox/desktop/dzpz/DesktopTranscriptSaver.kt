@@ -23,11 +23,23 @@ object DesktopTranscriptSaver : TranscriptSaveSink {
             val dir = saveDirectory
             if (!dir.exists() && !dir.mkdirs()) error("下载目录不存在也建不出来：$dir")
             // 文件名里可能有 `/`（服务端给的名字是它自己的），只取最后一段，别把文件写到别处去
-            val name = filename.substringAfterLast('/').ifBlank { "成绩单.pdf" }
-            File(dir, name).writeBytes(bytes)
-            showBriefMessage("已保存到 $dir/$name")
+            val name = filename.substringAfterLast('/').substringAfterLast('\\').ifBlank { "成绩单.pdf" }
+            val target = uniqueFile(dir, name)
+            target.writeBytes(bytes)
+            showBriefMessage("已保存到 ${target.path}")
         } catch (e: Exception) {
             showBriefMessage(FriendlyError.of(e, "保存"))
         }
+    }
+
+    /** 同名已存在就加「 (1)」「 (2)」…，不覆盖之前下的那一份。 */
+    private fun uniqueFile(dir: File, name: String): File {
+        val first = File(dir, name)
+        if (!first.exists()) return first
+        val base = name.substringBeforeLast('.', name)
+        val ext = name.substringAfterLast('.', "").let { if (it.isEmpty()) "" else ".$it" }
+        return generateSequence(1) { it + 1 }
+            .map { File(dir, "$base ($it)$ext") }
+            .first { !it.exists() }
     }
 }
