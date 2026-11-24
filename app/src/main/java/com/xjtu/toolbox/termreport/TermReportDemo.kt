@@ -92,6 +92,16 @@ fun demoTermReport(): TermReport {
         },
         project = runCatching { AppJson.decodeFromString<ProjectStory>(PROJECT_STORY_SNAPSHOT) }.getOrNull(),
         installedOn = LocalDate(2026, 3, 10),
+        major = MajorChange("机械工程", "计算机科学与技术", "机械工程学院", "计算机科学与技术学院", LocalDate(2026, 3, 2)),
+        library = LibraryStats(
+            bookings = 46, days = 41, topArea = "主馆 北楼二层外文库（东）" to 23, topSeat = "北楼二层外文库（东） C08" to 9,
+            missed = 2, cancelled = 5, perWeekday = listOf(8, 6, 9, 7, 5, 7, 4), earliestIn = "07:42", leaves = 18,
+        ),
+        study = StudyStats(
+            submitted = 27, lastMinute = 6, topCourse = "大学物理" to 8, zyxfPreviews = 64, zyxfDownloads = 12,
+            zyxfTop = "高等数学" to 21, roomQueries = 15, topRoomBuilding = "主楼" to 9, exams = 7,
+            examPeak = LocalDate(2026, 6, 24) to 2, examSpan = LocalDate(2026, 6, 20) to LocalDate(2026, 7, 2),
+        ),
         // 每次预览换一个种子，方便看称号和文案的变化
         seed = System.nanoTime().toString(),
     )

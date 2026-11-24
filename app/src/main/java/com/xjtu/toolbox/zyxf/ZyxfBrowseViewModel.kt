@@ -41,8 +41,26 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
     /** 每个文件的下载状态，key 是文件 ID。 */
     val downloadState = mutableStateMapOf<Int, String>()
 
-    /** 正在预览的文件。 */
-    var previewing by mutableStateOf<ZyxfApi.Entry?>(null)
+    private var previewingState by mutableStateOf<ZyxfApi.Entry?>(null)
+
+    /** 正在预览的文件。打开一份新的就记一笔（学期总结用）。 */
+    var previewing: ZyxfApi.Entry?
+        get() = previewingState
+        set(value) {
+            if (value != null && value != previewingState) recordUse(value, "preview")
+            previewingState = value
+        }
+
+    /** 学期总结用的本机计数（后台写盘）：用了几次，这一份属于哪个顶层目录（课程或类别）。 */
+    private fun recordUse(entry: ZyxfApi.Entry, kind: String) {
+        val top = entry.path.ifBlank { location() }.substringBefore('/').trim()
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                com.xjtu.toolbox.util.ZyxfUsage.add(kind)
+                if (top.isNotEmpty()) com.xjtu.toolbox.util.ZyxfUsage.add("course:$top")
+            }
+        }
+    }
     /**
      * 这次预览是不是在宽屏分栏里选的：分栏时点文件只是右栏换内容，不等于打开全屏预览，
      * 转成窄屏时分栏选的那一份作废，不能被当成全屏预览弹出来。
@@ -184,6 +202,7 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             val saved = withContext(Dispatchers.IO) { runCatching { ZyxfApi.download(context, entry.id) }.getOrNull() }
             downloadState[entry.id] = if (saved != null) "已保存到下载" else "下载失败"
+            if (saved != null) recordUse(entry, "download")
             if (saved == null || then == null) return@launch
             // 下载只回文件名，uri 去下载登记表里取刚存的那条
             withContext(Dispatchers.IO) {

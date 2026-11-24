@@ -36,7 +36,7 @@ private val PERSONA_NAMES = mapOf(
     setOf("出勤", "干饭") to listOf("两点一线踏实派", "教室食堂往返者"),
     setOf("出勤", "夜行") to listOf("白天上课晚上修仙", "全天候在线"),
     setOf("出勤", "玩心") to listOf("课上认真课下快乐", "该玩玩该学学"),
-    setOf("出勤", "好奇") to listOf("课堂提问家", "好奇的老实人"),
+    setOf("出勤", "好奇") to listOf("课堂提问家", "好奇的认真派"),
     setOf("干饭", "夜行") to listOf("深夜食堂主理人", "宵夜教父"),
     setOf("干饭", "自律") to listOf("三餐规律养生派", "按时吃饭的狠人"),
     setOf("干饭", "玩心") to listOf("快乐干饭人", "吃喝玩乐全能王"),
@@ -46,16 +46,16 @@ private val PERSONA_NAMES = mapOf(
     setOf("夜行", "自律") to listOf("自律的夜猫子", "熬夜但有计划"),
     setOf("玩心", "自律") to listOf("劳逸结合大师", "玩也要按计划"),
     setOf("玩心", "好奇") to listOf("好奇心驱动型", "什么都想试试"),
-    setOf("好奇", "自律") to listOf("效率研究员", "工具人中的工具人"),
+    setOf("好奇", "自律") to listOf("效率研究员", "工具玩得最溜的人"),
 )
 
 private val PERSONA_LINES = mapOf(
-    "学业" to "成绩单是你最好的名片",
+    "学业" to "成绩单拿得出手",
     "出勤" to "教室里总能找到你",
     "干饭" to "食堂是你的第二个家",
     "自律" to "说好的事，你都做了",
     "夜行" to "夜晚才是你的主场",
-    "玩心" to "快乐也是一门必修课",
+    "玩心" to "该玩的时候没亏待自己",
     "好奇" to "遇事不决，先问小岱",
 )
 
@@ -122,14 +122,14 @@ fun TermReport.titleCandidates(): List<TermTitle> {
             add(listOf("满分猎手", "九五俱乐部", "高分捕手"), "${g.top95} 门 95 分以上", g.top95 / 2.0, 1.1)
             g.previousGpa?.let { p ->
                 val d = g.gpa - p
-                add(listOf("逆袭选手", "绝地反击", "触底反弹王"), "GPA 比上学期高 %.2f".format(d), d / 0.4, 1.25)
+                add(listOf("逆袭选手", "绝地反击", "一飞冲天"), "GPA 比上学期高 %.2f".format(d), d / 0.4, 1.25)
                 add(listOf("稳步上分", "上分专业户", "进步看得见"), "GPA 比上学期高 %.2f".format(d), d / 0.15 * 0.9, 1.05)
             }
             add(listOf("稳定输出型", "六边形选手", "不偏科达人"), "均分 %.1f".format(g.average), (g.average - 70) / 15, 0.8)
             add(listOf("学分收割机", "学分仓鼠", "满载而归"), "%.1f 学分".format(g.credits), g.credits / 30, 0.75)
         }
         courses?.let { c ->
-            add(listOf("早八战士", "晨光骑士", "早八钉子户"), "早八 ${c.earlyClasses} 次", c.earlyClasses / 40.0, 1.0)
+            add(listOf("早八战士", "晨光骑士", "早八钉子户", "闹钟克星"), "早八 ${c.earlyClasses} 次", c.earlyClasses / 40.0, 1.0)
             add(listOf("课表铁人", "满课勇士", "教室常驻居民"), "一学期 ${c.totalSections} 节课", c.totalSections / 420.0, 0.75)
             add(listOf("晚课守夜人", "月亮下课党", "夜读人"), "最晚上到第 ${c.latestSection} 节", if (c.latestSection >= 11) 1.05 else 0.0, 0.9)
             c.topBuilding?.let { (b, n) -> add(listOf("${b}常驻嘉宾", "${b}钉子户", "${b}荣誉居民"), "在${b}上了 $n 节", n / 160.0, 0.95) }
@@ -137,15 +137,15 @@ fun TermReport.titleCandidates(): List<TermTitle> {
         attendance?.let { a ->
             add(listOf("全勤模范", "从不缺席", "打卡永动机"), "${a.total} 次打卡零迟到零缺勤", if (a.late == 0 && a.absent == 0) a.total / 60.0 else 0.0, 0.85)
             add(listOf("连续打卡王", "准时连击", "稳定在场"), "最长连续正常 ${a.longestStreak} 次", a.longestStreak / 50.0, 0.9)
-            add(listOf("踩点艺术家", "极限到场", "铃声赛跑者"), "迟到 ${a.late} 次但从不缺勤", if (a.absent == 0) a.late / 5.0 else 0.0, 1.2)
+            add(listOf("踩点艺术家", "极限到场", "铃声赛跑者", "风雨无阻"), "一次没缺，偶尔和铃声同时进门", if (a.absent == 0 && a.late > 0) a.total / 60.0 else 0.0, 1.1)
             add(listOf("课堂常客", "出勤优等生", "教室熟面孔"), "到场率 ${(a.rate * 100).toInt()}%", a.rate / 0.97, 0.7)
         }
         card?.let { c ->
             c.meal?.let { m ->
-                add(listOf("夜宵常客", "深夜食堂VIP", "宵夜守望者"), "夜宵 ${m.lateNights} 次", m.lateNights / 15.0, 1.15)
+                add(listOf("夜宵常客", "深夜食堂VIP", "宵夜守望者", "月亮下的干饭人"), "夜宵 ${m.lateNights} 次", m.lateNights / 15.0, 1.15)
                 add(listOf("早餐打卡王", "早饭不缺席", "晨间干饭人"), "吃了 ${m.breakfastDays} 天早饭", m.breakfastDays / 40.0, 1.05)
                 add(listOf("干饭实干家", "干饭王者", "食堂编外人员"), "在学校吃了 ${m.meals} 顿", m.meals / 220.0, 0.8)
-                add(listOf("奶茶续命党", "糖分驱动型", "饮品鉴赏家"), "饮品 ${m.drinks} 次", m.drinks / 25.0, 1.1)
+                add(listOf("奶茶续命党", "糖分驱动型", "饮品鉴赏家", "半糖少冰专家"), "饮品 ${m.drinks} 次", m.drinks / 25.0, 1.1)
                 add(listOf("精打细算家", "省钱小能手", "性价比之王"), "平均一顿 ¥%.1f".format(m.avgMeal), if (m.meals >= 60 && m.avgMeal > 0) 11.0 / m.avgMeal else 0.0, 1.0)
                 add(listOf("豪横干饭人", "吃饭不看价", "犒劳自己专家"), "平均一顿 ¥%.1f".format(m.avgMeal), if (m.meals >= 30) m.avgMeal / 20.0 else 0.0, 1.05)
                 m.canteen?.let { (name, n) -> add(listOf("${name}老顾客", "${name}常驻食客", "${name}代言人"), "去了 $n 次", n / 60.0, 1.0) }
@@ -162,14 +162,14 @@ fun TermReport.titleCandidates(): List<TermTitle> {
             add(listOf("首席提问官", "十万个为什么", "好奇宝宝"), "开了 ${a.chats} 个对话", a.chats / 30.0, 1.0)
         }
         games?.let { g ->
-            add(listOf("摸鱼大师", "课间游戏王", "快乐摸鱼人"), "小游戏 ${g.minutes} 分钟", g.minutes / 600.0, 1.05)
+            add(listOf("摸鱼大师", "课间游戏王", "快乐摸鱼人", "摸鱼界扛把子"), "小游戏 ${g.minutes} 分钟", g.minutes / 600.0, 1.05)
             g.favorite?.let { add(listOf("${it}发烧友", "${it}高手", "${it}常驻玩家"), "最爱玩「$it」", g.minutes / 180.0, 1.0) }
         }
         usage?.let { u ->
             add(listOf("工具箱重度用户", "盒子常驻用户", "效率控"), "打开了 ${u.launches} 次", u.launches / 400.0, 0.8)
             add(listOf("付款码常客", "扫码达人", "刷码如风"), "亮了 ${u.payCodeOpens} 次付款码", u.payCodeOpens / 120.0, 0.9)
         }
-        add(listOf("深夜修仙党", "夜行动物", "月光值班员"), "深夜活跃 $owlCount 次", owlCount / 25.0, 1.1)
+        add(listOf("深夜修仙党", "夜行动物", "月光值班员", "凌晨两点的灵感派"), "深夜活跃 $owlCount 次", owlCount / 25.0, 1.1)
         fitness?.let { if ("优秀" in it || "良好" in it) add(listOf("运动健将", "体测达人", "活力满格"), "体测 $it", if ("优秀" in it) 1.3 else 1.0, 1.05) }
     }.sortedByDescending { it.weight }
 }
@@ -191,7 +191,7 @@ fun TermReport.mainTitle(): TermTitle {
         ?: if (courses == null && card == null && grades == null) {
             TermTitle(copy.pick("t-empty", "低调神秘人", "隐身侠客", "传说中的人"), "这学期留下的痕迹不多，下学期多来坐坐", 1.0)
         } else {
-            TermTitle(copy.pick("t-even", "宝藏型选手", "均衡发展派", "全能小透明"), "哪一项都不偏科，均衡就是最大的天赋", 1.0)
+            TermTitle(copy.pick("t-even", "宝藏型选手", "均衡发展派", "全能小透明"), "每一项都稳稳的，没有短板", 1.0)
         }
 }
 
@@ -229,7 +229,7 @@ fun TermReport.highlights(): List<String> = buildList {
  */
 fun TermReport.eggs(copy: StoryCopy): List<Pair<String, String>> = buildList {
     card?.longestMealDay?.let { (d, first, last) ->
-        add(d.md() to copy.pick("egg-meal", "你从 $first 吃到了 $last，这一天是怎么熬过来的？", "从 $first 的第一口到 $last 的最后一口，这一天你一定很拼"))
+        add(d.md() to copy.pick("egg-meal", "你从 $first 吃到了 $last，这一天是怎么熬过来的？", "第一口在 $first，最后一口在 $last，这一天的能量补得很足"))
     }
     card?.meal?.latest?.takeIf { (mealMinutes(it) ?: 0) >= 24 * 60 }?.let {
         add(it.stamp() to "凌晨还在「${it.displayMerchant}」吃了一顿，那晚在忙什么？")
@@ -238,13 +238,16 @@ fun TermReport.eggs(copy: StoryCopy): List<Pair<String, String>> = buildList {
         add(it.stamp() to "天还没亮透，你已经在「${it.displayMerchant}」吃上了")
     }
     attendance?.takeIf { it.late == 0 && it.absent == 0 && it.total >= 30 }?.let {
-        add("满勤" to "${it.total} 次打卡，一次没落下。这份坚持，比任何分数都珍贵")
+        add("满勤" to "${it.total} 次打卡，没缺过一次，也没迟到过一次")
     }
     courses?.takeIf { it.busiestDay.second >= 10 }?.let {
-        add("最满的一天" to "有一个${weekdayName(it.busiestDay.first)}，你上满了 ${it.busiestDay.second} 节课。那天的你，值得一顿好吃的")
+        add("最满的一天" to "有一个${weekdayName(it.busiestDay.first)}，你上满了 ${it.busiestDay.second} 节课，下课那顿饭应该吃得特别香")
     }
     card?.meal?.stall?.takeIf { it.second >= 30 }?.let { (s, n) ->
         add("$n 次" to "「$s」你一共吃了 $n 次，老板该给你办张会员卡了")
+    }
+    card?.meal?.drinks?.takeIf { it >= 40 }?.let { n ->
+        add("$n 杯" to copy.pick("egg-drink", "这学期喝了 $n 杯饮品，血液里大概一半是奶茶", "$n 杯饮品下肚，半糖少冰的口令你张口就来"))
     }
     usage?.busiestDay?.takeIf { it.second >= 25 }?.let { (d, n) ->
         add(d.md() to "这一天你打开了岱宗盒子 $n 次，是在等成绩还是在抢课？")
@@ -255,7 +258,7 @@ fun TermReport.eggs(copy: StoryCopy): List<Pair<String, String>> = buildList {
     card?.quietStreak?.takeIf { it.second >= 10 }?.let { (d, n) ->
         add("$n 天" to "从 ${d.md()} 起，校园卡安静了 $n 天。是回家了，还是出去玩了？")
     }
-    grades?.takeIf { it.top95 >= 3 }?.let { add("${it.top95} 门 95+" to "一学期 ${it.top95} 门 95 分以上，这不是运气") }
+    grades?.takeIf { it.top95 >= 3 }?.let { add("${it.top95} 门 95+" to "一学期 ${it.top95} 门 95 分以上，一门可以说是运气，${it.top95} 门就不是了") }
 }
 
 /** 流水时间换成「一天里的分钟数」，凌晨 0–3 点算前一天的 24–27 点。 */
@@ -277,23 +280,23 @@ object Equivalents {
 /** 写给下学期：挑两三条最相关的，不说教。 */
 fun TermReport.advice(copy: StoryCopy): List<String> = buildList {
     attendance?.let { a ->
-        if (a.late >= 5) add("早八前一晚早点睡，闹钟往前拨十分钟，迟到会少一半")
-        if (a.absent >= 3) add("缺勤有点多，重要的课先保住，期末会轻松很多")
+        if (a.late >= 5) add("早八前一晚早点睡，闹钟往前拨十分钟，早上会从容很多")
+        if (a.absent >= 3) add("下学期先把重要的课稳稳上满，期末复习会轻松很多")
     }
     grades?.let { g ->
-        if (g.failed > 0) add("挂掉的课别慌，补考和重修都是机会，早点问清时间")
+        if (g.failed > 0) add("要补考或重修的课，早点问清时间，提前准备一次拿下")
         val d = g.previousGpa?.let { g.gpa - it }
-        if (d != null && d < -0.15) add("分数有点小滑坡，挑一两门最有把握的课先拉回来")
+        if (d != null && d < -0.15) add("挑一两门最有把握的课重点投入，GPA 很快就能涨回来")
     }
     todos?.let { t ->
-        if (t.created >= 8 && t.rate < 0.5) add("待办少记点、只记要紧的，完成的感觉会上瘾")
+        if (t.created >= 8 && t.rate < 0.5) add("待办少记点、只记要紧的，勾掉的比例自然会上去")
         if (t.overdue >= 5) add("过了截止的待办清一清，脑子会轻松很多")
     }
     card?.meal?.let { m ->
-        if (m.lateNights >= 15) add("夜宵悠着点，胃和钱包都会感谢你")
+        if (m.lateNights >= 15) add("夜宵悠着点，留点肚子给明天的早饭")
         if (m.meals >= 60 && m.breakfastDays * 4 < m.meals / 3) add("试试多吃几顿早饭，上午的课会清醒很多")
     }
-    if ((usage?.lateLaunches ?: 0) >= 20 || (agent?.lateNight ?: 0) >= 30) add("熬夜的次数有点多，早点睡也是一种自律")
+    if ((usage?.lateLaunches ?: 0) >= 20 || (agent?.lateNight ?: 0) >= 30) add("试试每周挑两天十二点前睡，白天效率会更高")
     if ((games?.minutes ?: 0) >= 1200) add("游戏玩得开心，也给自己留几段整块的学习时间")
     if (isEmpty()) add(copy.pick("advice-default", "保持这个节奏，下学期也会是好学期", "照现在这样走下去就很好", "没什么要改的，继续做自己"))
 }.take(3)
@@ -306,22 +309,22 @@ fun TermReport.nextTerm(copy: StoryCopy): NextTerm {
         grades?.let { g ->
             val d = g.previousGpa?.let { g.gpa - it }
             when {
-                d != null && d > 0.05 -> add("GPA 涨了 %.2f，说明这学期的方法是对的".format(d))
+                d != null && d > 0.05 -> add("GPA 涨了 %.2f，这学期的学法可以接着用".format(d))
                 g.gpa >= 3.7 -> add("GPA %.2f 稳在高位，节奏别丢".format(g.gpa))
             }
-            if (g.top95 > 0) add("${g.top95} 门拿到 95 分或 A+，擅长的方向值得深挖")
+            if (g.top95 > 0) add("${g.top95} 门拿到 95 分或 A+，相关的选修和竞赛可以看看")
         }
         attendance?.let { a ->
-            if (a.late == 0 && a.absent == 0 && a.total >= 20) add("零迟到零缺勤，这份靠谱是稀缺品")
+            if (a.late == 0 && a.absent == 0 && a.total >= 20) add("零迟到零缺勤，老师点名从来不用找你")
             else if (a.rate >= 0.97f) add("到场率 ${(a.rate * 100).toInt()}%，出勤稳得住")
-            if (a.longestStreak >= 30) add("连续准时 ${a.longestStreak} 次，习惯已经长在身上了")
+            if (a.longestStreak >= 30) add("连续准时 ${a.longestStreak} 次，准时已经成了习惯")
         }
         card?.meal?.let { m ->
             if (m.breakfastDays >= 40) add("吃了 ${m.breakfastDays} 天早饭，好习惯继续")
-            if (m.meals >= 150) add("在学校好好吃了 ${m.meals} 顿饭，身体是本钱")
+            if (m.meals >= 150) add("在学校好好吃了 ${m.meals} 顿饭，三餐没怎么糊弄")
         }
         todos?.takeIf { it.created >= 10 && it.rate >= 0.8f }?.let { add("待办完成率 ${(it.rate * 100).toInt()}%，说到做到") }
-        courses?.takeIf { it.earlyClasses >= 30 }?.let { add("扛下了 ${it.earlyClasses} 个早八，意志力满分") }
+        courses?.takeIf { it.earlyClasses >= 30 }?.let { add("扛下了 ${it.earlyClasses} 个早八，起床这关你过了") }
     }.take(3)
 
     val extra = listOf(

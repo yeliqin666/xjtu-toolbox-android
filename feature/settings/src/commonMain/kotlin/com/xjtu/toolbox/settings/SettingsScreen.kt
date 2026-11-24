@@ -10,6 +10,7 @@ import com.xjtu.toolbox.settings.SettingsColors.Purple as cPurple
 import com.xjtu.toolbox.settings.SettingsColors.Teal as cTeal
 import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Home
@@ -442,6 +443,14 @@ fun SettingsScreen(
                 startAction = { SettingsIcon(Icons.Default.OpenInNew, cBlue) },
                 onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
             )
+            if (host.projectStoryPage != null) {
+                ArrowPreference(
+                    title = STORY_TITLE,
+                    summary = "它的来历、星星和一起做它的人",
+                    startAction = { SettingsIcon(Icons.Default.AutoStories, cOrange) },
+                    onClick = { page = STORY_PAGE }
+                )
+            }
             ArrowPreference(
                 title = CREDITS_TITLE,
                 summary = "图标形象、贡献者与许可证",
@@ -551,6 +560,7 @@ fun SettingsScreen(
                 EULA_PAGE -> SettingsSubPage(title = "用户协议与隐私政策", onBack = close) {
                     com.xjtu.toolbox.legal.Eula.Body(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                 }
+                STORY_PAGE -> SettingsSubPage(title = STORY_TITLE, onBack = close) { host.projectStoryPage?.invoke() }
                 else -> CreditsScreen(host = host, onBack = close)
             }
         }
@@ -720,9 +730,12 @@ private const val CREDITS_PAGE = -2
 private const val CHANGELOG_PAGE = -3
 private const val EULA_PAGE = -4
 private const val AGENT_PAGE = -5
+private const val STORY_PAGE = -6
+
+private const val STORY_TITLE = "岱宗盒子的故事"
 
 /** 从「关于」点进去、叠在它上面的那几页。 */
-private val ABOUT_CHILD_PAGES = setOf(CREDITS_PAGE, CHANGELOG_PAGE, EULA_PAGE)
+private val ABOUT_CHILD_PAGES = setOf(CREDITS_PAGE, CHANGELOG_PAGE, EULA_PAGE, STORY_PAGE)
 
 /** 一组设置：组名列表拿 [title]/[icon]/[color]，组内容拿 [body]。
  *  [fullPage] 的组不在二级页里展开，点开是整页（内容自带顶栏，见 [SettingsHost.agentPage]）。 */

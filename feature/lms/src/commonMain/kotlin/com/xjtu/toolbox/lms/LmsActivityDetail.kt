@@ -163,7 +163,9 @@ internal fun ActivityDetailPage(
             errorMsg = null
             try {
                 // 详情接口不返回 deadline，得把列表里那条一起传进去（见 LmsApi.mergeBrief）
-                cache.details[activity.id] = source.activityDetail(activity.id, activity)
+                val loaded = source.activityDetail(activity.id, activity)
+                cache.details[activity.id] = loaded
+                scope.launch(kotlinx.coroutines.Dispatchers.Default) { recordSubmission(loaded, course.name) }
             } catch (e: Exception) {
                 if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
                     authExpiry.onAuthExpired(AppRoute.Lms(), onBack)
@@ -840,6 +842,20 @@ private suspend fun LmsSource.currentUserIdOrNull(): Int? =
 private fun formatScore1f(value: Double): String {
     val tenths = (value * 10.0).roundToLong()
     return "${tenths / 10}.${tenths % 10}"
+}
+
+/** 交过的作业记下截止与最后一次提交的时刻，给学期总结用（详情本来就带提交列表，不额外请求）。 */
+private fun recordSubmission(a: LmsActivity, courseName: String) {
+    if (a.type != LmsActivityType.HOMEWORK) return
+    val submitted = a.submissionList?.list.orEmpty().filter { !it.isDraft }
+        .mapNotNull { s -> s.submittedAt?.let(::lmsInstant) }.maxOrNull() ?: return
+    val deadline = (a.deadline ?: a.endTime)?.let(::lmsInstant)
+    runCatching {
+        com.xjtu.toolbox.util.LmsSubmitLog.record(
+            a.id,
+            com.xjtu.toolbox.util.LmsSubmitRecord(courseName, a.title, deadline?.toEpochMilliseconds(), submitted.toEpochMilliseconds()),
+        )
+    }
 }
 
 /** 距截止还剩多久；已过返回「已过期」。 */

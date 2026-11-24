@@ -52,6 +52,23 @@ data class ProjectStory(
 
     val bornDate get() = LocalDate.parse(born.take(10))
     val people get() = (coders + askers + talkers).map { it.name.lowercase() }.distinct().size
+
+    /** 在写代码、提问题、讨论区里不止一处留下名字的人（小写）。 */
+    val multiNames: Set<String>
+        get() = listOf(coders, askers, talkers)
+            .flatMap { g -> g.map { it.name.lowercase() }.toSet() }
+            .groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+
+    /** 要标出来的星星：第 1、10、50、100、200、500 颗里够数的，加上最新一颗（第几颗, 日期）。 */
+    fun starMilestones(): List<Pair<Int, LocalDate>> {
+        val dates = stars.map(LocalDate::parse)
+        return (listOf(1, 10, 50, 100, 200, 500).filter { it < dates.size } + dates.size)
+            .filter { it > 0 }.distinct().map { it to dates[it - 1] }
+    }
+
+    /** 第一颗星在诞生后第几天（0 = 当天）；还没有星为 null。 */
+    fun firstStarGap(): Long? =
+        stars.firstOrNull()?.let { LocalDate.parse(it).toEpochDays() - bornDate.toEpochDays() }
 }
 
 private val storyStore get() = keyValueStore("project_story")

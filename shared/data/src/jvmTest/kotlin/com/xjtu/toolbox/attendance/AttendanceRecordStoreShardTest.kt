@@ -87,4 +87,24 @@ class AttendanceRecordStoreShardTest {
         assertEquals(0L, shard.fullScanAt, "0 = 从没全量拉过，下次该整学期重扫")
         assertTrue(shard.records.isNotEmpty())
     }
+
+    @Test
+    fun `学期刚结束、分片还是结束前拉的：先整学期补一次`() {
+        // 最后一次拉在第 18 周，之后学期结束：最后几天的流水和老师的补录都还没进来
+        val beforeEnd = AttendanceRecordStore.Shard(
+            termCode = "2026-2027-1", records = listOf(rec()),
+            fetchedAt = System.currentTimeMillis(), fullScanAt = System.currentTimeMillis(),
+        )
+        assertEquals(AttendanceRecordStore.Plan.FULL, AttendanceRecordStore.planFor(beforeEnd, sealedTerm = true, force = false))
+    }
+
+    @Test
+    fun `结束后整学期拉过一次的分片不再刷新`() {
+        val sealed = AttendanceRecordStore.Shard(
+            termCode = "2026-2027-1", records = listOf(rec()), fetchedAt = 0L, fullScanAt = 0L, sealed = true,
+        )
+        assertEquals(AttendanceRecordStore.Plan.NONE, AttendanceRecordStore.planFor(sealed, sealedTerm = true, force = false))
+        // 考勤页之后再写进来，封存标记不丢
+        assertTrue(AttendanceRecordStore.mergedShard("2026-2027-1", listOf(rec("r-2")), sealed, fullScan = true, now = 300L).sealed)
+    }
 }

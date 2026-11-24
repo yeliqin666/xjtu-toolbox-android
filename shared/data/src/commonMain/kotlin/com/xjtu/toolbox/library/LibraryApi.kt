@@ -606,9 +606,13 @@ class LibraryApi(private val session: LibrarySession) {
                 when (val page = LibraryPages.parseMyPage(html, finalUrl, knownAreaNames())) {
                     is LibraryPages.MyPage.Booked -> {
                         Log.d(TAG, "getMyBooking: ${page.info.seatId} ${page.info.statusText} ${page.info.actionUrls.keys}")
+                        runCatching { session.onMyPage(html, finalUrl, page.info) }
                         return Result.success(page.info)
                     }
-                    LibraryPages.MyPage.NoBooking -> return Result.success(null)
+                    LibraryPages.MyPage.NoBooking -> {
+                        runCatching { session.onMyPage(html, finalUrl, null) }
+                        return Result.success(null)
+                    }
                     LibraryPages.MyPage.Unrecognized -> continue
                 }
             } catch (e: SessionExpiredException) {

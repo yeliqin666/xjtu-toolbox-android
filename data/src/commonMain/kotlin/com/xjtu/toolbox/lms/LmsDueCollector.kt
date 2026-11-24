@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.time.ZonedDateTime
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
 
 /**
@@ -36,7 +37,7 @@ object LmsDueCollector {
     /**
      * 整理出带截止的作业、补上提交态，[isCurrent] 仍为真才落盘（拉取途中切了账号就作废）。
      *
-     * 列表接口不给 `user_submit_count`，只能逐条查详情：只查没截止、之前也没查到已交的；
+     * 列表接口不给 `user_submit_count`，只能逐条查详情：只查 [checksSubmission] 圈定的、之前也没查到已交的；
      * 查失败当没交——宁可多挂一条，也别把没交的当成交了。
      */
     suspend fun collect(
@@ -51,7 +52,7 @@ object LmsDueCollector {
         val items = dueItems(perCourse, System.currentTimeMillis()).map { d ->
             when {
                 d.courseId to d.activityId in known -> d.copy(submitted = true)
-                isPast(d, now) -> d
+                !checksSubmission(d, now) -> d
                 else -> d.copy(submitted = runCatching { api.getUserSubmitCount(d.activityId) > 0 }
                     .onFailure { Log.w(TAG, "作业 ${d.title} 提交态查询失败：${it.message}") }
                     .getOrDefault(false))
@@ -143,9 +144,20 @@ object LmsDueCollector {
             }
         }
 
-    /** 截止已过（解析不了不算过）。已截止的不查提交态：待办本来就不显示它。 */
+    /** 截止已过（解析不了不算过）。 */
     internal fun isPast(d: LmsDue, now: Instant) =
         runCatching { Instant.parse(d.deadline) }.getOrNull()?.isAfter(now) == false
+
+    /**
+     * 要不要逐条查提交态：没截止、或截止不到 [SUBMIT_CHECK_WINDOW]（周报统计最近 7 天截止的作业，
+     * 待办也会挂着刚过截止的）。更早截止的不再查，免得学期越往后请求越多；解析不了的照查。
+     */
+    internal fun checksSubmission(d: LmsDue, now: Instant): Boolean {
+        val deadline = runCatching { Instant.parse(d.deadline) }.getOrNull() ?: return true
+        return deadline.isAfter(now.minusMillis(SUBMIT_CHECK_WINDOW.inWholeMilliseconds))
+    }
+
+    private val SUBMIT_CHECK_WINDOW: Duration = 7.days
 }
 
 /**

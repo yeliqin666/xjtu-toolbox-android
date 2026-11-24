@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 /**
  * 图书馆座位系统页面 / 接口响应的纯解析。
@@ -78,34 +79,56 @@ object LibraryPages {
      */
     fun parseBookingCard(doc: Document, html: String, finalUrl: String): MyBookingInfo? {
         val card = doc.selectFirst("div.well") ?: return null
-
-        // Jsoup 没有 lxml 的 .tail，尾随文本就是 <hr> 的下一个兄弟文本节点。
-        // 必须用 wholeText：text() 会把 &nbsp; 规范化掉，而我们正是靠它切分区域名和座位号。
-        val hr = card.selectFirst("hr") ?: return null
-        val tail = (hr.nextSibling() as? org.jsoup.nodes.TextNode)?.wholeText?.trim().orEmpty()
-        if (tail.isBlank()) return null
-
-        // NBSP 不算 Kotlin 认的空白字符，上面的 trim() 不会把它吃掉。
-        val nbsp = ' '
-        val area: String?
-        val seatId: String
-        if (nbsp in tail) {
-            area = tail.substringBeforeLast(nbsp).trim().ifBlank { null }
-            seatId = tail.substringAfterLast(nbsp).trim()
-        } else {
-            // 结构对了但分隔符不是 NBSP（模板微调过）。别把整行当座位号，退一步按空白切最后一段。
-            area = tail.substringBeforeLast(' ').trim().ifBlank { null }
-            seatId = tail.substringAfterLast(' ').trim()
-        }
-        if (seatId.isBlank()) return null
-
-        val status = card.selectFirst("div.cta-button h3:not([class])")?.text()?.trim()
-            ?.takeIf { it.isNotBlank() }
+        val (area, seatId) = seatLine(card) ?: return null
+        val status = statusOf(card)
 
         // 认 JS 调用本身比认按钮文案稳：页面按状态只渲染当前可执行的按钮，出现哪个给哪个。
         val actions = actionsFromConfirmModal(html, finalUrl)
             .ifEmpty { parseActionsFromHtml(doc, html) }
         return MyBookingInfo(seatId, area, status, actions)
+    }
+
+    /**
+     * 一张预约卡的座位行：卡内第一个 `<hr>` 的尾随文本「区域名&nbsp;座位号」→ (区域, 座位)。
+     *
+     * Jsoup 没有 lxml 的 .tail，尾随文本就是 <hr> 的下一个兄弟文本节点。
+     * 必须用 wholeText：text() 会把 &nbsp; 规范化掉，而我们正是靠它切分区域名和座位号。
+     */
+    private fun seatLine(card: Element): Pair<String?, String>? {
+        val hr = card.selectFirst("hr") ?: return null
+        val tail = (hr.nextSibling() as? org.jsoup.nodes.TextNode)?.wholeText?.trim().orEmpty()
+        if (tail.isBlank()) return null
+        // NBSP 不算 Kotlin 认的空白字符，上面的 trim() 不会把它吃掉。
+        // 结构对了但分隔符不是 NBSP（模板微调过）时，别把整行当座位号，退一步按空白切最后一段。
+        val sep = if (' ' in tail) ' ' else ' '
+        val area = tail.substringBeforeLast(sep).trim().ifBlank { null }
+        val seatId = tail.substringAfterLast(sep).trim()
+        return if (seatId.isBlank()) null else area to seatId
+    }
+
+    /** 预约卡的状态：`.cta-button` 里第一个无 class 的 `<h3>`。 */
+    private fun statusOf(card: Element): String? =
+        card.selectFirst("div.cta-button h3:not([class])")?.text()?.trim()?.takeIf { it.isNotBlank() }
+
+    /** 卡片上的日期：`2026-08-22`，也认 `2026/8/22`、`2026年8月22日`。 */
+    private val CARD_DATE = Regex("""(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})""")
+
+    /**
+     * 「我的预约」页上的全部预约卡：当前那张（`div.well`）与历史卡（`div.notwell`），各带日期、馆名、
+     * 区域、座位、状态。日期认不出来的卡跳过：没有日期就归不到哪个学期。学校只列最近几张，调用方要平时攒。
+     */
+    fun parseCards(html: String, finalUrl: String): List<LibraryCard> {
+        if (html.length < 50) return emptyList()
+        val doc = Jsoup.parse(html, finalUrl)
+        return doc.select("div.well, div.notwell").mapNotNull { card ->
+            val heads = (card.selectFirst("div.cta-contents") ?: card).select("h4").map { it.text().trim() }
+            val date = heads.firstNotNullOfOrNull { CARD_DATE.find(it) }?.destructured
+                ?.let { (y, m, d) -> "$y-${m.padStart(2, '0')}-${d.padStart(2, '0')}" } ?: return@mapNotNull null
+            // 馆名是日期下面那行 h4；「我想换座」那行是链接
+            val place = heads.firstOrNull { h -> h.isNotBlank() && CARD_DATE.find(h) == null && "换座" !in h && ':' !in h && '：' !in h }
+            val (area, seat) = seatLine(card) ?: (null to "")
+            LibraryCard(date, place.orEmpty(), area.orEmpty(), seat, statusOf(card).orEmpty())
+        }.distinctBy { it.key }
     }
 
     /** 从整页 HTML 里扫 `showConfirmModal(…)`。WebVPN 会把引号实体化，先反转义再扫。 */

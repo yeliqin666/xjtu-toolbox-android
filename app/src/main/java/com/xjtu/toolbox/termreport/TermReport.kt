@@ -57,10 +57,13 @@ data class TermReport(
     val seed: String = term.code,
     /** 学期里每天的动静（打卡 + 刷卡 + 打开盒子 + 找小岱），从开学那天排起；画学期日历用。 */
     val daily: List<Int> = emptyList(),
-    /** 「关于岱宗盒子」那两页的数据，生成时取最新的一份写进 HTML。 */
+    /** 「关于岱宗盒子」那一页的数据，生成时取最新的一份写进 HTML。 */
     val project: ProjectStory? = null,
     /** 本机第一次装上岱宗盒子的日期。 */
     val installedOn: LocalDate? = null,
+    val library: LibraryStats? = null,
+    val study: StudyStats? = null,
+    val major: MajorChange? = null,
 ) {
     val termName get() = term.name
     val start get() = term.startDate
@@ -213,6 +216,49 @@ data class UsageStats(
     val busiestDay: Pair<LocalDate, Long>? = null,
 )
 
+/** 转专业：学籍档案里的专业在上学期结束后到本学期结束前变了。[seen] 是本机第一次看到新专业的日子。 */
+data class MajorChange(val from: String, val to: String, val fromDept: String, val toDept: String, val seen: LocalDate)
+
+/** 图书馆座位预约，只算本机攒下的、预约日落在本学期的卡。 */
+data class LibraryStats(
+    val bookings: Int,
+    val days: Int,
+    /** 去得最多的区域（含馆名）和次数。 */
+    val topArea: Pair<String, Int>?,
+    /** 坐得最多的座位（区域 + 座位号）和次数。 */
+    val topSeat: Pair<String, Int>?,
+    val missed: Int,
+    val cancelled: Int,
+    /** 周一到周日各约了几次。 */
+    val perWeekday: List<Int>,
+    /** 本机看到的最早一次签到（HH:mm）。 */
+    val earliestIn: String?,
+    /** 中途离开过几次。 */
+    val leaves: Int,
+)
+
+/** 思源学堂交作业、学辅资料、空闲教室、考试。 */
+data class StudyStats(
+    val submitted: Int,
+    /** 截止前 3 小时内交的。 */
+    val lastMinute: Int,
+    /** 交得最多的课和份数。 */
+    val topCourse: Pair<String, Int>?,
+    val zyxfPreviews: Int,
+    val zyxfDownloads: Int,
+    /** 学辅里翻得最多的目录（课程或类别）。 */
+    val zyxfTop: Pair<String, Int>?,
+    val roomQueries: Int,
+    val topRoomBuilding: Pair<String, Int>?,
+    val exams: Int,
+    /** 考试最集中的一天和场数。 */
+    val examPeak: Pair<LocalDate, Int>?,
+    /** 第一场和最后一场的日期。 */
+    val examSpan: Pair<LocalDate, LocalDate>?,
+) {
+    val isEmpty get() = submitted == 0 && zyxfPreviews + zyxfDownloads == 0 && roomQueries == 0 && exams == 0
+}
+
 /** 校历里见过的学期，记在本机：换学年后校历可能不再列上学期，总结也不能跟着丢。 */
 @Serializable
 data class KnownTerm(val code: String, val name: String, val start: String, val end: String, val weeks: Int) {
@@ -271,6 +317,72 @@ suspend fun loadTermReport(context: Context, term: KnownTerm): TermReport = with
         daily = runCatching { dailyActivity(context, account, term.code, start, end) }.getOrDefault(emptyList()),
         project = runCatching { loadProjectStory() }.getOrNull(),
         installedOn = installDate(context),
+        library = runCatching { libraryStats(account, start, end) }.getOrNull(),
+        study = runCatching { studyStats(context, account, term.code, start, end) }.getOrNull()?.takeUnless { it.isEmpty },
+        major = runCatching { majorChange(account, term) }.getOrNull(),
+    )
+}
+
+/** 归到本学期的专业变化：上一学期结束之后、本学期结束之前第一次见到新专业（暑假里转的算进秋季学期）。 */
+private fun majorChange(account: String?, term: KnownTerm): MajorChange? {
+    val remembered = runCatching {
+        AppJson.decodeFromString<List<KnownTerm>>(termMemory.getString("terms") ?: "[]")
+    }.getOrDefault(emptyList())
+    val after = remembered.filter { it.endDate < term.startDate }.maxOfOrNull { it.endDate }
+        ?: term.startDate.plus(-100, DateTimeUnit.DAY)
+    return com.xjtu.toolbox.hello.MajorHistory.read(account).zipWithNext().lastOrNull { (_, b) ->
+        localOf(b.at).date.let { it > after && it <= term.endDate }
+    }?.let { (a, b) -> MajorChange(a.profession, b.profession, a.department, b.department, localOf(b.at).date) }
+}
+
+private fun localOf(ms: Long) = Instant.fromEpochMilliseconds(ms).toLocalDateTime(CampusTimeZone)
+
+private fun libraryStats(account: String?, start: LocalDate, until: LocalDate): LibraryStats? {
+    val cards = com.xjtu.toolbox.library.LibraryLog.readCards(account)
+        .filter { c -> dateOf(c.date)?.let { it in start..until } == true }
+    if (cards.isEmpty()) return null
+    val marks = com.xjtu.toolbox.library.LibraryLog.readMarks(account)
+        .map { it to localOf(it.at) }.filter { (_, t) -> t.date in start..until }
+    fun areaName(c: com.xjtu.toolbox.library.LibraryCard) =
+        listOf(c.place, c.area).filter { it.isNotBlank() }.distinct().joinToString(" ")
+    val weekdays = IntArray(7)
+    cards.forEach { c -> dateOf(c.date)?.let { weekdays[it.dayOfWeek.ordinal]++ } }
+    return LibraryStats(
+        bookings = cards.size,
+        days = cards.map { it.date }.distinct().size,
+        topArea = cards.map(::areaName).filter { it.isNotBlank() }.groupingBy { it }.eachCount().top(),
+        topSeat = cards.filter { it.seat.isNotBlank() }.groupingBy { "${it.area} ${it.seat}".trim() }.eachCount().top()
+            ?.takeIf { it.second >= 2 },
+        missed = cards.count { s -> listOf("违约", "未签到", "超时", "爽约").any { it in s.status } },
+        cancelled = cards.count { "取消" in it.status },
+        perWeekday = weekdays.toList(),
+        earliestIn = marks.filter { (m, _) -> listOf("使用中", "已签到", "已入馆", "在馆").any { it in m.status } }
+            .map { (_, t) -> "%02d:%02d".format(t.hour, t.minute) }.filter { it >= "05:00" }.minOrNull(),
+        leaves = marks.count { (m, _) -> "离开" in m.status || "暂离" in m.status },
+    )
+}
+
+private fun studyStats(context: Context, account: String?, code: String, start: LocalDate, until: LocalDate): StudyStats {
+    val subs = com.xjtu.toolbox.util.LmsSubmitLog.all().filter { localOf(it.submittedAt).date in start..until }
+    val zyxf = com.xjtu.toolbox.util.ZyxfUsage.between(start, until)
+    fun count(key: String) = zyxf.filter { it.second == key }.sumOf { it.third }.toInt()
+    val rooms = com.xjtu.toolbox.util.RoomQueries.between(start, until)
+    val exams = ScheduleCache.readExams(DataCache(context, account), code).orEmpty()
+        .mapNotNull { e -> dateOf(e.examDate)?.let { e to it } }
+    val examDays = exams.groupingBy { it.second }.eachCount()
+    return StudyStats(
+        submitted = subs.size,
+        lastMinute = subs.count { s -> s.deadline?.let { it >= s.submittedAt && it - s.submittedAt < 3 * 3600_000L } == true },
+        topCourse = subs.filter { it.course.isNotBlank() }.groupingBy { it.course }.eachCount().top()?.takeIf { it.second >= 2 },
+        zyxfPreviews = count("preview"),
+        zyxfDownloads = count("download"),
+        zyxfTop = zyxf.filter { it.second.startsWith("course:") }.groupBy { it.second.removePrefix("course:") }
+            .mapValues { (_, l) -> l.sumOf { it.third }.toInt() }.top()?.takeIf { it.second >= 2 },
+        roomQueries = rooms.sumOf { it.third }.toInt(),
+        topRoomBuilding = rooms.groupBy { it.second }.mapValues { (_, l) -> l.sumOf { it.third }.toInt() }.top(),
+        exams = exams.size,
+        examPeak = examDays.maxByOrNull { it.value }?.toPair()?.takeIf { it.second >= 2 },
+        examSpan = exams.map { it.second }.takeIf { it.size >= 2 }?.let { it.min() to it.max() },
     )
 }
 

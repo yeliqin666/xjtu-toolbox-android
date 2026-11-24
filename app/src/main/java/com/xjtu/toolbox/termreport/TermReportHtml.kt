@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.termreport
 
 import kotlinx.datetime.LocalDate
-import kotlin.math.ln
 import kotlin.random.Random
 
 /**
@@ -15,7 +14,7 @@ fun TermReport.toHtml(): String {
     val slides = buildList {
         add(slide("#1B1F4B", "#3A2F7A", "#A5B4FC", Hero.CALENDAR) {
             lead("calendar", termName)
-            body(copy.pick("cover-lead", "这学期一共", "从开学到最后一周，一共", "这一段旅程，一共"))
+            body(copy.pick("cover-lead", "这学期一共", "从开学到最后一周，一共", "从第一节课到最后一门考试，一共"))
             count(days.toLong(), 80, suf = "天")
             small("${start.year} 年 ${start.md()} — ${if (end.year != start.year) "${end.year} 年 " else ""}${end.md()}")
             fact("教学周", "$weeks 周", "calendar")
@@ -23,9 +22,9 @@ fun TermReport.toHtml(): String {
             fact("周末", "${days / 7} 个", "sun")
             fact("约等于", "${"%.1f".format(days / 365.0 * 100)}% 的一年", "chart")
             val chapters = listOfNotNull(courses?.let { "课表" }, attendance?.let { "考勤" }, grades?.let { "成绩" },
-                card?.let { "校园卡" }, todos?.let { "待办" }, agent?.let { "小岱" }, usage?.let { "盒子" })
+                todos?.let { "待办" }, library?.let { "图书馆" }, card?.let { "校园卡" }, agent?.let { "小岱" }, usage?.let { "盒子" })
             if (chapters.size >= 2) note("list", "接下来会看到：${chapters.joinToString("、")}")
-            quote(copy.pick("cover", "学期结束啦，一起看看这段时间", "辛苦了，来看看这学期的你", "翻篇之前，先回头看一眼", "这学期的你，都在这里了"))
+            quote(copy.pick("cover", "学期结束啦，一起看看这段时间", "辛苦了，来看看这学期的你", "翻篇之前，先回头看一眼", "这学期留下的记录，都在下面"))
             hint()
         })
         if (daily.count { it > 0 } >= 7) add(slide("#13203F", "#2F4C8F", "#93C5FD", null) {
@@ -33,16 +32,26 @@ fun TermReport.toHtml(): String {
             val active = daily.count { it > 0 }
             count(active.toLong(), 64, suf = "天有动静")
             heatmap(daily, start.dayOfWeek.ordinal)
-            small("每格是一天，颜色越深那天越忙：上课打卡、刷卡、打开盒子、找小岱都算")
+            small("每格一天，颜色越深，那天越忙")
             val byWeek = daily.withIndex().groupBy { (i, _) -> (i + start.dayOfWeek.ordinal) / 7 }.mapValues { (_, l) -> l.sumOf { it.value } }
-            byWeek.maxByOrNull { it.value }?.let { (w, _) -> note("flame", "第 ${w + 1} 周最忙，" + copy.pick("cal-busy", "大概是考试周？", "那周你一定很充实", "那一周的你，满格运转")) }
+            byWeek.maxByOrNull { it.value }?.let { (w, _) -> note("flame", "第 ${w + 1} 周最忙，" + copy.pick("cal-busy", "大概是考试周？", "那周的事一件接一件", "那一周几乎没歇过")) }
             var run = 0; var longest = 0
             daily.forEach { if (it > 0) longest = maxOf(longest, ++run) else run = 0 }
             if (longest >= 7) note("bolt", "最长连着 $longest 天没停过")
         })
+        major?.let { m ->
+            add(slide("#1D2B53", "#3D4F9F", "#C7D2FE", Hero.PLANE) {
+                lead("plane", "这学期，你换了专业")
+                big(m.to, 40)
+                body("从「${m.from}」来到了「${m.to}」" +
+                    if (m.toDept.isNotBlank() && m.toDept != m.fromDept) "，也成了${m.toDept}的一员" else "")
+                quote(copy.pick("major", "转专业这一路不容易，恭喜你走到了想去的地方", "新同学、新老师、新课表，慢慢就熟了",
+                    "欢迎来到新专业，以后的课都朝着你自己选的方向"))
+            })
+        }
         courses?.let { c ->
             add(slide("#0F3D5E", "#1F7A8C", "#7DD3FC", Hero.BOOK) {
-                lead("book", copy.pick("course-lead", "这学期你上了", "课表上一共排了", "你和这些课朝夕相处"))
+                lead("book", copy.pick("course-lead", "这学期你上了", "课表上一共排了", "这学期的课表里装了"))
                 count(c.courses.toLong(), 64, suf = "门课")
                 fact("总节数", "${c.totalSections} 节", "list")
                 fact("折合", "${Equivalents.classHours(c.totalSections)} 小时", "clock")
@@ -57,15 +66,15 @@ fun TermReport.toHtml(): String {
                         "，平均每个${weekdayName(it.index)} ${"%.1f".format(it.value.toFloat() / weeks)} 节")
                 }
                 if (light != null && busy != null && light.index != busy.index) {
-                    note("coffee", "${weekdayName(light.index)}最轻松，" + copy.pick("course-light", "适合补觉", "可以去图书馆占个好位置", "是一周里的喘息"))
+                    note("coffee", "${weekdayName(light.index)}最轻松，" + copy.pick("course-light", "适合补觉", "可以去图书馆占个好位置", "一周里难得能喘口气"))
                 }
                 val weekend = c.perWeekday.drop(5).sum()
                 if (weekend > 0) note("alarm", "周末也上了 $weekend 节，辛苦了")
                 if (c.busiestDay.second >= 8) note("flame", "单日最多 ${c.busiestDay.second} 节，从早到晚连轴转")
                 quote(when {
-                    c.earlyClasses >= 40 -> copy.pick("early-hi", "早八 ${c.earlyClasses} 次，你是真正的早八战士", "${c.earlyClasses} 个早八，太阳都没你起得早", "早八 ${c.earlyClasses} 次，致敬每一个挣扎起床的清晨")
-                    c.earlyClasses > 0 -> copy.pick("early-mid", "其中早八 ${c.earlyClasses} 次，每一次起床都算数", "早八 ${c.earlyClasses} 次，被窝没能留住你", "${c.earlyClasses} 个早八，辛苦啦")
-                    else -> copy.pick("early-none", "一个早八都没有，排课运气拉满", "零早八，懂得生活", "这学期的闹钟大概很清闲", "没有早八的学期，是选课的胜利")
+                    c.earlyClasses >= 40 -> copy.pick("early-hi", "早八 ${c.earlyClasses} 次，你是真正的早八战士", "${c.earlyClasses} 个早八，太阳都没你起得早", "早八 ${c.earlyClasses} 次，每次都是和被窝硬拔河", "早八 ${c.earlyClasses} 次，七点多的食堂你应该很熟")
+                    c.earlyClasses > 0 -> copy.pick("early-mid", "其中早八 ${c.earlyClasses} 次，闹钟没白响", "早八 ${c.earlyClasses} 次，被窝没能留住你", "${c.earlyClasses} 个早八，辛苦啦")
+                    else -> copy.pick("early-none", "一个早八都没有，排课运气拉满", "零早八，每天都能睡到自然醒", "这学期的闹钟大概很清闲", "没有早八，选课那天的手速功不可没")
                 })
             })
             if (c.topCourses.size >= 2 || c.periods.sum() > 0) add(slide("#0D3347", "#246A73", "#7DD3FC", null) {
@@ -83,7 +92,7 @@ fun TermReport.toHtml(): String {
                     stacked(listOf("上午", "下午", "晚上").zip(c.periods))
                     val (am, pm, eve) = c.periods
                     note(if (am >= pm) "sunrise" else "sun", when {
-                        am >= pm && am >= eve -> copy.pick("period-am", "上午的课最多，早起是这学期的主旋律", "课都挤在上午，下午才是自由时间")
+                        am >= pm && am >= eve -> copy.pick("period-am", "上午的课最多，这学期基本是早起过的", "课都挤在上午，下午才是自由时间")
                         pm >= eve -> copy.pick("period-pm", "下午的课最多，午觉得抓紧", "下午是你的主战场")
                         else -> copy.pick("period-eve", "晚上的课比白天还多，夜校生活", "晚课最多，月亮陪你上课")
                     })
@@ -100,24 +109,24 @@ fun TermReport.toHtml(): String {
                 count(a.total.toLong(), 64, suf = "次")
                 ring(a.rate, "${(a.rate * 100).toInt()}%", "到场率")
                 quote(when {
-                    a.late == 0 && a.absent == 0 -> copy.pick("att-perfect", "零迟到零缺勤，全勤模范就是你", "一次没落下，老师都记住你了", "满勤！这份自律值得一个大大的赞")
+                    a.late == 0 && a.absent == 0 -> copy.pick("att-perfect", "零迟到零缺勤，全勤模范就是你", "一次没落下，老师都记住你了", "满勤！考勤机都快认识你了")
                     a.rate >= 0.95f -> copy.pick("att-hi", "到场率超高，靠谱本谱", "几乎每节都在，稳", "出勤这块，你没让人操心")
-                    a.rate >= 0.8f -> copy.pick("att-mid", "大部分时候都在线，不错", "偶尔掉线，整体靠谱", "出勤还行，下学期再稳一点")
-                    else -> copy.pick("att-lo", "自由的灵魂不被打卡定义——下学期给老师一点面子？", "出勤有点佛系，重要的课先保住", "下学期多去几次，说不定会爱上某门课")
+                    a.rate >= 0.8f -> copy.pick("att-mid", "大部分时候都在线，不错", "大多数课都在，整体靠谱", "出勤还行，下学期再稳一点")
+                    else -> copy.pick("att-lo", "下学期多去几次课堂，会有新收获", "先把最重要的几门课上满，节奏会越来越顺", "下学期多去几次，说不定会爱上某门课")
                 })
                 fact("正常", "${a.normal} 次", "check")
                 if (a.late > 0) fact("迟到", "${a.late} 次", "clock")
                 if (a.absent > 0) fact("缺勤", "${a.absent} 次", "x")
                 if (a.leave > 0) fact("请假", "${a.leave} 次", "doc")
                 val slips = a.late + a.absent
-                if (slips > 0) note("bolt", "平均每 ${a.total / slips} 次打卡才失手一次")
+                if (slips > 0 && a.total / slips >= 5) note("bolt", "平均每 ${a.total / slips} 次打卡里，只有一次不在点上")
                 if (a.longestStreak >= 10) note("flame", "最长连续准时 ${a.longestStreak} 次，约 ${a.longestStreak * 100 / a.total.coerceAtLeast(1)}% 的打卡连成一串")
-                // 有失手就点出最容易失手的那门/那天，没有就点名全勤的课
+                // 有迟到就点出迟到最多的那门/那天并给个建议，没有就点名全勤的课
                 val lateCourse = a.mostLate?.takeIf { it.second >= 2 }
                 val slipDay = a.slipWeekday?.takeIf { it.second >= 2 }
                 when {
-                    lateCourse != null -> note("alarm", "最容易迟到的是「${lateCourse.first}」，${lateCourse.second} 次" +
-                        (slipDay?.let { "；${weekdayName(it.first)}最容易掉链子" } ?: ""))
+                    lateCourse != null -> note("alarm", "「${lateCourse.first}」迟到了 ${lateCourse.second} 次" +
+                        (slipDay?.let { "，多在${weekdayName(it.first)}" } ?: "") + "，下学期那天早出门五分钟就好")
                     a.perfectNames.isNotEmpty() -> note("star", a.perfectNames.joinToString("、") { "「$it」" } + " 一次没落下")
                 }
             })
@@ -129,15 +138,15 @@ fun TermReport.toHtml(): String {
                 quote(g.previousGpa?.let { p ->
                     val d = g.gpa - p
                     when {
-                        d >= 0.3 -> copy.pick("gpa-up-big", "比上学期高了 %.2f，这是一次漂亮的逆袭".format(d), "猛涨 %.2f，努力被看见了".format(d), "一口气涨了 %.2f，这学期你是认真的".format(d), "%.2f 的跃升，换个人似的".format(d))
+                        d >= 0.3 -> copy.pick("gpa-up-big", "比上学期高了 %.2f，这是一次漂亮的逆袭".format(d), "猛涨 %.2f，熬的夜没白熬".format(d), "一口气涨了 %.2f，这学期你是认真的".format(d), "%.2f 的跃升，换个人似的".format(d))
                         d > 0.005 -> copy.pick("gpa-up", "比上学期高了 %.2f，进步看得见".format(d), "又往上走了 %.2f，稳步上分".format(d), "涨了 %.2f，一点一点变好".format(d), "比上学期多 %.2f，方向是对的".format(d))
-                        d < -0.005 -> copy.pick("gpa-down", "比上学期低了 %.2f，下学期再找回来".format(-d), "小滑坡 %.2f 而已，调整一下就好".format(-d), "回落了 %.2f，起伏本来就是常态".format(-d))
+                        d < -0.005 -> copy.pick("gpa-down", "比上学期低了 %.2f，下学期再找回来".format(-d), "回落 %.2f，调整一下节奏就能追回来".format(-d), "回落了 %.2f，起伏本来就是常态".format(-d))
                         else -> copy.pick("gpa-flat", "和上学期持平，稳", "纹丝不动，稳定输出", "和上学期几乎一样，状态在线")
                     }
                 } ?: when {
-                    g.gpa >= 3.8 -> copy.pick("gpa-hi", "这个成绩，可以骄傲一下", "学霸认证，没有疑问", "成绩单好看到想裱起来", "这份答卷，写满了用心")
-                    g.gpa >= 3.3 -> copy.pick("gpa-mid", "扎实的一学期", "稳稳当当，值得点赞", "不声不响，交出一份好成绩", "踏实的分数，踏实的你")
-                    else -> copy.pick("gpa-lo", "分数只是一部分，你还收获了别的", "下学期挑几门重点突破", "大学不止绩点，但也别全放下", "这只是一个学期，后面还长")
+                    g.gpa >= 3.8 -> copy.pick("gpa-hi", "这个成绩，可以骄傲一下", "学霸认证，没有疑问", "成绩单好看到想裱起来", "这张成绩单，拿给谁看都不怵")
+                    g.gpa >= 3.3 -> copy.pick("gpa-mid", "扎实的一学期", "稳稳当当，状态在线", "不声不响，交出一份好成绩", "不靠突击，也拿得出手")
+                    else -> copy.pick("gpa-lo", "下学期挑几门重点突破", "这只是一个学期，后面还长")
                 })
                 fact("课程", "${g.count} 门", "book")
                 fact("学分", "%.1f".format(g.credits), "star")
@@ -178,9 +187,10 @@ fun TermReport.toHtml(): String {
                     val first = g.history.first()
                     if (g.history.size >= 3) note("bolt", "从${first.first}的 %.2f 到现在的 %.2f".format(first.second, g.gpa))
                 }
-                quote(copy.pick("gpa2-end", "每一个分数，都是一段熬过的夜", "成绩不是全部，但它记得你的努力", "这份成绩单，你自己最清楚有多不容易"))
+                quote(copy.pick("gpa2-end", "成绩不是全部，但这几行数字是你一门门考出来的", "这张成绩单背后有多少个 DDL，只有你知道"))
             })
         }
+        study?.let { s -> add(studySlide(s)) }
         todos?.let { t ->
             add(slide("#113D2E", "#2E8B57", "#86EFAC", Hero.CLIPBOARD) {
                 lead("list", copy.pick("todo-lead", "你给自己定了", "待办清单上写过", "这学期你计划了"))
@@ -188,8 +198,8 @@ fun TermReport.toHtml(): String {
                 ring(t.rate, "${(t.rate * 100).toInt()}%", "完成了 ${t.done} 件")
                 quote(when {
                     t.rate >= 0.85f -> copy.pick("todo-hi", "说到做到，执行力拉满", "清单杀手，勾勾勾", "你定的事，几乎都办成了")
-                    t.rate >= 0.5f -> copy.pick("todo-mid", "大半都搞定了，不赖", "一半以上打了勾，继续保持", "做完的比没做的多，这就是赢")
-                    else -> copy.pick("todo-lo", "记下来就是开始，下学期挑几件最要紧的先做", "计划比做完多一点，正常，慢慢来", "想做的事很多，说明你有很多想要的")
+                    t.rate >= 0.5f -> copy.pick("todo-mid", "大半都搞定了，不赖", "一半以上打了勾，继续保持", "做完的比没做的多，够了")
+                    else -> copy.pick("todo-lo", "记下来就是开始，下学期挑几件最要紧的先做", "计划比做完多一点，正常，慢慢来", "想做的事比时间多，挑着做就好")
                 })
                 fact("每周新增", "${"%.1f".format(t.created.toFloat() / weeks)} 件", "plus")
                 fact("每周完成", "${"%.1f".format(t.done.toFloat() / weeks)} 件", "check")
@@ -204,6 +214,7 @@ fun TermReport.toHtml(): String {
                 if (t.byAgent > 0) note("chat", "其中 ${t.byAgent} 件是让小岱帮你记的")
             })
         }
+        library?.let { l -> add(librarySlide(l)) }
         card?.let { c ->
             add(slide("#4A2511", "#C0632B", "#FDBA74", Hero.WALLET) {
                 lead("wallet", copy.pick("card-lead", "校园卡一共花了", "这学期一卡通刷出去", "钱包这学期流出了"))
@@ -216,11 +227,10 @@ fun TermReport.toHtml(): String {
                 vbars(c.monthly.map { (m, v) -> "${m.takeLast(2).trimStart('0')}月" to (v / maxMonth).toFloat() })
                 c.monthly.maxByOrNull { it.second }?.let { (m, v) ->
                     note("flame", "${monthName(m)}花得最多，¥%.0f".format(v) +
-                        copy.pick("card-peak", "，那个月发生了什么？", "，大概是期中的补给", "，钱包那个月最累"))
+                        copy.pick("card-peak", "，那个月发生了什么？", "，大概是期中的补给", "，钱包那个月最累", "，那个月过得最丰富"))
                 }
                 val maxCat = c.categories.maxOfOrNull { it.second }?.coerceAtLeast(1.0) ?: 1.0
                 c.categories.forEach { (name, v) -> hbar(name, "¥%.0f".format(v), (v / maxCat).toFloat()) }
-                if (c.from > start) small("本机流水从 ${c.from.md()} 起，之前的没算进来")
             })
             add(slide("#3F2212", "#A4552A", "#FDBA74", null) {
                 lead("coin", copy.pick("card2-lead", "花钱习惯", "钱都花在哪天", "钱包的小秘密"))
@@ -236,11 +246,11 @@ fun TermReport.toHtml(): String {
                 c.priciestDay?.let { (d, v) -> note("calendar", "花得最多的一天是 ${d.md()}，¥%.0f".format(v)) }
                 c.priciest?.let { note("coin", "单笔最大：${it.stamp()} 在${it.displayMerchant}，¥%.0f".format(-it.amount)) }
                 c.quietStreak?.takeIf { it.second >= 7 }?.let { (d, n) ->
-                    note("coffee", "最长 $n 天没刷卡（${d.md()} 起）" + copy.pick("card-quiet", "，回家了吧？", "，钱包难得休息", "，那几天去哪儿了？"))
+                    note("coffee", "最长 $n 天没刷卡（${d.md()} 起）" + copy.pick("card-quiet", "，回家了吧？", "，钱包难得休息", "，那几天去哪儿玩了？"))
                 }
                 quote(when {
-                    c.spend / c.activeDays.coerceAtLeast(1) <= 25 -> copy.pick("card-thrift", "花得克制，日子过得明白", "会过日子，是一种本事")
-                    else -> copy.pick("card-free", "该花就花，对自己好一点没错", "钱花在哪，生活就在哪")
+                    c.spend / c.activeDays.coerceAtLeast(1) <= 25 -> copy.pick("card-thrift", "花得克制，日子过得明白", "日均不到 25 块，安排得很有条理")
+                    else -> copy.pick("card-free", "该花就花，对自己好一点没错", "钱包瘦了点，嘴没亏着", "吃好用好，日子过得有滋味")
                 })
             })
             c.meal?.let { m ->
@@ -264,10 +274,10 @@ fun TermReport.toHtml(): String {
                     m.latest?.let { note("moon", "最晚的一顿：${it.stamp()}，${it.displayMerchant}") }
                     m.peak?.let { (h, quip) -> note("clock", "$h 点是你的干饭高峰，$quip") }
                     quote(when {
-                        m.lateNights >= 15 -> copy.pick("meal-night", "夜宵是你和校园最温柔的约定", "深夜的食堂灯光，你最熟", "饿着肚子的夜晚，你一个都没放过")
-                        m.breakfastDays >= 40 -> copy.pick("meal-bf", "早饭从不缺席，自律从胃开始", "早餐打卡王，上午的你一定很清醒", "一天从早饭开始，你做到了")
-                        m.avgMeal > 0 && m.avgMeal <= 11 -> copy.pick("meal-cheap", "精打细算，吃得好也吃得省", "性价比之王", "每一分钱都吃在刀刃上")
-                        else -> copy.pick("meal-mid", "好好吃饭的人，运气都不会太差", "吃饱了，才有力气学习", "人间烟火气，最抚学子心")
+                        m.lateNights >= 15 -> copy.pick("meal-night", "夜宵档口的老板，大概已经记住你了", "深夜的食堂灯光，你最熟", "夜宵时间，你从不委屈自己")
+                        m.breakfastDays >= 40 -> copy.pick("meal-bf", "早饭从不缺席，上午的课不靠硬撑", "早餐打卡王，上午的你一定很清醒")
+                        m.avgMeal > 0 && m.avgMeal <= 11 -> copy.pick("meal-cheap", "精打细算，吃得好也吃得省", "性价比之王", "每一分钱都吃在刀刃上", "哪个窗口量大实惠，你门儿清")
+                        else -> copy.pick("meal-mid", "三餐都有着落，这学期没亏待自己", "吃饱了，才有力气学习", "食堂几个窗口，你大概都吃出了偏好")
                     })
                 })
             }
@@ -295,13 +305,13 @@ fun TermReport.toHtml(): String {
                 }
                 g.records.take(2).forEach { note("trophy", it) }
                 quote(when {
-                    g.minutes >= 600 -> copy.pick("game-hi", "会玩的人，学起来也不差", "摸鱼也是一门手艺")
-                    else -> copy.pick("game-lo", "小玩怡情，刚刚好", "偶尔放松一下，节奏感满分")
+                    g.minutes >= 600 -> copy.pick("game-hi", "会玩的人，学起来也不差", "摸鱼也是一门手艺", "劳逸结合，玩得也认真")
+                    else -> copy.pick("game-lo", "小玩怡情，刚刚好", "偶尔玩两把，不耽误正事", "摸鱼有度，张弛刚好")
                 })
             } else {
                 g?.records?.take(3)?.forEach { note("trophy", it) }
                 fitness?.let { fact("体测", it, "run") }
-                quote(copy.pick("free-lo", "课余时间留给了更重要的事", "比起小游戏，你更忙着生活"))
+                quote("小游戏没怎么碰，课余时间另有安排")
             }
         })
         agent?.let { a ->
@@ -321,7 +331,7 @@ fun TermReport.toHtml(): String {
                     val max = a.topTools.first().second.coerceAtLeast(1)
                     a.topTools.forEach { (name, n) -> hbar(name, "$n 次", n.toFloat() / max) }
                 }
-                quote(copy.pick("agent-end", "谢谢你这学期的信任", "下学期也请多多关照", "有问题，随时来") +
+                quote(copy.pick("agent-end", "下学期也请多多关照", "有问题，随时来") +
                     (a.peakHour?.takeIf { it >= 23 || it < 4 }?.let { "，也记得早点睡呀" } ?: ""))
             })
         }
@@ -347,7 +357,7 @@ fun TermReport.toHtml(): String {
                     u.topFeatures.forEach { (name, n) -> hbar(name, "$n 次", n.toFloat() / max) }
                 }
                 if (u.lateLaunches > 0) note("moon", "凌晨还打开 ${u.lateLaunches} 次，夜猫子实锤")
-                if (u.days >= days * 0.6) note("heart", "学期里 ${u.days * 100 / days.coerceAtLeast(1)}% 的日子都用到了它，谢谢你")
+                if (u.days >= days * 0.6) note("heart", "学期里 ${u.days * 100 / days.coerceAtLeast(1)}% 的日子都用到了它")
             })
         }
         persona()?.let { p ->
@@ -357,7 +367,7 @@ fun TermReport.toHtml(): String {
                 radar(p.axes)
                 quote(p.desc)
                 p.axes.minByOrNull { it.second }?.takeIf { it.second < 0.5f }?.let { (axis, _) ->
-                    note("bulb", "「$axis」是还没点满的一格，" + copy.pick("persona-low", "下学期可以多给它一点时间", "留点惊喜给下学期", "也许是下一个亮点"))
+                    note("bulb", "「$axis」是还没点满的一格，" + copy.pick("persona-low", "下学期可以多给它一点时间", "留点空间给下学期", "下学期说不定就点亮了"))
                 }
             })
         }
@@ -374,9 +384,9 @@ fun TermReport.toHtml(): String {
                 section("下学期小目标")
                 next.goals.forEach { (label, value, icon) -> fact(label, value, icon) }
             }
-            quote(copy.pick("advice-end", "下学期见，祝一切顺利", "愿你下学期依旧闪闪发光", "新的学期，新的自己"))
+            quote(copy.pick("advice-end", "下学期见，祝一切顺利", "假期好好休息，下学期见", "下学期的总结，看你怎么写"))
         })
-        project?.let { addAll(projectSlides(it)) }
+        project?.let { add(projectSlide(it)) }
         add(slide("#16122E", "#4B2A7B", "#FDE68A", Hero.MEDAL) {
             raw(buildString {
                 append("<div class=\"poster\"><div class=\"pt\">${icon("sparkle")}<span>${esc(termName)} · 这学期的你是</span></div>")
@@ -387,7 +397,6 @@ fun TermReport.toHtml(): String {
                 highlights().forEach { append("<div class=\"hl\">${icon("star")}<span>${esc(it)}</span></div>") }
                 append("<div class=\"sign\">岱宗盒子 · 学期总结</div></div>")
             })
-            if (missing.isNotEmpty()) small("生成时本机没有${missing.joinToString("、") { it.first }}的数据，加载后刷新就能补上")
         })
     }
     return """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
@@ -399,80 +408,71 @@ fun TermReport.toHtml(): String {
 private const val REPO_URL = "https://github.com/yeliqin666/xjtu-toolbox-android"
 
 /**
- * 「关于岱宗盒子」：它的来历、你和它、一起做它的人、写在最后。
+ * 「关于岱宗盒子」一页：来历、你和它、Star 曲线、参与人数，收在开源与致谢上。
  * 只写数据里查得到的事；时间、人数都按 [ProjectStory] 截至那天的数。
  */
-private fun TermReport.projectSlides(p: ProjectStory): List<String> = buildList {
+private fun TermReport.projectSlide(p: ProjectStory): String = slide("#0B1A33", "#3A2466", "#FDE68A", null) {
     val born = p.bornDate
     fun day(s: String) = LocalDate.parse(s)
-    add(slide("#0B1A33", "#1E3A6E", "#FDE68A", null) {
-        lead("sparkle", "关于岱宗盒子")
-        big("${born.year} 年 ${born.md()}", 40)
-        body(buildString {
-            // 2026-02-18 是农历正月初二
-            if (born == LocalDate(2026, 2, 18)) append("大年初二，")
-            append("晚上 ${p.born.drop(11)}，岱宗盒子的第一次提交写着：「${p.firstCommit.substringAfter(": ")}」")
-        })
-        p.stars.firstOrNull()?.let { first ->
-            val gap = day(first).toEpochDays() - born.toEpochDays()
-            note("star", when (gap) { 0L -> "当天"; 1L -> "第二天"; else -> "第 ${gap + 1} 天" } + "，它收到了第一颗星。")
-        }
-        installedOn?.takeIf { it >= born }?.let { d ->
-            section("你和它")
-            val then = p.releases.lastOrNull { day(it.d) <= d }
-            // 安装日期按系统的首次安装时间，卸载重装会往后推，所以说「这一段」而不是「装上」
-            note("heart", "你和它的这一段，从 ${d.year} 年 ${d.md()}开始，那是它出生后的第 ${d.toEpochDays() - born.toEpochDays() + 1} 天" +
-                (then?.let { "，它还是 v${it.v}" } ?: "") + "。")
-            val after = p.releases.count { day(it.d) > d }
-            if (after > 0) note("plane", "从那天到现在，它又更新了 $after 个版本。")
-        }
-        if (p.stars.isNotEmpty()) {
-            section("星星")
-            val dates = p.stars.map(::day)
-            val marks = (listOf(1, 10, 50, 100, 200, 500).filter { it < dates.size } + dates.size).distinct()
-            starCurve(dates, born, maxOf(day(p.date), dates.last()), marks)
-            chips(marks.map { "第 $it 颗 · ${dates[it - 1].md()}" })
-            val inTerm = dates.count { it in start..end }
-            if (inTerm > 0) note("star", "这学期，它多了 $inTerm 颗。")
-        }
+    lead("sparkle", "关于岱宗盒子")
+    big("${born.year} 年 ${born.md()}", 34)
+    body(buildString {
+        // 2026-02-18 是农历正月初二
+        if (born == LocalDate(2026, 2, 18)) append("大年初二，")
+        append("晚上 ${p.born.drop(11)}，第一次提交写着：「${p.firstCommit.substringAfter(": ")}」")
     })
-    // 在不止一处留下名字的人，名字后面带个小点
-    val groups = listOf(p.coders, p.askers, p.talkers).map { g -> g.map { it.name.lowercase() }.toSet() }
-    val multi = groups.flatten().groupingBy { it }.eachCount().filterValues { it > 1 }.keys
-    add(slide("#1A1033", "#3B2A6B", "#C4B5FD", null) {
-        lead("user", "一起做它的人")
-        count(p.people.toLong(), 64, suf = "位")
-        small("截至 ${day(p.date).year} 年 ${day(p.date).md()}，在 GitHub 上留下名字的人")
-        note("clock", "${p.commits} 次提交，分布在 ${p.commitDays} 天里，其中 ${p.lateCommits} 次是在凌晨 0 点到 5 点。")
-        section("写代码的人 · ${p.coders.size} 位")
-        wall(p.coders, multi)
-        section("提问题的人 · ${p.askers.size} 位")
-        small("${p.issues} 个 issue，${p.issuesClosed} 个已经关闭。")
-        p.firstIssue?.let { f ->
-            small("第 ${f.n} 个是 ${day(f.date).md()}提的：「${f.title}」" + (f.closeMinutes?.let { "，$it 分钟后被关闭" } ?: "") + "。")
-        }
-        p.hottestIssue?.takeIf { it.comments >= 5 }?.let { small("讨论最热的一个有 ${it.comments} 条回复。") }
-        wall(p.askers, multi)
-    })
-    add(slide("#16203A", "#2B3F73", "#A5B4FC", null) {
-        lead("chat", "一起做它的人")
-        section("在讨论区说话的人 · ${p.talkers.size} 位")
-        small("${p.discussions} 个帖子。")
-        wall(p.talkers, multi)
-        quote("这面墙只认得 GitHub 上的名字。QQ 群、集市、飞书表单里的同学，你们的名字不在这里，但你们说过的话，在这些版本里。")
-        small("名字后的小点：在不止一处留下过名字")
-    })
-    add(slide("#0F0C24", "#3A2466", "#FDE68A", Hero.MEDAL) {
-        lead("heart", "写在最后")
-        big("泰山不让土壤，故能成其大", 30)
-        small("—— 李斯《谏逐客书》")
-        body("岱宗，就是泰山。一行代码、一个 issue、群里的一句「又崩了」，都是这座山上的一捧土。")
-        note("doc", "岱宗盒子是开源的：代码以 GPL-3.0 协议全部公开，任何人都可以读、可以改、可以拿去用。")
-        note("heart", "它免费，不以盈利为目的。由同学做给同学，属于每一个交大人。")
-        note("user", "这座山没有门槛。会写代码的，来提一个 PR；不会写的，说一句话就够了。")
-        quote("欢迎你，一起把它做得更好。下学期见。")
-        link(REPO_URL, "☆ 去 GitHub 点亮一颗星")
-    })
+    installedOn?.takeIf { it >= born }?.let { d ->
+        val then = p.releases.lastOrNull { day(it.d) <= d }
+        val after = p.releases.count { day(it.d) > d }
+        // 安装日期按系统的首次安装时间，卸载重装会往后推，所以说「这一段」而不是「装上」
+        note("heart", "你和它的这一段从 ${d.year} 年 ${d.md()}开始" + (then?.let { "，那时它还是 v${it.v}" } ?: "") +
+            (if (after > 0) "，之后又更新了 $after 个版本。" else "。"))
+    }
+    if (p.stars.isNotEmpty()) {
+        val dates = p.stars.map(::day)
+        val marks = (listOf(1, 100, 500).filter { it < dates.size } + dates.size).distinct()
+        starCurve(dates, born, maxOf(day(p.date), dates.last()), marks)
+        val inTerm = dates.count { it in start..end }
+        note("star", "现在一共 ${dates.size} 颗星" + (if (inTerm > 0) "，其中 $inTerm 颗是这学期点的。" else "。"))
+    }
+    note("user", "截至 ${day(p.date).md()}，${p.people} 位同学在 GitHub 上写过代码、提过问题或参与过讨论，" +
+        "一共 ${p.commits} 次提交，${p.lateCommits} 次在凌晨。")
+    small("岱宗盒子按 GPL-3.0 开源，不收费。想改代码可以提 PR；遇到问题，在 GitHub 或群里说一声就行。")
+    link(REPO_URL, "☆ 在 GitHub 点个 Star")
+}
+
+/** 图书馆一页：只算本机攒下的预约卡（学校页面只列最近几张）。 */
+private fun librarySlide(l: LibraryStats): String = slide("#13283B", "#2F5D7C", "#BAE6FD", null) {
+    lead("building", "图书馆")
+    body("这学期约了座位")
+    count(l.bookings.toLong(), 64, suf = "次")
+    fact("去了", "${l.days} 天", "calendar")
+    l.earliestIn?.let { fact("最早签到", it, "sunrise") }
+    l.topArea?.let { (a, n) -> fact("最常去", "$a · $n 次", "pin") }
+    l.topSeat?.let { (s, n) -> fact("老位置", "$s · $n 次", "star") }
+    if (l.perWeekday.count { it > 0 } >= 3) {
+        val max = l.perWeekday.max().coerceAtLeast(1)
+        vbars(l.perWeekday.mapIndexed { i, n -> weekdayName(i).drop(1) to n.toFloat() / max }, l.perWeekday.map { it.toString() })
+    }
+    if (l.leaves > 0) note("coffee", "中途离开过 ${l.leaves} 次")
+    if (l.missed > 0) note("alarm", "有 ${l.missed} 次没赶上签到")
+    if (l.cancelled > 0) note("x", "取消了 ${l.cancelled} 次")
+}
+
+/** 作业、学辅资料、空闲教室、考试，凑成一页。 */
+private fun studySlide(s: StudyStats): String = slide("#1A2A44", "#3B5B8C", "#A5F3FC", null) {
+    lead("doc", "作业、资料与考试")
+    if (s.submitted > 0) fact("思源交作业", "${s.submitted} 份", "doc")
+    if (s.exams > 0) fact("考试", "${s.exams} 场", "calendar")
+    if (s.zyxfPreviews > 0) fact("看学辅资料", "${s.zyxfPreviews} 次", "book")
+    if (s.zyxfDownloads > 0) fact("下载学辅资料", "${s.zyxfDownloads} 份", "plus")
+    if (s.roomQueries > 0) fact("查空教室", "${s.roomQueries} 次", "building")
+    if (s.lastMinute > 0) note("clock", "有 ${s.lastMinute} 份作业是截止前 3 小时内交的")
+    s.topCourse?.let { (c, n) -> note("medal", "交得最多的是「$c」，$n 份") }
+    s.zyxfTop?.let { (c, n) -> note("book", "学辅里翻得最多的是「$c」，$n 次") }
+    s.topRoomBuilding?.let { (b, n) -> note("pin", "空教室查得最多的是$b，$n 次") }
+    s.examSpan?.let { (a, b) -> note("calendar", "考试从 ${a.md()} 考到 ${b.md()}") }
+    s.examPeak?.let { (d, n) -> note("flame", "${d.md()} 一天考了 $n 场") }
 }
 
 /** "2025-09" → 「9 月」 */
@@ -550,21 +550,10 @@ private class SlideBuilder {
             "<path class=\"ln\" pathLength=\"100\" d=\"$line\"/>$dots</svg>")
     }
 
-    /** 一排小标签。 */
-    fun chips(items: List<String>) = raw("<div class=\"tags\">${items.joinToString("") { "<span>${esc(it)}</span>" }}</div>")
+    fun link(url: String, text: String) = raw("<div class=\"ctarow\"><a class=\"cta\" href=\"${esc(url)}\">${esc(text)}</a></div>")
 
-    /** 名字墙：参与越多字越大；[multi] 里的名字（不止在一处出现）带个小点。 */
-    fun wall(people: List<ProjectStory.Person>, multi: Set<String>) {
-        if (people.isEmpty()) return
-        val max = ln(people.maxOf { it.n }.toDouble() + 1)
-        raw("<div class=\"wall\">" + people.withIndex().joinToString("") { (i, p) ->
-            val size = 12 + 7 * ln(p.n + 1.0) / max
-            val dot = if (p.name.lowercase() in multi) "<b></b>" else ""
-            "<span style=\"font-size:%.1fpx;transition-delay:${i * 30}ms\">${esc(p.name)}$dot</span>".format(size)
-        } + "</div>")
-    }
-
-    fun link(url: String, text: String) = raw("<a class=\"cta\" href=\"${esc(url)}\">${esc(text)}</a>")
+    /** 已排进页面的块数，内容多的页不放顶部插画。 */
+    val items get() = n + if (tiles.isEmpty()) 0 else (tiles.size + 1) / 2
 
     /** 24 小时分布：24 根细条，最高的那根点亮。 */
     fun hours(counts: List<Long>, caption: String) {
@@ -677,10 +666,13 @@ private class SlideBuilder {
  * 内容放在限宽的 `.wrap` 里，平板和横屏不会拉成一长条。
  */
 private fun slide(from: String, to: String, accent: String, hero: Hero?, build: SlideBuilder.() -> Unit): String {
-    val content = SlideBuilder().apply { build(); flush() }.sb
+    val builder = SlideBuilder().apply { build() }
+    // 块多的页手机一屏放不下，先省掉顶部插画
+    val art = hero?.takeIf { builder.items <= 9 }
+    val content = builder.apply { flush() }.sb
     return "<section style=\"background:linear-gradient(165deg,$from,$to);--a:$accent\">" +
         decor("$from$to$accent".hashCode()) +
-        "<div class=\"wrap\">${hero?.let { "<div class=\"r hero\">${it.svg}</div>" }.orEmpty()}$content</div></section>"
+        "<div class=\"wrap\">${art?.let { "<div class=\"r hero\">${it.svg}</div>" }.orEmpty()}$content</div></section>"
 }
 
 /** 大字随屏宽缩放：400px 宽时正好是设计值，窄屏最多缩到 72%，宽屏不再放大。 */
@@ -702,16 +694,17 @@ private fun decor(seed: Int): String {
     )
     return buildString {
         append("<div class=\"bg\"><b class=\"glow g1\"></b><b class=\"glow g2\"></b>")
-        repeat(9) { i ->
-            val x = (i % 3) * 33 + rnd.nextInt(4, 28)
-            val y = (i / 3) * 33 + rnd.nextInt(2, 28)
-            val size = rnd.nextInt(10, 26)
+        // 只撒在左右两侧的窄边里，不压正文
+        repeat(8) { i ->
+            val x = if (i % 2 == 0) rnd.nextInt(1, 7) else rnd.nextInt(90, 96)
+            val y = (i / 2) * 25 + rnd.nextInt(2, 20)
+            val size = rnd.nextInt(10, 20)
             val dur = rnd.nextInt(6, 13)
             val delay = rnd.nextDouble(0.0, 4.0)
             val anim = if (rnd.nextBoolean()) "fl" else "tw"
             val color = if (rnd.nextInt(3) == 0) "var(--a)" else "rgba(255,255,255,.55)"
             append("<svg viewBox=\"0 0 24 24\" class=\"$anim\" style=\"left:$x%;top:$y%;width:${size}px;height:${size}px;")
-            append("color:$color;opacity:${rnd.nextInt(18, 45) / 100.0};animation-duration:${dur}s;animation-delay:-%.1fs\">".format(delay))
+            append("color:$color;opacity:${rnd.nextInt(14, 30) / 100.0};animation-duration:${dur}s;animation-delay:-%.1fs\">".format(delay))
             append(shapes[rnd.nextInt(shapes.size)]).append("</svg>")
         }
         append("</div>")
@@ -890,7 +883,7 @@ private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replac
 private const val CSS = """
 html,body{margin:0;height:100%;background:#101426;color:#fff;font-family:-apple-system,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;-webkit-tap-highlight-color:transparent}
 main{height:100%;overflow-y:scroll;scroll-snap-type:y mandatory}
-section{position:relative;overflow:hidden;min-height:100vh;min-height:100dvh;scroll-snap-align:start;box-sizing:border-box;padding:max(env(safe-area-inset-top),72px) 24px max(env(safe-area-inset-bottom),44px);display:flex;flex-direction:column;justify-content:center}
+section{position:relative;overflow:hidden;min-height:100vh;min-height:100dvh;scroll-snap-align:start;box-sizing:border-box;padding:max(env(safe-area-inset-top),56px) 22px max(env(safe-area-inset-bottom),36px);display:flex;flex-direction:column;justify-content:center}
 section:not(.on) *{animation-play-state:paused!important}
 .r{position:relative;z-index:1;opacity:0;transform:translateY(24px);transition:opacity .6s ease,transform .6s cubic-bezier(.2,.8,.2,1)}
 section.on .r{opacity:1;transform:none}
@@ -940,9 +933,10 @@ section.on .r{opacity:1;transform:none}
 .unit{font-size:.36em;font-weight:700;margin:0 4px;letter-spacing:0}
 .body{font-size:16px;line-height:1.6;opacity:.92;margin:2px 0}
 .small{font-size:13px;opacity:.68;margin:4px 0;line-height:1.5}
-.quote{position:relative;margin:12px 0 8px;padding:14px 16px 14px 20px;border-radius:18px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);font-size:16px;line-height:1.6;font-weight:500}
-.quote::before{content:"\201C";position:absolute;left:8px;top:-16px;font-size:46px;line-height:1;color:var(--a);font-family:Georgia,serif}
+.quote{position:relative;margin:12px 0 8px;padding:13px 16px 13px 42px;border-radius:18px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);font-size:16px;line-height:1.6;font-weight:500}
+.quote::before{content:"\201C";position:absolute;left:13px;top:10px;font-size:36px;line-height:1;color:var(--a);font-family:Georgia,serif}
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.tile:last-child:nth-child(odd){grid-column:1/-1}
 .tile{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);min-width:0}
 .tile>div{min-width:0}
 .tile .ic{width:20px;height:20px}
@@ -1014,14 +1008,17 @@ section.on .stars .area{fill-opacity:.16}
 .stars .ln{fill:none;stroke:var(--a);stroke-width:2.5;stroke-linejoin:round;stroke-dasharray:100;stroke-dashoffset:100;transition:stroke-dashoffset 2s ease .3s}
 section.on .stars .ln{stroke-dashoffset:0}
 .stars .mk{fill:#fff;stroke:var(--a);stroke-width:2.5}.stars text{fill:#fff;font-size:10px;font-weight:700}
-.wall{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;margin:8px 0 6px}
-.wall span{font-weight:600;opacity:0;transform:translateY(6px);transition:opacity .5s ease,transform .5s ease}
-section.on .wall span{opacity:.92;transform:none}
-.wall b{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--a);margin-left:3px;vertical-align:super}
-.cta{align-self:center;margin:16px 0 4px;padding:11px 22px;border-radius:999px;background:var(--a);color:#1a1530;font-weight:800;font-size:15px;text-decoration:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.ctarow{display:flex;justify-content:center;margin:18px 0 6px}
+.cta{display:inline-block;padding:12px 24px;line-height:1.3;border-radius:999px;background:var(--a);color:#1a1530;font-weight:800;font-size:15px;text-decoration:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .heatlg b.l0{background:rgba(255,255,255,.08)}.heatlg b.l1{opacity:.3}.heatlg b.l2{opacity:.55}.heatlg b.l3{opacity:.8}.heatlg b.l4{background:#fff}
+@media (max-height:900px){
+.art{width:140px;height:105px}
+.note{margin:5px 0}.tiles{gap:8px;margin:8px 0}.tile{padding:9px 11px}
+.vbars{height:112px;margin:10px 0 6px}section.on .vbars .bar{height:calc(var(--v) * 74px)}
+.hbar{margin:7px 0}.sec{margin:10px 0 2px}.quote{margin:10px 0 6px}
+}
 @media (max-height:740px){
-section{padding-top:max(env(safe-area-inset-top),62px);padding-bottom:max(env(safe-area-inset-bottom),32px)}
+section{padding-top:max(env(safe-area-inset-top),48px);padding-bottom:max(env(safe-area-inset-bottom),28px)}
 .art{width:124px;height:93px}.hero{margin:0}
 .tiles{gap:8px;margin:8px 0}.tile{padding:8px 10px;gap:8px}.tile .ic{width:18px;height:18px}
 .quote{margin:8px 0 6px;padding:11px 14px 11px 18px;font-size:15px}
@@ -1029,7 +1026,8 @@ section{padding-top:max(env(safe-area-inset-top),62px);padding-bottom:max(env(sa
 .clock{width:100px;height:100px}.radar{max-width:280px}
 }
 @media (max-width:350px){.tiles{grid-template-columns:1fr}.tile .v{font-size:15px}}
-@media (min-width:600px){.wrap{max-width:560px}.tiles{grid-template-columns:repeat(3,1fr)}.art{width:200px;height:150px}}
+@media (max-width:350px){.tile:last-child:nth-child(odd){grid-column:auto}}
+@media (min-width:600px){.wrap{max-width:560px}.tiles{grid-template-columns:repeat(3,1fr)}.tile:last-child:nth-child(odd){grid-column:auto}.art{width:200px;height:150px}}
 """
 
 private const val JS = """

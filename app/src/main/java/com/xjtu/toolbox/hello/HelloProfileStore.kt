@@ -43,7 +43,24 @@ object HelloProfileStore {
 
     private fun DataCache.writeProfile(profile: HelloProfile) = write(CACHE_KEY, profile)
 
-    fun cached(context: Context): HelloProfile? = DataCache(context).readProfile()
+    /** 读过 / 写过的档案留一份在内存，按账号认：「我的」页组合时命中它就不同步读盘解 JSON。 */
+    private class Held(val accountId: String?, val profile: HelloProfile?)
+
+    @Volatile
+    private var held: Held? = null
+
+    fun cached(context: Context): HelloProfile? {
+        val account = AccountContext.activeAccountId
+        held?.takeIf { it.accountId == account }?.let { return it.profile }
+        val profile = DataCache(context, account).readProfile()
+        held = Held(account, profile)
+        return profile
+    }
+
+    /** 冷启动时在后台线程先读进内存。 */
+    fun preload(context: Context) {
+        cached(context)
+    }
 
     /**
      * 确保有档案可用。
@@ -60,8 +77,9 @@ object HelloProfileStore {
         /** 档案一拿到就回调（头像还在下载）：姓名、专业可以先显示，不用等头像下完。 */
         onProfile: (HelloProfile) -> Unit = {},
     ): HelloProfile? {
-        val cache = DataCache(context)
-        val local = cache.readProfile()
+        val account = AccountContext.activeAccountId
+        val cache = DataCache(context, account)
+        val local = cached(context)
         if (!force && local != null &&
             System.currentTimeMillis() - local.fetchedAt < REFRESH_AFTER_MS
         ) {
@@ -83,6 +101,8 @@ object HelloProfileStore {
                     HelloApi(site).getProfile()
                 }
                 cache.writeProfile(profile)
+                held = Held(account, profile)
+                runCatching { MajorHistory.observe(AccountContext.activeAccountId, fresh ?: local, profile) }
                 onProfile(profile)
                 withContext(Dispatchers.IO) { downloadAvatar(context, manager, profile) }
                 profile
@@ -120,18 +140,28 @@ object HelloProfileStore {
             ?: File(context.cacheDir, "avatar$suffix.jpg")
     }
 
-    /** 自定义头像优先于学工证件照；都没有则返回 null，调用方退回首字母。 */
-    fun cachedAvatar(context: Context): Bitmap? =
+    /** 自定义头像优先于学工证件照；都没有则返回 null，调用方退回首字母。在 IO 线程解码。 */
+    suspend fun cachedAvatar(context: Context): Bitmap? = withContext(Dispatchers.IO) {
         decode(customAvatarFile(context)) ?: decode(avatarFile(context)) ?: decode(legacyAvatarFile(context))
+    }
 
     /** 指定账号的头像；没有缓存返回 null（调用方退回首字母）。 */
     fun cachedAvatarFor(context: Context, accountId: String?): Bitmap? =
         decode(customAvatarFileFor(context, accountId)) ?: decode(avatarFileFor(context, accountId))
 
+    /** 按 [AVATAR_MAX_PX] 降采样解码：头像最大也只显示几十 dp，不解原图。 */
     private fun decode(f: File): Bitmap? {
         if (!f.exists() || f.length() == 0L) return null
-        return runCatching { BitmapFactory.decodeFile(f.absolutePath) }.getOrNull()
+        return runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(f.absolutePath, bounds)
+            var sample = 1
+            while (minOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= AVATAR_MAX_PX) sample *= 2
+            BitmapFactory.decodeFile(f.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+        }.getOrNull()
     }
+
+    private const val AVATAR_MAX_PX = 512
 
     /**
      * 下载头像并落盘。已存在且档案未更新过就跳过——头像 URL 里带内容哈希，
@@ -215,6 +245,7 @@ object HelloProfileStore {
 
     /** 切换/注销账号时清掉，避免上一个账号的头像与档案泄露给下一个人。 */
     fun clear(context: Context) {
+        held = null
         runCatching { DataCache(context).invalidate(CACHE_KEY) }
         runCatching { avatarFile(context).delete() }
         runCatching { avatarMarker(context).delete() }

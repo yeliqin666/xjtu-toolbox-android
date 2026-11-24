@@ -130,6 +130,8 @@ private class AppSettingsHost(
 
     override val agentPage: (@Composable (onBack: () -> Unit) -> Unit)? get() = agentPageImpl
 
+    override val projectStoryPage: @Composable () -> Unit = { com.xjtu.toolbox.termreport.ProjectStoryBody(openUri) }
+
     override val versionText: String =
         "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})${if (BuildConfig.IS_PREVIEW) "（预览版）" else ""}"
 

@@ -14,7 +14,7 @@ private const val TAG = "AttendanceStore"
  * 刷新分层——老师改考勤没有时间限制，期末回头补第 3 周是常事，只做增量看不到那种修改，
  * 但每次全量又太贵：
  *
- * - 历史学期：结束了不会再改，永久命中，一个请求不发
+ * - 历史学期：结束后整学期再拉一次（补上结束前最后几天），之后不会再改，永久命中
  * - 当前学期：[FRESH_TTL_MS] 内直接用；过期只补最近 [INCREMENTAL_DAYS] 天
  * - 兜底：距上次全量超过 [FULL_RESCAN_MS] 整学期重扫一遍
  * - 下拉刷新：强制全量
@@ -40,6 +40,8 @@ object AttendanceRecordStore {
         val fetchedAt: Long = 0L,
         /** 上次**全量**刷新的时刻。增量刷新不更新它。 */
         val fullScanAt: Long = 0L,
+        /** 学期结束后整学期拉过一次，此后不再刷新。 */
+        val sealed: Boolean = false,
     )
 
     /** [accountId] 由调用方在发起拉取时定下，避免结果回来时已切账号而写错命名空间。 */
@@ -100,6 +102,7 @@ object AttendanceRecordStore {
         records = merge(fresh, cached?.records.orEmpty()),
         fetchedAt = now,
         fullScanAt = if (fullScan) now else cached?.fullScanAt ?: 0L,
+        sealed = cached?.sealed == true,
     )
 
     /**
@@ -129,13 +132,13 @@ object AttendanceRecordStore {
     }
 
     /**
-     * @param sealedTerm 这个学期是否已经结束（数据不会再变）。
+     * @param sealedTerm 这个学期是否已经结束。结束前拉的分片缺最后几天，先整学期补一次（[Shard.sealed]）。
      * @param force 用户主动下拉刷新。
      */
     fun planFor(shard: Shard?, sealedTerm: Boolean, force: Boolean): Plan {
         if (force) return Plan.FULL
         if (shard == null) return Plan.FULL
-        if (sealedTerm) return Plan.NONE
+        if (sealedTerm) return if (shard.sealed) Plan.NONE else Plan.FULL
         val now = System.currentTimeMillis()
         if (now - shard.fullScanAt > FULL_RESCAN_MS) return Plan.FULL
         if (now - shard.fetchedAt > FRESH_TTL_MS) return Plan.INCREMENTAL
