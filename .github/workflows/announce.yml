@@ -85,11 +85,7 @@ jobs:
         working-directory: announce
         run: |
           test -n "$GITEE_TOKEN" || { echo "::error::GITEE_ACCESS_TOKEN missing"; exit 1; }
-          # token 不进 remote URL（会写进 .git/config、报错时可能打出来），只经 env 交给 credential helper
-          git config --local credential.https://gitee.com.helper \
-            '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
-          git push -q --force https://gitee.com/yeliqin666/xjtu-toolbox-android.git HEAD:announce
-          echo "Gitee announce 已同步"
+          bash "$GITHUB_WORKSPACE/.github/scripts/gitee_push.sh" HEAD refs/heads/announce
 
       # 公告也放一份到 OSS：App 同时读 OSS 和 Gitee 取较新的（旧版本只读 OSS）。
       # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce，所以在这里自己传；
