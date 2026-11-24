@@ -3,9 +3,9 @@ name: Announce
 # 讨论区公告分类（slug announcements）= App 公告的唯一编辑处（发帖表单见 .github/DISCUSSION_TEMPLATE/announcements.yml，
 # 文件名必须是分类的 slug，GitHub 不认中文 slug，所以分类名要保持英文 slug；
 # 解析和统计见 .github/scripts/announce.py）。生成的 JSON 提交到 GitHub 的 announce 分支，再把这个分支原样推到
-# Gitee：两边一致，App 先读 Gitee、再读 GitHub。不经过 OSS（OSS 只放小游戏和安装包）。
+# Gitee，bulletin.json 再传一份到 OSS：App 同时读 OSS 和 Gitee、按 updatedAt 取较新的，都不行再读 GitHub。
 #
-#   讨论区有变动：重建 bulletin.json；投票帖刚关就当场出最终结果；首次发布写一行飞书公告表、帖子里回一条解析结果
+#   讨论区有变动：重建 bulletin.json；首次发布写一行飞书公告表、帖子里回一条解析结果；关帖 = 删除
 #   每 4 天（北京时间 09:00，每月 1、5、9…号）：统计投票、从飞书生成 feedback-qa.json（大家在问），再重建
 #   手动：workflow_dispatch = 每 4 天那一趟，可选 dry_run（只打印，不提交、不回帖、不写飞书）
 #
@@ -90,3 +90,28 @@ jobs:
             '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
           git push -q --force https://gitee.com/yeliqin666/xjtu-toolbox-android.git HEAD:announce
           echo "Gitee announce 已同步"
+
+      # 公告也放一份到 OSS：App 同时读 OSS 和 Gitee 取较新的（旧版本只读 OSS）。
+      # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce，所以在这里自己传；
+      # ESA 不认源站缓存头，传完主动刷新（没配 ESA_* secrets 就跳过，要等缓存过期）。
+      - name: Upload bulletin to OSS
+        if: steps.commit.outputs.pushed == '1'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
+          ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
+          ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 oss2
+          python3 .github/scripts/oss_upload.py announce/bulletin.json "xjtu-toolbox/bulletin.json" "no-cache"
+          if [ -n "$ESA_SITE_ID" ]; then
+            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
+              || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
+          fi
+          python3 .github/scripts/esa_purge.py bulletin.json
