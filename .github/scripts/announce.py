@@ -458,7 +458,12 @@ def main() -> None:
         fd.log("讨论区还没有表单公告，不生成 bulletin.json")
         return
     bulletins = [n.bulletin for n in ns if n.bulletin]
-    save(out / BULLETIN_FILE, {"bulletins": bulletins})
+    # updatedAt 只在公告内容变了时更新：App 同时读 OSS 和 Gitee，靠它挑较新的一份（OSS 边缘缓存可能是旧的）；
+    # 内容没变就沿用旧时间，免得每次重建都多一个空提交
+    path = out / BULLETIN_FILE
+    old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    updated = old.get("updatedAt") if isinstance(old, dict) and old.get("bulletins") == bulletins else None
+    save(path, {"updatedAt": updated or iso(now), "bulletins": bulletins})
     fd.log(f"公告 {len(bulletins)} 条：" + "、".join(b["id"] for b in bulletins))
 
 
