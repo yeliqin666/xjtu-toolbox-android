@@ -26,8 +26,8 @@ android {
         // Android 12 起可装；低于 Android 15 时玻璃特效统一退回朴素外观（见 GlassSupport），PDF 取文字不可用
         minSdk = 31
         targetSdk = 36
-        versionCode = 98
-        versionName = "6.2.0"
+        versionCode = 99
+        versionName = "6.2.1"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
