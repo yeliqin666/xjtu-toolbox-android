@@ -24,7 +24,7 @@
 
 预览版只推给在「设置 → 更新」里开启「接收预览版更新」的用户，不做灰度分桶。`rollout` 字段固定为 `100`，仅为兼容旧客户端保留。
 
-GitHub Pre-release 与 OSS 上的预览 APK 都只保留最近 5 个，OSS 历史版本由 bucket 生命周期策略兜底清理。
+GitHub Pre-release 与 OSS 上的预览 APK 都只保留最近 5 个：CI 按版本目录删除旧的，残留的非当前版本与未完成分片上传由 bucket 生命周期规则兜底清理。
 
 ## 止血
 
@@ -41,7 +41,7 @@ GitHub Pre-release 与 OSS 上的预览 APK 都只保留最近 5 个，OSS 历�
 | 对象键 | 用途 |
 |---|---|
 | `xjtu-toolbox/apk/<versionName>/app-release.apk` | 按版本归档，`stable.json` 的 `apkUrl` 指向这里 |
-| `xjtu-toolbox/apk/latest/app-release.apk` | 固定别名，每次发版覆盖，`Cache-Control: no-cache` |
+| `xjtu-toolbox/apk/latest/app-release.apk` | 固定别名，每次发版覆盖，`Cache-Control: no-cache`（ESA 规则里实际缓存 30 天，靠发版后刷新） |
 | `xjtu-toolbox/stable.json`、`history/stable-<versionName>.json` | 更新清单与历史清单 |
 
 固定下载链接（官网、二维码等长期入口使用）：
@@ -52,10 +52,22 @@ https://dzhz.zyxf.top/xjtu-toolbox/apk/latest/app-release.apk
 
 预览包只写 `apk/preview/<version>/app-preview.apk` 与 `preview.json`，不写别名。CI 会核对别名对象的 `Content-Length` 与本次 APK 一致。
 
-CDN（`dzhz.zyxf.top`）的路径缓存规则必须与对象划分对齐，否则会覆盖源站的 `Cache-Control`：
+CDN（`dzhz.zyxf.top`，阿里云 ESA）的缓存以线上规则为准（2026-11-24 起；ESA 套餐缓存规则上限 5 条，改之前先 `ListCacheRules` 看还有没有位）：
 
-| 路径 | TTL | 权重 | 说明 |
-|---|---|---|---|
-| `/xjtu-toolbox/apk/` | 1 年 | 1 | 版本目录不可变 |
-| `/xjtu-toolbox/apk/latest/` | 60 秒 | 2 | 别名会变，优先命中 |
-| `*.json` | 0 | 1 | 清单不缓存 |
+| 匹配 | 边缘 TTL | 说明 |
+|---|---|---|
+| `/xjtu-toolbox/**` | 跟随源站，缺省回退 30 天 | 清单上传时带 `Cache-Control: no-cache` → 边缘只做校验、不缓存；安装包没有缓存头 → 边缘 30 天 |
+| `/assets/**` | 跟随源站，缺省回退 1 年 | nginx 对文件名带 hash 的产物给 `max-age=31536000, immutable` |
+| `dzhz.zyxf.top` 其余路径 | 强制 5 分钟 | 官网 HTML 等；改版最多 5 分钟全网生效 |
+| `oss.zyxf.top` | 7 天 | 资料站资源（与盒子无关） |
+| `/api/`、`/.well-known/`、`/games/` | 不缓存 | 动态接口、证书签发、榜单服务 |
+| `zyxf.top` 主站 | 无专门规则，默认跟随源站 | HTML 是 `no-cache` 不缓存，`/assets/**` 按源站 1 年 |
+
+更新链路是：客户端读 `stable.json` / `preview.json`，按 `publishedAt` / `versionName` 比对版本，再从清单里的 `apkUrl` 下载——安装包按版本归档（不可变），长缓存不会读到旧包；清单带 `no-cache`、边缘每次回源校验，版本号一变客户端立刻能看到。
+
+`apk/latest/app-release.apk` 这个固定别名同样带 `no-cache`，边缘会回源校验；发正式版时 CI 仍主动刷新它一次当兜底。清单 JSON 和按版本归档的 APK 都不需要刷。刷新凭据放在仓库 secrets：
+
+| Secret | 用途 |
+|---|---|
+| `ESA_SITE_ID` | 站点 ID，`zyxf.top` 为 `190304393599084` |
+| `ESA_ACCESS_KEY_ID` / `ESA_ACCESS_KEY_SECRET` | RAM 用户 `xjtu-toolbox-esa` 的 AK，只授 `esa:PurgeCaches`、`esa:DescribePurgeTasks`；没配时 [`esa_purge.py`](../.github/scripts/esa_purge.py) 只打 notice 跳过，不会让发版失败 |

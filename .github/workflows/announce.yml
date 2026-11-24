@@ -88,8 +88,8 @@ jobs:
           bash "$GITHUB_WORKSPACE/.github/scripts/gitee_push.sh" HEAD refs/heads/announce
 
       # 公告也放一份到 OSS：App 同时读 OSS 和 Gitee 取较新的（旧版本只读 OSS）。
-      # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce，所以在这里自己传；
-      # ESA 不认源站缓存头，传完主动刷新（没配 ESA_* secrets 就跳过，要等缓存过期）。
+      # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce，所以在这里自己传。
+      # 清单类对象在 ESA 上是不缓存的（见 docs/release.md），传完不需要刷缓存。
       - name: Upload bulletin to OSS
         if: steps.commit.outputs.pushed == '1'
         continue-on-error: true
@@ -99,15 +99,7 @@ jobs:
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
           OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
           OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
-          ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
-          ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
-          ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
         run: |
           set -euo pipefail
           python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 oss2
           python3 .github/scripts/oss_upload.py announce/bulletin.json "xjtu-toolbox/bulletin.json" "no-cache"
-          if [ -n "$ESA_SITE_ID" ]; then
-            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
-              || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
-          fi
-          python3 .github/scripts/esa_purge.py bulletin.json
