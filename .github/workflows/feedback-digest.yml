@@ -1,15 +1,17 @@
 name: Feedback digest
 
-# 飞书反馈表 → GitHub issue 日报，issue 里的 /reply、/skip 回写飞书回复表。细节见 .github/scripts/feedback_digest.py。
+# 飞书反馈表 → 崩溃日报（issue）+ 反馈日报（讨论，一条反馈一层楼），/reply、/skip 回写飞书回复表。
+# 细节见 .github/scripts/feedback_digest.py。
 #
-# 定时（每天北京时间 08:30 = UTC 00:30）：发崩溃 / 反馈两条日报（没有新内容就不发），再补处理漏掉的命令。
+# 定时（每天北京时间 08:30 = UTC 00:30）：发两类日报（没有新内容就不发），再补处理漏掉的命令。
 # 手动：workflow_dispatch，可选 dry_run（只打印不写）。
-# 评论：带 feedback 标签的 issue 里，OWNER / MEMBER / COLLABORATOR 发 /reply 或 /skip 即时处理。
-#   issue_comment 事件只认默认分支上的 workflow，改动要先合到 main。
+# 评论：「反馈日报」分类的讨论里，OWNER / MEMBER / COLLABORATOR 发 /reply 或 /skip 即时处理；
+#   旧的反馈日报 issue（带 feedback 标签）也照旧认。评论事件只认默认分支上的 workflow，改动要先合到 main。
 #
 # 仓库变量（Settings → Variables，可不设）：
-#   FEEDBACK_MODERATION  off / mark（默认，Qwen3Guard 只标记、折叠疑似违规）/ block（疑似违规不展示正文）
-#   CRASH_MIN_VERSION    崩溃日报的最低版本，默认 5.1.1
+#   FEEDBACK_MODERATION           off / mark（默认，Qwen3Guard 只标记、折叠疑似违规）/ block（疑似违规不展示正文）
+#   CRASH_MIN_VERSION             崩溃日报的最低版本，默认 5.1.1
+#   FEEDBACK_DISCUSSION_CATEGORY  反馈日报所在的讨论分类，默认「反馈日报」（需先在网页上建好，格式选 Announcement）
 
 on:
   schedule:
@@ -17,15 +19,18 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: '只打印，不发 issue、不写飞书'
+        description: '只打印，不发帖、不写飞书'
         type: boolean
         default: false
   issue_comment:
+    types: [created]
+  discussion_comment:
     types: [created]
 
 permissions:
   contents: read
   issues: write
+  discussions: write
 
 env:
   FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
@@ -33,12 +38,13 @@ env:
   FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
   FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
   FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
+  FEEDBACK_DISCUSSION_CATEGORY: ${{ vars.FEEDBACK_DISCUSSION_CATEGORY || '反馈日报' }}
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   WINDOW_DAYS: '7'
 
 jobs:
   digest:
-    if: github.event_name != 'issue_comment'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     concurrency:
@@ -75,7 +81,23 @@ jobs:
       - name: Digest
         run: python3 .github/scripts/feedback_digest.py digest
 
-  reply:
+  reply-discussion:
+    if: >-
+      github.event_name == 'discussion_comment' &&
+      github.event.discussion.category.name == (vars.FEEDBACK_DISCUSSION_CATEGORY || '反馈日报') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      (contains(github.event.comment.body, '/reply') || contains(github.event.comment.body, '/skip'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: feedback-reply-d${{ github.event.discussion.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Handle command
+        run: python3 .github/scripts/feedback_digest.py dcomment ${{ github.event.comment.node_id }}
+
+  reply-issue:
     if: >-
       github.event_name == 'issue_comment' &&
       !github.event.issue.pull_request &&

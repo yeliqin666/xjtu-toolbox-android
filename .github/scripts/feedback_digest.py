@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""飞书反馈表 → GitHub issue 日报，以及 issue 里的 /reply、/skip 回写飞书回复表。
+"""飞书反馈表 → 崩溃日报（issue）+ 反馈日报（讨论），讨论里的 /reply、/skip 回写飞书回复表。
 
     python3 feedback_digest.py digest            # 每日：发日报，再扫一遍漏处理的命令
     python3 feedback_digest.py scan              # 只扫命令
-    python3 feedback_digest.py comment ISSUE ID  # issue_comment 事件：处理这一条评论
+    python3 feedback_digest.py dcomment NODE_ID  # discussion_comment 事件：处理这一条评论
+    python3 feedback_digest.py comment ISSUE ID  # 旧的反馈日报 issue 里的评论
 
 日报
-* 取飞书提交表最近 WINDOW_DAYS 天的记录，跳过已收进往期日报的工单（看 issue 正文的隐藏标记），
-  所以漏跑的天数下次自动补上。
-* 崩溃单独一条 issue，只收核心版本 ≥ CRASH_MIN_VERSION 的（预览版按核心版本算），按异常签名聚合。
-* 其余进反馈 issue：版本评价按档计数、有文字的逐条列；功能坏了 / 有点难用 / 想要新功能 / 其他逐条列。
+* 从上一期的水位往后拉（见 watermark），按工单号去重，停跑多久都能补齐。
+* 崩溃一条 issue，按 /toissue 规范打 Bug / P0 / Awaiting Assignment；只收核心版本 ≥ CRASH_MIN_VERSION，按异常签名聚合。
+* 反馈一条讨论（「反馈日报」分类）：正文放统计、版本评价表、用法；每条反馈一层楼，楼里有工单号标记。
   「投票·」开头的是公告投票，不进日报。联系方式一律不发。
-* 审核（MODERATION）：off 不审；mark（默认）用 Qwen3Guard 打标签，Unsafe / Controversial 照发但标出并折叠；
-  block 时这两档不展示正文，只列工单号。
+* 审核（MODERATION）：off 不审；mark（默认）用 Qwen3Guard 打标签，Unsafe / Controversial 照发但折叠；
+  block 时这两档不展示正文，只列在帖子里。
 
-命令（只认 OWNER / MEMBER / COLLABORATOR，只在带 feedback 标签的 issue 里）
-    /reply T工单号 [私密]
-    回复正文（可多行）；正文第一行写「问题: …」可覆盖公开问答里的问题，默认用反馈原文
-    /skip T工单号 [T工单号…] | /skip all
-* /reply 往回复表追加一条（工单号、回复、回复时间、公开、问题），公开默认勾上，写「私密」等则不勾。
-* 一条评论可以有多段命令。成功点 🚀，失败回一条说明。
-* 待处理的工单都回复或跳过后，打「已处理」标签并关闭 issue。
+命令（只认 OWNER / MEMBER / COLLABORATOR）
+* 在某层反馈楼里回复：/reply [私密] + 下一行起写回复（第一行「问题：…」可改公开问答的问题）；/skip 不回复。
+  顶层评论里要写工单号；/skip all 跳过本期剩下全部。/toissue 由 discussion_commands.py 处理。
+* /reply 往回复表追加一条（工单号、回复、回复时间、公开、问题），公开默认勾上。
+* 处理状态记在帖子正文的隐藏标记里（pending / done），不查飞书。成功时评论 🚀、反馈楼 🎉 / 👀；
+  失败在那串楼里回一条说明。都处理完关闭讨论。
 """
 
 from __future__ import annotations
@@ -54,6 +53,11 @@ LABEL_FEEDBACK = "feedback"
 LABEL_CRASH = "crash"
 LABEL_DONE = "已处理"
 LABEL_COLORS = {LABEL_FEEDBACK: "0e8a16", LABEL_CRASH: "b60205", LABEL_DONE: "c5def5"}
+# 崩溃日报直接按 /toissue 的规范打标签（名字与 discussion_commands.py 一致）
+CRASH_LABELS = [LABEL_CRASH, "🐛 Type:Bug", "🚨 Priority: P0 - Critical", "📥 State:Awaiting Assignment"]
+GRAPHQL = "https://api.github.com/graphql"
+# 每条反馈是讨论里的一层楼，楼里带这个标记，回复它时据此认工单
+MARK_ITEM = re.compile(r"<!-- feedback-ticket:(T[A-Z0-9]{8,16}) -->")
 
 CATEGORIES = ["有bug", "待改进", "新点子", "其他"]
 # 旧版 App 提交的类别名，归到新名下
@@ -78,16 +82,18 @@ TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 USAGE = """<details open><summary>用法</summary>
 
+在那条反馈的楼里**回复**（不用写工单号）：
+
 ```
-/reply T工单号 [私密]
-问题: 公开问答里显示的问题（可省，默认用反馈原文）
+/reply [私密]
+问题：公开问答里显示的问题（可省，默认用反馈原文）
 回复正文，可多行
 ```
 
-- 默认进应用内「大家在问」；工单号后加 `私密`（或 `不公开`、`private`）则只有提问的人能看到
-- 一条评论里可以写多段 `/reply`，每段一个工单
-- 不回复：`/skip T工单号 [T工单号…]`，或 `/skip all` 跳过本期剩下的全部
-- 待处理的都回复或跳过后，issue 自动打「已处理」并关闭
+- 默认进应用内「大家在问」；加 `私密`（或 `不公开`、`private`）则只有提问的人能看到
+- 不回复：`/skip`；转 issue：`/toissue bug 1`
+- 在顶层评论里也行，但要写工单号：`/reply T工单号`、`/skip T工单号 …`；`/skip all` 跳过本期剩下全部
+- 处理成功：你的评论 🚀，那条反馈 🎉（已回复）/ 👀（跳过）；都处理完自动关闭
 
 </details>"""
 
@@ -284,6 +290,45 @@ class GitHub:
         got = self.call("GET", f"/issues/comments/{comment_id}/reactions?content=rocket&per_page=100")
         return any((x.get("user") or {}).get("login") == BOT for x in got)
 
+    # ---- 讨论区（GraphQL）
+
+    def graphql(self, query: str, **variables: Any) -> dict:
+        r = http("POST", GRAPHQL, {"query": query, "variables": variables}, self.auth)
+        if r.get("errors") or r.get("_status"):
+            raise RuntimeError(f"GitHub GraphQL 失败：{json.dumps(r.get('errors') or r.get('message'), ensure_ascii=False)[:300]}")
+        return r["data"]
+
+    def gwrite(self, query: str, **variables: Any) -> dict:
+        if DRY_RUN:
+            log(f"[dry-run] GraphQL {query.split('(')[0].split()[-1]} "
+                f"{json.dumps(variables, ensure_ascii=False)[:300]}")
+            return {}
+        return self.graphql(query, **variables)
+
+    def owner_name(self) -> tuple[str, str]:
+        owner, name = self.repo.split("/", 1)
+        return owner, name
+
+    def feedback_category(self) -> tuple[str, str]:
+        """(仓库 node id, 反馈日报分类 id)；分类要先在网页上建好（API 建不了）。"""
+        owner, name = self.owner_name()
+        want = env("FEEDBACK_DISCUSSION_CATEGORY", "反馈日报")
+        d = self.graphql("""query($o:String!,$n:String!){repository(owner:$o,name:$n){
+            id discussionCategories(first:50){nodes{id name}}}}""", o=owner, n=name)["repository"]
+        for c in d["discussionCategories"]["nodes"]:
+            if c["name"] == want:
+                return d["id"], c["id"]
+        raise RuntimeError(f"讨论区没有「{want}」分类，请先在仓库 Discussions 里新建（格式选 Announcement）")
+
+    def feedback_discussions(self, category_id: str, limit: int = 50, open_only: bool = False) -> list[dict]:
+        """最近的反馈日报讨论，新的在前。"""
+        owner, name = self.owner_name()
+        states = "[OPEN]" if open_only else "[OPEN, CLOSED]"
+        d = self.graphql(f"""query($o:String!,$n:String!,$c:ID!,$k:Int!){{repository(owner:$o,name:$n){{
+            discussions(first:$k, categoryId:$c, states:{states}, orderBy:{{field:CREATED_AT, direction:DESC}}){{
+              nodes{{id number url body closed createdAt}}}}}}}}""", o=owner, n=name, c=category_id, k=limit)
+        return d["repository"]["discussions"]["nodes"]
+
 
 _EDGE_L = r"(?<![0-9A-Za-z_.])"
 _EDGE_R = r"(?![0-9A-Za-z_.])"
@@ -387,26 +432,27 @@ def crash_signature(content: str) -> str:
 
 # ---------------------------------------------------------------- 日报
 
-def watermark(gh: GitHub, fallback_ms: int) -> int:
-    """上次收录到哪一刻（毫秒）：最近几期日报里最大的 until。
+def watermark(gh: GitHub, discussions: list[dict], fallback_ms: int) -> int:
+    """上次收录到哪一刻（毫秒）：最近几期日报（崩溃 issue、反馈讨论，以及旧的反馈 issue）里最大的 until。
     until 只写在一次运行最后发出的那期里，前一期发了、后一期失败时水位不动，下次照样补。
     一期都找不到（首次运行、旧日报删了）就退回 [fallback_ms]。"""
-    got = [int(m.group(3))
-           for label in (LABEL_CRASH, LABEL_FEEDBACK)
-           for issue in gh.call("GET", f"/issues?labels={label}&state=all&sort=created&direction=desc&per_page=10")
-           for m in MARK_TICKETS.finditer(issue.get("body") or "") if m.group(3)]
+    bodies = [d["body"] for d in discussions[:10]] + [
+        issue.get("body") or ""
+        for label in (LABEL_CRASH, LABEL_FEEDBACK)
+        for issue in gh.call("GET", f"/issues?labels={label}&state=all&sort=created&direction=desc&per_page=10")]
+    got = [int(m.group(3)) for b in bodies for m in MARK_TICKETS.finditer(b) if m.group(3)]
     return max(got) if got else fallback_ms
 
 
-def seen_tickets(gh: GitHub, since_ms: int) -> set[str]:
+def seen_tickets(gh: GitHub, discussions: list[dict], since_ms: int) -> set[str]:
     """水位之后（往前留 3 天余量）发过的日报里已经收录的工单。"""
-    since = datetime.fromtimestamp(since_ms / 1000 - 3 * 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    seen: set[str] = set()
+    since_dt = datetime.fromtimestamp(since_ms / 1000 - 3 * 86400, timezone.utc)
+    since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    bodies = [d["body"] for d in discussions
+              if datetime.fromisoformat(d["createdAt"].replace("Z", "+00:00")) >= since_dt]
     for label in (LABEL_FEEDBACK, LABEL_CRASH):
-        for issue in gh.pages(f"/issues?labels={label}&state=all&since={since}"):
-            for m in MARK_TICKETS.finditer(issue.get("body") or ""):
-                seen.update(t for t in m.group(2).split(",") if t)
-    return seen
+        bodies += [issue.get("body") or "" for issue in gh.pages(f"/issues?labels={label}&state=all&since={since}")]
+    return {t for b in bodies for m in MARK_TICKETS.finditer(b) for t in m.group(2).split(",") if t}
 
 
 def fetch_since(fs: Feishu, since_ms: int) -> list[Record]:
@@ -446,10 +492,12 @@ def render_item(r: Record, verdict: Optional[tuple[str, list[str]]], mode: str) 
     def esc(s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    parts = [f"<code>{r.ticket}</code>"]
     if r.category.startswith(RATING_PREFIX):
         tier = r.category.split("·")[-1].strip()
-        parts.append(f"{_DOTS.get(RATING_COLORS.get(tier, ''), '⚪')} {esc(tier)}")
+        parts = [f"{CATEGORY_ICONS[RATING_PREFIX]} {_DOTS.get(RATING_COLORS.get(tier, ''), '⚪')} {esc(tier)}"]
+    else:
+        parts = [f"{CATEGORY_ICONS.get(r.category, '📝')} <b>{esc(r.category or '未分类')}</b>"]
+    parts.append(f"<code>{r.ticket}</code>")
     parts += [esc(x) for x in [short_version(r.version), r.device, r.system.split(" · ")[0]] if x]
     parts.append(r.created.strftime("%m-%d %H:%M"))
     head = " · ".join(parts)
@@ -472,26 +520,33 @@ def until_mark(until: Optional[int]) -> str:
     return f" until={until}" if until else ""
 
 
+@dataclass
+class FeedbackDigest:
+    body: str
+    summary: str
+    # (工单号, 楼层 markdown)：每条一层楼，按类别排好
+    items: list[tuple[str, str]]
+
+
 def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str,
-                   until: Optional[int] = None, extra: list[str] = ()) -> Optional[tuple[str, str]]:
-    """[extra]：只记进去重标记、不展示的工单（只有旧版本崩溃、没单独发崩溃日报时）。"""
-    ratings = [r for r in records if r.category.startswith(RATING_PREFIX)]
-    others = [r for r in records if r not in ratings]
+                   until: Optional[int] = None, extra: list[str] = ()) -> Optional[FeedbackDigest]:
+    """帖子正文放统计、版本评价表和用法，每条反馈单独一层楼。
+    [extra]：只记进去重标记、不展示的工单（只有旧版本崩溃、没单独发崩溃日报时）。"""
     if not records:
         return None
-    pending: list[str] = []
+    ratings = [r for r in records if r.category.startswith(RATING_PREFIX)]
+    others = [r for r in records if r not in ratings]
     parts: list[str] = []
-    used = 0
+    items: list[tuple[str, str]] = []
+    hidden: list[str] = []
 
-    def add(md: str) -> bool:
-        nonlocal used
-        if used + len(md) > BODY_BUDGET:
-            return False
-        parts.append(md)
-        used += len(md)
-        return True
+    def add_item(r: Record) -> None:
+        md, shown = render_item(r, verdicts.get(r.ticket), mode)
+        if shown:
+            items.append((r.ticket, md))
+        else:
+            hidden.append(md)
 
-    overflow: list[str] = []
     if ratings:
         counts: dict[str, Counter] = defaultdict(Counter)
         for r in ratings:
@@ -500,29 +555,16 @@ def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str
         rows = ["| 版本 | " + " | ".join(tiers) + " |", "|---" * (len(tiers) + 1) + "|"]
         for ver in sorted(counts, key=lambda v: core_version(v) or (0, 0, 0), reverse=True):
             rows.append(f"| {ver} | " + " | ".join(str(counts[ver][t]) for t in tiers) + " |")
-        add(f"### {CATEGORY_ICONS[RATING_PREFIX]} 版本评价（{len(ratings)}）\n\n" + "\n".join(rows))
-        noted = [r for r in ratings if r.main not in EMPTY_NOTES]
-        if noted:
-            add("有文字的：")
-            for r in noted:
-                md, shown = render_item(r, verdicts.get(r.ticket), mode)
-                if shown:
-                    pending.append(r.ticket)
-                if not add(md):
-                    overflow.append(r.ticket)
+        parts.append(f"### {CATEGORY_ICONS[RATING_PREFIX]} 版本评价（{len(ratings)}）\n\n" + "\n".join(rows))
     for cat in CATEGORIES + sorted({r.category for r in others} - set(CATEGORIES)):
-        group = [r for r in others if r.category == cat]
-        if not group:
-            continue
-        add(f"### {CATEGORY_ICONS.get(cat, '📝')} {cat or '未分类'}（{len(group)}）")
-        for r in group:
-            md, shown = render_item(r, verdicts.get(r.ticket), mode)
-            if shown:
-                pending.append(r.ticket)
-            if not add(md):
-                overflow.append(r.ticket)
-    if overflow:
-        parts.append(f"另有 {len(overflow)} 条因篇幅未展开，可直接按工单号回复：" + "、".join(f"`{t}`" for t in overflow))
+        for r in others:
+            if r.category == cat:
+                add_item(r)
+    for r in ratings:
+        if r.main not in EMPTY_NOTES:
+            add_item(r)
+    if hidden:
+        parts.append("### 未展示\n\n" + "\n\n".join(hidden))
 
     flagged = sum(1 for t, v in verdicts.items() if v[0] != "Safe")
     audit = {"off": "未开启审核", "mark": "审核只标记不拦截", "block": "审核未通过的不展示正文"}[mode]
@@ -534,13 +576,16 @@ def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str
         + ([badge("疑似违规", str(flagged), "orange")] if flagged and mode != "off" else [])
     )
     intro = (f"{counts_line}\n\n<sub>{window} · {audit}</sub>\n\n"
-             "> [!TIP]\n> 回复：`/reply 工单号`，下一行起写回复（默认进应用内「大家在问」，工单号后加 `私密` 则不进）；"
-             "第一行写 `问题：…` 可改公开问答里的问题。\n> 不回复：`/skip 工单号` 或 `/skip all`。全部处理完自动关闭。")
+             "> [!TIP]\n> 每条反馈是下面的一层楼，在那层楼里**回复**：\n"
+             "> - `/reply`（可加 `私密`），下一行起写回复；第一行写 `问题：…` 可改应用内「大家在问」里的问题\n"
+             "> - `/skip`：不回复\n"
+             "> - `/toissue bug 1`：转成 issue（转完仍需 `/reply` 或 `/skip`）\n"
+             "> \n> 在本帖顶层评论 `/skip all` 跳过剩下全部。都处理完本帖自动关闭。")
     tickets = [r.ticket for r in records] + list(extra)
     marks = (f"<!-- feedback-digest kind=feedback tickets={ids(tickets)}{until_mark(until)} -->\n"
-             f"<!-- feedback-pending={ids(pending)} -->\n<!-- feedback-done= -->")
-    body = marks + "\n\n" + intro + "\n\n" + "\n\n".join(parts) + "\n"
-    return body, f"{len(records)} 条"
+             f"<!-- feedback-pending={ids(t for t, _ in items)} -->\n<!-- feedback-done= -->")
+    body = marks + "\n\n" + intro + ("\n\n" + "\n\n".join(parts) if parts else "") + "\n"
+    return FeedbackDigest(body, f"{len(records)} 条", items)
 
 
 def build_crash(records: list[Record], min_ver: tuple[int, int, int], window: str,
@@ -587,10 +632,12 @@ def digest() -> None:
         mode = "mark"
     min_ver = core_version(env("CRASH_MIN_VERSION", "5.1.1")) or (5, 1, 1)
     now = datetime.now(BEIJING)
-    since_ms = watermark(gh, int((now - timedelta(days=days)).timestamp() * 1000)) - OVERLAP_MS
+    repo_id, category_id = gh.feedback_category()
+    discussions = gh.feedback_discussions(category_id)
+    since_ms = watermark(gh, discussions, int((now - timedelta(days=days)).timestamp() * 1000)) - OVERLAP_MS
     since = datetime.fromtimestamp(since_ms / 1000, BEIJING)
 
-    seen = seen_tickets(gh, since_ms)
+    seen = seen_tickets(gh, discussions, since_ms)
     records = fetch_since(fs, since_ms)
     fresh = [r for r in records if r.created >= since and r.ticket not in seen
              and not r.category.startswith(VOTE_PREFIX)]
@@ -613,19 +660,45 @@ def digest() -> None:
     if built:
         body, summary = built
         issue = gh.write("POST", "/issues", {"title": f"[崩溃日报] {date}（{summary}）",
-                                             "body": body, "labels": [LABEL_CRASH]})
+                                             "body": body, "labels": CRASH_LABELS})
         log(f"崩溃日报：{issue.get('html_url')}")
     # 只有旧版本崩溃时不单发崩溃日报，工单号记进反馈日报的去重标记
     extra = [] if built else [r.ticket for r in crashes]
     verdicts = moderate(feedback, mode)
-    built = build_feedback(feedback, verdicts, mode, window, until, extra)
-    if built:
-        body, summary = built
-        issue = gh.write("POST", "/issues", {"title": f"[反馈日报] {date}（{summary}）",
-                                             "body": body, "labels": [LABEL_FEEDBACK]})
-        log(f"反馈日报：{issue.get('html_url')}")
-        if DRY_RUN:
-            log(body)
+    digest_ = build_feedback(feedback, verdicts, mode, window, until, extra)
+    if digest_:
+        post_feedback(gh, repo_id, category_id, f"[反馈日报] {date}（{digest_.summary}）", digest_)
+
+
+def post_feedback(gh: GitHub, repo_id: str, category_id: str, title: str, d: FeedbackDigest) -> None:
+    """发帖，再一条反馈一层楼。有楼没发出去就把它从去重标记里摘掉、不写水位，下次补发。"""
+    got = gh.gwrite("""mutation($r:ID!,$c:ID!,$t:String!,$b:String!){
+        createDiscussion(input:{repositoryId:$r,categoryId:$c,title:$t,body:$b}){discussion{id url}}}""",
+                    r=repo_id, c=category_id, t=title, b=d.body)
+    disc = (got.get("createDiscussion") or {}).get("discussion") or {"id": "", "url": "(dry-run)"}
+    log(f"反馈日报：{disc['url']}")
+    failed: list[str] = []
+    for ticket, md in d.items:
+        try:
+            gh.gwrite("""mutation($d:ID!,$b:String!){addDiscussionComment(input:{discussionId:$d,body:$b}){comment{id}}}""",
+                      d=disc["id"], b=f"<!-- feedback-ticket:{ticket} -->\n{md}")
+        except RuntimeError as e:
+            log(f"::warning::{ticket} 没发出去：{e}")
+            failed.append(ticket)
+        if not DRY_RUN:
+            time.sleep(1)  # 发内容有频率限制
+        else:
+            log(md + "\n")
+    if failed and not DRY_RUN:
+        body = d.body
+        for rx, group in ((MARK_TICKETS, 2), (MARK_PENDING, 1)):
+            m = rx.search(body)
+            kept = ids(t for t in m.group(group).split(",") if t and t not in failed)
+            body = body[:m.start(group)] + kept + body[m.end(group):]
+        body = re.sub(r" until=\d+", "", body)
+        gh.gwrite("""mutation($d:ID!,$b:String!){updateDiscussion(input:{discussionId:$d,body:$b}){discussion{id}}}""",
+                  d=disc["id"], b=body)
+        raise RuntimeError(f"{len(failed)} 条没发出去，已从标记里摘掉，下次补发")
 
 
 # ---------------------------------------------------------------- 命令
@@ -688,27 +761,27 @@ def issue_marks(body: str) -> tuple[set[str], set[str], set[str]]:
     return grab(MARK_TICKETS, 2), grab(MARK_PENDING), grab(MARK_DONE)
 
 
-def handle(gh: GitHub, fs: Optional[Feishu], issue: dict, comment: dict) -> Optional[Feishu]:
-    """处理一条评论；返回（可能新建的）飞书客户端，便于扫描时复用。"""
-    if comment.get("author_association") not in TRUSTED:
-        return fs
-    if LABEL_FEEDBACK not in {l["name"] for l in issue.get("labels") or []}:
-        return fs
-    cmds = parse_commands(comment.get("body") or "")
-    if not cmds:
-        return fs
-    number = issue["number"]
-    cid = comment["id"]
-    body = issue.get("body") or ""
-    tickets, pending, done = issue_marks(body)
+@dataclass
+class Outcome:
+    fs: Optional[Feishu]
+    newly: set[str]
+    errors: list[str]
+    replied: set[str] = field(default_factory=set)
+
+
+def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str], pending: set[str],
+                   default: Optional[str], where: str) -> Outcome:
+    """执行一条评论里的命令。[default]：没写工单号时用的工单（讨论里回复的那层楼）。"""
     errors: list[str] = []
     newly: set[str] = set()
     for c in cmds:
         if c.verb == "skip" and c.skip_all:
             newly |= pending
             continue
+        if not c.tickets and default:
+            c.tickets = [default]
         if not c.tickets:
-            errors.append(f"`/{c.verb}` 没写工单号")
+            errors.append(f"`/{c.verb}` 不知道是哪条反馈：在那条反馈下回复，或写上工单号")
             continue
         unknown = [t for t in c.tickets if t not in tickets]
         if unknown:
@@ -738,10 +811,28 @@ def handle(gh: GitHub, fs: Optional[Feishu], issue: dict, comment: dict) -> Opti
             else:
                 fs.add_reply(fields)
             newly.add(t)
-            log(f"#{number} {t} 已写回复（公开={c.public}）")
+            log(f"{where} {t} 已写回复（公开={c.public}）")
         except Exception as e:  # noqa: BLE001
             errors.append(f"`{t}` 写入飞书失败：{e}")
+    replied = {c.tickets[0] for c in cmds if c.verb == "reply" and c.tickets and c.tickets[0] in newly}
+    return Outcome(fs, newly, errors, replied)
 
+
+def handle(gh: GitHub, fs: Optional[Feishu], issue: dict, comment: dict) -> Optional[Feishu]:
+    """旧版：反馈日报还是 issue 时的命令（处理完已有的那几期就用不上了）。"""
+    if comment.get("author_association") not in TRUSTED:
+        return fs
+    if LABEL_FEEDBACK not in {l["name"] for l in issue.get("labels") or []}:
+        return fs
+    cmds = parse_commands(comment.get("body") or "")
+    if not cmds:
+        return fs
+    number = issue["number"]
+    cid = comment["id"]
+    body = issue.get("body") or ""
+    tickets, pending, done = issue_marks(body)
+    out = apply_commands(fs, cmds, tickets, pending, None, f"#{number}")
+    fs, newly, errors = out.fs, out.newly, out.errors
     if newly - done:
         done |= newly
         new_body = MARK_DONE.sub(f"<!-- feedback-done={ids(done)} -->", body)
@@ -790,6 +881,94 @@ def on_comment(number: int, comment_id: int) -> None:
     handle(gh, None, issue, comment)
 
 
+# ---------------------------------------------------------------- 讨论区命令
+
+_COMMENT_FIELDS = """id body authorAssociation
+    replyTo{id body}
+    discussion{id number body closed category{name}}"""
+
+
+def handle_discussion(gh: GitHub, fs: Optional[Feishu], c: dict) -> Optional[Feishu]:
+    """处理讨论里的一条评论。回复某层楼时工单从那层楼的标记认；顶层评论里得写工单号（或 /skip all）。"""
+    if c.get("authorAssociation") not in TRUSTED:
+        return fs
+    disc = c["discussion"]
+    if disc["category"]["name"] != env("FEEDBACK_DISCUSSION_CATEGORY", "反馈日报") or disc["closed"]:
+        return fs
+    cmds = parse_commands(c.get("body") or "")
+    if not cmds:
+        return fs
+    parent = c.get("replyTo")
+    default = None
+    if parent:
+        m = MARK_ITEM.search(parent.get("body") or "")
+        default = m.group(1) if m else None
+    tickets, pending, done = issue_marks(disc["body"])
+    out = apply_commands(fs, cmds, tickets, pending, default, f"讨论 #{disc['number']}")
+    if out.newly - done:
+        done |= out.newly
+        disc["body"] = MARK_DONE.sub(f"<!-- feedback-done={ids(done)} -->", disc["body"])
+        gh.gwrite("""mutation($d:ID!,$b:String!){updateDiscussion(input:{discussionId:$d,body:$b}){discussion{id}}}""",
+                  d=disc["id"], b=disc["body"])
+    if out.errors:
+        msg = MARK_FAILED.format(c["id"]) + "\n" + "\n".join(f"- {e}" for e in out.errors) + "\n\n" + USAGE
+        # 讨论只有两层：回在命令所在的那串楼里
+        gh.gwrite("""mutation($d:ID!,$r:ID!,$b:String!){
+            addDiscussionComment(input:{discussionId:$d,replyToId:$r,body:$b}){comment{id}}}""",
+                  d=disc["id"], r=(parent or c)["id"], b=msg)
+    react = """mutation($s:ID!,$e:ReactionContent!){addReaction(input:{subjectId:$s,content:$e}){reaction{content}}}"""
+    if out.newly and not out.errors:
+        gh.gwrite(react, s=c["id"], e="ROCKET")
+    # 那层反馈楼上也标一下：回复过 🎉，跳过 👀，扫一眼就知道哪条还没处理
+    if parent and default in out.newly:
+        gh.gwrite(react, s=parent["id"], e="HOORAY" if default in out.replied else "EYES")
+    if pending and pending <= done:
+        gh.gwrite("""mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:RESOLVED}){discussion{id}}}""",
+                  d=disc["id"])
+        disc["closed"] = True
+        log(f"讨论 #{disc['number']} 全部处理完，已关闭")
+    return out.fs
+
+
+def on_discussion_comment(node_id: str) -> None:
+    gh = GitHub()
+    c = gh.graphql(f"query($id:ID!){{node(id:$id){{... on DiscussionComment{{{_COMMENT_FIELDS}}}}}}}", id=node_id)["node"]
+    if c:
+        handle_discussion(gh, None, c)
+
+
+def scan_discussions() -> None:
+    """兜底：事件漏触发时补处理。只看 7 天内、还开着的反馈日报；已成功（done 覆盖）或已回过失败说明的跳过。"""
+    gh = GitHub()
+    _, category_id = gh.feedback_category()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=int(env("WINDOW_DAYS", "7")))
+    fs: Optional[Feishu] = None
+    for d in gh.feedback_discussions(category_id, limit=20, open_only=True):
+        if datetime.fromisoformat(d["createdAt"].replace("Z", "+00:00")) < cutoff:
+            continue
+        full = gh.graphql(f"""query($id:ID!){{node(id:$id){{... on Discussion{{
+            comments(first:100){{nodes{{{_COMMENT_FIELDS} replies(first:100){{nodes{{{_COMMENT_FIELDS}}}}}}}}}}}}}}}""",
+                          id=d["id"])["node"]
+        flat = []
+        for top in full["comments"]["nodes"]:
+            flat.append(top)
+            flat += top["replies"]["nodes"]
+        failed = "".join(x["body"] for x in flat if "feedback-cmd-failed:" in x["body"])
+        for c in flat:
+            cmds = parse_commands(c.get("body") or "")
+            if not cmds or c.get("authorAssociation") not in TRUSTED or MARK_FAILED.format(c["id"]) in failed:
+                continue
+            tickets, pending, done = issue_marks(c["discussion"]["body"])
+            parent = MARK_ITEM.search((c.get("replyTo") or {}).get("body") or "")
+            targets = {t for x in cmds for t in (x.tickets or ([parent.group(1)] if parent else []))}
+            if any(x.skip_all for x in cmds):
+                targets |= pending
+            if c["discussion"]["closed"] or (targets and targets <= done):
+                continue
+            log(f"补处理讨论 #{c['discussion']['number']} 评论 {c['id']}")
+            fs = handle_discussion(gh, fs, c)
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -798,10 +977,14 @@ def main() -> None:
     if cmd == "digest":
         digest()
         scan()
+        scan_discussions()
     elif cmd == "scan":
         scan()
+        scan_discussions()
     elif cmd == "comment" and len(sys.argv) == 4:
         on_comment(int(sys.argv[2]), int(sys.argv[3]))
+    elif cmd == "dcomment" and len(sys.argv) == 3:
+        on_discussion_comment(sys.argv[2])
     else:
         print(__doc__)
         raise SystemExit(2)
