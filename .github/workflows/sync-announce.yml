@@ -1,8 +1,10 @@
-name: Sync announce to Gitee
+name: Sync announce to OSS + Gitee
 
 on:
   push:
     branches: [ announce ]
+  # 投票统计（poll-tally.yml）改完 bulletin.json 后调用：GITHUB_TOKEN 推的提交不会触发 push
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -13,9 +15,69 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install OSS SDK
+        id: oss_sdk
+        continue-on-error: true
+        timeout-minutes: 3
+        run: python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 --upgrade oss2
+
+      - name: Upload bulletin to OSS
+        id: oss_bulletin
+        if: steps.oss_sdk.outcome == 'success'
+        continue-on-error: true
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+        run: |
+          set -euo pipefail
+          test -f bulletin.json
+          python3 -m json.tool bulletin.json >/dev/null
+          python3 - <<'PY'
+          import os
+          import oss2
+
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          bucket.put_object_from_file("xjtu-toolbox/bulletin.json", "bulletin.json")
+          print("bulletin uploaded")
+          PY
+          python3 - <<'PY'
+          import json
+          import os
+          import oss2
+
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          local = json.load(open("bulletin.json", encoding="utf-8"))
+          remote = json.loads(bucket.get_object("xjtu-toolbox/bulletin.json").read())
+          assert local == remote, "bulletin mismatch"
+          print("bulletin OSS ok")
+          PY
+          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/bulletin.json" >/dev/null \
+            || echo "::warning::public CDN bulletin check timed out; OSS object is verified"
+
       - name: Push announce to Gitee
+        continue-on-error: true
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+          GITEE_URL: https://gitee.com/yeliqin666/xjtu-toolbox-android.git
+          # 拿不到凭据就直接失败，不要在无人值守的 CI 上等输入框
+          GIT_TERMINAL_PROMPT: "0"
         run: |
           if [ -z "$GITEE_TOKEN" ]; then
             echo "::error::GITEE_ACCESS_TOKEN missing"
@@ -24,7 +86,17 @@ jobs:
           if [ -f .git/shallow ]; then
             git fetch --unshallow
           fi
-          git remote add gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/yeliqin666/xjtu-toolbox-android.git" 2>/dev/null || \
-            git remote set-url gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/yeliqin666/xjtu-toolbox-android.git"
+          # token 不拼进 remote URL：URL 会被 git 写进 .git/config，之后任何
+          # `git remote -v` 或 push 报错都可能把它打出来。URL 保持干净，凭据只经 env
+          # 交给 credential helper（.git/config 里存下的也只是对 $GITEE_TOKEN 的引用）。
+          git remote add gitee "$GITEE_URL" 2>/dev/null || git remote set-url gitee "$GITEE_URL"
+          git config --local --replace-all 'credential.https://gitee.com.helper' \
+            '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
           git push gitee HEAD:announce --force
           echo "announce branch synced to Gitee"
+
+      - name: Fail if OSS bulletin upload failed
+        if: steps.oss_bulletin.outcome != 'success'
+        run: |
+          echo "::error::OSS bulletin upload failed; Gitee fallback was updated. Re-run the workflow to fix OSS."
+          exit 1
