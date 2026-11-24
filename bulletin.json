@@ -8,35 +8,6 @@
       "mustAck": false,
       "block": false,
       "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/515"
-    },
-    {
-      "id": "2026-11-24-d514",
-      "level": "critical",
-      "title": "这是一个测试投票",
-      "body": "开发者帅不帅！",
-      "options": [
-        "小帅",
-        "很帅",
-        "特别帅",
-        "我老公"
-      ],
-      "allowMultiple": true,
-      "allowOther": false,
-      "endsAt": "2026-12-01T23:59:00+08:00",
-      "mustAck": false,
-      "block": false,
-      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/514"
-    },
-    {
-      "id": "2026-11-24-d513",
-      "level": "force_update",
-      "title": "这是一条测试公告",
-      "body": "这是一条强制更新的测试公告",
-      "minVersion": "4.8",
-      "forceBelow": "6.0.3",
-      "mustAck": false,
-      "block": false,
-      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/513"
     }
   ]
 }
