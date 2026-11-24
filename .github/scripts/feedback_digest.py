@@ -290,7 +290,8 @@ def scrub_pii(s: str) -> str:
 
 
 def mention_safe(s: str) -> str:
-    """不让反馈正文里的 @某人、#编号 去通知别人或乱链。"""
+    """不让反馈正文里的 @某人、#编号 去通知别人或乱链，也不让 HTML 标签生效。"""
+    s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     s = re.sub(r"@(?=[A-Za-z0-9])", "@​", s)
     return re.sub(r"(?<![\w&])#(?=\d)", "#​", s)
 
@@ -352,7 +353,9 @@ def crash_signature(content: str) -> str:
         if m and not ln.lstrip().startswith("at "):
             if not exc or ln.lstrip().startswith("Caused by"):
                 exc, msg = m.group(1), m.group(2) or ""
-    frame = next((m.group(1) for ln in lines if (m := _APP_FRAME.match(ln))), "")
+    # 优先取最深一层 Caused by 下面的第一个本应用帧
+    cause = max((i for i, ln in enumerate(lines) if ln.lstrip().startswith("Caused by")), default=0)
+    frame = next((m.group(1) for ln in lines[cause:] + lines if (m := _APP_FRAME.match(ln))), "")
     if not exc:
         exc = one_line(lines[0] if lines else "（无堆栈）", 80)
     if frame:
