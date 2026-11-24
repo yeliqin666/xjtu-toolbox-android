@@ -115,7 +115,15 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
             onClick = { expanded = !expanded },
         )
         AnimatedVisibility(visible = expanded) {
-            Column(Modifier.fillMaxWidth().padding(start = 62.dp, end = 16.dp, bottom = 14.dp)) {
+            // 左缘对齐标题文字，行距统一 8dp，导师一组再多空 6dp
+            Column(
+                Modifier.fillMaxWidth().padding(
+                    start = CouiPreferenceSpec.dividerStartInset,
+                    end = CouiPreferenceSpec.rowPaddingHorizontal,
+                    bottom = 14.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 val rows = buildList {
                     p.departmentName.takeIf { it.isNotBlank() }?.let { add("学院" to it) }
                     p.academyName.takeIf { it.isNotBlank() }?.let { add("书院" to it) }
@@ -129,22 +137,13 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
                     p.enterSchoolDate.takeIf { it.isNotBlank() }?.let { add("入学" to it) }
                     p.cardId.takeIf { it.isNotBlank() }?.let { add("校园卡号" to it) }
                 }
-                rows.forEachIndexed { index, (label, value) ->
-                    if (index > 0) Spacer(Modifier.height(8.dp))
-                    InfoLine(label, value)
-                }
+                rows.forEach { (label, value) -> InfoLine(label, value) }
 
                 if (p.hasMentor()) {
-                    Spacer(Modifier.height(14.dp))
-                    listOfNotNull(
-                        p.counselorName.takeIf { it.isNotBlank() }
-                            ?.let { Triple("辅导员", it, p.counselorPhone) },
-                        p.classTeacherName.takeIf { it.isNotBlank() }
-                            ?.let { Triple("班主任", it, p.classTeacherPhone) },
-                    ).forEach { (label, name, phone) -> MentorLine(label, name, phone) }
-                    p.counselorOffice.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(8.dp))
-                        InfoLine("辅导员办公室", it)
+                    Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        p.counselorName.takeIf { it.isNotBlank() }?.let { MentorLine("辅导员", it, p.counselorPhone) }
+                        p.counselorOffice.takeIf { it.isNotBlank() }?.let { InfoLine("办公室", it) }
+                        p.classTeacherName.takeIf { it.isNotBlank() }?.let { MentorLine("班主任", it, p.classTeacherPhone) }
                     }
                 }
             }
@@ -156,7 +155,7 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
  * 辅导员 / 班主任一行：姓名 + 电话。
  *
  * 只有 [toDialableTels] 解析出号码时才画成可点的蓝色：一个号码直接拨，多个号码先弹菜单选；
- * 长按复制原文（保留分机号）。姓名加 weight，长名字省略收尾而不把号码顶出屏幕。
+ * 长按复制原文（保留分机号）。号码紧跟姓名，多个号码放不下就换行，不挤掉姓名。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -167,44 +166,30 @@ private fun MentorLine(label: String, name: String, phone: String) {
     val shown = remember(phone) { phone.withXianAreaCode() }
     var choosing by remember { mutableStateOf(false) }
 
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 32.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.width(64.dp)
-        )
+    Row(Modifier.fillMaxWidth()) {
+        InfoLabel(label)
         Text(
             name,
             style = MiuixTheme.textStyles.body2,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).copyOnLongPress(name, copy)
+            modifier = Modifier.widthIn(max = 112.dp).copyOnLongPress(name, copy)
         )
         if (phone.isNotBlank()) {
-            Spacer(Modifier.width(8.dp))
-            Box {
+            Spacer(Modifier.width(12.dp))
+            Box(Modifier.weight(1f)) {
                 Text(
                     shown,
-                    style = MiuixTheme.textStyles.footnote1,
+                    style = MiuixTheme.textStyles.body2,
                     color = if (numbers.isEmpty()) MiuixTheme.colorScheme.onSurfaceVariantSummary
                     else MiuixTheme.colorScheme.primary,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .then(
-                            if (numbers.isEmpty()) Modifier.copyOnLongPress(shown, copy)
-                            else Modifier.combinedClickable(
-                                onClickLabel = if (numbers.size == 1) "拨打 ${numbers[0]}" else "选择号码拨打",
-                                onLongClickLabel = "复制号码",
-                                onLongClick = { copy(shown) },
-                            ) { if (numbers.size == 1) dial(numbers[0]) else choosing = true }
-                        )
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                    modifier = if (numbers.isEmpty()) Modifier.copyOnLongPress(shown, copy)
+                    else Modifier.combinedClickable(
+                        onClickLabel = if (numbers.size == 1) "拨打 ${numbers[0]}" else "选择号码拨打",
+                        onLongClickLabel = "复制号码",
+                        onLongClick = { copy(shown) },
+                    ) { if (numbers.size == 1) dial(numbers[0]) else choosing = true }
                 )
                 AppDropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
                     numbers.forEach { number ->
@@ -226,15 +211,19 @@ private fun MentorLine(label: String, name: String, phone: String) {
 private fun InfoLine(label: String, value: String) {
     val copy = rememberCopyText()
     Row(Modifier.fillMaxWidth().copyOnLongPress(value, copy)) {
-        Text(
-            label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.width(64.dp)
-        )
+        InfoLabel(label)
         Text(value, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
     }
 }
+
+/** 标签列定宽 64dp，标签都控制在四个字以内，免得折行。 */
+@Composable
+private fun InfoLabel(label: String) = Text(
+    label,
+    style = MiuixTheme.textStyles.body2,
+    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+    modifier = Modifier.width(64.dp)
+)
 
 /** 列表行的点击：按压反馈用共享的 [pressHighlight]。 */
 @Composable
