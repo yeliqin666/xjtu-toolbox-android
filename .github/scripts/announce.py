@@ -1,0 +1,504 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""讨论区「通知公告」→ App 公告（bulletin.json，工作流提交到 announce 分支、再推 Gitee）。
+
+    python3 announce.py event   # 讨论区有变动（新建 / 编辑 / 关闭 / 删除…）：重建公告，不统计
+    python3 announce.py tally   # 每 4 天：统计投票、生成「大家在问」，再重建
+
+* 一帖一条公告：标题 = 帖子标题，其余按发帖表单（.github/DISCUSSION_TEMPLATE/通知公告.yml）的「### 小标题」解析。
+  只认维护者用表单发的帖（有「### 正文」一节）；分类里别的帖子（旧帖、随手发的讨论）不进 App。
+  关闭普通公告 = 撤下；关闭投票帖 = 结束投票（截止时间改成关闭时刻，留在往期）；删帖 = 删除。
+* 公告 id =「发帖日期-d帖子号」。bulletin.json 每次整份重新生成，只含讨论区的公告；
+  一条表单公告都还没有时不生成（announce 分支上手写的旧公告不动）。
+* 投票：票在飞书提交表（类型「投票·<id>」，App 写）。同一设备只算最后一次，截止后投的不算。
+  结果存在机器人在帖子里的结果回复（隐藏 JSON），重建时从那里读回；截止后另发一条最终结果。
+* 帖子首次发布成功时往飞书公告表（FEEDBACK_TABLE_NOTICE，没配就跳过）写一行；机器人回复一条解析结果。
+* feedback-qa.json（只在 tally 时生成）：「大家在问」，回复表里每个工单取最新一条，勾了「公开」才收。
+文件写进 OUT_DIR（announce 分支的检出），提交推送由工作流做（announce.yml）。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Optional
+
+import feedback_digest as fd
+
+QA_FILE = "feedback-qa.json"
+BULLETIN_FILE = "bulletin.json"
+QA_LIMIT = 300
+OTHER = "其他"
+MAX_OPTIONS = 10
+POLL_DAYS = 7
+LEVELS = {"普通": "info", "提醒": "warn", "更新": "update", "重要": "critical", "强制更新": "force_update"}
+MARK_STATUS = "<!-- announce-status -->"
+MARK_FEISHU = "<!-- announce-feishu -->"
+MARK_RESULT = "<!-- poll-result:{} -->"
+MARK_FINAL = "<!-- poll-final:{} -->"
+DATA_RE = re.compile(r"<!-- poll-data:(\{.*?\}) -->", re.S)
+NO_RESPONSE = {"_No response_", "None", "无"}
+
+
+# ---------------------------------------------------------------- 文件
+
+def save(path: Path, data: Any) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as f:  # 仓库是 LF
+        f.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def parse_time(raw: Any) -> Optional[datetime]:
+    """2026-12-01 / 2026-12-01 08:00 / 带时区的 ISO；不带时区按北京时间。格式不对返回 None。"""
+    s = str(raw or "").strip().replace("：", ":")
+    if not s:
+        return None
+    try:
+        t = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=fd.BEIJING)
+
+
+def iso(t: datetime) -> str:
+    return t.astimezone(fd.BEIJING).replace(microsecond=0).isoformat()
+
+
+# ---------------------------------------------------------------- 讨论帖 → 公告
+
+@dataclass
+class Notice:
+    node_id: str
+    number: int
+    url: str
+    created: datetime
+    closed_at: Optional[datetime]
+    # 维护者用表单发的；只有这种才进 App、才回解析结果
+    managed: bool
+    bulletin: Optional[dict]
+    errors: list[str]
+    bot_comments: list[dict] = field(default_factory=list)
+
+    def bot_comment(self, mark: str) -> Optional[dict]:
+        return next((c for c in self.bot_comments if mark in c["body"]), None)
+
+
+def sections(body: str) -> Optional[dict[str, str]]:
+    """表单生成的「### 小标题\\n\\n内容」；没有「正文」这一节返回 None（不是用表单发的）。"""
+    out: dict[str, str] = {}
+    cur: Optional[str] = None
+    buf: list[str] = []
+    for line in body.splitlines():
+        m = re.match(r"^###\s+(.+?)\s*$", line)
+        if m:
+            if cur is not None:
+                out[cur] = "\n".join(buf).strip()
+            cur, buf = m.group(1), []
+        elif cur is not None:
+            buf.append(line)
+    if cur is not None:
+        out[cur] = "\n".join(buf).strip()
+    if "正文" not in out:
+        return None
+    return {k: "" if v in NO_RESPONSE else v for k, v in out.items()}
+
+
+def checked(text: str) -> set[str]:
+    return {m.group(1).strip() for m in re.finditer(r"^\s*-\s*\[[xX]\]\s*(.+)$", text, re.M)}
+
+
+def clean(text: str) -> str:
+    return re.sub(r"<!--.*?-->", "", text, flags=re.S).strip()
+
+
+def to_bulletin(d: dict, created: datetime, closed_at: Optional[datetime]) -> tuple[Optional[dict], list[str]]:
+    """一帖 → 一条公告（不含投票结果）。有错返回 (None, 错误)；
+    不是用表单发的、关闭的普通公告返回 (None, [])。"""
+    sec = sections((d.get("body") or "").replace("\r\n", "\n"))
+    if sec is None:
+        return None, []
+    errors: list[str] = []
+    b: dict[str, Any] = {"id": f"{created:%Y-%m-%d}-d{d['number']}",
+                         "level": LEVELS.get(sec.get("等级", "").strip(), sec.get("等级", "").strip() or "info"),
+                         "title": d["title"].strip(), "body": clean(sec.get("正文", ""))}
+    if b["level"] not in LEVELS.values():
+        errors.append(f"等级「{b['level']}」不认识，用：{'、'.join(LEVELS)}")
+    if sec.get("链接", "").strip():
+        b["url"] = sec["链接"].strip()
+    times = {}
+    for key, label in (("startsAt", "开始时间"), ("endsAt", "截止时间")):
+        raw = sec.get(label, "").strip()
+        if raw:
+            t = parse_time(raw)
+            if t is None:
+                errors.append(f"{label}「{raw}」看不懂，写成 2026-12-01 或 2026-12-01 08:00")
+            else:
+                times[key] = t
+    for key, label in (("minVersion", "最低版本"), ("maxVersion", "最高版本"), ("forceBelow", "低于此版本强制更新")):
+        if sec.get(label, "").strip():
+            b[key] = sec[label].strip().lstrip("vV")
+    options = [re.sub(r"^\s*(?:[-*•]|\d+[.、)])\s*", "", ln).strip() for ln in sec.get("投票选项", "").splitlines()]
+    options = [o for o in options if o]
+    flags = checked(sec.get("设置", ""))
+    if options:
+        other = OTHER in options
+        options = [o for o in options if o != OTHER]
+        if not 2 <= len(options) <= MAX_OPTIONS:
+            errors.append(f"投票选项要 2～{MAX_OPTIONS} 个（「其他」不算）")
+        if len(set(options)) != len(options):
+            errors.append("投票选项有重复")
+        b.update(options=options, allowMultiple="投票可多选" in flags, allowOther=other)
+        # 投票默认 7 天；关帖 = 提前结束
+        ends = times.get("endsAt") or (created + timedelta(days=POLL_DAYS)).astimezone(fd.BEIJING).replace(
+            hour=23, minute=59, second=0, microsecond=0)
+        times["endsAt"] = min(ends, closed_at) if closed_at else ends
+    elif closed_at:
+        return None, []
+    b.update({k: iso(v) for k, v in times.items()})
+    b["mustAck"] = "必须点确认才能关掉" in flags
+    b["block"] = "启动时拦住不让用（慎用）" in flags
+    b["discussionUrl"] = d["url"]
+    if not b["title"] or not b["body"]:
+        errors.append("标题和正文都不能空")
+    return (None, errors) if errors else (b, [])
+
+
+def notices(gh: fd.GitHub) -> list[Notice]:
+    """「通知公告」分类里最近 100 帖（开着的和关了的）。"""
+    owner, name = gh.owner_name()
+    want = fd.env("ANNOUNCE_CATEGORY", "通知公告")
+    repo = gh.graphql("""query($o:String!,$n:String!){repository(owner:$o,name:$n){
+        discussionCategories(first:50){nodes{id name}}}}""", o=owner, n=name)["repository"]
+    cat = next((c["id"] for c in repo["discussionCategories"]["nodes"] if c["name"] == want), None)
+    if not cat:
+        raise RuntimeError(f"讨论区没有「{want}」分类")
+    got = gh.graphql("""query($o:String!,$n:String!,$c:ID!){repository(owner:$o,name:$n){
+        discussions(first:100, categoryId:$c, orderBy:{field:CREATED_AT, direction:DESC}){nodes{
+          id number title body url createdAt closed closedAt authorAssociation
+          comments(first:100){nodes{id body author{login}}}}}}}""", o=owner, n=name, c=cat)
+    out = []
+    for d in got["repository"]["discussions"]["nodes"]:
+        created = datetime.fromisoformat(d["createdAt"].replace("Z", "+00:00")).astimezone(fd.BEIJING)
+        closed_at = (datetime.fromisoformat(d["closedAt"].replace("Z", "+00:00")) if d["closed"] and d.get("closedAt")
+                     else None)
+        managed = d.get("authorAssociation") in fd.TRUSTED and sections(d.get("body") or "") is not None
+        b, errors = to_bulletin(d, created, closed_at) if managed else (None, [])
+        bots = [c for c in d["comments"]["nodes"] if ((c.get("author") or {}).get("login") or "") in fd.BOT_LOGINS]
+        n = Notice(d["id"], d["number"], d["url"], created, closed_at, managed, b, errors, bots)
+        if b and b.get("options"):
+            restore_results(n)
+        out.append(n)
+    return out
+
+
+def restore_results(n: Notice) -> None:
+    """投票结果从机器人的结果回复里读回来。"""
+    c = n.bot_comment(MARK_RESULT.format(n.bulletin["id"]))
+    m = DATA_RE.search(c["body"]) if c else None
+    if m:
+        try:
+            n.bulletin.update(json.loads(m.group(1)))
+        except ValueError:
+            pass
+
+
+
+
+# ---------------------------------------------------------------- 投票统计
+
+def vote_category(poll: dict) -> str:
+    return f"{fd.VOTE_PREFIX}·{poll['id']}"
+
+
+def split_vote(content: str, options: list[str]) -> tuple[set[str], bool]:
+    """App 提交的是选项原文用「、」连起来（自己填的里的「、」已换成「，」）。选项本身可能带「、」，
+    所以按整段匹配、长的先认。返回 (命中的选项, 有没有自己填的)。"""
+    rest = "、" + "、".join(p.strip() for p in content.split("、") if p.strip()) + "、"
+    hit: set[str] = set()
+    for o in sorted(options, key=len, reverse=True):
+        token = "、" + o + "、"
+        if token in rest:
+            hit.add(o)
+            rest = rest.replace(token, "、", 1)
+    return hit, bool(rest.strip("、"))
+
+
+def tally(poll: dict, rows: list[dict]) -> tuple[list[dict], int]:
+    options = list(poll.get("options") or [])
+    ends = parse_time(poll.get("endsAt"))
+    ends_ms = ends.timestamp() * 1000 if ends else None
+    latest: dict[str, tuple[int, str]] = {}
+    for row in rows:
+        f = row.get("fields") or {}
+        if fd.text(f.get("类型")).strip() != vote_category(poll):
+            continue
+        at = int(row.get("created_time") or 0)
+        if ends_ms and at > ends_ms:
+            continue
+        who = fd.text(f.get("匿名ID")).strip() or row.get("record_id", "")
+        if who not in latest or at >= latest[who][0]:
+            latest[who] = (at, fd.text(f.get("内容")))
+    counts: Counter = Counter()
+    other = 0
+    for _, content in latest.values():
+        hit, extra = split_vote(content, options)
+        counts.update(hit)
+        other += extra
+    results = [{"option": o, "votes": counts[o]} for o in options]
+    if poll.get("allowOther") or other:
+        results.append({"option": OTHER, "votes": other})
+    return results, len(latest)
+
+
+def fetch_votes(fs: fd.Feishu, polls: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for i in range(0, len(polls), 20):
+        conds = [{"field_name": "类型", "operator": "is", "value": [vote_category(p)]} for p in polls[i:i + 20]]
+        rows += fs.search(fs.submit_table, {"conjunction": "or", "conditions": conds})
+    return rows
+
+
+def update_polls(fs: fd.Feishu, gh: fd.GitHub, ns: list[Notice], now: datetime) -> None:
+    """统计还没出最终结果的投票，写回结果回复（截止的另发最终结果）。"""
+    due = [n for n in ns if n.bulletin and n.bulletin.get("options") and not n.bulletin.get("final")
+           and (parse_time(n.bulletin.get("startsAt")) or now) <= now]
+    if not due:
+        return
+    rows = fetch_votes(fs, [n.bulletin for n in due])
+    for n in due:
+        p = n.bulletin
+        results, voters = tally(p, rows)
+        final = (parse_time(p.get("endsAt")) or now + timedelta(1)) <= now
+        if results == p.get("results") and voters == p.get("voters", 0) and not final:
+            continue
+        p.update(results=results, voters=voters, resultsAt=iso(now))
+        if final:
+            p["final"] = True
+        fd.log(f"投票 {p['id']}：{voters} 人{'（最终）' if final else ''} "
+               + "、".join(f"{r['option']} {r['votes']}" for r in results))
+        try:
+            post_results(gh, n)
+        except Exception as e:  # noqa: BLE001 —— 回帖失败下次再写；结果这次也进不了 App，所以要喊出来
+            fd.log(f"::warning::{p['id']} 结果没写进帖子：{e}")
+
+
+def result_table(p: dict) -> str:
+    rows = p.get("results") or []
+    total = sum(r["votes"] for r in rows) or 1
+    lines = ["| 选项 | 票数 | |", "|---|---:|---|"]
+    for r in rows:
+        share = r["votes"] / total
+        bar = "█" * round(share * 10) + "░" * (10 - round(share * 10))
+        lines.append(f"| {r['option'].replace('|', '｜')} | {r['votes']} | `{bar}` {share:.0%} |")
+    return "\n".join(lines)
+
+
+def post_results(gh: fd.GitHub, n: Notice) -> None:
+    p = n.bulletin
+    data = {k: p[k] for k in ("results", "voters", "resultsAt", "final") if k in p}
+    # 「>」只会出现在 JSON 字符串里，转义掉免得提前结束 HTML 注释
+    blob = json.dumps(data, ensure_ascii=False).replace(">", "\\u003e")
+    ends, when = parse_time(p.get("endsAt")), parse_time(p.get("resultsAt"))
+    state = "已截止，最终结果" if p.get("final") else (f"截止 {ends:%m-%d %H:%M}" if ends else "进行中") + " · 每 4 天统计一次"
+    body = (f"{MARK_RESULT.format(p['id'])}\n<!-- poll-data:{blob} -->\n### 📊 投票结果\n\n{result_table(p)}\n\n"
+            f"<sub>{p.get('voters', 0)} 人参与 · {state}" + (f" · 统计于 {when:%m-%d %H:%M}" if when else "") + "</sub>")
+    upsert_comment(gh, n, MARK_RESULT.format(p["id"]), body)
+    if p.get("final") and not n.bot_comment(MARK_FINAL.format(p["id"])):
+        gh.gwrite(ADD, d=n.node_id, b=f"{MARK_FINAL.format(p['id'])}\n🗳️ **投票已截止**，"
+                                      f"{p.get('voters', 0)} 人参与：\n\n{result_table(p)}")
+
+
+ADD = """mutation($d:ID!,$b:String!){addDiscussionComment(input:{discussionId:$d,body:$b}){comment{id body}}}"""
+
+
+def upsert_comment(gh: fd.GitHub, n: Notice, mark: str, body: str) -> None:
+    current = n.bot_comment(mark)
+    if current is None:
+        got = gh.gwrite(ADD, d=n.node_id, b=body)
+        n.bot_comments.append(((got.get("addDiscussionComment") or {}).get("comment")) or {"id": "", "body": body})
+    elif current["body"].strip() != body.strip():
+        gh.gwrite("""mutation($c:ID!,$b:String!){updateDiscussionComment(input:{commentId:$c,body:$b}){comment{id}}}""",
+                  c=current["id"], b=body)
+        current["body"] = body
+
+
+# ---------------------------------------------------------------- 发布回执 / 飞书公告表
+
+LEVEL_NAMES = {v: k for k, v in LEVELS.items()}
+
+
+def status_body(n: Notice, feishu_done: bool) -> str:
+    marks = MARK_STATUS + (f"\n{MARK_FEISHU}" if feishu_done else "")
+    if n.errors:
+        return marks + "\n⚠️ **没发布**，改一下帖子就会重试：\n\n" + "\n".join(f"- {e}" for e in n.errors)
+    b = n.bulletin
+    if b is None:
+        return marks + "\n🗑️ 已从 App 撤下（帖子关闭了）。重新打开就恢复。"
+    bits = [LEVEL_NAMES.get(b["level"], b["level"])]
+    if b.get("startsAt"):
+        bits.append(f"{parse_time(b['startsAt']):%m-%d %H:%M} 起")
+    if b.get("endsAt"):
+        bits.append(f"截止 {parse_time(b['endsAt']):%m-%d %H:%M}")
+    if b.get("minVersion") or b.get("maxVersion"):
+        bits.append(f"版本 {b.get('minVersion', '')}～{b.get('maxVersion', '')}")
+    if b.get("options"):
+        bits.append(f"投票 {len(b['options'])} 项" + ("，可多选" if b.get("allowMultiple") else "")
+                    + ("，可自己填" if b.get("allowOther") else ""))
+    if b.get("mustAck"):
+        bits.append("必须确认")
+    if b.get("block"):
+        bits.append("⚠️ 启动拦截")
+    return (marks + f"\n✅ 已发布到 App（`{b['id']}`）：{' · '.join(bits)}\n\n"
+            "<sub>几分钟后生效。改帖子 = 改公告；关闭" + ("投票帖 = 结束投票" if b.get("options") else "帖子 = 撤下") + "</sub>")
+
+
+def write_feishu(fs: fd.Feishu, n: Notice) -> bool:
+    table = os.environ.get("FEEDBACK_TABLE_NOTICE", "").strip()
+    if not table:
+        fd.log("没配 FEEDBACK_TABLE_NOTICE，不写飞书公告表")
+        return False
+    b = n.bulletin
+    fields = {"公告ID": b["id"], "标题": b["title"], "正文": b["body"],
+              "等级": LEVEL_NAMES.get(b["level"], b["level"]),
+              "开始时间": b.get("startsAt", ""), "截止时间": b.get("endsAt", ""),
+              "投票选项": "\n".join(b.get("options") or []), "讨论链接": b["discussionUrl"]}
+    if fd.DRY_RUN:
+        fd.log(f"[dry-run] 公告表 += {json.dumps(fields, ensure_ascii=False)[:300]}")
+        return True
+    r = fd.http("POST", f"{fd.FEISHU}/bitable/v1/apps/{fs.base}/tables/{table}/records", {"fields": fields}, fs.auth)
+    if r.get("code") != 0:
+        fd.log(f"::warning::写飞书公告表失败：{r.get('code')} {r.get('msg')}")
+        return False
+    return True
+
+
+def receipt(gh: fd.GitHub, fs: Optional[fd.Feishu], n: Notice) -> None:
+    """在帖子里回一条解析结果；第一次发布成功时写飞书公告表。"""
+    if not n.managed:
+        return
+    current = n.bot_comment(MARK_STATUS)
+    done = bool(current and MARK_FEISHU in current["body"])
+    if not done and n.bulletin and not n.errors and fs is not None:
+        done = write_feishu(fs, n)
+    upsert_comment(gh, n, MARK_STATUS, status_body(n, done))
+
+
+# ---------------------------------------------------------------- 大家在问
+
+def public_qa(fs: fd.Feishu) -> list[dict]:
+    """按工单取回复时间最新的一条，它公开才展示；没工单号的按问题去重。"""
+    latest: dict[str, tuple[str, Optional[dict]]] = {}
+    for row in fs.search(fs.reply_table):
+        f = row.get("fields") or {}
+
+        def pick(*names: str) -> str:
+            return next((fd.text(f.get(x)).strip() for x in names if fd.text(f.get(x)).strip()), "")
+
+        q, a = pick("问题", "公开问题", "问"), pick("回复", "回复内容", "答", "回答")
+        if not q or not a:
+            continue
+        m = fd.TICKET_RE.search(fd.text(f.get("工单号")).upper())
+        key = m.group(0) if m else "q:" + q
+        t = pick("回复时间", "时间")
+        if key in latest and t < latest[key][0]:
+            continue
+        latest[key] = (t, {"q": q, "a": a, "c": pick("类型", "分类"), "b": pick("回复人")} if f.get("公开") is True else None)
+    ordered = sorted(latest.values(), key=lambda x: x[0], reverse=True)
+    return [item for _, item in ordered if item][:QA_LIMIT]
+
+
+# ---------------------------------------------------------------- main
+
+def event_number() -> Optional[int]:
+    path = os.environ.get("GITHUB_EVENT_PATH")
+    if not path or not os.path.exists(path):
+        return None
+    return ((json.load(open(path, encoding="utf-8")).get("discussion") or {}).get("number"))
+
+
+def main() -> None:
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    if mode not in {"event", "tally"}:
+        print(__doc__)
+        raise SystemExit(2)
+    out = Path(fd.env("OUT_DIR", "out"))
+    out.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(fd.BEIJING)
+    gh = fd.GitHub()
+    ns = notices(gh)
+    fs: Optional[fd.Feishu] = None
+    if mode == "tally":
+        fs = fd.Feishu()
+        items = public_qa(fs)
+        old = json.loads((out / QA_FILE).read_text(encoding="utf-8")) if (out / QA_FILE).exists() else {}
+        if old.get("items") != items:  # 没变就不动，免得每 4 天一个空提交
+            save(out / QA_FILE, {"updatedAt": iso(now), "items": items})
+        fd.log(f"大家在问：{len(items)} 条" + ("" if old.get("items") != items else "，无变化"))
+        update_polls(fs, gh, ns, now)
+    else:
+        number = event_number()
+        touched = [n for n in ns if n.number == number]
+        for n in touched:
+            # 投票帖刚关：当场出最终结果；第一次发布要写飞书公告表
+            poll_closed = n.bulletin and n.bulletin.get("options") and n.closed_at and not n.bulletin.get("final")
+            first = n.bulletin and not n.bot_comment(MARK_STATUS)
+            if poll_closed or first:
+                fs = fs or fd.Feishu()
+            if poll_closed:
+                update_polls(fs, gh, [n], now)
+            receipt(gh, fs, n)
+    if not any(n.managed for n in ns):
+        # 过渡：讨论区还没发过表单公告，announce 分支上手写的旧公告先别覆盖
+        fd.log("讨论区还没有表单公告，不生成 bulletin.json")
+        return
+    bulletins = [n.bulletin for n in ns if n.bulletin]
+    save(out / BULLETIN_FILE, {"bulletins": bulletins})
+    fd.log(f"公告 {len(bulletins)} 条：" + "、".join(b["id"] for b in bulletins))
+
+
+def self_test() -> None:
+    assert split_vote("A、B", ["A", "B", "C"]) == ({"A", "B"}, False)
+    assert split_vote("甲、乙、丙", ["甲、乙", "丙"]) == ({"甲、乙", "丙"}, False)
+    assert split_vote("A、随便写的", ["A", "B"]) == ({"A"}, True)
+    rows = [
+        {"created_time": 1, "fields": {"类型": "投票·p", "匿名ID": "x", "内容": "A"}},
+        {"created_time": 2, "fields": {"类型": "投票·p", "匿名ID": "x", "内容": "B"}},
+        {"created_time": 3, "fields": {"类型": "投票·p", "匿名ID": "y", "内容": "B、自己写"}},
+        {"created_time": 3, "fields": {"类型": "投票·q", "匿名ID": "z", "内容": "A"}},
+    ]
+    res, voters = tally({"id": "p", "options": ["A", "B"]}, rows)
+    assert voters == 2 and res == [{"option": "A", "votes": 0}, {"option": "B", "votes": 2},
+                                   {"option": OTHER, "votes": 1}], res
+
+    created = datetime(2026, 11, 24, 12, 0, tzinfo=fd.BEIJING)
+    form = ("### 等级\n\n提醒\n\n### 正文\n\n明天停电<!-- x -->\n\n### 链接\n\n_No response_\n\n"
+            "### 截止时间\n\n2026-12-01 08:00\n\n### 最低版本\n\nv6.0.2\n\n### 投票选项\n\n- 面\n- 饭\n其他\n\n"
+            "### 设置\n\n- [X] 投票可多选\n- [ ] 必须点确认才能关掉\n- [ ] 启动时拦住不让用（慎用）")
+    d = {"number": 7, "title": "吃什么", "body": form, "url": "u/discussions/7"}
+    b, errs = to_bulletin(d, created, None)
+    assert not errs and b["id"] == "2026-11-24-d7" and b["level"] == "warn" and b["body"] == "明天停电", (b, errs)
+    assert b["options"] == ["面", "饭"] and b["allowOther"] and b["allowMultiple"] and not b["mustAck"]
+    assert b["endsAt"] == "2026-12-01T08:00:00+08:00" and b["minVersion"] == "6.0.2" and "url" not in b
+    closed = datetime(2026, 11, 25, 9, 0, tzinfo=fd.BEIJING)
+    assert to_bulletin(d, created, closed)[0]["endsAt"] == "2026-11-25T09:00:00+08:00"
+    plain = {"number": 8, "title": "通知", "body": "随便写的正文\n\n### 背景\n\n不是表单", "url": "u"}
+    assert to_bulletin(plain, created, None) == (None, [])
+    notice = {"number": 9, "title": "通知", "body": "### 等级\r\n\r\n普通\r\n\r\n### 正文\r\n\r\n停水", "url": "u"}
+    got = to_bulletin(notice, created, None)[0]
+    assert got["level"] == "info" and got["body"] == "停水" and "options" not in got
+    assert to_bulletin(notice, created, closed) == (None, [])
+    bad = {**d, "body": form.replace("2026-12-01 08:00", "下周一")}
+    assert to_bulletin(bad, created, None)[0] is None
+    print("self-test ok")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--self-test"]:
+        self_test()
+    else:
+        main()

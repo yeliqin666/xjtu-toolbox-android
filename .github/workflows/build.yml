@@ -9,6 +9,7 @@ on:
       - '**.md'
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.github/DISCUSSION_TEMPLATE/**'
       - '.github/scripts/**'
       - '.github/workflows/**'
   workflow_dispatch:

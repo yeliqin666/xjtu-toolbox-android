@@ -10,7 +10,8 @@
 日报
 * 从上一期的水位往后拉（见 watermark），按工单号去重，停跑多久都能补齐。
 * 崩溃一条 issue，按 /toissue 规范打 Bug / P0 / Awaiting Assignment；只收核心版本 ≥ CRASH_MIN_VERSION，按异常签名聚合。
-* 反馈一条讨论（「反馈日报」分类）：正文放统计、版本评价表、用法；每条反馈一层楼，楼里有工单号标记。
+* 反馈一条讨论（「反馈日报」分类）：正文放统计、版本评价表（「好用」的留言折叠在表下）、用法；
+  其余每条反馈一层楼，楼里有工单号标记。
   「投票·」开头的是公告投票，不进日报。联系方式一律不发。
 * 审核（MODERATION）：off 不审；mark（默认）用 Qwen3Guard 打标签，Unsafe / Controversial 照发但折叠；
   block 时这两档不展示正文，只列在帖子里。
@@ -26,6 +27,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -66,6 +68,7 @@ CATEGORY_ALIASES = {"功能坏了": "有bug", "有点难用": "待改进", "想�
 # 与 App 端 FeedbackScreen 的 DIAGNOSTICS_SEPARATOR 一致
 DIAGNOSTICS_SEPARATOR = "———— 诊断信息 ————"
 RATING_PREFIX = "版本评价"
+PRAISE_TIER = "好用"
 VOTE_PREFIX = "投票"
 CRASH = "崩溃"
 EMPTY_NOTES = {"", "（未填写）", "(未填写)"}
@@ -460,10 +463,11 @@ def seen_tickets(gh: GitHub, discussions: list[dict], since_ms: int) -> set[str]
 
 
 def fetch_since(fs: Feishu, since_ms: int) -> list[Record]:
-    """表里有「创建时间」列就让飞书按日期先筛一遍（粒度到天，往前多留一天），没有就整表拉；精确过滤在调用方。"""
+    """让飞书按「创建时间」先筛一遍（粒度到天，往前多留一天），票不拉；筛不了就整表拉。精确过滤在调用方。"""
     day_before = since_ms - 86400_000
     flt = {"conjunction": "and", "conditions": [
-        {"field_name": "创建时间", "operator": "isGreater", "value": ["ExactDate", str(day_before)]}]}
+        {"field_name": "创建时间", "operator": "isGreater", "value": ["ExactDate", str(day_before)]},
+        {"field_name": "类型", "operator": "doesNotContain", "value": [VOTE_PREFIX + "·"]}]}
     try:
         rows = fs.search(fs.submit_table, flt)
         log(f"按「创建时间」增量拉取：{len(rows)} 条")
@@ -551,21 +555,33 @@ def build_feedback(records: list[Record], verdicts: dict, mode: str, window: str
         else:
             hidden.append(md)
 
+    def tier(r: Record) -> str:
+        return r.category.split("·")[-1].strip() or "?"
+
+    # 「好用」的留言多是夸一句，不开楼、不算待处理，折叠在评价表下面，免得淹没 bug
+    # 审核标了的照常单独开楼（那里有折叠 / 不展示的处理）
+    praise = [r for r in ratings if tier(r) == PRAISE_TIER and r.main not in EMPTY_NOTES
+              and (verdicts.get(r.ticket) or ("Safe",))[0] == "Safe"]
     if ratings:
         counts: dict[str, Counter] = defaultdict(Counter)
         for r in ratings:
-            counts[short_version(r.version)][r.category.split("·")[-1].strip() or "?"] += 1
+            counts[short_version(r.version)][tier(r)] += 1
         tiers = sorted({k for c in counts.values() for k in c})
         rows = ["| 版本 | " + " | ".join(tiers) + " |", "|---" * (len(tiers) + 1) + "|"]
         for ver in sorted(counts, key=lambda v: core_version(v) or (0, 0, 0), reverse=True):
             rows.append(f"| {ver} | " + " | ".join(str(counts[ver][t]) for t in tiers) + " |")
-        parts.append(f"### {CATEGORY_ICONS[RATING_PREFIX]} 版本评价（{len(ratings)}）\n\n" + "\n".join(rows))
+        section = f"### {CATEGORY_ICONS[RATING_PREFIX]} 版本评价（{len(ratings)}）\n\n" + "\n".join(rows)
+        if praise:
+            notes = "\n\n".join(f"<sub>{short_version(r.version)} · {r.created:%m-%d %H:%M}</sub>\n{quote(r.main, 300)}"
+                                for r in praise)
+            section += f"\n\n<details><summary>「{PRAISE_TIER}」的留言（{len(praise)}）</summary>\n\n{notes}\n\n</details>"
+        parts.append(section)
     for cat in CATEGORIES + sorted({r.category for r in others} - set(CATEGORIES)):
         for r in others:
             if r.category == cat:
                 add_item(r)
     for r in ratings:
-        if r.main not in EMPTY_NOTES:
+        if r.main not in EMPTY_NOTES and r not in praise:
             add_item(r)
     if hidden:
         parts.append("### 未展示\n\n" + "\n\n".join(hidden))
@@ -756,6 +772,14 @@ def parse_commands(body: str) -> list[Command]:
     return cmds
 
 
+def floor_question(body: str) -> str:
+    """反馈楼里引用的反馈原文（发楼时已打码），拼成一行当公开问题；不是反馈楼返回空串。"""
+    if not MARK_ITEM.search(body):
+        return ""
+    lines = (html.unescape(ln[1:]).replace("​", "").strip() for ln in body.splitlines() if ln.startswith(">"))
+    return one_line(" ".join(x for x in lines if x).removesuffix("…（截断）"), QUESTION_LIMIT)
+
+
 def issue_marks(body: str) -> tuple[set[str], set[str], set[str]]:
     def grab(rx: re.Pattern, group: int = 1) -> set[str]:
         m = rx.search(body)
@@ -774,9 +798,11 @@ class Outcome:
 
 
 def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str], pending: set[str],
-                   default: Optional[str], where: str, author: str = "") -> Outcome:
+                   default: Optional[str], where: str, author: str = "",
+                   floors: Optional[dict[str, str]] = None) -> Outcome:
     """执行一条评论里的命令。[default]：没写工单号时用的工单（讨论里回复的那层楼）；
-    [author]：评论人的 GitHub 用户名，写进「回复人」，App 里显示是谁回的。"""
+    [author]：评论人的 GitHub 用户名，写进「回复人」，App 里显示是谁回的；
+    [floors]：工单 → 反馈楼正文，没写「问题：」时从楼里取原文，省一次飞书查询。"""
     errors: list[str] = []
     newly: set[str] = set()
     notes: list[str] = []
@@ -807,7 +833,7 @@ def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str],
         t = c.tickets[0]
         try:
             fs = fs or Feishu()
-            question = c.question
+            question = c.question or floor_question((floors or {}).get(t, ""))
             if not question:
                 f = fs.submission(t) or {}
                 question = one_line(text(f.get("内容")).split(DIAGNOSTICS_SEPARATOR, 1)[0], QUESTION_LIMIT)
@@ -945,7 +971,7 @@ def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict, done: set[str
     tickets, pending, body_done = issue_marks(disc["body"])
     done = set(done) | body_done
     out = apply_commands(fs, cmds, tickets, pending, default, f"讨论 #{disc['number']}",
-                         (c.get("author") or {}).get("login", ""))
+                         (c.get("author") or {}).get("login", ""), {default: parent["body"]} if default else None)
 
     # 飞书已经写了：后面这几步失败只记一条警告，不把整次算失败
     def step(what: str, query: str, **variables: Any) -> bool:

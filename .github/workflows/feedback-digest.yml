@@ -5,6 +5,7 @@ name: Feedback digest
 #
 # 定时（每天北京时间 08:30 = UTC 00:30）：发两类日报（没有新内容就不发），再补处理漏掉的命令。
 # 手动：workflow_dispatch，可选 dry_run（只打印不写）。
+# 「大家在问」和投票统计在 announce.yml。
 # 评论：讨论里的 /reply、/skip 由 discussion-commands.yml 统一接收（和 /toissue 同一个入口）；
 #   这里只管旧的反馈日报 issue（带 feedback 标签）。评论事件只认默认分支上的 workflow，改动要先合到 main。
 #

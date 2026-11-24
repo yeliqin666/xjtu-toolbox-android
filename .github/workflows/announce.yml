@@ -1,0 +1,91 @@
+name: Announce
+
+# 讨论区「通知公告」= App 公告的唯一编辑处（发帖表单见 .github/DISCUSSION_TEMPLATE/通知公告.yml，
+# 解析和统计见 .github/scripts/announce.py）。生成的 JSON 提交到 GitHub 的 announce 分支，再把这个分支原样推到
+# Gitee：两边一致，App 先读 Gitee、再读 GitHub。不经过 OSS（OSS 只放小游戏和安装包）。
+#
+#   讨论区有变动：重建 bulletin.json；投票帖刚关就当场出最终结果；首次发布写一行飞书公告表、帖子里回一条解析结果
+#   每 4 天（北京时间 09:00，每月 1、5、9…号）：统计投票、从飞书生成 feedback-qa.json（大家在问），再重建
+#   手动：workflow_dispatch = 每 4 天那一趟，可选 dry_run（只打印，不提交、不回帖、不写飞书）
+#
+# GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce（它会传 OSS），这里自己推 Gitee。
+# discussion 事件只认默认分支上的 workflow，改动要先合到 main。
+
+on:
+  discussion:
+    types: [created, edited, deleted, closed, reopened, category_changed]
+  schedule:
+    - cron: '0 1 */4 * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只打印，不提交、不回帖、不写飞书'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  discussions: write
+
+concurrency:
+  group: announce
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    # 别的分类的帖子不管；改分类可能是移进 / 移出，都重建一次
+    if: >-
+      github.event_name != 'discussion' ||
+      github.event.discussion.category.name == (vars.ANNOUNCE_CATEGORY || '通知公告') ||
+      github.event.action == 'category_changed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '' }}
+      OUT_DIR: announce
+      ANNOUNCE_CATEGORY: ${{ vars.ANNOUNCE_CATEGORY || '通知公告' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: announce
+          path: announce
+          fetch-depth: 0
+
+      - name: Build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
+          FEEDBACK_APP_SECRET: ${{ secrets.FEEDBACK_APP_SECRET }}
+          FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
+          FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
+          FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
+          FEEDBACK_TABLE_NOTICE: ${{ secrets.FEEDBACK_TABLE_NOTICE }}
+        run: python3 .github/scripts/announce.py ${{ github.event_name == 'discussion' && 'event' || 'tally' }}
+
+      - name: Commit to announce
+        id: commit
+        if: env.DRY_RUN != '1'
+        working-directory: announce
+        run: |
+          git add -A
+          if git diff --cached --quiet; then echo "没有变化"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "公告：由讨论区「通知公告」生成"
+          git push -q origin HEAD:announce
+          echo "pushed=1" >> "$GITHUB_OUTPUT"
+
+      - name: Mirror to Gitee
+        if: steps.commit.outputs.pushed == '1'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+          GIT_TERMINAL_PROMPT: "0"
+        working-directory: announce
+        run: |
+          test -n "$GITEE_TOKEN" || { echo "::error::GITEE_ACCESS_TOKEN missing"; exit 1; }
+          # token 不进 remote URL（会写进 .git/config、报错时可能打出来），只经 env 交给 credential helper
+          git config --local credential.https://gitee.com.helper \
+            '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
+          git push -q --force https://gitee.com/yeliqin666/xjtu-toolbox-android.git HEAD:announce
+          echo "Gitee announce 已同步"
