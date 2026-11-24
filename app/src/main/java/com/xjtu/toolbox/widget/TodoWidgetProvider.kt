@@ -117,6 +117,6 @@ object TodoWidgetUpdater {
 
 class TodoWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        TodoWidgetUpdater.update(context, appWidgetManager, appWidgetIds)
+        updateWidgetsAsync { TodoWidgetUpdater.update(context, appWidgetManager, appWidgetIds) }
     }
 }

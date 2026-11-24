@@ -34,7 +34,7 @@ fun ProvideCouiMenuBackdrop(
     content: @Composable (Modifier) -> Unit,
 ) {
     val backdrop = rememberCouiBackdrop(parent = LocalCouiMenuBackdrop.current, diagnosticName = "menu-window")
-    SideEffect { backdrop.setIsolateWhenIdle(isolateContent) }
+    SideEffect { backdrop.setIsolated(isolateContent) }
     CompositionLocalProvider(LocalCouiMenuBackdrop provides backdrop) {
         content(Modifier.couiBackdrop(backdrop))
     }

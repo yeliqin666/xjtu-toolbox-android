@@ -41,11 +41,18 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.trace
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.PI
@@ -68,6 +75,28 @@ private const val ENTER_MS = 240
 private const val ENTER_STAGGER_MS = 28L
 private const val ENTER_MAX = 6
 
+/** 一屏从顶到底的入场错峰总跨度：与原先 6 项 × 28ms 的节奏相当。 */
+private const val ENTER_SPREAD_MS = 168f
+
+/**
+ * 最近一波入场：某块整块在屏幕里、开始演入场时开一波；只露出一截的块在这一波开着时跟着演。
+ * 判断在摆放时做（见 [enterOnce]），同一屏的块在同一趟摆放里，一波开 [WAVE_MS] 足够；滚动中探进来的行赶不上。只在 UI 线程用。
+ */
+private object EnterWave {
+    private const val WAVE_MS = 300L
+
+    /** 这一波的起点：同一波的块都按它排时间线（起点 + 自己的错峰），不各自从摆好那一刻算。 */
+    var openedAt: kotlin.time.TimeMark? = null
+        private set
+
+    /** 已有一波开着就沿用它的起点，不重置：否则后摆好的块会把时间线整体往后推。 */
+    fun open() {
+        if (!active()) openedAt = TimeSource.Monotonic.markNow()
+    }
+
+    fun active(): Boolean = openedAt?.let { it.elapsedNow().inWholeMilliseconds < WAVE_MS } == true
+}
+
 /** 图表、进度条这类「揭开」的默认时长。 */
 private const val REVEAL_MS = 550
 
@@ -88,7 +117,10 @@ fun rememberRevealProgress(
 ): State<Float> {
     val k = key.hashCode()
     val played = rememberSaveable { mutableStateOf(if (skip) k else null) }
-    val a = remember { Animatable(if (played.value == k) 1f else 0f) }
+    // 起点只在出生时看一眼、不订阅：否则入场播完写回 played，调用方（几十张卡）就各重组一次
+    val a = remember {
+        Animatable(if (androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { played.value } == k) 1f else 0f)
+    }
     LaunchedEffect(k) {
         if (played.value == k) {
             a.snapTo(1f)
@@ -111,50 +143,41 @@ fun rememberEnterProgress(index: Int, maxAnimated: Int = ENTER_MAX): State<Float
     rememberRevealProgress(
         delayMillis = index * ENTER_STAGGER_MS,
         spec = tween(ENTER_MS, easing = FastOutSlowInEasing),
-        skip = index >= maxAnimated || !LocalEnterAnimations.current,
+        skip = index >= maxAnimated || !LocalEnterAnimations.current.peek(),
     )
 
+/**
+ * 随转场变化的页面信号（可见、转场中、要不要演入场）。
+ *
+ * 以终身不换的持有者往下传，值在快照状态里：变化时只有读 [value] 的地方重组。
+ * 直接把 Boolean 当 Local 的值提供的话，值一变，下层每个子组合（页面插槽、懒列表的项、
+ * BoxWithConstraints）下次重组都不能跳过，整页重跑——子组合按上层 Local 有没有变决定能否跳过。
+ */
+@Stable
+class PageSignal(private val read: () -> Boolean) {
+    /** 当前值；在组合里读会订阅变化。 */
+    val value: Boolean get() = read()
+
+    /** 只看一眼、不订阅：只在首次组合时有意义的判断（要不要演入场）用它。 */
+    fun peek(): Boolean = androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { read() }
+
+    companion object {
+        val True = PageSignal { true }
+        val False = PageSignal { false }
+    }
+}
+
 /** 这一页的控件要不要各自错峰入场。整页一起放大进来时关掉，否则控件和页面不同步。 */
-val LocalEnterAnimations = androidx.compose.runtime.compositionLocalOf { true }
+val LocalEnterAnimations = androidx.compose.runtime.staticCompositionLocalOf { PageSignal.True }
 
 /**
  * 这一页正随导航转场进出：常驻循环先停。页面画面不动，顶栏模糊和材质就沿用上一帧，不必逐帧重算。
  * 与可见性无关，[LocalPageVisible] 照旧。
  */
-val LocalPageSettling = androidx.compose.runtime.compositionLocalOf { false }
+val LocalPageSettling = androidx.compose.runtime.staticCompositionLocalOf { PageSignal.False }
 
 /** 设置里的「简化光效」：保留玻璃与模糊，去掉浮层光晕、投影和背景流动动画。 */
 val LocalReducedEffects = androidx.compose.runtime.compositionLocalOf { false }
-
-/** 切页错峰的档数、每档延迟与跟上的弹性（照 SleepDown 的主页切换：6 档、18ms、阻尼 .74 / 刚度 260）。 */
-private const val SWITCH_STAGGER_MS = 18L
-private const val SWITCH_DAMPING = 0.74f
-private const val SWITCH_STIFFNESS = 260f
-
-/**
- * 底栏切页的运动：只有「正切进来」的那一页会提供。
- *
- * 页面整体按 [ShellTabHost] 的进度滑进来，里面的 [enterOnce] 元素再按自己的分档进度追上来——
- * 于是先滑进来的是空白的页，元素随后错落补齐，而不是整块一起平移。
- */
-@Stable
-class TabSwitchMotion(
-    /** 页面滑动进度 0 → 1。 */
-    val progress: () -> Float,
-    /** 进场方向：+1 从右边进来，-1 从左边进来。 */
-    val direction: () -> Float,
-    /** 页面宽度（px），把「进度差」换算成像素。 */
-    val width: () -> Int,
-) {
-    /** 这一页第几次被切进来：变了就重播错峰。 */
-    var generation by androidx.compose.runtime.mutableIntStateOf(0)
-
-    /** 这一页正被切进来，元素才按档跟进。只在绘制阶段读。 */
-    var active by mutableStateOf(false)
-}
-
-/** 每页一个、终身不换的对象：切页只改它里面的状态，不让整页因 Local 换值而重组。 */
-val LocalTabSwitch = androidx.compose.runtime.staticCompositionLocalOf<TabSwitchMotion?> { null }
 
 /**
  * 常驻循环的相位 0→1（周期 [periodMillis]）：按约 30 帧/秒推进，页面不可见就停。
@@ -163,11 +186,13 @@ val LocalTabSwitch = androidx.compose.runtime.staticCompositionLocalOf<TabSwitch
 @Composable
 fun rememberLoopPhase(periodMillis: Long = LOOP_MS): State<Float> {
     val phase = remember { mutableFloatStateOf(0f) }
-    if (LocalPageVisible.current && !LocalPageSettling.current) {
+    if (LocalPageVisible.current.value && !LocalPageSettling.current.value) {
         LaunchedEffect(periodMillis) {
             val start = TimeSource.Monotonic.markNow()
             while (true) {
-                phase.floatValue = (start.elapsedNow().inWholeMilliseconds % periodMillis) / periodMillis.toFloat()
+                trace("xjtu:loop:loopPhase") {
+                    phase.floatValue = (start.elapsedNow().inWholeMilliseconds % periodMillis) / periodMillis.toFloat()
+                }
                 delay(33)
             }
         }
@@ -181,48 +206,58 @@ fun breath(phase: Float, low: Float = 0.35f, offset: Float = 0f): Float {
     return low + (1f - low) * (0.5f - 0.5f * cos(2f * PI.toFloat() * t))
 }
 
-/** 入场：从下方 12dp 淡入上浮，只播一次。值在 graphicsLayer 里读，不引起重组。 */
+/**
+ * 入场：从下方 8dp 淡入上浮，只播一次。值在 graphicsLayer 里读，不引起重组。
+ *
+ * 错峰按这一块**第一次摆好时在屏幕上的高度**：越靠上越先出来，一屏从上到下最多差 [ENTER_SPREAD_MS]。
+ * 不按 [index]——各页手排的序号、没挂入场的行、数据先到后到都会让下面的先出来。
+ *
+ * 哪些块演：第一次摆好时整块在屏幕里的演，并开一「波」；只露出一截的（屏幕底边那一两行）
+ * 赶上这一波就跟着演（按位置排在最后），没赶上的——滚动中才探进来的行——直接就位。
+ * [index]、[maxAnimated] 不再参与计算，留着是为了不改各页的调用。
+ */
 @Composable
 fun Modifier.enterOnce(index: Int, maxAnimated: Int = ENTER_MAX): Modifier {
-    val p = rememberEnterProgress(index, maxAnimated)
-    // 底栏切页时，这一块额外按自己的分档进度横向滞后于页面（见 [TabSwitchMotion]）
-    val switch = LocalTabSwitch.current
-    val track = if (switch != null && index < maxAnimated) rememberTabSwitchTrack(switch, index) else null
-    return graphicsLayer {
+    val enter = LocalEnterAnimations.current.peek()
+    val played = rememberSaveable { mutableStateOf(!enter) }
+    val p = remember {
+        Animatable(if (androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { played.value }) 1f else 0f)
+    }
+    // 第一次摆好那一刻定下的错峰延迟（ms）；NaN = 还没摆，负数 = 不演、直接就位。
+    // 必须在摆放时就定：协程要等这一帧画完才跑，慢帧（debug 包首帧几百毫秒）里「这一波」早过期了，
+    // 底边那半截行会被误判成直接就位，比上面还在淡入的行先出来
+    val plan = remember { mutableFloatStateOf(Float.NaN) }
+    // 所属那一波的起点：错峰从它算，同一波里先摆好、后摆好的块落在同一条时间线上
+    val wave = remember { arrayOfNulls<kotlin.time.TimeMark>(1) }
+    val screen = LocalWindowInfo.current.containerSize.height
+    LaunchedEffect(Unit) {
+        if (played.value) return@LaunchedEffect
+        val offset = snapshotFlow { plan.floatValue }.first { !it.isNaN() }
+        if (offset >= 0f) {
+            val wait = offset.toLong() - (wave[0]?.elapsedNow()?.inWholeMilliseconds ?: 0L)
+            if (wait > 0) delay(wait)
+            p.animateTo(1f, tween(ENTER_MS, easing = FastOutSlowInEasing))
+        } else {
+            p.snapTo(1f)
+        }
+        played.value = true
+    }
+    return onPlaced {
+        if (plan.floatValue.isNaN() && !played.value) {
+            val y = it.positionInWindow().y
+            val onScreen = screen > 0 && y >= 0f && y < screen
+            val whole = onScreen && y + it.size.height <= screen
+            // 整块在屏幕里的块开一波；同一趟摆放里（自上而下）随后只露出一截的块据此跟上
+            if (whole) EnterWave.open()
+            val joins = whole || (onScreen && EnterWave.active())
+            wave[0] = if (joins) EnterWave.openedAt else null
+            plan.floatValue = if (joins) y / screen * ENTER_SPREAD_MS else -1f
+        }
+    }.graphicsLayer {
         val v = p.value
         alpha = v
         translationY = (1f - v) * 8.dp.toPx()
-        if (switch != null && track != null && switch.active) {
-            val width = switch.width().toFloat()
-            if (width > 0f) {
-                // 页面在滑，这一块按自己的进度跟：进度差 × 页宽 = 还差多少没跟上。
-                // 差值允许为负——弹簧越过 1 的那一点点就是 SleepDown 那种回弹感。
-                translationX = switch.direction() * width * (switch.progress() - track.value)
-            }
-        }
     }
-}
-
-/** 某个分档的跟进进度：页面一切进来就从 0 弹到 1，第 [index] 档晚 [index] × 18ms 起步。 */
-@Composable
-private fun rememberTabSwitchTrack(switch: TabSwitchMotion, index: Int): State<Float> {
-    // 先按「已就位」开局：这块要是切页之后才组合出来的（数据刚回来、条件块刚出现），
-    // 第一帧就不会被「页面进度 1、自己进度 0」推出一整页宽再弹回来。
-    val track = remember { Animatable(1f) }
-    // 记下这一块出生时的世代：同世代里才组合出来的块（晚到的内容）不参与这次错峰。
-    val initialGeneration = remember { androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { switch.generation } }
-    // 只有带入场的这些块因世代变化重组，页面其余部分不动
-    val generation = switch.generation
-    LaunchedEffect(generation) {
-        if (generation == initialGeneration) return@LaunchedEffect
-        track.snapTo(0f)
-        if (index > 0) delay(index * SWITCH_STAGGER_MS)
-        track.animateTo(
-            1f,
-            spring(dampingRatio = SWITCH_DAMPING, stiffness = SWITCH_STIFFNESS, visibilityThreshold = 0.0015f),
-        )
-    }
-    return track.asState()
 }
 
 /** 一上来就快、越走越慢的指数减速（取自 HyperOS 系统菜单的实测节奏）：弹出面板、整页放大都用它。 */

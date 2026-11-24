@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
@@ -285,12 +286,10 @@ private class DrawBackdropNode(
     private var graphicsLayer: GraphicsLayer? = null
 
     private val layoutLayerBlock: GraphicsLayerScope.() -> Unit = {
+        // [vendor] 不强制离屏：裁切走图层轮廓，renderEffect 在内层采样图层上。强制离屏时采样层每帧
+        // 一变（滚动、拖拽），整块玻璃连同上面的文字图标都要多栅格化一遍再贴回去
         clip = true
         shape = shapeProvider.shape
-        // [vendor] 不采样时不必把内容压进离屏层：那层只为采样结果与 renderEffect 服务
-        if (sampling) {
-            compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-        }
     }
 
     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
@@ -394,9 +393,16 @@ private class DrawBackdropNode(
                 // 只有相对采样源真的动了才写，否则页面转场时所有玻璃每帧白录一遍
                 val offset = backdrop.sampleOffset(coordinates)
                 val previous = lastSampleOffset
-                if (layoutCoordinates == null || previous == null || offset.movedFrom(previous)) {
-                    lastSampleOffset = offset
-                    layoutCoordinates = coordinates
+                if (coordinates.boundsInWindow().isEmpty) {
+                    // [vendor] 被祖先裁到看不见（滚出视口）时不重录：非懒加载的长列表里，滚动一帧
+                    // 会让屏外的每块玻璃都白录一遍。记成「位置未知」，滚回来的第一帧照常重录
+                    lastSampleOffset = null
+                } else if (layoutCoordinates == null || previous == null || offset.movedFrom(previous)) {
+                    // 性能探针：采样位置变了，这块玻璃下一帧要重录
+                    androidx.compose.ui.util.trace("xjtu:invalidate:backdropMoved") {
+                        lastSampleOffset = offset
+                        layoutCoordinates = coordinates
+                    }
                 }
             } else {
                 if (layoutCoordinates != null) {
@@ -408,7 +414,8 @@ private class DrawBackdropNode(
     }
 
     override fun onObservedReadsChanged() {
-        invalidateDrawCache()
+        // 性能探针：effects 读到的状态变了（形状、圆角、密度等）
+        androidx.compose.ui.util.trace("xjtu:invalidate:backdropEffects") { invalidateDrawCache() }
     }
 
     fun invalidateDrawCache() {

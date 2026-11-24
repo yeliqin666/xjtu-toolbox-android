@@ -79,9 +79,9 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 /**
  * 「主页设置」抽屉。
  *
- * 两套首页布局共用这一个抽屉，因为有三组设置是**跨布局共用**的——背景（壁纸 / 模糊）、
- * 卡片材质（液态玻璃）、顶栏排法，它们落在 [SettingsStore] 里；只有卡片组才有的几项
- * （网格开关、折射子开关、卡片圆角、背景不透明度、导出 / 导入布局、恢复默认分组和布局）落在
+ * 两套首页布局共用这一个抽屉：背景（壁纸 / 模糊）是**跨布局共用**的，落在 [SettingsStore] 里；
+ * 只有卡片组才有的几项
+ * （液态折射、卡片圆角、背景不透明度、导出 / 导入布局、恢复默认分组和布局）落在
  * [com.xjtu.toolbox.home.HomeLayoutStore] 里，切到经典分类卡时整块不画。
  *
  * 做成底部抽屉而不是二级页，是因为它要能从两处打开——全局设置里的那一行，和首页编辑态的齿轮；
@@ -128,7 +128,7 @@ fun HomeSettingsSheet(
 /** 抽屉和设置「外观」页共用的内容；滚动归外层。[onDismiss]：恢复默认或导入后要收起时调用。 */
 @Composable
 internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    // 卡片组独有：整页布局（分组与格位）、网格开关、折射、圆角、背景不透明度
+    // 卡片组独有：整页布局（分组与格位）、液态折射、圆角、背景不透明度
     val store = remember { HomeLayoutStore() }
     // 两套布局共用：背景、卡片材质
     val settings = remember { SettingsStore() }
@@ -137,6 +137,7 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
     var layout by remember(revision) { mutableStateOf(settings.homeLayout) }
     var corner by remember { mutableIntStateOf(store.cardCorner) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
+    var refraction by remember { mutableStateOf(store.liquidRefraction) }
     var confirmReset by remember { mutableStateOf(false) }
     var showBackup by remember { mutableStateOf(false) }
     // 从文件读回来、等用户确认的那份布局；非 null = 导入确认弹窗开着
@@ -187,7 +188,7 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
         SmallTitle("首页背景与卡片")
         HomeSettingsCard {
             HomeBackgroundPreference(settings, startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) })
-            // 卡片组独有：壁纸再盖一层主题底色，文字对比度不够时自己往下拨
+            // 卡片组 + 自定义图片独有：不透明度、液态折射
             if (cards && wallpaper) {
                 SettingsSliderRow(
                     title = "背景不透明度",
@@ -203,6 +204,17 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
                     },
                     // 拖的时候首页跟着变，抽屉只留这根滑条
                     livePreview = { store.notifyChanged() },
+                )
+                SwitchPreference(
+                    title = "液态折射",
+                    summary = "卡片边缘折射背景，关闭可省电",
+                    checked = refraction,
+                    startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue) },
+                    onCheckedChange = {
+                        refraction = it
+                        store.liquidRefraction = it
+                        store.notifyChanged()
+                    },
                 )
             }
             // 圆角只有卡片组有；编辑态悬浮条恒为全圆，不吃这个值。存的仍是 dp，老存档按最近一档显示

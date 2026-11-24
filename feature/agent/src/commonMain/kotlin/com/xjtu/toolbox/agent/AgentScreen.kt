@@ -118,8 +118,12 @@ fun AgentScreen(
     // 从主动提醒气泡进来时，**开一个新会话**并把提醒作为真实的第一条用户消息发出去。
     // 不新建会话的话会接在上一次的对话尾巴上，用户看到的就是"老对话"，
     // 跟刚才气泡说的事毫无关系。
+    // 只在这一页真显示着时取：底栏会在后台提前落地这一页，不看可见性的话，用户还没切过来消息就发出去了
+    // （在副作用里等，不在组合里读：读了整页每次切底栏都要重组）
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
     LaunchedEffect(config.isConfigured, AgentPendingPrompt.generation) {
         if (!config.isConfigured) return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
         val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
         showConfig = false
         vm.newSession()

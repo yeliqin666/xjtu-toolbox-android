@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +89,7 @@ import com.xjtu.toolbox.agent.ProactiveMessage
 import com.xjtu.toolbox.agent.ProactiveRules
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.AppearanceSettings
@@ -200,11 +202,35 @@ internal fun MainScreen(
         }
     }
 
-    // 刚把当前这格移出底栏时回首页（画面先按首页画，状态随后跟上）
-    val selectedBarTab = bar.firstOrNull { it.id == tabs.selectedId } ?: bar.first()
-    LaunchedEffect(selectedBarTab.id) { tabs.selectedId = selectedBarTab.id }
+    // 选中格一律在用到它的地方现读（导航状态、回调、气泡与浮层插槽），不在这一层读：
+    // 这一层一重组，这里定义的每个插槽都会失效，常驻的几页连同顶栏全部重跑一遍。
+    val selectedBarTab: () -> BarTab = { bar.selectedOf(tabs.selectedId) }
     /** 选中的原生格；选中的是放上来的子页时为 null。 */
-    val selectedTab: BottomTab? = selectedBarTab.core
+    val selectedTab: () -> BottomTab? = { selectedBarTab().core }
+    // 小岱配置的密钥那一半在加密存储里，第一次打开要向 keystore 取密钥（几十毫秒的跨进程调用）。
+    // 账号一定就在后台先打开，进小岱页时直接命中进程级缓存（见 SecurePrefs），不卡切页那一帧
+    LaunchedEffect(loginState.accountId) {
+        withContext(Dispatchers.IO) { runCatching { com.xjtu.toolbox.agent.AgentConfigStore().load() } }
+    }
+    // 底栏上要登站点的子页（校园卡等）：后台静默续上会话（只续已有统一认证票据的，不弹登录、不输密码）。
+    // 后台预组合到这一格时 TabLoginGate 就直接放行，切过来是现成的页面，而不是先转圈等登录
+    val barSites = remember(bar) { bar.mapNotNull { it.route?.loginType?.siteKey() }.distinct() }
+    LaunchedEffect(barSites, loginState.accountId) {
+        if (barSites.isEmpty()) return@LaunchedEffect
+        // 恢复身份时 accountId 先于凭据和 manager 写入，这两样不可观察：短轮询等它们到位，最多 10 秒
+        repeat(34) {
+            val manager = loginState.sessionManager
+            if (manager != null && loginState.hasCredentials) {
+                manager.warmUp(barSites)
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(300)
+        }
+    }
+    // 刚把当前这格移出底栏时回首页（画面先按首页画，状态随后跟上）
+    LaunchedEffect(bar) {
+        snapshotFlow { bar.selectedOf(tabs.selectedId).id }.collect { tabs.selectedId = it }
+    }
     // 学辅的搜索在顶栏里，ViewModel 提到这一层和页面共用；第一次上屏才发请求（见 ensureStarted）
     val zyxfVm: ZyxfBrowseViewModel = viewModel(key = "zyxf") { ZyxfBrowseViewModel(context) }
     val zyxfSearchState = rememberCouiSearchBarState(expanded = true)
@@ -273,8 +299,8 @@ internal fun MainScreen(
         )
     }
     BackHandler(enabled = homeSearchExpanded) { homeSearchExpanded = false }
-    LaunchedEffect(selectedTab) {
-        if (selectedTab != BottomTab.HOME) homeSearchExpanded = false
+    LaunchedEffect(bar) {
+        snapshotFlow { selectedTab() }.collect { if (it != BottomTab.HOME) homeSearchExpanded = false }
     }
     // 扫一扫从哪颗圆钮长出来；null = 从别处打开，直接淡入
     var revealSource by remember { mutableStateOf<ExpandOriginSource?>(null) }
@@ -353,8 +379,8 @@ internal fun MainScreen(
     ProactiveReminderLoop(loginState)
 
     // 在小岱页时不自动冒泡（会遮输入框）
-    LaunchedEffect(selectedTab) {
-        ProactiveBubbleHost.autoSuppressed = selectedTab == BottomTab.PIDAI
+    LaunchedEffect(bar) {
+        snapshotFlow { selectedTab() == BottomTab.PIDAI }.collect { ProactiveBubbleHost.autoSuppressed = it }
     }
 
     // 只有手动点 tab 才震动，程序切 tab 不震
@@ -362,7 +388,7 @@ internal fun MainScreen(
 
     // 点小岱：切 tab，并让它在首屏说句闲话（底栏上的闲话气泡收掉，正事气泡保留）
     val onPidaiTap: () -> Unit = {
-        if (selectedTab != BottomTab.PIDAI) haptics.tick()
+        if (selectedTab() != BottomTab.PIDAI) haptics.tick()
         tabs.select(BottomTab.PIDAI)
         if (ProactiveBubbleHost.message?.id == ProactiveRules.CHATTER_ID) ProactiveBubbleHost.clear()
         ProactiveRules.pickOnTap(context)?.let { line ->
@@ -376,7 +402,7 @@ internal fun MainScreen(
         if (tab.id == BottomTab.PIDAI.name) {
             onPidaiTap()
         } else {
-            if (tab.id != selectedBarTab.id) haptics.tick()
+            if (tab.id != selectedBarTab().id) haptics.tick()
             ProactiveBubbleHost.clear()
             tabs.selectedId = tab.id
         }
@@ -392,19 +418,22 @@ internal fun MainScreen(
         )
     }
 
-    val navState = ShellNavState(
-        tabs = shellTabs,
-        // 当前页 = 选中的那一格指向的那一页（每格与一屏一一对应，见 BarTab.shellTab）
-        target = selectedBarTab.shellTab().target,
-        onSelect = onSelectTab,
-        accountBadge = ShellAccountBadge.of(navAccountCount, loginState.isLoggedIn),
-        returning = tabs.returning,
-    )
+    val isLoggedIn = loginState.isLoggedIn
+    val navState = remember(shellTabs, onSelectTab, navAccountCount, isLoggedIn) {
+        ShellNavState(
+            tabs = shellTabs,
+            // 当前页 = 选中的那一格指向的那一页（每格与一屏一一对应，见 BarTab.shellTab）
+            targetOf = { selectedBarTab().shellTab().target },
+            onSelect = onSelectTab,
+            accountBadge = ShellAccountBadge.of(navAccountCount, isLoggedIn),
+            returningOf = { tabs.returning },
+        )
+    }
 
     // 新气泡出现时轻震一下
-    val bubbleId = ProactiveBubbleHost.message?.id
-    LaunchedEffect(bubbleId) {
-        if (bubbleId != null) haptics.lowTick()
+    // 在副作用里读：气泡一出一收（切 tab 也会收）不该让这一层跟着重组
+    LaunchedEffect(Unit) {
+        snapshotFlow { ProactiveBubbleHost.message?.id }.collect { if (it != null) haptics.lowTick() }
     }
 
     // 小岱提醒气泡，底栏版和侧栏版共用这一份，各自只管定位。玻璃采样层从共享壳手里拿
@@ -525,7 +554,7 @@ internal fun MainScreen(
         },
         barBubble = { handles ->
             val msg = ProactiveBubbleHost.message
-            if (msg != null && selectedTab != BottomTab.PIDAI) {
+            if (msg != null && selectedTab() != BottomTab.PIDAI) {
                 val screenWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
                 BarBubbleSlot(anchorX = pidaiAnchor?.center?.x?.takeIf { pidaiInBar }) {
                     bubbleView(handles, msg, (screenWidth - 32.dp).coerceAtLeast(200.dp))
@@ -543,7 +572,7 @@ internal fun MainScreen(
         // 搜索、扫一扫是盖满整屏的浮层：共享壳把它们放在最外层，不放进 Scaffold 的内容区
         overlays = { handles ->
             // 小岱的历史对话侧栏和设置页：盖住顶栏和底栏
-            if (selectedTab == BottomTab.PIDAI) agentOverlays.Content()
+            if (selectedTab() == BottomTab.PIDAI) agentOverlays.Content()
             RevealOverlay(
                 visible = showQrLogin,
                 source = revealSource,
@@ -582,7 +611,7 @@ internal fun MainScreen(
                 homeSearchExpanded -> homeSearchExpanded = false
                 // 先退回上一格（当前页缩回自己的按钮）；没有历史了再回首页
                 tabs.back(bar.mapTo(HashSet()) { it.id }) -> Unit
-                selectedTab != BottomTab.HOME -> tabs.jumpHome()
+                selectedTab() != BottomTab.HOME -> tabs.jumpHome()
                 else -> {
                     val now = System.currentTimeMillis()
                     if (now - lastBackPressTime < 2000) {
@@ -712,7 +741,7 @@ internal fun MainScreen(
                     )
 
                     else -> bar.firstOrNull { it.id == shellPage.tab?.id }?.route?.let { route ->
-                        RouteTabPage(route, insets, glassStyle, loginState) {
+                        RouteTabPage(route, insets, loginState) {
                             AppPageAsTab(route, pageDeps, onBack = { tabs.select(BottomTab.HOME) })
                         }
                     }
@@ -721,6 +750,9 @@ internal fun MainScreen(
         },
     )
 }
+
+/** 选中的那一格；选中的 id 已不在底栏上（刚被移走）时按第一格算。 */
+private fun List<BarTab>.selectedOf(id: String): BarTab = firstOrNull { it.id == id } ?: first()
 
 /**
  * 搜索、扫一扫这类整屏覆盖层的进出场：给了 [source] 就从那颗圆钮长成整页、收起时缩回去

@@ -2,6 +2,7 @@ package com.xjtu.toolbox.ui.glass.coui
 
 import android.graphics.BlendMode
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Rect
@@ -26,12 +27,17 @@ object CouiTopAppBarButtonDefaults {
         val density = LocalDensity.current.density
         val contour = LocalCouiContourGlowEnabled.current
         val colors = CouiTheme.colorSchemeFor(dark)
-        return CouiToolbarStyle(dark, circleShape, CouiCapsuleShape,
-            material = { capsule -> material(dark, capsule, search) },
-            shadow = { capsule -> shadow(dark, capsule, density, contour, search) },
-            contentColor = LocalCouiToolbarContentColor.current.takeOrElse { colors.onSurface },
-            textStyle = CouiTheme.typography.body,
-            cursorColor = colors.accent, contourGlowEnabled = contour)
+        val contentColor = LocalCouiToolbarContentColor.current.takeOrElse { colors.onSurface }
+        val textStyle = CouiTheme.typography.body
+        // 样式里带 lambda，每次新建都不相等，会让捕获它的父级 lambda 跟着失效、整棵子树重组
+        return remember(dark, search, density, contour, contentColor, textStyle, colors.accent) {
+            CouiToolbarStyle(dark, circleShape, CouiCapsuleShape,
+                material = { capsule -> material(dark, capsule, search) },
+                shadow = { capsule -> shadow(dark, capsule, density, contour, search) },
+                contentColor = contentColor,
+                textStyle = textStyle,
+                cursorColor = colors.accent, contourGlowEnabled = contour)
+        }
     }
 
     /** ToolbarMaterialEffectResolver 的 TOP_BAR 与 CAPSULE_1/CIRCLE_1；不含项目原有加深特化。 */

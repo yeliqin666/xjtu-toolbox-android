@@ -93,6 +93,15 @@ fun winkLid(t: Double): Double = when {
     else -> (t - 0.2) / 0.2
 }
 
+/**
+ * 在后台线程把小岱动画用到的静态表（形状、表情、眼神拟合、装饰）先算好、代码先跑一遍。
+ * 不预热时底栏图标第一次采样要在主线程上一次算完这些，启动时卡一百多毫秒。
+ * 用一台丢弃的引擎：这些表初始化后只读，引擎自己的状态不共享。
+ */
+fun warmUpBotEngine() {
+    BotEngine().sample(0.0)
+}
+
 class BotEngine(
     /** 静息球半径，单位为 viewBox */
     val scale: Double = 100.0,

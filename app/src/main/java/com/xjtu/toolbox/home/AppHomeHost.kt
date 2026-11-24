@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.xjtu.toolbox.account.AccountContext
@@ -169,7 +170,7 @@ internal fun rememberAppHome(
         HomeSignals.scheduleReminder = focus?.startAt?.let { HomeSignals.ScheduleFocus(focus.title, it.toJavaTime()) }
     }
 
-    // 首帧就显示上次的内容，不从空白跳过来；只读一个小文件，放在组合里同步读
+    // 首帧就显示上次的内容，不从空白跳过来；冷启动时已在后台读进内存（见 HomeStats.preloadSnapshot）
     var homeStats by remember(loginState.accountId) { mutableStateOf(HomeStats.snapshot(context)) }
     LaunchedEffect(
         loginState.accountId,
@@ -259,7 +260,29 @@ internal fun rememberAppHome(
             .takeUnless { it.isEmpty }
     }
 
-    val host = object : HomeHost {
+    // 宿主对象只建一次：每次重组都新建的话，HomeScreen 拿到的总是新对象，整页（几十张卡）跟着重组。
+    // 组合里算出的值经 rememberUpdatedState 交进去，读到它的地方各自跟着更新。
+    val inboxNow = rememberUpdatedState(inboxSummary)
+    val audienceNow = rememberUpdatedState(audience)
+    val greetingNow = rememberUpdatedState(
+        loginState.cachedNickname.orEmpty()
+            .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
+            .ifBlank { loginState.activeUsername },
+    )
+    val dateNow = rememberUpdatedState("${today.monthOfMonth()} $weekDay")
+    val statusNow = rememberUpdatedState(heroStatus)
+    val bulletinsNow = rememberUpdatedState(bulletinItems)
+    val statsNow = rememberUpdatedState(homeStats)
+    val quickNow = rememberUpdatedState(quickRoutes)
+    val editableNow = rememberUpdatedState(showQuickActions)
+    val loggedInNow = rememberUpdatedState(isLoggedIn)
+    val navigateNow = rememberUpdatedState(onNavigate)
+    val profileNow = rememberUpdatedState(onNavigateToProfile)
+    val coursesNow = rememberUpdatedState(onNavigateToCourses)
+    val bulletinTapNow = rememberUpdatedState(onBulletinTap)
+    val bulletinDismissNow = rememberUpdatedState(onBulletinDismiss)
+
+    val host = remember(context, loginState) { object : HomeHost {
         override val honoredCards: Set<HomeCard> = buildSet {
             add(HomeCard.BULLETIN_BAR)
             add(HomeCard.GREETING)
@@ -271,19 +294,17 @@ internal fun rememberAppHome(
             add(HomeCard.SERVICE_GRID)
             add(HomeCard.INBOX)
         }
-        override val inbox: HomeInboxSummary? get() = inboxSummary
+        override val inbox: HomeInboxSummary? get() = inboxNow.value
 
-        override val audience = loginState.accountType
-        override val greetingName: String = loginState.cachedNickname.orEmpty()
-            .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
-            .ifBlank { loginState.activeUsername }
-        override val dateLabel: String = "${today.monthOfMonth()} $weekDay"
+        override val audience get() = audienceNow.value
+        override val greetingName: String get() = greetingNow.value
+        override val dateLabel: String get() = dateNow.value
         override val weekNumber: Int get() = currentWeekNumber
-        override val statusLine: HomeStatusLine? get() = heroStatus
-        override val bulletins: List<Bulletin> get() = bulletinItems
-        override val stats: Map<String, HomeStat> get() = homeStats
-        override val quickRoutes: List<AppRoute> get() = quickRoutes
-        override val quickEditable = showQuickActions
+        override val statusLine: HomeStatusLine? get() = statusNow.value
+        override val bulletins: List<Bulletin> get() = bulletinsNow.value
+        override val stats: Map<String, HomeStat> get() = statsNow.value
+        override val quickRoutes: List<AppRoute> get() = quickNow.value
+        override val quickEditable get() = editableNow.value
         override fun onQuickRoutesChange(routes: List<AppRoute>) {
             pinnedQuick = routes.map { it.id }
             settings.pinnedQuickRoutes = pinnedQuick
@@ -291,7 +312,7 @@ internal fun rememberAppHome(
 
         override val nextUp: HomeNextUp?
             get() = withHomeHints(context, scheduleReminder ?: when {
-                !isLoggedIn -> HomeNextUp(
+                !loggedInNow.value -> HomeNextUp(
                     icon = HomeHero.LOGIN_ICON,
                     title = "登录后查看课表和余额",
                 )
@@ -317,14 +338,14 @@ internal fun rememberAppHome(
 
         override val glances: List<HomeGlanceItem>
             get() {
-                if (!isLoggedIn) return emptyList()
+                if (!loggedInNow.value) return emptyList()
                 val runway = com.xjtu.toolbox.card.runwayDays(
                     cachedBalance.toDouble(),
                     cachedDailyRate.takeIf { it > 0f }?.toDouble(),
                 )
                 // 有日均时按「还够几天」判断，没有才退回按金额
                 val lowBalance = if (runway != null) runway <= 3 else cachedBalance in 0f..30f
-                val exam = homeStats[EXAM_KEY]
+                val exam = statsNow.value[EXAM_KEY]
                 return buildList {
                     add(
                         HomeGlanceItem(
@@ -355,10 +376,10 @@ internal fun rememberAppHome(
 
         override fun onRoute(route: AppRoute) {
             // 日程格子直接切 tab，不先登教务：日程页自己有缓存，也会自己登
-            if (route == AppRoute.Schedule) onNavigateToCourses() else onNavigate(route)
+            if (route == AppRoute.Schedule) coursesNow.value() else navigateNow.value(route)
         }
 
-        override fun onProfile() = onNavigateToProfile()
+        override fun onProfile() = profileNow.value()
 
         override fun onOpenLink(link: String) {
             if (link.startsWith("app:")) {
@@ -378,7 +399,7 @@ internal fun rememberAppHome(
                     )
                 }
             } else {
-                onNavigate(AppRoute.Browser(link))
+                navigateNow.value(AppRoute.Browser(link))
             }
         }
 
@@ -387,22 +408,22 @@ internal fun rememberAppHome(
             val site = manager.ensureSite("campus_card", silent = true)
             return com.xjtu.toolbox.pay.PaymentCodeApi(site).getBarCode()
         }
-        override fun onBulletinTap(bulletin: Bulletin) = onBulletinTap(bulletin)
+        override fun onBulletinTap(bulletin: Bulletin) = bulletinTapNow.value(bulletin)
         // 「查看详情」走站内公告详情页：ROM 支持金标联盟一镜到底时由 KitOneTake 换成独立 Activity，
         // 否则压 AppRoute.NoticeDetail，走同一条 Compose 放大转场（BulletinNoticePanel 已登记起点）。
         override fun onBulletinDetail(bulletin: Bulletin, source: SeamlessCardSource?) =
-            seamlessOpener(context, loginState, onNavigate)(AppRoute.NoticeDetail.of(bulletin), source)
+            seamlessOpener(context, loginState) { navigateNow.value(it) }(AppRoute.NoticeDetail.of(bulletin), source)
 
         // 首页常用功能 / 功能小组件 / 分类入口行：判断规则与全应用一致（见 seamlessOpener）
         override fun onRouteSeamless(route: AppRoute, source: SeamlessCardSource?) =
             seamlessOpener(context, loginState, ::onRoute)(route, source)
 
-        override fun onBulletinDismiss(bulletin: Bulletin) = onBulletinDismiss(bulletin)
+        override fun onBulletinDismiss(bulletin: Bulletin) = bulletinDismissNow.value(bulletin)
         override fun onOpenHomeSettings() {
             showSettingsSheet.value = true
         }
         override val hasHomeSettings get() = true
-    }
+    } }
 
     return AppHome(host, showSettingsSheet)
 }

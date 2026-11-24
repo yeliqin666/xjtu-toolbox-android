@@ -61,6 +61,7 @@ import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.util.toDialableTels
 import com.xjtu.toolbox.util.withXianAreaCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
@@ -522,12 +523,13 @@ internal fun ProfileTab(
     // 缓存优先：进页面先把磁盘上的读出来立刻渲染，再按新鲜度决定要不要静默刷新，
     // 全程不阻塞 UI，也不显示加载态——拿不到就退回原有的 YWTB 基础信息。
     val ctx = LocalContext.current
+    // 只在副作用里等它变真，组合里不读（读了整页每次切底栏都重组）
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
     var helloProfile by remember {
         mutableStateOf(com.xjtu.toolbox.hello.HelloProfileStore.cached(ctx))
     }
-    var helloAvatar by remember {
-        mutableStateOf(com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx))
-    }
+    // 头像在下面的 LaunchedEffect 里于 IO 线程解码，组合时不读盘
+    var helloAvatar by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
 
     /**
      * 学工档案拿到的姓名同时记成账号昵称。档案缓存在 cacheDir，会被系统清理、升级清缓存
@@ -568,6 +570,8 @@ internal fun ProfileTab(
         helloProfile = com.xjtu.toolbox.hello.HelloProfileStore.cached(ctx)
         helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
         hasCustomAvatar = com.xjtu.toolbox.hello.HelloProfileStore.hasCustomAvatar(ctx)
+        // 联网（可能要短信验证）等这一页真显示了再做：底栏会在后台提前落地这一页
+        androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
         com.xjtu.toolbox.hello.HelloProfileStore
             .ensure(ctx, loginState.sessionManager)
             ?.let {
@@ -701,10 +705,12 @@ internal fun ProfileTab(
                         onClick = {
                             if (!avatarSaving) {
                                 com.xjtu.toolbox.hello.HelloProfileStore.clearCustomAvatar(ctx)
-                                helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
                                 hasCustomAvatar = false
-                                avatarVersion++
                                 showAvatarSheet = false
+                                scope.launch {
+                                    helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
+                                    avatarVersion++
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -724,6 +730,9 @@ internal fun ProfileTab(
         LaunchedEffect(loginState.hasCredentials) {
             if (loginState.ywtbUserInfo != null) return@LaunchedEffect
             if (!loginState.hasCredentials) return@LaunchedEffect
+            // 同上：等这一页真显示了再登一网通办
+            androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
+            if (loginState.ywtbUserInfo != null) return@LaunchedEffect
             withContext(Dispatchers.IO) {
                 val ywtbSite = runCatching { loginState.sessionManager?.ensureSite(LoginType.YWTB) }.getOrNull()
                 if (ywtbSite != null && loginState.ywtbUserInfo == null) {

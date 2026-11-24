@@ -79,6 +79,7 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
         // 官方给的规避是关掉它；必须在第一次组合之前设。出栈路径另见 AppNavigator.dropEmbeddedFocus。
         androidx.compose.ui.ComposeUiFlags.isBypassUnfocusableComposeViewEnabled = false
         super.onCreate()
+        if (BuildConfig.DEBUG) com.xjtu.toolbox.debug.StateWriteTracer.install()
         com.xjtu.toolbox.platform.initAndroidPlatform(this)
         // 同一件事的 :data 版：会话内核要的密文存储（cookie / 站点快照）按名字从
         // `:data` 的平台缝取，Android 那份 actual 同样需要进程级 Context。

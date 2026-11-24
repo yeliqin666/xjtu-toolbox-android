@@ -26,6 +26,7 @@ import com.xjtu.toolbox.agent.bot.cast.Act
 import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import com.xjtu.toolbox.agent.bot.cast.CastEngine
 import com.xjtu.toolbox.agent.bot.cast.Sketch
+import com.xjtu.toolbox.agent.bot.cast.SketchFrame
 import com.xjtu.toolbox.agent.bot.cast.Tone
 import com.xjtu.toolbox.ui.components.LocalPageVisible
 
@@ -48,6 +49,9 @@ internal fun CastIcon(
     val sketch = remember { Sketch() }
     val paths = remember { ArrayList<Path>() }
     val clock = remember { BotClock() }
+    val drawn = remember { SketchFrame() }
+    // 一个 Sketch 单位合多少像素：绘制时才知道尺寸
+    val pxPerUnit = remember { floatArrayOf(0f) }
     val seenKicks = remember { intArrayOf(kickSerial) }
     LaunchedEffect(kickSerial, engine) {
         if (kickSerial == seenKicks[0]) return@LaunchedEffect
@@ -95,7 +99,8 @@ internal fun CastIcon(
             clock.stateChangedAt = now
             engine.play(act, now, replay = true)
         }
-        val pageVisible = LocalPageVisible.current
+        // 页面盖住、或所在页正在转场时不跑（与经典屁岱同一条规则，见 BloubBotIcon）
+        val pageVisible = LocalPageVisible.current.value && !com.xjtu.toolbox.ui.components.LocalPageSettling.current.value
         LaunchedEffect(engine, pageVisible) {
             while (pageVisible) {
                 val t = clock.now()
@@ -105,9 +110,14 @@ internal fun CastIcon(
                 if (resting) {
                     kotlinx.coroutines.delay(33)
                     engine.sample(clock.now(), sketch)
+                    // 静息只剩呼吸和眨眼：和上次画出的那帧差不到半个像素就不重画（底栏小图标上呼吸本来就看不出来），
+                    // 否则待命时整个窗口每秒要重画 30 次
+                    val unitPx = pxPerUnit[0]
+                    if (unitPx > 0f && !drawn.differs(sketch, HALF_PIXEL / unitPx)) continue
                 } else {
                     withFrameNanos { nanos -> engine.sample(clock.at(nanos), sketch) }
                 }
+                drawn.capture(sketch)
                 tick++
             }
         }
@@ -122,6 +132,7 @@ internal fun CastIcon(
     ) {
         if (tick == 0 && sketch.count == 0) return@Canvas
         val unitPx = size.minDimension / 2f / 1.22f / 100f
+        pxPerUnit[0] = unitPx
         withTransform({
             translate(size.width / 2f, size.height / 2f)
             scale(unitPx, unitPx, pivot = Offset.Zero)
@@ -130,6 +141,9 @@ internal fun CastIcon(
         }
     }
 }
+
+/** 静息时看得出的最小变化（像素）。 */
+private const val HALF_PIXEL = 0.5f
 
 /** 把一帧笔画画出来。路径按笔的序号复用，不每帧新建。 */
 private fun DrawScope.drawSketch(s: Sketch, paths: MutableList<Path>) {

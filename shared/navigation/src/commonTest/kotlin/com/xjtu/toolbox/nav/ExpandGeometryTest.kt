@@ -38,7 +38,8 @@ class ExpandGeometryTest {
                 assertTrue(current.height <= full.height + 0.001f)
                 assertTrue(abs(current.center.x - full.width / 2f) <= abs(previous.center.x - full.width / 2f) + 0.001f)
                 assertTrue(abs(current.center.y - full.height / 2f) <= abs(previous.center.y - full.height / 2f) + 0.001f)
-                if (step < 1000) assertTrue(current.height < full.height)
+                // 放大收尾是软着陆，最后几帧的差值低于 float 精度，只查 95% 之前
+                if (step < 950) assertTrue(current.height < full.height)
                 previous = current
             }
         }
@@ -47,12 +48,48 @@ class ExpandGeometryTest {
     @Test
     fun growthOverlapsFlight() {
         val source = sources.first()
-        // 飞到中央时窗口已经明显长大（和飞行重叠），但还没铺满
+        // 飞到中央时放大已过大半，但还没铺满
         val mid = ButtonZoom.window(source, full, ButtonZoom.FLIGHT_END)
         assertTrue(abs(mid.center.x - full.width / 2f) < 1f && abs(mid.center.y - full.height / 2f) < 1f)
-        assertTrue(mid.width > source.width * 2f)
-        assertTrue(mid.width < full.width * 0.8f)
+        assertTrue(mid.width > lerpWidth(source, 0.75f))
+        assertTrue(mid.width < full.width * 0.95f)
     }
+
+    @Test
+    fun growthIsFrontLoaded() {
+        // 前四分之一进度就完成三成以上的放大，不把放大压到后半程
+        sources.forEach { source ->
+            assertTrue(ButtonZoom.window(source, full, 0.25f).width >= lerpWidth(source, 0.3f))
+        }
+    }
+
+    @Test
+    fun crossfadeFollowsWindowSize() {
+        // 面板与内容的交叉跟着窗口大小走：窗口还大时面板不能盖上来，窗口还小时内容不能露出来
+        val source = sources.first()
+        for (step in 0..1000) {
+            val u = step / 1000f
+            val grown = (ButtonZoom.window(source, full, u).width - source.width) / (full.width - source.width)
+            if (grown > 0.46f) assertEquals(0f, ButtonZoom.coverAlpha(u), 0.001f)
+            if (grown < 0.08f) assertEquals(0f, ButtonZoom.contentAlpha(u), 0.001f)
+        }
+    }
+
+    @Test
+    fun cardHandoffFollowsWindowSize() {
+        // 卡片起点：页面与卡片快照的交接按窗口大小定时，返回时窗口还大就不能换成卡片
+        val source = sources.first()
+        for (step in 0..1000) {
+            val u = step / 1000f
+            val grown = (ButtonZoom.window(source, full, u).width - source.width) / (full.width - source.width)
+            if (grown > 0.9f) assertEquals(1f, ExpandOrigins.pageContentAlpha(u, popping = true), 0.001f)
+            if (grown < 0.42f) assertEquals(0f, ExpandOrigins.pageContentAlpha(u, popping = true), 0.001f)
+            if (grown > 0.55f) assertEquals(1f, ExpandOrigins.pageContentAlpha(u), 0.001f)
+            if (grown < 0.14f) assertEquals(0f, ExpandOrigins.pageContentAlpha(u), 0.001f)
+        }
+    }
+
+    private fun lerpWidth(source: Rect, fraction: Float) = source.width + (full.width - source.width) * fraction
 
     @Test
     fun noVelocityBreakAtPhaseBoundaries() {

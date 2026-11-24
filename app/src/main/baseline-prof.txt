@@ -45,3 +45,9 @@ HSPLcom/xjtu/toolbox/sharedview/**;->**(**)**
 HSPLcom/xjtu/toolbox/ui/**;->**(**)**
 HSPLcom/xjtu/toolbox/*/*Screen*;->**(**)**
 HSPLtop/yukonga/miuix/kmp/nav/**;->**(**)**
+# 底栏页签第一次切进来时整页首组合：小岱（欢迎页、对话、输入栏都不在 *Screen 文件里）、「我的」的组件文件，
+# 以及首页卡片与顶栏共用的玻璃采样库和 miuix 基础组件。采集环境同样走不到这些页签。
+HSPLcom/xjtu/toolbox/agent/**;->**(**)**
+HSPLcom/xjtu/toolbox/profile/**;->**(**)**
+HSPLcom/kyant/backdrop/**;->**(**)**
+HSPLtop/yukonga/miuix/kmp/**;->**(**)**

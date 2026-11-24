@@ -306,4 +306,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
     debugImplementation(libs.androidx.ui.tooling)
+    // 组合追踪：广播 androidx.tracing.perfetto.action.ENABLE_TRACING 后，Perfetto 的 track_event 里有每个重组的组件名
+    debugImplementation(libs.androidx.compose.runtime.tracing)
+    debugImplementation(libs.androidx.tracing.perfetto)
+    debugImplementation(libs.androidx.tracing.perfetto.binary)
 }

@@ -153,6 +153,7 @@ fun AppShell(
             ) { padding ->
                 val layoutDirection = LocalLayoutDirection.current
                 val statusTop = contentWindowInsets.asPaddingValues().calculateTopPadding()
+                val barSeed = remember { BarHeightSeed() }
                 // 顶部留白归每一页（见 ShellBarPage），这一层只垫左右和底。
                 // 垫了多少就声明消费多少：经典底栏下页面里的 imePadding / windowInsetsPadding 才会扣掉底栏，不把输入框多抬一截
                 val handled = PaddingValues(
@@ -195,7 +196,7 @@ fun AppShell(
                     ) { p ->
                         ShellBarPage(
                             glass = glassStyle,
-                            edgeToEdge = p.tab?.edgeToEdge == true,
+                            ownTopBar = p.tab?.drawsOwnTopBar == true,
                             statusTop = statusTop,
                             bar = if (topBar != null && p.tab?.drawsOwnTopBar != true) {
                                 {
@@ -204,15 +205,19 @@ fun AppShell(
                             } else {
                                 null
                             },
+                            seed = barSeed,
                         ) { contentTop, contentShift ->
-                            page(
-                                p,
-                                ShellPageInsets(
-                                    contentTopPadding = contentTop,
-                                    contentTopShift = contentShift,
-                                    bottomBarReserve = layout.bottomBarReserve,
-                                ),
-                            )
+                            // 性能探针：这一格的组合耗时（录 trace 时按格 id 归账）
+                            androidx.compose.ui.util.trace("xjtu:compose:tab:${p.tab?.id}") {
+                                page(
+                                    p,
+                                    ShellPageInsets(
+                                        contentTopPadding = contentTop,
+                                        contentTopShift = contentShift,
+                                        bottomBarReserve = layout.bottomBarReserve,
+                                    ),
+                                )
+                            }
                         }
                     }
 
@@ -238,8 +243,11 @@ fun AppShell(
     }
 }
 
-/** 共享壳算给当前页的那几格留白 —— 页自己拿去补（壳不知道页面内部怎么排版）。 */
-class ShellPageInsets(
+/**
+ * 共享壳算给当前页的那几格留白 —— 页自己拿去补（壳不知道页面内部怎么排版）。
+ * 按值相等：壳重组时留白没变，页面插槽就能跳过。
+ */
+data class ShellPageInsets(
     /** 玻璃风格下这一页顶栏的稳定最大高度（没有顶栏时是状态栏高度）；经典风格恒为 0。 */
     val contentTopPadding: Dp,
     /** 浮在上面的底栏一共占掉多少（滚动内容末尾要留出来）。见 [ShellLayout.bottomBarReserve]。 */
@@ -252,8 +260,8 @@ class ShellPageInsets(
     val contentTopShift: () -> Dp = { 0.dp },
 )
 
-/** 共享壳交给端上插槽的那几样把手。 */
-class ShellHandles(
+/** 共享壳交给端上插槽的那几样把手（按值相等，理由同 [ShellPageInsets]）。 */
+data class ShellHandles(
     /** 玻璃胶囊底栏在场（决定气泡该不该用 COUI 材质）。 */
     val glassBarPresent: Boolean,
 )

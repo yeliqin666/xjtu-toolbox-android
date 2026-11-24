@@ -32,6 +32,8 @@ actual fun decodeImageDownToWidth(
 ): ImageBitmap? = decodeImageFull(bytes)
 
 /** Web 侧：浏览器不给可用内存 ⇒ 固定 32MB。 */
+actual fun ImageBitmap.toDisplayBitmap(): ImageBitmap = this
+
 actual fun imageMemoryCacheBudgetBytes(): Int = 32 * 1024 * 1024
 
 /** Web 没有屁岱卡（见 `AgentInsightHub`），不裁。 */

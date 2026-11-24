@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -14,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.LocalEnterAnimations
+import com.xjtu.toolbox.ui.components.PageSignal
 import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 
 /**
@@ -58,7 +60,11 @@ fun HomeScreen(
     var previousLayout by remember { mutableStateOf(layout) }
     val switchingLayout = layout != previousLayout
     LaunchedEffect(layout) { previousLayout = layout }
-    CompositionLocalProvider(LocalEnterAnimations provides !switchingLayout) {
+    val enter = rememberUpdatedState(!switchingLayout)
+    // 外壳说不演（底栏切过来、整页放大进来）时也不演：只叠加「切布局」这一条，不覆盖外层
+    val parentEnter = LocalEnterAnimations.current
+    val enterSignal = remember(parentEnter) { PageSignal { parentEnter.value && enter.value } }
+    CompositionLocalProvider(LocalEnterAnimations provides enterSignal) {
         if (layout == SettingsStore.HOME_LAYOUT_CLASSIC) {
             HomeClassicScreen(
                 host = host,

@@ -90,8 +90,9 @@ private class LayerBackdropNode(
     }
 
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
-        if (coordinates.isAttached) {
-            backdrop.layerCoordinates = coordinates
+        if (coordinates.isAttached && backdrop.layerCoordinates !== coordinates) {
+            // 性能探针：采样源的坐标对象换了，所有采它的玻璃都要重录
+            androidx.compose.ui.util.trace("xjtu:invalidate:backdropSource") { backdrop.layerCoordinates = coordinates }
         }
     }
 

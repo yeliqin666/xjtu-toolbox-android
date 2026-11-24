@@ -4,15 +4,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 
-/** 所在页面此刻是否真的显示着。 */
-val LocalPageVisible = compositionLocalOf { true }
+/** 所在页面此刻是否真的显示着（持有者见 [PageSignal]）。 */
+val LocalPageVisible = androidx.compose.runtime.staticCompositionLocalOf { PageSignal.True }
 
 /** 可复用的 Mesh 渐变背景。 */
 @Composable

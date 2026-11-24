@@ -91,6 +91,6 @@ class CampusCardWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        CampusCardWidgetUpdater.update(context, appWidgetManager, appWidgetIds)
+        updateWidgetsAsync { CampusCardWidgetUpdater.update(context, appWidgetManager, appWidgetIds) }
     }
 }

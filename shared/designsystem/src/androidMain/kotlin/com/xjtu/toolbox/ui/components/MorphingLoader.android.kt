@@ -8,7 +8,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
@@ -22,6 +24,8 @@ import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.graphics.shapes.toPath
+
+private val StoppedPhase: State<Float> = mutableFloatStateOf(0f)
 
 /**
  * graphics-shapes 1.1.0 只能在多边形之间形变，形变本身通过 [Morph] 完成，画到屏幕上要先
@@ -57,16 +61,20 @@ internal actual fun PlatformMorphingLoader(
     val totalMs = segmentMs * morphs.size
     val morphFraction = (morphDurationMs.toFloat() / segmentMs).coerceIn(0f, 1f)
 
-    val transition = rememberInfiniteTransition(label = "morphing_loader")
-    // 拿 State 本身，只在下面 Canvas 的绘制阶段读：加载期间只重画这块画布，不每帧重组
-    val phaseState = transition.animateFloat(
-        initialValue = 0f,
-        targetValue = morphs.size.toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = totalMs, easing = LinearEasing),
-        ),
-        label = "morphing_loader_phase",
-    )
+    // 页面不可见（被盖住、后台页签）时不转：无限动画会一直要新帧，界面就永远不算空闲
+    val phaseState = if (LocalPageVisible.current.value) {
+        // 拿 State 本身，只在下面 Canvas 的绘制阶段读：加载期间只重画这块画布，不每帧重组
+        rememberInfiniteTransition(label = "morphing_loader").animateFloat(
+            initialValue = 0f,
+            targetValue = morphs.size.toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = totalMs, easing = LinearEasing),
+            ),
+            label = "morphing_loader_phase",
+        )
+    } else {
+        StoppedPhase
+    }
 
     val androidPath = remember { android.graphics.Path() }
     // 慢速形变 60Hz 足够，屏幕可据此降刷新率

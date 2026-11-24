@@ -156,9 +156,11 @@ private class CouiGradientRenderer(
         )
         updateEffects(paddedSize)
         // 新 Canvas 不继承 CouiBackdrop 的 padding 平移; 独立 Density 避免 DrawScope 循环代理。
-        passes[0].record(density, scope.layoutDirection, paddedSize) {
-            scale(resolution, resolution, Offset.Zero) {
-                translate(padding, padding) { drawBackdrop() }
+        androidx.compose.ui.util.trace("xjtu:draw:topBarBlur") {
+            passes[0].record(density, scope.layoutDirection, paddedSize) {
+                scale(resolution, resolution, Offset.Zero) {
+                    translate(padding, padding) { drawBackdrop() }
+                }
             }
         }
         // 独立图层落实两次栅格化, 不让第二遍在 Shader 内嵌套执行第一遍卷积。

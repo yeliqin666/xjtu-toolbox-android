@@ -257,6 +257,14 @@ class HomeLayoutStore(
         set(value) = store.putInt(KEY_CARD_CORNER, value.coerceIn(CARD_CORNER_MIN, CARD_CORNER_MAX))
 
     /**
+     * 自定义图片背景上卡片的边缘折射（液态折射）。默认开；关掉后卡片只贴预糊的背景，
+     * 省掉每张卡一个离屏层。默认背景下卡片是白色实底，不读这个值。
+     */
+    var liquidRefraction: Boolean
+        get() = store.getBoolean(KEY_LIQUID_REFRACTION, true)
+        set(value) = store.putBoolean(KEY_LIQUID_REFRACTION, value)
+
+    /**
      * 主页背景样式：**主题底色**（[BACKGROUND_SOLID]）/ **主题色渐变**（[BACKGROUND_GRADIENT]）/
      * **自定义图片**（[BACKGROUND_IMAGE]，图本体存在 [backgroundImage]）。
      *
@@ -335,6 +343,7 @@ private const val KEY_LEGACY_WIDGETS = "home_widgets"
         /** 旧的网格开关：只在读取时用来把自由摆放的存档取整一次。 */
         private const val KEY_LEGACY_GRID = "home_grid"
 private const val KEY_CARD_CORNER = "home_card_corner"
+        private const val KEY_LIQUID_REFRACTION = "home_liquid_refraction"
         private const val KEY_BACKGROUND_MODE = "home_background_mode"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"

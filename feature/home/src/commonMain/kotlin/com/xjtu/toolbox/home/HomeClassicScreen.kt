@@ -927,7 +927,7 @@ private fun Modifier.opensRow(
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
     val press = remember { MutableInteractionSource() }
-    val openAfterPress = rememberOpenAfterPress(press)
+    val openWhilePressed = rememberOpenWhilePressed(press)
     return this
         .expandOriginSource(origin)
         .clip(RoundedCornerShape(radius))
@@ -936,7 +936,7 @@ private fun Modifier.opensRow(
             interactionSource = press,
             indication = SinkFeedback(),
             onClick = {
-                openAfterPress {
+                openWhilePressed {
                     // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                     origin.arm(row.key, radius, density, snapshot)
                     val seamless = row.onSeamlessClick

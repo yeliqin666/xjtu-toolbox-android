@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -93,7 +92,7 @@ internal fun ZyxfBrowseScreen(
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val dark = LocalIsDarkTheme.current
-    val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current.value
     LaunchedEffect(visible) {
         if (!visible) {
             // 离开这一页只释放输入：查询词留给 ViewModel，回来时按原样重跑检索，
@@ -304,12 +303,14 @@ internal fun ZyxfBrowseScreen(
                         }
                         if (listView) {
                             itemsIndexed(folders, key = { _, it -> "folder-${it.id}" }, contentType = { _, _ -> "folderLine" }) { i, folder ->
-                                FolderLine(folder, i == 0, i == folders.lastIndex, { onEntryClick(folder) }, { menuEntry = folder })
+                                Box(Modifier.enterOnce(3 + i)) {
+                                    FolderLine(folder, i == 0, i == folders.lastIndex, { onEntryClick(folder) }, { menuEntry = folder })
+                                }
                             }
                         } else {
-                            items(folders.chunked(2), key = { "folders-${it.first().id}" }, contentType = { "folderRow" }) { pair ->
+                            itemsIndexed(folders.chunked(2), key = { _, it -> "folders-${it.first().id}" }, contentType = { _, _ -> "folderRow" }) { i, pair ->
                                 Row(
-                                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp).enterOnce(3 + i),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     pair.forEach { folder ->

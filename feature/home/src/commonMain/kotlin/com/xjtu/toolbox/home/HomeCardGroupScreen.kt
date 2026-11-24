@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.IntState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -87,6 +88,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -105,6 +107,7 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.settings.SettingsStore
 // 两个同名 revision：一个是本页布局自己的（com.xjtu.toolbox.home），一个是全应用设置那套
@@ -203,9 +206,6 @@ fun HomeCardGroupScreen(
     }
     val layout = editing.draft ?: stored
     val grid = layoutStore.grid
-    // 卡片材质固定为柔光玻璃（'液态玻璃' 开关已删）。
-    val liquid = true
-    // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
     // 背景样式：主题底色 / 主题色渐变 / 自定义图片（取值与经典版同一套字符串）
     val backgroundMode = remember(settingsRevision) { settings.homeBackground }
     // 只有自定义图片这一档才去读那串 Base64（完整壁纸能有几百 KB）：其余两档读了也没人用，
@@ -240,13 +240,15 @@ fun HomeCardGroupScreen(
     /**
      * 卡片那层玻璃**还能不能看出模糊 / 折射**：有壁纸、且壁纸还有细节。
      *
-     * 卡片与幽灵块采的是**背景层**，所以这个值同时决定「糊不糊」与「折不折」——**没有用户开关**
-     * （2026-11 维护者把「开启折射」那项整个删了）：有细节就一整套上，没有就不采样，
-     * 免得把「省电」这件事交给用户去猜。
+     * 卡片与幽灵块采的是**背景层**：有细节才采样；折不折再看「液态折射」开关（见 [homeCardMaterial]）。
      * 顶栏圆钮、悬浮球、组删除钮采的是**内容层**（卡片、文字都在里面），那里永远有东西可折，
      * 所以它们恒采样 + 恒折射（见 `HomeBarIconButton` / `GroupDeleteButton`）。
      */
     val glassHasDetail = hasWallpaper && !wallpaperBlurredOut
+    val refractionOn = remember(revision) { layoutStore.liquidRefraction }
+    val material = homeCardMaterial(hasWallpaper, glassHasDetail, refractionOn)
+    // 默认背景是白色实底；自定义图片是玻璃
+    val liquid = material != HomeCardMaterial.Solid
     // 背景层的离屏层：**只在真有人要采时才录**（`layerBackdrop` 是一次整屏离屏渲染）。
     // 卡片在纯色 / 渐变上（或壁纸已糊成色块）不采样：`drawBackdrop(sampling = false)` 跳过「录采样层」
     // 那一段、也不建离屏层，这一档就是为省性能（见 `HomeTileFaceBox`）。
@@ -280,14 +282,7 @@ fun HomeCardGroupScreen(
     /** 编辑态进度（0 常规 → 1 编辑），只在绘制阶段读。 */
     val editFade = animateFloatAsState(if (editing.on) 1f else 0f, tween(260), label = "editFade")
 
-    val pageVisible = LocalPageVisible.current
-    // 返回键：编辑态优先（这一下不退出页面），退出时自动保存
-    BackHandler(enabled = editing.on && pageVisible) { saveAndQuitEdit() }
-    // 切到别的页签：这一页还在组合里，只是不可见了 —— 这时就退出编辑并保存。
-    // 只在「变成不可见」那一下动一次，可见时不做事（不做任何周期性工作）。
-    LaunchedEffect(pageVisible) {
-        if (!pageVisible) saveAndQuitEdit()
-    }
+    EditModeGuards(editing = editing.on, onExit = { saveAndQuitEdit() })
     // 页面整个被移出组合（宿主直接销毁这一页）：补一次落盘。
     // 只写盘、不碰 Compose 状态（dispose 阶段改 state 没有意义，还可能触发多余的组合）。
     DisposableEffect(Unit) {
@@ -296,45 +291,16 @@ fun HomeCardGroupScreen(
         }
     }
 
-    fun rowOf(service: AppService, stat: HomeStat?): HomeServiceRow {
-        val id = service.route.id
-        return HomeServiceRow(
-            key = service.route.id,
-            icon = HomeIcons.of(service.route),
-            title = service.title,
-            subtitle = service.subtitle,
-            color = colorByKey[id] ?: Color.Unspecified,
-            onClick = { host.onRoute(service.route) },
-            // 一镜到底：把「从这一块出发」的矩形交给宿主，ROM 支持 SharedViewKit 时走系统转场，
-            // 不支持就落回上面的 onClick（见 HomeTileBoard 的 tileOpen）
-            onSeamlessClick = { source -> host.onRouteSeamless(service.route, source) },
-            stat = stat?.value,
-            statDetail = stat?.detail,
-            onLink = host::onOpenLink,
-        )
+    // 功能状态就地附在组件里，不另设展示区。这一端打不开的入口直接不进 faces，它那些块就自然不画
+    // （桌面、Web 各自声明能开哪些）。
+    // 按宿主记住、状态变了才重算：卡面数据里带着点击闭包，每次重组都新建的话几十张卡永远「参数变了」，
+    // 进出编辑态、页面露出这类与卡面无关的变化也会让每张卡整块重组。宿主换了（切账号）就整份重建，
+    // 不会留住旧闭包。
+    // 点击闭包按入口只建一次：状态刷新时只有数据真变了的那几张卡参数不同，其余照旧跳过
+    val clicks = remember(host, catalog) { TileClicks.of(host, catalog) }
+    val faces: Map<String, HomeServiceRow> by remember(host, catalog, colorByKey, honored, clicks) {
+        derivedStateOf { buildFaces(host, catalog, colorByKey, honored, clicks) }
     }
-
-    // 功能状态就地附在组件里，不另设展示区。这里不 remember：宿主对象每次重组都是新的，
-    // 记住它会把旧的 onClick 闭包一起留住（切账号后点了没反应就是这么来的）。
-    // 这一端打不开的入口直接不进 faces，它那些块就自然不画（桌面、Web 各自声明能开哪些）。
-    val openable = host.openableRouteIds
-    val faces: Map<String, HomeServiceRow> = catalog
-        .filter { openable == null || it.route.id in openable }
-        .associate { service ->
-            val glance = host.glances.takeIf { HomeCard.GLANCE in honored }
-                ?.firstOrNull { it.route?.id == service.route.id && it.route != AppRoute.Schedule }
-            val id = service.route.id
-            val withStats = HomeCard.CATEGORY_STATS in honored
-            // 速览格没接的端（或校园卡、校历这类让给速览格的）照样取全量状态，大卡才有东西可放
-            val stat = HomeCards.statOf(id, host.stats) ?: host.stats[id]?.takeIf { it.value.isNotBlank() }
-            val value = if (withStats) {
-                stat?.value ?: glance?.let { g -> g.number?.let { yuanText(it.toFloat()) } ?: g.value }
-            } else null
-            id to rowOf(service, value?.let { HomeStat(it, stat?.detail ?: glance?.caption) }).copy(
-                tone = glance?.tone ?: HomeTone.NORMAL,
-                lines = if (withStats) HomeCards.linesOf(id, host.stats) else emptyList(),
-            )
-        }
 
     val quickVisible = HomeCard.QUICK_ACTIONS in honored
 
@@ -368,6 +334,12 @@ fun HomeCardGroupScreen(
     val frostLayer = rememberGraphicsLayer()
     remember(frostLayer, frostRadius) { frostLayer.renderEffect = BlurEffect(frostRadius, frostRadius, TileMode.Clamp) }
     val tileBackdrop = rememberLayerBackdrop(frostLayer, onDraw = FrostOnDraw)
+    // 卡片玻璃的快照源（见 HomeGlass）：背景层另录一份原样的，背景一变就抓一张清晰、一张模糊的快照，
+    // 卡片直接拿快照画，滚动时不再每张卡各开离屏层
+    val clearLayer = rememberGraphicsLayer()
+    val glass = rememberHomeGlass(clearLayer, enabled = recordTileLayer, frostRadius = FROST_RADIUS)
+    val clearBackdrop = rememberLayerBackdrop(clearLayer, onDraw = glass.recordBackground)
+    val tileGlass = glass.takeIf { recordTileLayer }
 
     // 顶栏渐变模糊与顶栏圆钮的采样源：**这一页的内容层**（背景 + 滚动内容），
     // 糊出来的是「此刻压在它下面的东西」，而不是固定不动的壁纸。COUI 的 AGSL 渐变模糊要这一层。
@@ -375,6 +347,38 @@ fun HomeCardGroupScreen(
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
+
+    // 首帧只组合视口里看得到的组，其余先用同高空位占住，之后每帧接一组。
+    // 估算把卡片区当作从屏幕顶开始（实际更靠下），宁可多组合、不会让看得见的组空着。
+    val window = LocalWindowInfo.current.containerSize
+    // 卡片区宽度：量到之前按窗口宽减两侧边距估（整页铺满窗口时就是准的），量到之后以实测为准
+    val estimatedBoardWidth = (window.width - with(density) { 32.dp.roundToPx() }).toFloat()
+    val boardWidthPx = { session.boardWidth.takeIf { it > 0f } ?: estimatedBoardWidth }
+    val firstGroups = remember {
+        if (window.height <= 0) return@remember Int.MAX_VALUE
+        val boardWidth = estimatedBoardWidth.toInt()
+        val gap = with(density) { GROUP_GAP.roundToPx() }
+        var budget = window.height + scroll.value
+        var count = 0
+        for (group in visibleGroups) {
+            if (budget <= 0) break
+            budget -= gap + density.groupRestHeightPx(group, editing.on, boardWidth)
+            count++
+        }
+        count
+    }
+    val composedGroups = remember { mutableIntStateOf(firstGroups) }
+    // 进过视口附近（下方一屏以内）的组；首屏以外的组只在这里面才组合真内容（见 StagedGroup）
+    val nearGroups = remember { androidx.compose.runtime.mutableStateSetOf<String>() }
+    val nearLimitPx = window.height * 2f
+    val groupCount = rememberUpdatedState(visibleGroups.size)
+    LaunchedEffect(Unit) {
+        while (composedGroups.intValue < groupCount.value) {
+            withFrameNanos { }
+            composedGroups.intValue++
+        }
+        composedGroups.intValue = Int.MAX_VALUE
+    }
     // 长按「拿起」的触感：走主题里那个被「振动开关」包过的 LocalHapticFeedback（见 Theme.kt）
     val haptic = LocalHapticFeedback.current
     var pageSize by remember { mutableStateOf(Offset.Zero) }
@@ -1021,7 +1025,18 @@ fun HomeCardGroupScreen(
                 Modifier
                     .matchParentSize()
                     .graphicsLayer()
-                    .then(if (recordTileLayer) Modifier.layerBackdrop(tileBackdrop) else Modifier),
+                    // 糊的那份在外、原样的在里：外层重录时里层跟着重录只是重放显示列表，
+                    // 反过来会让带模糊的那层跟着重录、整张重新模糊
+                    .then(
+                        if (recordTileLayer) {
+                            Modifier
+                                .layerBackdrop(tileBackdrop)
+                                .layerBackdrop(clearBackdrop)
+                                .onGloballyPositioned { glass.coordinates = it }
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
                 Box(Modifier.matchParentSize().background(barSurface))
                 when (backgroundMode) {
@@ -1134,78 +1149,91 @@ fun HomeCardGroupScreen(
                                 Modifier.onGloballyPositioned { coords ->
                                     val top = coords.positionInRoot().y - session.pageOrigin.y
                                     groupTops[group.id] = top
+                                    // 进到视口下方一屏以内就记下（只增不减），这一组才组合真内容
+                                    if (top < nearLimitPx && group.id !in nearGroups) nearGroups += group.id
                                     // 这一帧属于哪种状态，就记到哪一份「切换前的样子」里
                                     if (!editing.on) idleTops[group.id] = top else editTops[group.id] = top
                                 },
                             ) {
                                 Spacer(Modifier.height(if (index == 0) FIRST_GROUP_GAP else GROUP_GAP))
-                                HomeGroupSection(
-                                    group = group,
-                                    faces = faces,
-                                    editing = editing.on,
-                                    liquid = liquid,
-                                    refraction = glassHasDetail,
-                                    backdrop = tileBackdrop.takeIf { recordTileLayer },
-                                    // 卡片能不能糊：没有可糊的细节（纯色 / 渐变，或壁纸已被糊平）时关掉
-                                    blurGlass = glassHasDetail,
-                                    cardCorner = cardCorner,
-                                    resizeSpan = { tile ->
-                                        val g = dragGeometry
-                                        if (!g.ready) {
-                                            null
-                                        } else {
-                                            val delta = pointerBoard - session.resizeStartContent
-                                            Offset(
-                                                (session.resizeStartCells.x + delta.x / g.colUnit)
-                                                    .coerceIn(HomeGridMath.MIN_SPAN, minOf(HomeGridMath.MAX_SPAN, HomeGridMath.COLUMNS - tile.x)),
-                                                (session.resizeStartCells.y + delta.y / g.rowUnit)
-                                                    .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
+                                StagedGroup(
+                                    index = index,
+                                    composed = composedGroups,
+                                    firstScreen = firstGroups,
+                                    near = { group.id in nearGroups },
+                                    placeholder = { HomeGroupPlaceholder(group, editing = editing.on) },
+                                ) {
+                                  CompositionLocalProvider(LocalHomeGlass provides tileGlass) {
+                                    HomeGroupSection(
+                                        group = group,
+                                        faces = faces,
+                                        editing = editing.on,
+                                        liquid = liquid,
+                                        refraction = material == HomeCardMaterial.Refraction,
+                                        backdrop = tileBackdrop.takeIf { recordTileLayer },
+                                        // 卡片能不能糊：没有可糊的细节（纯色 / 渐变，或壁纸已被糊平）时关掉
+                                        blurGlass = glassHasDetail,
+                                        cardCorner = cardCorner,
+                                        resizeSpan = { tile ->
+                                            val g = dragGeometry
+                                            if (!g.ready) {
+                                                null
+                                            } else {
+                                                val delta = pointerBoard - session.resizeStartContent
+                                                Offset(
+                                                    (session.resizeStartCells.x + delta.x / g.colUnit)
+                                                        .coerceIn(HomeGridMath.MIN_SPAN, minOf(HomeGridMath.MAX_SPAN, HomeGridMath.COLUMNS - tile.x)),
+                                                    (session.resizeStartCells.y + delta.y / g.rowUnit)
+                                                        .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
+                                                )
+                                            }
+                                        },
+                                        // 付款码大卡的二维码：用餐时段才真去取（原「小组件」那套能力）
+                                        paymentCode = { host.paymentCode() },
+                                        session = session,
+                                        budgetRows = rowBudget?.get(group.id),
+                                        // 接收高亮：手指把这一组当落点，且它不是拖拽源组
+                                        receiving = session.draggingTile &&
+                                            targetGroup == group.id &&
+                                            session.sourceGroupId != group.id,
+                                        // 传 lambda：手指位置与回弹动画逐帧变化，只在绘制阶段读，不让整页逐帧重组
+                                        reorderLift = when {
+                                            session.mode == HomeDragMode.GROUP && session.groupId == group.id -> {
+                                                { pointerBoard.y - session.groupGrabY - (dragGeometry.slot(group.id)?.top ?: 0f) }
+                                            }
+                                            reorderSettleId == group.id -> {
+                                                { reorderSettleAnim.value }
+                                            }
+                                            else -> null
+                                        },
+                                        reorderShift = reorderShiftMap[group.id] ?: 0f,
+                                        onOpen = { it.onClick() },
+                                        onStartEdit = { editing.begin(stored) },
+                                        onEditGroup = { editing.editGroup = group },
+                                        onAddTile = { editing.addTo = group },
+                                        addTileMenu = {
+                                            TilePickerMenu(
+                                                expanded = editing.addTo?.id == group.id,
+                                                // 全目录都列：组内已经有的功能**照样可以再加一块**（2026-11 按需求取消了
+                                                // 「一组里同一功能只能一个」的限制，常用功能本来就是同路由的第二块）
+                                                candidates = catalog,
+                                                onDismiss = { editing.addTo = null },
+                                                onPick = { service ->
+                                                    update { it.addTile(group.id, service.route.id, it.nextTileId(group.id, service.route.id)) }
+                                                    editing.addTo = null
+                                                },
                                             )
-                                        }
-                                    },
-                                    // 付款码大卡的二维码：用餐时段才真去取（原「小组件」那套能力）
-                                    paymentCode = { host.paymentCode() },
-                                    session = session,
-                                    budgetRows = rowBudget?.get(group.id),
-                                    // 接收高亮：手指把这一组当落点，且它不是拖拽源组
-                                    receiving = session.draggingTile &&
-                                        targetGroup == group.id &&
-                                        session.sourceGroupId != group.id,
-                                    // 传 lambda：手指位置与回弹动画逐帧变化，只在绘制阶段读，不让整页逐帧重组
-                                    reorderLift = when {
-                                        session.mode == HomeDragMode.GROUP && session.groupId == group.id -> {
-                                            { pointerBoard.y - session.groupGrabY - (dragGeometry.slot(group.id)?.top ?: 0f) }
-                                        }
-                                        reorderSettleId == group.id -> {
-                                            { reorderSettleAnim.value }
-                                        }
-                                        else -> null
-                                    },
-                                    reorderShift = reorderShiftMap[group.id] ?: 0f,
-                                    onOpen = { it.onClick() },
-                                    onStartEdit = { editing.begin(stored) },
-                                    onEditGroup = { editing.editGroup = group },
-                                    onAddTile = { editing.addTo = group },
-                                    addTileMenu = {
-                                        TilePickerMenu(
-                                            expanded = editing.addTo?.id == group.id,
-                                            // 全目录都列：组内已经有的功能**照样可以再加一块**（2026-11 按需求取消了
-                                            // 「一组里同一功能只能一个」的限制，常用功能本来就是同路由的第二块）
-                                            candidates = catalog,
-                                            onDismiss = { editing.addTo = null },
-                                            onPick = { service ->
-                                                update { it.addTile(group.id, service.route.id, it.nextTileId(group.id, service.route.id)) }
-                                                editing.addTo = null
-                                            },
-                                        )
-                                    },
-                                    onDeleteGroup = { editing.confirmDeleteGroup = group },
-                                    // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
-                                    onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
-                                    // 功能卡各自错峰起跳，避免再叠加整组的上浮；按组序整组顺延，全页从上到下连成一串（#424）。
-                                    enterIndex = index,
-                                    modifier = Modifier,
-                                )
+                                        },
+                                        onDeleteGroup = { editing.confirmDeleteGroup = group },
+                                        // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
+                                        onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
+                                        // 功能卡各自错峰起跳，避免再叠加整组的上浮；按组序整组顺延，全页从上到下连成一串（#424）。
+                                        enterIndex = index,
+                                        boardWidthPx = boardWidthPx,
+                                        modifier = Modifier,
+                                    )
+                                  }
+                                }
                             }
                         }
                     }
@@ -1256,19 +1284,21 @@ fun HomeCardGroupScreen(
         // ── 拖拽幽灵块：跟手画在最上层；松手时飞向落点（或飞回起手位置）再消失 ──
         // 几何表按**函数**传：不拖动时幽灵自己早退，几何表就一次都不用算（传值的话参数在
         // 调用点就求值了，等于每次重组都白算一遍整张表）
-        HomeDragGhost(
-            session = session,
-            faces = faces,
-            liquid = liquid,
-            refraction = glassHasDetail,
-            backdrop = tileBackdrop.takeIf { recordTileLayer },
-            // 幽灵块是卡片的预览，跟卡片同一条规则
-            blurGlass = glassHasDetail,
-            cardCorner = cardCorner,
-            geometry = { dragGeometry },
-            settling = ghostSettling,
-            settleValue = { ghostSettle.value },
-        )
+        CompositionLocalProvider(LocalHomeGlass provides tileGlass) {
+            HomeDragGhost(
+                session = session,
+                faces = faces,
+                liquid = liquid,
+                refraction = material == HomeCardMaterial.Refraction,
+                backdrop = tileBackdrop.takeIf { recordTileLayer },
+                // 幽灵块是卡片的预览，跟卡片同一条规则
+                blurGlass = glassHasDetail,
+                cardCorner = cardCorner,
+                geometry = { dragGeometry },
+                settling = ghostSettling,
+                settleValue = { ghostSettle.value },
+            )
+        }
 
         // ── 拖拽期间的每帧维护：①组区原点跟住滚动 ②拖到边缘自动滚动 ③探出组底就多开一行 ──
         // ①是几何表的命门：手指板坐标 = 手指 − boardOrigin，而 boardOrigin 只能靠**现读活坐标**
@@ -1357,11 +1387,34 @@ fun HomeCardGroupScreen(
 /** 组与组之间的间距（每组自带标题行，间距比组内组件缝隙大一档）。 */
 private val GROUP_GAP = 20.dp
 
-/** 柔光玻璃的模糊半径：背景副本只糊这一次，所有卡片共用。 */
-private val FROST_RADIUS = 14.dp
+/** 柔光玻璃的模糊半径：背景副本只糊这一次，所有卡片共用。液态卡边缘另取清晰背景，中间留一点纹理。 */
+private val FROST_RADIUS = 10.dp
+
+/**
+ * 第 [index] 组什么时候组合真内容：首屏那几组（[firstScreen]）随分帧补组轮到就组合；其余的要等它
+ * 进到视口附近（[near]）。远处的组一直是同高空位——首页再长，切过来、进编辑态时也只组合看得见的那些。
+ * 拖拽、落点都按模型几何算，不依赖真实节点，空位不影响。只有轮到的那一组重组。
+ */
+@Composable
+private fun StagedGroup(
+    index: Int,
+    composed: IntState,
+    firstScreen: Int,
+    near: () -> Boolean,
+    placeholder: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val ready by remember(index, composed, firstScreen) {
+        derivedStateOf { index < composed.intValue && (index < firstScreen || near()) }
+    }
+    if (ready) content() else placeholder()
+}
 
 /** 采样副本的录制方式：与默认那份不是同一个对象，`layerBackdrop` 才会照常把清晰的背景画上屏，只把副本拿去糊。 */
-private val FrostOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
+private val FrostOnDraw: ContentDrawScope.() -> Unit = {
+    // 性能探针：背景层被重录（随后整张预糊副本要重新模糊）
+    androidx.compose.ui.util.trace("xjtu:draw:homeFrost") { drawContent() }
+}
 
 /** 拖拽幽灵块的绘制层次：压在顶栏与所有卡片之上。 */
 private const val GHOST_Z_INDEX = 20f
@@ -2119,6 +2172,77 @@ private fun AddGroupRow(onClick: () -> Unit) {
         )
         Spacer(Modifier.width(6.dp))
         Text("新建分组", fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
+    }
+}
+
+/** 每个入口的两种打开方式，按入口建一次，卡面数据刷新时沿用同一组闭包。 */
+private class TileClicks(
+    val open: () -> Unit,
+    /** 一镜到底：把「从这一块出发」的矩形交给宿主，ROM 支持 SharedViewKit 时走系统转场，不支持就落回 [open]。 */
+    val openFrom: (SeamlessCardSource) -> Unit,
+) {
+    companion object {
+        fun of(host: HomeHost, catalog: List<AppService>): Map<String, TileClicks> = catalog.associate { service ->
+            service.route.id to TileClicks(
+                open = { host.onRoute(service.route) },
+                openFrom = { source -> host.onRouteSeamless(service.route, source) },
+            )
+        }
+    }
+}
+
+/** 每个功能入口的卡面数据（状态、明细、配色、点击）；读宿主的状态与速览，放在 derivedStateOf 里算。 */
+private fun buildFaces(
+    host: HomeHost,
+    catalog: List<AppService>,
+    colorByKey: Map<String, Color>,
+    honored: Set<HomeCard>,
+    clicks: Map<String, TileClicks>,
+): Map<String, HomeServiceRow> {
+    val openable = host.openableRouteIds
+    val withStats = HomeCard.CATEGORY_STATS in honored
+    val glances = host.glances.takeIf { HomeCard.GLANCE in honored }
+    val stats = host.stats
+    return catalog
+        .filter { openable == null || it.route.id in openable }
+        .associate { service ->
+            val id = service.route.id
+            val glance = glances?.firstOrNull { it.route?.id == id && it.route != AppRoute.Schedule }
+            // 速览格没接的端（或校园卡、校历这类让给速览格的）照样取全量状态，大卡才有东西可放
+            val stat = HomeCards.statOf(id, stats) ?: stats[id]?.takeIf { it.value.isNotBlank() }
+            val value = if (withStats) {
+                stat?.value ?: glance?.let { g -> g.number?.let { yuanText(it.toFloat()) } ?: g.value }
+            } else null
+            val shown = value?.let { HomeStat(it, stat?.detail ?: glance?.caption) }
+            val click = clicks.getValue(id)
+            id to HomeServiceRow(
+                key = id,
+                icon = HomeIcons.of(service.route),
+                title = service.title,
+                subtitle = service.subtitle,
+                color = colorByKey[id] ?: Color.Unspecified,
+                onClick = click.open,
+                onSeamlessClick = click.openFrom,
+                stat = shown?.value,
+                statDetail = shown?.detail,
+                onLink = host::onOpenLink,
+                tone = glance?.tone ?: HomeTone.NORMAL,
+                lines = if (withStats) HomeCards.linesOf(id, stats) else emptyList(),
+            )
+        }
+}
+
+/**
+ * 编辑态的两道守卫：返回键先退编辑（不退出页面），页面变得不可见（切走页签、被别的页盖住）时退出编辑并保存。
+ * 可见性只在这里读：它一变只重组这一小块，不牵动整页。
+ */
+@Composable
+private fun EditModeGuards(editing: Boolean, onExit: () -> Unit) {
+    val pageVisible = LocalPageVisible.current.value
+    val exit by rememberUpdatedState(onExit)
+    BackHandler(enabled = editing && pageVisible) { exit() }
+    LaunchedEffect(pageVisible) {
+        if (!pageVisible) exit()
     }
 }
 

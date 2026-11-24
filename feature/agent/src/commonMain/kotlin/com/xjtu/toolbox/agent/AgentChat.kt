@@ -59,6 +59,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -96,7 +99,7 @@ internal fun ChatPanel(
 ) {
     var input by rememberSaveable { mutableStateOf("") }
     val sharedMaterials = remember(host.accountId) { host.sharedMaterials() }
-    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current.value
     var showSharedMaterials by remember(host.accountId) { mutableStateOf(false) }
     LaunchedEffect(host.accountId, AgentShareInbox.generation, pageVisible) {
         if (pageVisible && sharedMaterials != null && AgentShareInbox.pendingOpen) {
@@ -163,8 +166,12 @@ internal fun ChatPanel(
         vm.sendMessage(text, config)
     }
 
-    // 卡片按钮（加入日程、待办）走和模型同一套工具，校验与冲突检测一致
-    val widgetTools = remember(config) { host.interactiveTools(config) }
+    // 卡片按钮（加入日程、待办）走和模型同一套工具，校验与冲突检测一致。
+    // 工具装配要开加密存储（keystore 跨进程调用）：第一次点按钮时才在 IO 线程上建，不占切页那一帧
+    val toolScope = rememberCoroutineScope()
+    val widgetTools = remember(config) {
+        toolScope.async(host.io, start = CoroutineStart.LAZY) { host.interactiveTools(config) }
+    }
     val glass = LocalGlassStyle.current
     if (showSharedMaterials && pageVisible && sharedMaterials != null) AgentShareSheet(
         store = sharedMaterials, host = host, canSend = config.isConfigured && !vm.isLoading,
@@ -304,7 +311,7 @@ internal fun ChatPanel(
                             streaming = loading && row === chatRows.last() && row.msg.content.isBlank() &&
                                 messages.lastOrNull()?.role?.let(::isToolRole) != true,
                             onAskFromWidget = ::askFromWidget,
-                            onWidgetTool = { name, args -> widgetTools.execute(name, args) },
+                            onWidgetTool = { name, args -> widgetTools.await().execute(name, args) },
                             onPushPreferences = onPushPreferences.takeIf { sessionId == AgentPushFocus.SESSION_ID },
                         )
                     }

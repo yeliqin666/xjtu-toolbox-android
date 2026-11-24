@@ -44,7 +44,7 @@ internal actual fun PlatformMeshBackground(
     if (gridRows == 3 && gridColumns == 3 && couiEffectsSupported) {
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
-        val running = animated && LocalPageVisible.current && !LocalPageSettling.current && !LocalReducedEffects.current &&
+        val running = animated && LocalPageVisible.current.value && !LocalPageSettling.current.value && !LocalReducedEffects.current &&
             lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
         // 相位按约 30 帧/秒推进，用定时器而不是无限动画：无限动画每个 vsync 都改一次值，
         // 首页什么都不动时整页也按 120Hz 一直重画（现在还连带玻璃顶栏跟着重新采样）。
@@ -56,7 +56,9 @@ internal actual fun PlatformMeshBackground(
                 val stopAt = System.nanoTime() + runForMillis.coerceAtMost(Long.MAX_VALUE / 2_000_000L) * 1_000_000L
                 while (System.nanoTime() < stopAt) {
                     val elapsedMs = (System.nanoTime() - start) / 1_000_000L
-                    phaseState.floatValue = (elapsedMs % periodMillis) / periodMillis.toFloat() * TWO_PI
+                    androidx.compose.ui.util.trace("xjtu:loop:meshBackground") {
+                        phaseState.floatValue = (elapsedMs % periodMillis) / periodMillis.toFloat() * TWO_PI
+                    }
                     delay(MESH_FRAME_MS)
                 }
             }

@@ -52,6 +52,7 @@ uniform float4 cornerRadii;
 uniform float refractionHeight;
 uniform float refractionAmount;
 uniform float depthEffect;
+uniform float saturation;
 
 $RoundedRectSDF
 
@@ -59,23 +60,29 @@ float circleMap(float x) {
     return 1.0 - sqrt(1.0 - x * x);
 }
 
+// 与 colorControls 的饱和度矩阵同一组亮度系数；颜色是预乘的，夹到 [0, a]
+half4 withSaturation(half4 c) {
+    half luma = dot(c.rgb, half3(0.213, 0.715, 0.072));
+    return half4(clamp(mix(half3(luma), c.rgb, half(saturation)), half3(0.0), half3(c.a)), c.a);
+}
+
 half4 main(float2 coord) {
     float2 halfSize = size * 0.5;
     float2 centeredCoord = (coord + offset) - halfSize;
     float radius = radiusAt(coord, cornerRadii);
-    
+
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
     if (-sd >= refractionHeight) {
-        return content.eval(coord);
+        return withSaturation(content.eval(coord));
     }
     sd = min(sd, 0.0);
-    
+
     float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;
     float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
     float2 grad = normalize(gradSdRoundedRect(centeredCoord, halfSize, gradRadius) + depthEffect * normalize(centeredCoord));
-    
+
     float2 refractedCoord = coord + d * grad;
-    return content.eval(refractedCoord);
+    return withSaturation(content.eval(refractedCoord));
 }"""
 internal const val DefaultHighlightShaderString = """
 uniform float2 size;

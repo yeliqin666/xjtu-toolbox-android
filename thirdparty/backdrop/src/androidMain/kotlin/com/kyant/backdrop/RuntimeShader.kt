@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.toArgb
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 actual fun RuntimeShader(shaderString: String): RuntimeShader {
@@ -19,8 +20,23 @@ fun RuntimeShader.asAndroidRuntimeShader(): android.graphics.RuntimeShader {
     return (this as AndroidRuntimeShader).shader
 }
 
+actual fun androidx.compose.ui.graphics.ImageBitmap.toLinearShader(): Shader =
+    android.graphics.BitmapShader(
+        asAndroidBitmap(),
+        android.graphics.Shader.TileMode.CLAMP,
+        android.graphics.Shader.TileMode.CLAMP,
+    ).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            filterMode = android.graphics.BitmapShader.FILTER_MODE_LINEAR
+        }
+    }
+
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 internal class AndroidRuntimeShader(val shader: android.graphics.RuntimeShader) : RuntimeShader {
+
+    override fun setInputShader(name: String, shader: Shader) {
+        this.shader.setInputShader(name, shader)
+    }
 
     override fun setFloatUniform(name: String, value: Float) {
         shader.setFloatUniform(name, value)

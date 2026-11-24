@@ -119,12 +119,31 @@ object HomeStats {
 
     private const val SNAPSHOT_KEY = "home_stats_snapshot"
 
-    /** 上次 [collect] 的完整结果，冷启动首帧直接显示。 */
-    fun snapshot(context: Context): Map<String, HomeStat> =
-        runCatching { DataCache(context).read<Map<String, HomeStat>>(SNAPSHOT_KEY, PUSHED_TTL_MS) }.getOrNull().orEmpty()
+    /** 读过 / 写过的快照留一份在内存，按账号认：首页组合时命中它就不必同步读盘解 JSON。 */
+    private class Held(val accountId: String?, val stats: Map<String, HomeStat>)
+
+    @Volatile
+    private var held: Held? = null
+
+    /** 上次 [collect] 的完整结果，冷启动首帧直接显示。内存里有当前账号的就不读盘。 */
+    fun snapshot(context: Context): Map<String, HomeStat> {
+        val account = com.xjtu.toolbox.account.AccountContext.activeAccountId
+        held?.takeIf { it.accountId == account }?.let { return it.stats }
+        val stats = runCatching { DataCache(context, account).read<Map<String, HomeStat>>(SNAPSHOT_KEY, PUSHED_TTL_MS) }
+            .getOrNull().orEmpty()
+        held = Held(account, stats)
+        return stats
+    }
+
+    /** 冷启动时在后台线程先读进内存，首页第一次组合就不卡在读盘上。 */
+    fun preloadSnapshot(context: Context) {
+        snapshot(context)
+    }
 
     fun saveSnapshot(context: Context, stats: Map<String, HomeStat>) {
-        runCatching { DataCache(context).write(SNAPSHOT_KEY, stats) }
+        val account = com.xjtu.toolbox.account.AccountContext.activeAccountId
+        runCatching { DataCache(context, account).write(SNAPSHOT_KEY, stats) }
+        held = Held(account, stats)
     }
 
     /** 某个功能推送过的摘要（没有或过期返回 null），给功能页顶部的入口卡显示状态。 */

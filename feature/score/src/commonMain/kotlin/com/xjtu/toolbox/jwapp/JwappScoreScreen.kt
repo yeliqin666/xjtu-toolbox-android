@@ -126,7 +126,7 @@ fun JwappScoreScreen(
     var selectedCourseIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     // 选择态下返回只退出选择，和顶栏的关闭按钮一样，不离开页面
     // 成绩页可以放在底栏：切到别的 tab 时不拦
-    com.xjtu.toolbox.platform.BackHandler(enabled = gpaSelectMode && com.xjtu.toolbox.ui.components.LocalPageVisible.current) {
+    com.xjtu.toolbox.platform.BackHandler(enabled = gpaSelectMode && com.xjtu.toolbox.ui.components.LocalPageVisible.current.value) {
         gpaSelectMode = false
         selectedCourseIds = emptySet()
     }

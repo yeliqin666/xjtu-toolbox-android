@@ -130,8 +130,8 @@ fun BloubBotIcon(
         }
         // 形状跟着用户选择走：设置页就在底栏旁边，换形状要立刻在底栏看到 morph。
         LaunchedEffect(shape) { engine.setShape(shape, clock.now()) }
-        // 页面盖住底栏时不跑：每一帧都要刷新整棵界面树，正好和转场抢时间
-        val pageVisible = LocalPageVisible.current
+        // 页面盖住底栏、或所在页正在转场时不跑：每一帧都要刷新整棵界面树，正好和转场抢时间
+        val pageVisible = LocalPageVisible.current.value && !com.xjtu.toolbox.ui.components.LocalPageSettling.current.value
         LaunchedEffect(pageVisible) {
             while (pageVisible) {
                 val t = clock.now()
@@ -143,9 +143,11 @@ fun BloubBotIcon(
                     // 待命：入场形变结束后只剩眨眼 / 漂移，~30fps 足够。用定时器而不是逐帧回调：
                     // withFrameNanos 每个 vsync 都会排一帧，界面什么都不动时也按 120Hz 一直在跑。
                     kotlinx.coroutines.delay(33)
-                    frame = engine.sample(clock.now())
+                    androidx.compose.ui.util.trace("xjtu:loop:pidaiBot:rest") { frame = engine.sample(clock.now()) }
                 } else {
-                    withFrameNanos { nanos -> frame = engine.sample(clock.at(nanos)) }
+                    withFrameNanos { nanos ->
+                        androidx.compose.ui.util.trace("xjtu:loop:pidaiBot:active") { frame = engine.sample(clock.at(nanos)) }
+                    }
                 }
             }
         }

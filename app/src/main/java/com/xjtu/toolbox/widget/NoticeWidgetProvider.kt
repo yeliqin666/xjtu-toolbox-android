@@ -123,6 +123,6 @@ class NoticeWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        NoticeWidgetUpdater.update(context, appWidgetManager, appWidgetIds)
+        updateWidgetsAsync { NoticeWidgetUpdater.update(context, appWidgetManager, appWidgetIds) }
     }
 }

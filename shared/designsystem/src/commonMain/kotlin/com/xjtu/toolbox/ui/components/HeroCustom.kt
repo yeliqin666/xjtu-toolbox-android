@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.platform.decodeImageFull
+import com.xjtu.toolbox.platform.toDisplayBitmap
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.max
@@ -83,12 +84,18 @@ internal const val HERO_CROP_ASPECT = 2.5f
 private object HeroImageCache {
     private var key = 0
     private var bitmap: ImageBitmap? = null
+    private var shown: ImageBitmap? = null
 
+    /** 解码出的原图：算磨砂底要在软件画布上读它。 */
     operator fun get(data: String): ImageBitmap? = if (data.isNotEmpty() && data.hashCode() == key) bitmap else null
 
-    fun put(data: String, value: ImageBitmap) {
+    /** 显示用的那份（见 [toDisplayBitmap]）。 */
+    fun display(data: String): ImageBitmap? = if (data.isNotEmpty() && data.hashCode() == key) shown else null
+
+    fun put(data: String, value: ImageBitmap, display: ImageBitmap) {
         key = data.hashCode()
         bitmap = value
+        shown = display
     }
 }
 
@@ -160,13 +167,16 @@ fun HeroCustomBackground(
     // produceState 里面那层 state 是 `remember { mutableStateOf(initialValue) }`（不带 key），
     // key 变了只重启 effect、旧值还留在里面，于是 `value != null` 的守卫会让新图永远不解码——
     // 表现就是「换完壁纸没反应，重启应用才生效」（2026-11 实测，改法的原因就这一条）。
-    var decoded by remember(imageData.hashCode()) { mutableStateOf(HeroImageCache[imageData]) }
+    // 画的是显存里的那份：整屏大图在转场里不会因纹理缓存被挤掉而逐帧重新上传
+    var decoded by remember(imageData.hashCode()) { mutableStateOf(HeroImageCache.display(imageData)) }
     LaunchedEffect(imageData.hashCode()) {
         if (imageData.isEmpty() || decoded != null) return@LaunchedEffect
-        decoded = withContext(Dispatchers.Default) {
+        val full = withContext(Dispatchers.Default) {
             runCatching { decodeImageFull(Base64.Default.decode(imageData)) }.getOrNull()
-        }
-        decoded?.let { HeroImageCache.put(imageData, it) }
+        } ?: return@LaunchedEffect
+        val shown = withContext(Dispatchers.Default) { full.toDisplayBitmap() }
+        HeroImageCache.put(imageData, full, shown)
+        decoded = shown
     }
     // 委托属性不会被智能转换，先取出来再用
     val image = decoded

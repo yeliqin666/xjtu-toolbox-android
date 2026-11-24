@@ -130,6 +130,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.nav.core.LocalNavTransitionScope
+import top.yukonga.miuix.kmp.nav.transition.NavTransitionScope
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavEntryBuilder
@@ -190,31 +191,66 @@ fun AppNavHost(
     val back: () -> Unit = deps.router::back
     Box(Modifier.fillMaxSize()) {
         NavDisplay(backStack = backStack, onBack = back) {
-            entry<AppRoute.Main> {
-                val navScope = LocalNavTransitionScope.current
-                // 上面的页缩回去时还算盖着，落定才恢复
-                val covered by remember(navScope) { derivedStateOf { navScope.relativeDepth > 0.001f } }
-                Box(Modifier.fillMaxSize()) {
-                    // 被上面的页盖住时算不可见：液态背景这些循环动画要停下，
-                    // 否则它每帧都让整页玻璃重画，正好和转场抢时间
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        com.xjtu.toolbox.ui.components.LocalPageVisible provides (backStack.size <= 1 && !covered),
-                    ) { mainContent() }
-                    // 压暗由这一页被盖住的深度现算：页面落定时深度必为 0，不会残留
-                    Box(
-                        Modifier.fillMaxSize().drawBehind {
-                            if (!ExpandOrigins.coveredFromOrigin.value) return@drawBehind
-                            // 跟飞回那一块的进度走（见 recedeDepth），落地时正好不压暗，不在结束那帧一下子变亮
-                            val dim = ButtonZoom.RECEDE_DIM * ButtonZoom.recedeDepth(navScope.relativeDepth).coerceIn(0f, 1f)
-                            if (dim > 0f) drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = dim))
-                        },
-                    )
-                }
-            }
+            entry<AppRoute.Main> { StableNavScope { MainEntry(backStack, mainContent) } }
             appPageEntries(deps, back) { type -> expandTransitions.getOrPut(type) { expandFromOrigin(type, screenCornerPx) } }
         }
         ExpandOriginPopOverlay(screenCornerPx)
     }
+}
+
+/** 栈底的主界面：被盖住时算不可见，并按盖住的深度压暗。 */
+@Composable
+private fun MainEntry(backStack: NavBackStack, mainContent: @Composable () -> Unit) {
+    val navScope = LocalNavTransitionScope.current
+    // 上面的页缩回去时还算盖着，落定才恢复
+    val covered by remember(navScope) { derivedStateOf { navScope.relativeDepth > 0.001f } }
+    // 被上面的页盖住时算不可见：液态背景这些循环动画要停下，
+    // 否则它每帧都让整页玻璃重画，正好和转场抢时间。信号对象不换，只换里面的值（见 PageSignal）
+    val visible = remember(navScope, backStack) {
+        com.xjtu.toolbox.ui.components.PageSignal { backStack.size <= 1 && !covered }
+    }
+    Box(Modifier.fillMaxSize()) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.xjtu.toolbox.ui.components.LocalPageVisible provides visible,
+        ) { mainContent() }
+        // 压暗由这一页被盖住的深度现算：页面落定时深度必为 0，不会残留
+        Box(
+            Modifier.fillMaxSize().drawBehind {
+                if (!ExpandOrigins.coveredFromOrigin.value) return@drawBehind
+                // 跟飞回那一块的进度走（见 recedeDepth），落地时正好不压暗，不在结束那帧一下子变亮
+                val dim = ButtonZoom.RECEDE_DIM * ButtonZoom.recedeDepth(navScope.relativeDepth).coerceIn(0f, 1f)
+                if (dim > 0f) drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = dim))
+            },
+        )
+    }
+}
+
+/**
+ * miuix-nav 每次重组都给每个条目新建一份 [NavTransitionScope]，经 [LocalNavTransitionScope] 往下传。
+ * Local 一换值，条目里所有子组合（页签插槽、懒列表的项、BoxWithConstraints）下一次重组都不能跳过——
+ * 入栈、出栈时连栈底常驻的几个页签一起整页重跑。这里换成每个条目一个、终身不变的转发对象：
+ * 读到的始终是库最新给的那份，往下传的 Local 值不再变。
+ */
+@Composable
+private fun StableNavScope(content: @Composable () -> Unit) {
+    val live = androidx.compose.runtime.rememberUpdatedState(LocalNavTransitionScope.current)
+    val stable = remember { ForwardingNavTransitionScope(live) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalNavTransitionScope provides stable, content = content)
+}
+
+@androidx.compose.runtime.Stable
+private class ForwardingNavTransitionScope(
+    private val live: androidx.compose.runtime.State<NavTransitionScope>,
+) : NavTransitionScope {
+    override val relativeDepth get() = live.value.relativeDepth
+    override val role get() = live.value.role
+    override val change get() = live.value.change
+    override val gesture get() = live.value.gesture
+    override val isRunning get() = live.value.isRunning
+    override val settle get() = live.value.settle
+    override val layoutSize get() = live.value.layoutSize
+    override val layoutDirection get() = live.value.layoutDirection
+    override val density get() = live.value.density
 }
 
 /**
@@ -235,17 +271,27 @@ private inline fun <reified T : AppRoute> NavEntryBuilder.page(
     transition: NavTransition,
     swipeDismiss: NavSwipeDirection? = null,
     noinline content: @Composable (T) -> Unit,
-) = entry<T>(transition = transition, swipeDismiss = swipeDismiss) { key -> SettlingGate { content(key) } }
+) = entry<T>(transition = transition, swipeDismiss = swipeDismiss) { key ->
+    // 性能探针：这一页的组合耗时（录 trace 时按页面类型归账）
+    androidx.compose.ui.util.trace("xjtu:compose:route:${T::class.simpleName}") {
+        StableNavScope { SettlingGate { content(key) } }
+    }
+}
 
 @Composable
 private fun SettlingGate(content: @Composable () -> Unit) {
     val navScope = LocalNavTransitionScope.current
     // relativeDepth < 0：这一页正在进场或退场；被上面的页盖住（> 0）不算
     val settling by remember(navScope) { derivedStateOf { navScope.relativeDepth < -0.001f } }
+    // 转场开始、落定时只换信号里的值，不换 Local 的值：后者会让这一页所有子组合（插槽、列表项）整体重跑
+    val outerEnter = com.xjtu.toolbox.ui.components.LocalEnterAnimations.current
+    val enter = remember(navScope, outerEnter) {
+        com.xjtu.toolbox.ui.components.PageSignal { !settling && outerEnter.value }
+    }
+    val settlingSignal = remember(navScope) { com.xjtu.toolbox.ui.components.PageSignal { settling } }
     androidx.compose.runtime.CompositionLocalProvider(
-        com.xjtu.toolbox.ui.components.LocalEnterAnimations provides
-            (!settling && com.xjtu.toolbox.ui.components.LocalEnterAnimations.current),
-        com.xjtu.toolbox.ui.components.LocalPageSettling provides settling,
+        com.xjtu.toolbox.ui.components.LocalEnterAnimations provides enter,
+        com.xjtu.toolbox.ui.components.LocalPageSettling provides settlingSignal,
         content = content,
     )
 }

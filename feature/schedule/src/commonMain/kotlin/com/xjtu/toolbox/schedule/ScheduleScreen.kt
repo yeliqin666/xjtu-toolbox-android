@@ -260,7 +260,12 @@ fun ScheduleScreen(
     }
 
     // 好友课表（匹配页存下的）：周视图可以挑一位叠上去，只叠同一学期的
-    val friends = remember(FriendTimetables.revision, host.login.accountId) { FriendTimetables.all() }
+    // 读存储 + 反序列化全部好友课表放到后台：日程常是启动页，不该在首次组合里同步做
+    val friends by androidx.compose.runtime.produceState(
+        emptyList<com.xjtu.toolbox.social.FriendTimetable>(),
+        FriendTimetables.revision,
+        host.login.accountId,
+    ) { value = withContext(kotlinx.coroutines.Dispatchers.Default) { FriendTimetables.all() } }
     val overlayFriend = remember(friends) { FriendTimetables.overlayId?.let { id -> friends.firstOrNull { it.id == id } } }
     val friendCourses = remember(overlayFriend, vm.selectedTermCode, vm.startOfTerm, vm.holidayDates) {
         overlayFriend?.takeIf { it.term == vm.selectedTermCode }
