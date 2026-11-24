@@ -103,7 +103,8 @@ compose.desktop {
                 TargetFormat.AppImage,
                 TargetFormat.Exe,
             )
-            // 应用名 = 安装目录、启动器与快捷方式的名字。Windows 用中文（代码页见下面 `windowsResourceDir`）；
+            // 应用名 = 安装目录、启动器与快捷方式的名字。Windows 用中文：CI 以 zh_CN locale 跑 jpackage，
+            // MSI 才用 936 代码页（见 desktop-windows.yml 的 JAVA_TOOL_OPTIONS），否则 light.exe 报 LGHT0311；
             // Linux 的 deb 包名与 /opt 目录只认 ASCII，用 xjtu-dzhz（desktop-linux.yml 的图标校验跟着它）。
             packageName = if (isWindowsHost) "岱宗盒子" else "xjtu-dzhz"
             // jpackage 只接受 x.y.z 形式的版本号。
@@ -189,19 +190,6 @@ tasks.register<JavaExec>("renderCampusExperience") {
     mainClass.set("com.xjtu.toolbox.desktop.RenderCampusExperienceKt")
     classpath = sourceSets["test"].runtimeClasspath
     args = listOf(layout.buildDirectory.dir("campus-experience-preview").get().asFile.absolutePath)
-}
-
-/**
- * Windows 安装包的 WiX 资源：一份 zh-cn 的 wxl（代码页 936），产品名与快捷方式才能用中文。
- * Compose 自己会传 `--resource-dir`（指向一个每次先清空的临时目录，Windows 上是空的），且没有可插的钩子；
- * jpackage 对重复的单值参数取后一个，所以从 freeArgs 再传一个指向这里。
- */
-val windowsResourceDir = layout.projectDirectory.dir("packaging/windows")
-tasks.withType<org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask>().configureEach {
-    if (isWindowsHost && name.contains("Exe")) {
-        inputs.dir(windowsResourceDir)
-        freeArgs.addAll("--resource-dir", windowsResourceDir.asFile.absolutePath)
-    }
 }
 
 /** `./gradlew :desktop:packageTarGz` —— 把 jpackage 的 app-image（免安装目录）打成 `tar.gz`。 */
