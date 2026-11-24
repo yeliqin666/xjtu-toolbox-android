@@ -71,6 +71,21 @@ QUESTION_RE = re.compile(r"^\s*问题\s*[:：]\s*(.+)$")
 PRIVATE_WORDS = {"私密", "不公开", "否", "private", "no", "false", "0"}
 TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
 
+USAGE = """<details open><summary>用法</summary>
+
+```
+/reply T工单号 [私密]
+问题: 公开问答里显示的问题（可省，默认用反馈原文）
+回复正文，可多行
+```
+
+- 默认进应用内「大家在问」；工单号后加 `私密`（或 `不公开`、`private`）则只有提问的人能看到
+- 一条评论里可以写多段 `/reply`，每段一个工单
+- 不回复：`/skip T工单号 [T工单号…]`，或 `/skip all` 跳过本期剩下的全部
+- 待处理的都回复或跳过后，issue 自动打「已处理」并关闭
+
+</details>"""
+
 ITEM_LIMIT = 1500
 BODY_BUDGET = 60000
 QUESTION_LIMIT = 200
@@ -666,7 +681,7 @@ def handle(gh: GitHub, fs: Optional[Feishu], issue: dict, comment: dict) -> Opti
         gh.write("PATCH", f"/issues/{number}", {"body": new_body})
         issue["body"] = new_body
     if errors:
-        msg = MARK_FAILED.format(cid) + "\n" + "\n".join(f"- {e}" for e in errors)
+        msg = MARK_FAILED.format(cid) + "\n" + "\n".join(f"- {e}" for e in errors) + "\n\n" + USAGE
         gh.write("POST", f"/issues/{number}/comments", {"body": msg})
     if newly and not errors:
         gh.write("POST", f"/issues/comments/{cid}/reactions", {"content": "rocket"})
