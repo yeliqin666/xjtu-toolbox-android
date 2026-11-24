@@ -815,7 +815,8 @@ def apply_commands(fs: Optional[Feishu], cmds: list[Command], tickets: set[str],
                 f = fs.submission(t) or {}
                 question = one_line(text(f.get("内容")).split(DIAGNOSTICS_SEPARATOR, 1)[0], QUESTION_LIMIT)
             fields = {"工单号": t, "回复": c.reply,
-                      "回复时间": datetime.now(BEIJING).strftime("%Y-%m-%d %H:%M"),
+                      # 精确到秒：同一工单可重复回复，App 按这个字符串取最新
+                      "回复时间": datetime.now(BEIJING).strftime("%Y-%m-%d %H:%M:%S"),
                       "公开": c.public, "问题": question}
             if author:
                 fields["回复人"] = author
