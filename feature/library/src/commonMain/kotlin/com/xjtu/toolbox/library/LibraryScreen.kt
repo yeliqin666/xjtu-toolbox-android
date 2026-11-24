@@ -56,7 +56,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.QrCodeScanner
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.material.icons.filled.EventSeat
@@ -69,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,8 +89,11 @@ fun LibraryScreen(
     /** 本端的取数 + 落盘 + 写操作（Android = `AppLibrarySource`，Web = [com.xjtu.toolbox.core.net.CampusLibraryApi]）。 */
     source: LibrarySource,
     onBack: () -> Unit,
-    /** 拿到一份新的「我的预约」就往外发（`:app` = `LibraryStatus.publish`：后台提醒 + 首页信号 + 收纳待办）。 */
-    onBookingChanged: ((MyBookingInfo?) -> Unit)? = null,
+    /**
+     * 拿到一份新的「我的预约」就往外发（`:app` = `LibraryStatus.publish`：后台提醒 + 首页信号 + 收纳待办）。
+     * 第二个参数 = 这张是**在座位前扫码**约上的（人已在馆，只是还没签到），宿主用来判断要不要开自动勿扰。
+     */
+    onBookingChanged: ((MyBookingInfo?, bookedAtDesk: Boolean) -> Unit)? = null,
     /** 「重新认证」这一枪（`:app` = 读 App 的凭据 + `site.ensureLogin(force = true, userInitiated = true)`）。 */
     reAuthenticate: (suspend () -> Unit)? = null,
     /** 全屏看座位图时的方向锁定（`:app` = Activity 转横屏，离开时恢复进全屏前的方向）。 */
@@ -127,16 +130,22 @@ fun LibraryScreen(
         vm.bookingResult = null
     }
 
-    // 预约状态一变就往外发（提醒、首页信号、收纳）：预约 / 换座 / 中途离开 / 签到最后都会刷新 myBooking，盯结果比盯动作少漏
-    LaunchedEffect(vm.myBookingKnown, vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId) {
-        if (vm.myBookingKnown) onBookingChanged?.invoke(vm.myBooking)
+    // 预约状态一变就往外发（提醒、首页信号、收纳）：预约 / 换座 / 中途离开 / 签到最后都会刷新 myBooking，盯结果比盯动作少漏。
+    // 第三个参数是「这张是在座位前扫码约上的」——宿主据此决定算不算人已在馆（自动勿扰）。
+    LaunchedEffect(vm.myBookingKnown, vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId, vm.bookedAtDesk) {
+        if (vm.myBookingKnown) onBookingChanged?.invoke(vm.myBooking, vm.bookedAtDesk)
     }
+    // 底栏上的图书馆页不重建 ViewModel：首页推荐等别处放进信箱的定位在这里接
+    LaunchedEffect(Unit) { vm.takeFocus() }
+    LaunchedEffect(vm.myBookingKnown, vm.myBooking, vm.campus) { vm.refreshLastSeat() }
 
     var confirmDialog by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     val campus = vm.campus
     val selectedArea = vm.floorAreas[vm.selectedAreaCode] ?: source.areaNameOf(vm.selectedAreaCode)
-    LaunchedEffect(vm.selectedAreaCode) { seatPlanUi.selected.value = null }
+    // 推荐里点过的座位在列表里描一圈，换区域就不描了
+    var highlightedSeat by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(vm.selectedAreaCode) { seatPlanUi.selected.value = null; highlightedSeat = null }
     // 屁岱荐座：候选按本地热力挑，图在真调模型时才裁
     var seatPrefs by remember { mutableStateOf(SeatPickPrefs.load()) }
     val seatPicksData = remember(vm.planLayout, vm.planImages, selectedArea, seatPrefs) {
@@ -165,12 +174,13 @@ fun LibraryScreen(
 
     // 已有预约时先确认换座；跨校区不能直接换，只能先取消原预约
     // areaOverride：扫码时二维码上的区域码，页面选中的区域可能还没加载到那个区
-    fun bookSeat(seatId: String, areaOverride: String? = null) {
+    // atDesk：这条是扫座位码约的（人就在座位前），只影响自动勿扰那一档，见 LibraryViewModel.bookAtDesk
+    fun bookSeat(seatId: String, areaOverride: String? = null, atDesk: Boolean = false) {
         val booking = vm.myBooking
         val existing = booking?.seatId
         val isExpired = booking?.statusText?.let { "超时" in it || "过期" in it || "失效" in it } == true
         if (existing == null || isExpired) {
-            vm.book(seatId, areaOverride)
+            if (atDesk) vm.bookAtDesk(seatId, areaOverride) else vm.book(seatId, areaOverride)
             return
         }
         val bookedArea = booking.area
@@ -232,10 +242,11 @@ fun LibraryScreen(
                     ) {
                     // 校区、平面图 / 列表都收进这个菜单：一次选定就很少再改，不值得各占一整行
                     if (vm.campusSwitching) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
-                    // 扫桌上的座位码：在这一页直接定位、弹出预约
+                    // 扫桌上的座位码：在这一页直接定位、弹出预约。
+                    // 图标与「我的」右上角那颗扫一扫同一份（`ScanIcon`），别再用 Material 的 QrCodeScanner
                     if (onScan != null && source.canBook) {
                         com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { onScan(vm::focusOn) }) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = "扫座位码")
+                            Icon(com.xjtu.toolbox.ui.components.ScanIcon, contentDescription = "扫座位码")
                         }
                     }
                     Box {
@@ -318,12 +329,16 @@ fun LibraryScreen(
         // 扫桌面二维码进来的预约确认。校区定下来就弹，状态查到前「预约」也能点：
         // 真被占了服务端会拒，失败原因照常显示在页面上。
         // 只读端（canBook=false）不给这个框：它只有一个「预约」按钮，那按钮必失败。
+        // 本页 Scaffold 里的弹窗和底部结果条，在底栏上作子页时会被悬浮底栏盖住（#476）：
+        // 一律垫出底栏那一截；独立页时这截是 0
+        val aboveTabBar = Modifier.tabContentBottomPadding()
         val ss = vm.scanSeat
         BackHandler(enabled = ss != null) { vm.scanSeat = null }
         OverlayDialog(
             show = ss != null && source.canBook,
             title = "预约座位",
             summary = ss?.let { "${it.qr.areaName} · ${it.qr.seat} 号" },
+            modifier = aboveTabBar,
             renderInRootScaffold = false,
             onDismissRequest = { vm.scanSeat = null },
         ) {
@@ -361,7 +376,8 @@ fun LibraryScreen(
                         onClick = {
                             val qr = ss?.qr
                             vm.scanSeat = null
-                            if (qr != null) bookSeat(qr.seat, areaOverride = qr.areaCode)
+                            // 扫码进来的这一条走 bookAtDesk：记下「人就在座位前」，自动勿扰据此开
+                            if (qr != null) bookSeat(qr.seat, areaOverride = qr.areaCode, atDesk = true)
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary()
@@ -376,6 +392,7 @@ fun LibraryScreen(
             show = cd != null,
             title = "确认操作",
             summary = cd?.first,
+            modifier = aboveTabBar,
             renderInRootScaffold = false,
             onDismissRequest = { confirmDialog = null }
         ) {
@@ -536,7 +553,9 @@ fun LibraryScreen(
                                     "下拉刷新重试",
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                )
+                                ) else vm.lastSeatHint?.let { hint ->
+                                    LastSeatHint(hint, onPick = { vm.pickSeat(hint.seat.areaCode, it) })
+                                }
                             }
                         }
                     }
@@ -606,6 +625,25 @@ fun LibraryScreen(
         )
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
         com.xjtu.toolbox.ui.glass.ReportScrollPosition(gridState, scrollBehavior)
+        // 推荐里点的座位：区域加载出来后平面图里选中、列表里滚到并描边，预约仍要用户自己点
+        val pick = vm.pendingPick
+        LaunchedEffect(pick, vm.selectedAreaCode, vm.planLayout, seats, planMode) {
+            val seatId = pick?.seatId ?: return@LaunchedEffect
+            if (vm.selectedAreaCode != pick.areaCode) return@LaunchedEffect
+            val header = if (wideLibrary) 0 else 1
+            if (planMode) {
+                if (vm.planLayout?.seats?.none { it.seatId == seatId } != false) return@LaunchedEffect
+                seatPlanUi.selected.value = seatId
+                gridState.animateScrollToItem(header + if (seatPicksData != null && seatPicksShown) 1 else 0)
+            } else {
+                if (seats.none { it.seatId == seatId }) return@LaunchedEffect
+                val list = if (visibleSeats.any { it.seatId == seatId }) visibleSeats
+                else { seatScope = "全部"; seats.sortedByDescending { it.seatId in favorites } }
+                highlightedSeat = seatId
+                gridState.animateScrollToItem(header + list.indexOfFirst { it.seatId == seatId })
+            }
+            vm.pendingPick = null
+        }
         Row(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         if (wideLibrary) {
             Column(
@@ -774,6 +812,7 @@ fun LibraryScreen(
                                 seat = seat,
                                 isBooking = vm.isBooking,
                                 isFavorite = seat.seatId in favorites,
+                                highlighted = seat.seatId == highlightedSeat,
                                 bookable = source.canBook,
                                 onClick = { if (seat.available) bookSeat(seat.seatId) },
                                 onLongClick = { vm.toggleFavorite(seat.seatId) }
@@ -789,10 +828,35 @@ fun LibraryScreen(
         ResultBanner(
             result = vm.bookingResult,
             onDismiss = { vm.bookingResult = null },
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier.align(Alignment.BottomCenter).then(aboveTabBar),
         )
         }
     }
+}
+
+/** 上次预约的座位推荐（#461）：可点的座位号点了在下方选中它。 */
+@Composable
+private fun LastSeatHint(hint: SeatSuggestion, onPick: (String) -> Unit) {
+    val text = hint.hintText()
+    val linkStyle = androidx.compose.ui.text.TextLinkStyles(
+        androidx.compose.ui.text.SpanStyle(color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Medium),
+    )
+    val annotated = androidx.compose.ui.text.buildAnnotatedString {
+        append(text.summary)
+        if (text.links.isNotEmpty() || text.tail.isNotEmpty()) append("，")
+        append(text.lead)
+        text.links.forEachIndexed { i, (label, seatId) ->
+            if (i > 0) append("、")
+            withLink(androidx.compose.ui.text.LinkAnnotation.Clickable(seatId, linkStyle) { onPick(seatId) }) { append(label) }
+        }
+        append(text.tail)
+    }
+    Text(
+        annotated,
+        style = MiuixTheme.textStyles.footnote1,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(top = 2.dp),
+    )
 }
 
 @Composable
@@ -832,7 +896,9 @@ private fun SeatChip(
     seat: SeatInfo, isBooking: Boolean, isFavorite: Boolean,
     /** 本端点一下能不能预约（见 [LibrarySource.canBook]）。 */
     bookable: Boolean,
-    onClick: () -> Unit, onLongClick: () -> Unit
+    onClick: () -> Unit, onLongClick: () -> Unit,
+    /** 从「上次预约」推荐里点过来的那个座位。 */
+    highlighted: Boolean = false,
 ) {
     val bgColor = when {
         isFavorite && seat.available -> MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.15f)
@@ -850,6 +916,7 @@ private fun SeatChip(
         modifier = Modifier
             .pressScale(press, pressed = 0.9f)   // 按下缩一点再弹回，座位格摸起来是软的
             .squircleSurface(color = bgColor, cornerRadius = 10.dp)
+            .then(if (highlighted) Modifier.border(1.5.dp, MiuixTheme.colorScheme.primary, RoundedCornerShape(10.dp)) else Modifier)
             .then(
                 if (!isBooking)
                     Modifier.combinedClickable(

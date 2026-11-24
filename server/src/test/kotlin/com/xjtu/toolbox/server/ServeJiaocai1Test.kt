@@ -15,7 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-/** 教材全文库（`jiaocai1`）在 serve 侧的契约测试（`docs/api-contract.md` §5.14）。 */
+/** 教材全文库（`jiaocai1`）在 serve 侧的契约测试（`docs/api-contract.md`）。 */
 class ServeJiaocai1Test {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -260,7 +260,7 @@ class ServeJiaocai1Test {
 
         val anonymous = http.getBytes("$PAGE_PATH?ssno=${Jiaocai1FakeUpstream.SSNO}&index=0")
         assertEquals(401, anonymous.statusCode(), "未登录那一枪仍是信封的 401")
-        // 字节那一条的**失败**仍是信封（§4 的例外只放宽成功那一半）
+        // 字节那一条的**失败**仍是信封（不走信封的例外只放宽成功那一半）
         assertEquals(
             ApiErrors.UNAUTHORIZED,
             anonymous.body().toString(Charsets.UTF_8).parseJsonObject().getValue("code").toString().toInt(),
@@ -397,7 +397,7 @@ class ServeJiaocai1Test {
         assertEquals(Jiaocai1FakeUpstream.BOOK_TITLE, row.optString("title"))
         assertEquals(34, row.optInt("totalPages"))
         assertEquals(3, row.optInt("lastReadIndex"))
-        // 两格时间省略 = 此刻（epoch 毫秒，不是 ISO —— 契约 §5.14 记着这一条）
+        // 两格时间省略 = 此刻（epoch 毫秒，不是 ISO）
         val lastReadAt = assertNotNull(row.optLong("lastReadAt"), "省略 lastReadAt ⇒ 此刻")
         assertTrue(lastReadAt > 1_600_000_000_000L, "看起来得像一个 epoch 毫秒：$lastReadAt")
         assertEquals(lastReadAt, row.optLong("addedAt"), "同一发里两格都是「此刻」")
@@ -451,7 +451,7 @@ class ServeJiaocai1Test {
         const val SHELF_PATH = "/api/jiaocai1/shelf"
         const val SHELF_PROGRESS = "progress"
 
-        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人）。 */
+        /** 隐私红线的钉子组（全是夹具里的编造值，不是真人）。 */
         val IDENTITY = listOf(
             "username",
             "studentId",

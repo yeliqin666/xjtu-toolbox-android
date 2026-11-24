@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.File
-/** Android `files` 层投影的验收（§2.3 / §8.7 的 `data_cache*` 位置解析）。 */
+/** Android `files` 层投影的验收（含 `data_cache*` 位置解析）。 */
 class AndroidFileBackendTest {
 
     private fun newTempDir(prefix: String): File {
@@ -48,7 +48,7 @@ class AndroidFileBackendTest {
 
     @Test
     fun `schedule 忽略 tmp 残片`() = withRoots { dataRoot, cacheRoot ->
-        // suffix "default" 无前导下划线（§4 `suffixFor(null) == "default"`）⇒ 目录名是 `data_cachedefault`。
+        // suffix "default" 无前导下划线（`suffixFor(null) == "default"`）⇒ 目录名是 `data_cachedefault`。
         val cache = File(cacheRoot, "data_cachedefault")
         cache.mkdirs()
         File(cache, "schedule_2026-2027-1.json").writeText("""{}""")

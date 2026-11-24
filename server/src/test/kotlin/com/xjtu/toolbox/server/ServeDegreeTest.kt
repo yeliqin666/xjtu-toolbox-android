@@ -19,7 +19,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** 学业进度 `/api/degree/…` 的契约测试（§5.16）。上游用假的 [DegreeSource]，教务那串请求不在这里测。 */
+/** 学业进度 `/api/degree/…` 的契约测试。上游用假的 [DegreeSource]，教务那串请求不在这里测。 */
 class ServeDegreeTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null

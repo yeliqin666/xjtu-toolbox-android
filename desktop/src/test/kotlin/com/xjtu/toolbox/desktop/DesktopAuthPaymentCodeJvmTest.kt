@@ -85,7 +85,7 @@ class DesktopAuthPaymentCodeJvmTest {
     private fun login(auth: DesktopAuth): Boolean {
         auth.username = LibraryFakeUpstream.USERNAME
         auth.password = LibraryFakeUpstream.PASSWORD
-        return runBlocking { auth.login() }
+        return runBlocking { auth.login().also { auth.awaitPrewarm() } }
     }
 
     /** 登录 + 把校园卡会话建起来（桌面那条路由进门时由 `DesktopSiteGate` 做同一件事）。 */

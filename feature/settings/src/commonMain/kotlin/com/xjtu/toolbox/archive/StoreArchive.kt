@@ -92,7 +92,7 @@ object StoreArchive {
         is StoreValue.F -> StoreValue.SetValue(listOf(value.v.toString()))
     }
 
-    /** 自校验一份档案（纯读）：`manifest.json` 在不在、`format` 对不对、`version` 认不认识（不认识就明确失败）、每个 `stores/` 下的 `.json` 解不解得开、账号后缀有没有碰撞（§4）。 */
+    /** 自校验一份档案（纯读）：`manifest.json` 在不在、`format` 对不对、`version` 认不认识（不认识就明确失败）、每个 `stores/` 下的 `.json` 解不解得开、账号后缀有没有碰撞。 */
     fun inspect(source: ArchiveSource): ArchiveInspection = when (val validated = validate(source)) {
         is Validated.Failed -> ArchiveInspection.Failed(validated.reason)
         is Validated.Ok -> ArchiveInspection.Ok(
@@ -102,13 +102,13 @@ object StoreArchive {
         )
     }
 
-    // ── 导入（§6.4 的冲突与合并；同一节里还有「显式镜像档」） ──────────────
+    // ── 导入（冲突与合并，以及「显式镜像档」） ──────────────
 
     /**
      * 算一次导入的差异，**端内一个字节都不动**。
      *
-     * 三端同一套两步流（§6.4「显式镜像档」）：先算差异把「将删除 N 个键 / 覆盖 M 个键」摆给用户看，
-     * 用户确认之后再用 [apply] 一次性落地 —— 中途失败整体回滚（§6.1 第 3 条）。
+     * 三端同一套两步流（「显式镜像档」）：先算差异把「将删除 N 个键 / 覆盖 M 个键」摆给用户看，
+     * 用户确认之后再用 [apply] 一次性落地 —— 中途失败整体回滚。
      */
     fun plan(
         source: ArchiveSource,
@@ -129,7 +129,7 @@ object StoreArchive {
             val local = target.readStore(snapshot.rawName)
             snapshot.keys.forEach keyLoop@{ (key, value) ->
                 val at = snapshot.writtenAt[key]
-                // 归一与落地整条都不许往上抛（§8.6）：归一不了 ⇒ 这一笔不写，计数上等于本端胜。
+                // 归一与落地整条都不许往上抛：归一不了 ⇒ 这一笔不写，计数上等于本端胜。
                 val declared = runCatching { declaredValue(record.base, key, value) }.getOrNull()
                 if (declared == null) {
                     diff = diff.copy(keysKept = diff.keysKept + 1)
@@ -161,7 +161,7 @@ object StoreArchive {
             }
         }
 
-        // `accounts/<suffix>` → 学号（§6.3 键名归一时把端内名拼回去要用它）
+        // `accounts/<suffix>` → 学号（键名归一时把端内名拼回去要用它）
         val accountIds = validated.manifest.accounts.associate { it.suffix to it.accountId }
         // 档案里出现过的 (suffix, 族) → 这一族在端内该有的相对路径；以及这一族里拼不出来的条数。
         val declaredFamilies = mutableMapOf<Pair<String, String>, MutableSet<String>>()
@@ -169,7 +169,7 @@ object StoreArchive {
         source.filePaths().forEach fileLoop@{ path ->
             val (relPath, suffix) = ArchivePaths.parseFilePath(path) ?: return@fileLoop
             val family = suffix to relPath.substringBefore('/')
-            // 落地整条都不许往上抛：拼不出端内名 / 转不动形状 / 读不出来 ⇒ 只丢这一条并计数（§8.6）。
+            // 落地整条都不许往上抛：拼不出端内名 / 转不动形状 / 读不出来 ⇒ 只丢这一条并计数。
             val landing = runCatching {
                 landFile(suffix, accountIds[suffix], relPath, path, source, target, existingWins = !mirror)
             }.getOrElse { FileLanding.Skipped }
@@ -211,21 +211,21 @@ object StoreArchive {
     }
 
     /**
-     * 把算好的 [plan] 一次性落地（§6.1 第 3 条：要么全落，要么端内回到 apply 之前）。
+     * 把算好的 [plan] 一次性落地（要么全落，要么端内回到 apply 之前）。
      *
-     * 默认档保留导入侧的老容错（§8.6：坏一条只丢这一条，别的键照写）；
+     * 默认档保留导入侧的老容错（坏一条只丢这一条，别的键照写）；
      * 镜像档会删数据，所以它**不容错** —— 有一笔不顺就整体回滚并报 [ImportResult.Failed]。
      */
     fun apply(plan: ArchiveImportPlan, target: ArchiveImportTarget): ImportResult {
         val tolerant = plan.mode == ArchiveImportMode.MERGE
         val undo = mutableListOf<ArchiveUndo>()
         var keysWritten = 0
-        // 本端胜 / 档案里没有的键在算差异时已经数完了（§8.6 的老口径），落地只再加「写不进去」的那几条。
+        // 本端胜 / 档案里没有的键在算差异时已经数完了，落地只再加「写不进去」的那几条。
         var keysKept = plan.diff.keysKept
         var keysDeleted = 0
         var filesWritten = 0
         var filesDeleted = 0
-        // 同理：算差异时就跳过的那几条（§6.3 残尾）已经在 diff 里，落地只再加「写不进去」的那几条。
+        // 同理：算差异时就跳过的那几条已经在 diff 里，落地只再加「写不进去」的那几条。
         var filesSkipped = plan.diff.filesSkipped
 
         for (step in plan.steps) {
@@ -299,7 +299,7 @@ object StoreArchive {
                 }
                 return ImportResult.Failed("${describe(step)}；$tail")
             }
-            // 老口径（§8.6）：这一笔没落地，端内没动 —— 计数上等于本端胜。
+            // 这一笔没落地，端内没动 —— 计数上等于本端胜。
             when (step) {
                 is ArchiveImportStep.PutKey -> keysKept++
                 is ArchiveImportStep.PutFile -> filesSkipped++
@@ -317,7 +317,7 @@ object StoreArchive {
         )
     }
 
-    /** 把一份档案并进端内（§6.4）；默认档 [ArchiveImportMode.MERGE]，口径与以前逐字相同。 */
+    /** 把一份档案并进端内；默认档 [ArchiveImportMode.MERGE]，口径与以前逐字相同。 */
     fun import(
         source: ArchiveSource,
         target: ArchiveImportTarget,
@@ -328,7 +328,7 @@ object StoreArchive {
     }
 
     /**
-     * 一条 `files/` 条目的落地计划：① 键名归一（档案名 → 本端名）→ ② §6.4 文件层的仲裁
+     * 一条 `files/` 条目的落地计划：① 键名归一（档案名 → 本端名）→ ② 文件层的仲裁
      * （默认档：本端有 ⇒ 保持不变；镜像档：本端有就看字节是否相同）→ ③ 形状归一 → ④ 记一笔。
      *
      * ①②③ 任一步拼不出来 ⇒ [FileLanding.Skipped]（调用方计数，不抛）。
@@ -406,7 +406,7 @@ object StoreArchive {
         is ArchiveImportStep.RemoveFile -> "删 ${step.relPath} 时不顺"
     }
 
-    /** §6.4：本端没有这个键 ⇒ 写入；有 ⇒ 双方都有 `at` 时新者胜（相同也算本端胜），缺一方 ⇒ 本端胜。 */
+    /** 本端没有这个键 ⇒ 写入；有 ⇒ 双方都有 `at` 时新者胜（相同也算本端胜），缺一方 ⇒ 本端胜。 */
     private fun archiveWins(key: String, archiveAt: Long?, local: StoreSnapshot?): Boolean {
         if (local == null || !local.keys.containsKey(key)) return true
         val localAt = local.writtenAt[key] ?: return false
@@ -449,19 +449,19 @@ object StoreArchive {
     }
 }
 
-/** 默认不导出凭据族（§8.10）；显式开关时照写，`redacted` 为空。 */
+/** 默认不导出凭据族；显式开关时照写，`redacted` 为空。 */
 data class ExportOptions(
     val includeCredentials: Boolean = false,
     /** 固定时钟注入；默认墙上时钟。 */
     val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 )
 
-/** 一份档案的自校验结果（§6.2 第 3 条的前半）。 */
+/** 一份档案的自校验结果。 */
 sealed interface ArchiveInspection {
 
     /** 校验通过。 */
     data class Ok(
-        /** 解出来的 `manifest.json`（§2.1）。 */
+        /** 解出来的 `manifest.json`。 */
         val manifest: ArchiveManifest,
         /** 档案里 `stores/` 那一层的相对路径（码点升序）。 */
         val stores: List<String>,
@@ -473,7 +473,7 @@ sealed interface ArchiveInspection {
     data class Failed(val reason: String) : ArchiveInspection
 }
 
-/** 导入的结论（§6.4）。[Failed] ⇒ 端内零改动。 */
+/** 导入的结论。[Failed] ⇒ 端内零改动。 */
 sealed interface ImportResult {
 
     /** 导入跑完了。 */
@@ -485,9 +485,9 @@ sealed interface ImportResult {
         /** 写进端内的 `files/` 条目数。 */
         val filesWritten: Int,
         /**
-         * 拼不出端内名 / 转不动形状 / 读不出来的 `files/` 条目数（§6.3 逐族迁移的残尾）。
+         * 拼不出端内名 / 转不动形状 / 读不出来的 `files/` 条目数。
          *
-         * 它们**一条一笔都没写**，整次导入照旧跑完（§8.6：绝不抛）；本端已经有那条的不算在这里（那是本端胜）。
+         * 它们**一条一笔都没写**，整次导入照旧跑完（绝不抛）；本端已经有那条的不算在这里（那是本端胜）。
          */
         val filesSkipped: Int = 0,
         /**

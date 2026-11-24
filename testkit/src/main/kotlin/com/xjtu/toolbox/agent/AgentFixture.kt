@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.agent
 
-/** 屁岱（Agent）那一族的夹具常量（`docs/api-contract.md` §5.11）。 */
+/** 屁岱（Agent）那一族的夹具常量（`docs/api-contract.md`）。 */
 object AgentFixture {
 
     /** 夹具用的 API Key。 */
@@ -47,7 +47,7 @@ object AgentFixture {
     /** 夹具那一枪打模型时抛的失败文案（走 `error` 事件那一档）。 */
     const val LLM_FAILURE = "夹具里的 LLM 失败了"
 
-    /** MFA 夹具里的站点名与**手机号**：手机号绝不许出现在任何响应里（红线 §5.1）。 */
+    /** MFA 夹具里的站点名与**手机号**：手机号绝不许出现在任何响应里（隐私红线）。 */
     const val MFA_SITE_NAME = "夹具图书馆"
     const val MFA_PHONE_NUMBER = "13800000000"
 }

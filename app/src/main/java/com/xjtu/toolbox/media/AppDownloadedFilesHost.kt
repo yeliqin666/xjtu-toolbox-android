@@ -5,6 +5,7 @@ import android.content.Intent
 import android.util.Log
 import android.webkit.MimeTypeMap
 import com.xjtu.toolbox.lms.LmsDownloadStore
+import com.xjtu.toolbox.media.matchesUpload
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,6 +20,12 @@ class AppDownloadedFilesHost(context: Context) : DownloadedFilesHost {
     override suspend fun list(): List<DownloadedFile> = withContext(Dispatchers.IO) {
         LmsDownloadStore.getAll(appContext)
     }
+
+    /** 思源附件卡用它判「这份已经下过了」，判中了就打开而不是再下一份。 */
+    override suspend fun findDownloaded(name: String, size: Long): DownloadedFile? =
+        withContext(Dispatchers.IO) {
+            LmsDownloadStore.getAll(appContext).firstOrNull { it.matchesUpload(name, size) }
+        }
 
     override fun open(record: DownloadedFile) = openDownloadedFile(appContext, record)
 

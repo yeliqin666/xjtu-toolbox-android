@@ -16,7 +16,7 @@ import java.util.zip.ZipOutputStream
 object AppArchiveUx {
     private const val TAG = "AppArchive"
 
-    /** SAF 导出/导入的 MIME：zip 是档案的运输形态（§2.0）。 */
+    /** SAF 导出/导入的 MIME：zip 是档案的运输形态。 */
     const val ARCHIVE_MIME = "application/zip"
 
     /** 档案字节映射 → zip 字节（运输形态；纯函数，可测）。 */
@@ -109,7 +109,7 @@ object AppArchiveUx {
         return target
     }
 
-    /** 一次性导入的触发点（§6.2，`XjtuApp.attachBaseContext` 里调用，顺序在`DataCache.clearIfPackageChanged` 之后，§8.7）：扫两个落地目录，把找到的那份档案交给 [AppArchiveImport]（自校验→ 行数组预检→ §6.4 合并→ 落「已导入」标记）。 */
+    /** 一次性导入的触发点（`XjtuApp.attachBaseContext` 里调用，顺序在 `DataCache.clearIfPackageChanged` 之后）：扫两个落地目录，把找到的那份档案交给 [AppArchiveImport]（自校验 → 行数组预检 → 合并 → 落「已导入」标记）。 */
     fun maybeImportPendingArchive(context: Context): ArchiveImportOutcome? {
         val archive = pendingArchiveCandidates(pendingArchiveRoots(context)).firstOrNull() ?: return null
         val entries = readArchive(archive) ?: return log(
@@ -122,7 +122,7 @@ object AppArchiveUx {
     }
 
     /**
-     * 设置页那份导入的两步流第一步：把选中的 zip 读出来算差异，**端内一个字节不动**（§6.4）。
+     * 设置页那份导入的两步流第一步：把选中的 zip 读出来算差异，**端内一个字节不动**。
      *
      * 拿到 [AppArchivePlanOutcome.Planned] 后弹窗就用共享层那份话术：
      * [ArchiveImportPrompt.TITLE] / [ArchiveImportPrompt.label] / [ArchiveImportPrompt.detail]，
@@ -156,7 +156,7 @@ object AppArchiveUx {
         return outcome
     }
 
-    /** §6.2 的检查点：档案落地目录（`files/archive/`）与 SAF 导入通道的暂存区（`files/archive_staging/`） */
+    /** 导入的检查点：档案落地目录（`files/archive/`）与 SAF 导入通道的暂存区（`files/archive_staging/`） */
     fun pendingArchiveRoots(context: Context): List<File> =
         listOf(AppArchiveHost.archiveRoot(context), AppArchiveHost.stagingRoot(context))
 
@@ -165,7 +165,7 @@ object AppArchiveUx {
         pendingArchiveCandidates(roots)
     }
 
-    /** 根目录列表里真正待导入的那一份（§6.2 的「有档案才跑」）：每个根下按三种形态找 —— */
+    /** 根目录列表里真正待导入的那一份（有档案才跑）：每个根下按三种形态找 —— */
     fun pendingArchiveCandidates(roots: List<File>): List<File> = roots.flatMap { root ->
         when {
             !root.isDirectory -> emptyList()

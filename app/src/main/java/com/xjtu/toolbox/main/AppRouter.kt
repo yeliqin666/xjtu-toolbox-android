@@ -26,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import com.xjtu.toolbox.ui.components.showReplacing
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 
@@ -126,6 +127,8 @@ class AppRouter(
             notify("$label 学校系统维护中，暂不可用")
             return
         }
+        // 学期总结用：只记功能页，带参数的（网址、帖子号）不记
+        if (route.id.none { it == '?' || it == '/' }) com.xjtu.toolbox.termreport.AppUsage.add("open:${route.id}")
         val type = route.loginType
         when {
             type != null -> openWithLogin(route, type)
@@ -245,7 +248,7 @@ class AppRouter(
 
     private fun notify(message: String) {
         if (navigator.backStack.size <= 1) {
-            scope.launch { messages.showSnackbar(message, duration = SnackbarDuration.Short) }
+            scope.launch { messages.showReplacing(message, duration = SnackbarDuration.Short) }
         } else {
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }

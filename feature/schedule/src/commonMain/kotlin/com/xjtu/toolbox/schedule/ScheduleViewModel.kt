@@ -28,6 +28,11 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.plus
+import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.util.nowOnCampus
 
 internal sealed interface ScheduleEvent {
     data object AuthExpired : ScheduleEvent
@@ -58,6 +63,16 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
     var exams by mutableStateOf<List<ExamItem>>(emptyList()); private set
     /** 「接下来」的作业截止：只读别处写好的落盘缓存，这里不发请求。 */
     var homeworkDue by mutableStateOf<List<LmsDue>>(emptyList()); private set
+    /** 系统日历里今天起 [SYSTEM_CALENDAR_DAYS] 天的日程（用户在设置里打开才有，见 [ScheduleHost.systemCalendarEvents]）。 */
+    var systemCalendarEvents by mutableStateOf<List<SystemCalendarEvent>>(emptyList()); private set
+    private val systemCalendar = SystemCalendarRefresher(
+        scope = viewModelScope,
+        days = SYSTEM_CALENDAR_DAYS,
+        today = { nowOnCampus().date },
+        load = { from, to -> withContext(host.io) { host.systemCalendarEvents(from, to) } },
+        onLoaded = { systemCalendarEvents = it },
+        onError = { Log.w(TAG, "system calendar read failed: ${it.message}") },
+    )
     var textbooks by mutableStateOf<List<TextbookItem>>(emptyList()); private set
     var textbooksLoading by mutableStateOf(false); private set
     var textbooksError by mutableStateOf<String?>(null); private set
@@ -95,6 +110,55 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
 
     var customCourses by mutableStateOf<List<CustomCourse>>(emptyList()); private set
     var addScheduleDraft by mutableStateOf(CustomCourseDraft())
+
+    // 选上了但没排时间地点的课（#360）
+    private var unscheduledAll by mutableStateOf<List<UnscheduledCourse>>(emptyList())
+    private var unscheduledDismissed by mutableStateOf<Set<String>>(emptySet())
+    private var unscheduledJob: Job? = null
+
+    /** 还要用户处理的未排课：没点忽略，也没照课名填过自定义日程。 */
+    val pendingUnscheduled: List<UnscheduledCourse>
+        get() = unscheduledAll.filter { u ->
+            u.id !in unscheduledDismissed &&
+                customCourses.none { it.termCode == selectedTermCode && it.courseName.trim() == u.name }
+        }
+
+    /** 先上缓存，再从教务拉一次；拉不到保留缓存。 */
+    fun loadUnscheduled() {
+        val term = selectedTermCode.takeIf { it.isNotEmpty() } ?: return
+        unscheduledAll = ScheduleCache.readUnscheduled(cache, term)
+        unscheduledDismissed = ScheduleCache.readDismissedUnscheduled(cache, term)
+        val source = activeSource ?: return
+        unscheduledJob?.cancel()
+        unscheduledJob = viewModelScope.launch {
+            val fresh = try {
+                withContext(host.io) { source.unscheduled(term) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "unscheduled courses failed: ${e.message}")
+                return@launch
+            }
+            if (term != selectedTermCode) return@launch
+            unscheduledAll = fresh
+            ScheduleCache.writeUnscheduled(cache, term, fresh)
+        }
+    }
+
+    fun dismissUnscheduled(id: String) {
+        val term = selectedTermCode.takeIf { it.isNotEmpty() } ?: return
+        unscheduledDismissed = unscheduledDismissed + id
+        ScheduleCache.writeDismissedUnscheduled(cache, term, unscheduledDismissed)
+    }
+
+    /** 「填时间地点」：课名、教师、周次先填进新建日程的草稿。 */
+    fun draftFromUnscheduled(u: UnscheduledCourse) {
+        addScheduleDraft = CustomCourseDraft(
+            courseName = u.name,
+            note = u.teacher.takeIf { it.isNotEmpty() }?.let { "教师：$it" }.orEmpty(),
+            selectedWeeks = parseWeeksText(u.weeksText).toSet(),
+        )
+    }
     /** 待确认的冲突：(要保存的, 与之冲突的)。 */
     var pendingSave by mutableStateOf<Pair<CustomCourse, List<CustomCourse>>?>(null)
 
@@ -253,11 +317,19 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
 
     /** 设置里换了「当前学期课表来源」以后回到这里：按新来源重新加载。 */
     fun onResume() {
+        // 在设置里刚开/关了系统日历、或在日历 App 里改了日程，回来就重读（本地读，不联网）
+        refreshSystemCalendar(nowOnCampus().date)
         val now = SettingsStore().scheduleSource
         if (now == lastSource) return
         lastSource = now
         if (!isLoading && !isSwitching && !isRefreshingFromNetwork) loadInitialData()
     }
+
+    /** 重读系统日历：[today] 起 [SYSTEM_CALENDAR_DAYS] 天（查询时前后各多一天），够今日和「接下来」用。 */
+    fun refreshSystemCalendar(today: LocalDate) = systemCalendar.refresh(today)
+
+    /** 日程页在前台时调用：监听系统日历库变化，防抖后重读；调用方取消（退到后台）即注销监听。 */
+    suspend fun watchSystemCalendar() = systemCalendar.watch(host.systemCalendarChanges())
 
     /** 错误页的重试：没会话先登录，有会话强制重新认证一次。 */
     fun retry() {
@@ -893,5 +965,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
     private companion object {
         const val TAG = "ScheduleViewModel"
         const val STALE_MS = 30 * 60_000L
+        /** 系统日历显示多少天：今天 + 「接下来」的 7 天。 */
+        const val SYSTEM_CALENDAR_DAYS = 8
     }
 }

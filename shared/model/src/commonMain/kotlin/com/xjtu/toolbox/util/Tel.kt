@@ -16,8 +16,17 @@ fun String.toDialableTel(): String {
     val compact = replace(WHITESPACE, "")
     // 「+86 138 1234 5678」压完是 13 位。国家码在国内拨不出去，但仅在后面正好跟一个
     // 11 位手机号时才去掉，免得误伤本就以 86 开头的号码。
-    return DIGITS.find(compact.replaceFirst(COUNTRY_CODE, ""))?.value.orEmpty()
+    val number = DIGITS.find(compact.replaceFirst(COUNTRY_CODE, ""))?.value.orEmpty()
+    // 校内固话都是西安的 8 位号：省外拨要带 029，省内手机带区号也照样能通，所以一律补上
+    return if (BARE_LANDLINE.matches(number)) "029$number" else number
 }
+
+/** 显示用：把没带区号的 8 位固话写成「029-xxxxxxxx」，已带区号、分机号不动。 */
+fun String.withXianAreaCode(): String = replace(BARE_LANDLINE_IN_TEXT) { "029-${it.value}" }
+
+/** 不以 0（已带区号）或 1（手机）开头的 8 位号。 */
+private val BARE_LANDLINE = Regex("""[2-9]\d{7}""")
+private val BARE_LANDLINE_IN_TEXT = Regex("""(?<![\d-])[2-9]\d{7}(?!\d)""")
 
 /** 一串里写了多个号码（「138… / 029-…」）时逐个取号，去重后按原顺序返回。 */
 fun String.toDialableTels(): List<String> =

@@ -29,13 +29,13 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
- * 教材合并入口（PR L，plan2 §3）：应用里原本有三个各管一摊的「教材」页
+ * 教材合并入口：应用里原本有三个各管一摊的「教材」页
  * （教材中心 `JiaocaiScreen`、教材全文库 `Jiaocai1Screen`），现在收进同一个页面，
  * 用 [AppTabPager] 横滑切三栏：
  *
@@ -114,7 +114,7 @@ fun TextbookScreen(
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             GlassTopAppBar(
                 title = "教材",

@@ -32,9 +32,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # 发正式版时汇总项目数据（project_story.py）要读 issue、PR、讨论区
+      issues: read
+      pull-requests: read
+      discussions: read
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       released: ${{ steps.gh_release.outcome }}
+      release_body: ${{ steps.notes.outputs.body_json }}
     env:
       # dev 推送默认发布预览版；head commit 带 [skip preview] 时只跑检查、不发布。
       # 手动触发时用 publish_preview 输入控制，便于把之前跳过的改动补发成一个 beta。
@@ -85,7 +90,7 @@ jobs:
         # versionCode 是安装器判升降级的唯一依据（客户端判更新只看 versionName），所以必须
         # 不低于线上任何已发布包；正式版之间还要真正往前推。拦两类真实事故：
         #   1) dev 上把 versionCode 改小 → 新预览包比已装的旧预览低，安装器直接拒绝降级；
-        #   2) 忘了递增 → 正式版 code 不高于上一个正式版，用户收不到更新（DEVELOP.md §1.7）。
+        #   2) 忘了递增 → 正式版 code 不高于上一个正式版，用户收不到更新（CONTRIBUTING.md §1.7）。
         # 规则（正式版可以与同核心版本的 beta 同号）：
         #   - 重发已发布过的 versionName（tag 已存在）：code 不得低于当时发布的号；
         #   - 新版本（tag 不存在）：code 必须严格大于上一个正式版 —— 正式版之间要真正往前推，
@@ -281,9 +286,8 @@ jobs:
           PY
           echo "Generated release notes:"
           cat /tmp/release_body.md
-          # 转义为 JSON 安全字符串供下一步使用
-          python3 -c "import json; print(json.dumps(open('/tmp/release_body.md', encoding='utf-8').read()))" > /tmp/release_body.json
-          echo "body_json_path=/tmp/release_body.json" >> $GITHUB_OUTPUT
+          # 转义成单行 JSON 字符串，经 job output 交给 gitee job 建 Release
+          echo "body_json=$(python3 -c "import json; print(json.dumps(open('/tmp/release_body.md', encoding='utf-8').read()))")" >> "$GITHUB_OUTPUT"
 
       - name: Install OSS SDK
         id: oss_sdk
@@ -389,6 +393,21 @@ jobs:
           # 不再从 runner 抽查公网 CDN：跨境访问几乎每次超时，SDK 校验已证明对象就位
           echo "OSS primary publish verified"
 
+      # 学期总结「关于岱宗盒子」那几页的线上数据；App 读不到就用源码里的快照。失败不影响发版。
+      - name: Publish project story to OSS
+        if: github.ref == 'refs/heads/main' && steps.oss_sdk.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          python3 .github/scripts/project_story.py /tmp/project_story.json
+          python3 .github/scripts/oss_upload.py /tmp/project_story.json "xjtu-toolbox/project_story.json" "no-cache"
+
       # ESA 不认源站缓存头，固定路径的清单与 latest 包要主动刷新（#519）；没配 ESA_* secrets 就跳过
       - name: Purge ESA cache for stable
         if: github.ref == 'refs/heads/main' && steps.oss_publish.outcome == 'success'
@@ -424,104 +443,6 @@ jobs:
           generate_release_notes: true
           make_latest: true
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
-
-      - name: Sync to Gitee (code + tag + release)
-        if: github.ref == 'refs/heads/main'
-        continue-on-error: true
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-          GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
-          # 拿不到凭据就直接失败，不要在无人值守的 CI 上等输入框
-          GIT_TERMINAL_PROMPT: "0"
-        run: |
-          : "${TAG:?Release tag is required}"
-          OWNER="yeliqin666"
-          REPO="xjtu-toolbox-android"
-          APK_PATH="app/build/outputs/apk/release/app-release.apk"
-
-          # 配置 Gitee remote
-          GITEE_URL="https://gitee.com/${OWNER}/${REPO}.git"
-          # token 不拼进 remote URL：URL 会被 git 写进 .git/config，之后任何
-          # `git remote -v` 或 push 报错都可能把它打出来。凭据只经 env 交给 credential
-          # helper（.git/config 里存下的也只是对 $GITEE_TOKEN 的引用）。
-          git remote add gitee "$GITEE_URL" 2>/dev/null || git remote set-url gitee "$GITEE_URL"
-          git config --local --replace-all 'credential.https://gitee.com.helper' \
-            '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
-
-          # 同步 main 分支
-          git push gitee main:main --force
-          echo "Code synced to Gitee"
-
-          # 拉取 tag（release action 在 remote 创建了 tag，本地可能没有）
-          git fetch origin --tags --force
-          git push gitee "${TAG}" --force
-          echo "Tag ${TAG} synced to Gitee"
-
-          # 删除已有的同名 Gitee release
-          OLD_ID=$(curl -s "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
-          if [ -n "$OLD_ID" ] && [ "$OLD_ID" != "None" ] && [ "$OLD_ID" != "" ]; then
-            curl -s -X DELETE "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" || true
-            echo "Deleted old Gitee release $OLD_ID"
-          fi
-
-          # 读取由上一步生成的 release body（已经是 JSON 字符串字面量，含两端引号）
-          BODY_JSON=$(cat /tmp/release_body.json)
-
-          # 创建 Gitee release（target_commitish 必填）
-          RELEASE=$(curl -s -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"access_token\": \"${GITEE_TOKEN}\",
-              \"tag_name\": \"${TAG}\",
-              \"name\": \"${TAG}\",
-              \"body\": ${BODY_JSON},
-              \"target_commitish\": \"main\",
-              \"prerelease\": false
-            }")
-          echo "Create response: $RELEASE"
-          RELEASE_ID=$(echo "$RELEASE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
-          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "None" ]; then
-            echo "Failed to get release ID, skipping APK upload. Response: $RELEASE"
-            exit 0
-          fi
-          echo "Created Gitee release $RELEASE_ID"
-
-          # 上传 APK：最多 3 次，失败间隔 30s / 60s，单次超时 1 小时。
-          # 三次仍失败则让本步失败（外层 continue-on-error 再接手）。
-          upload_apk() {
-            local APK="$1"
-            local NAME
-            NAME="$(basename "$APK")"
-            echo "Uploading $NAME: $(wc -c < "$APK") bytes"
-            local ATTEMPT=1
-            local DELAYS="0 30 60"
-            for DELAY in $DELAYS; do
-              if [ "$ATTEMPT" -gt 1 ]; then
-                echo "Retry $ATTEMPT/3 for $NAME after ${DELAY}s"
-                sleep "$DELAY"
-              fi
-              HTTP_CODE=$(curl --max-time 3600 --progress-bar -w "%{http_code}" -o /tmp/gitee_upload_body.txt \
-                -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
-                -F "access_token=${GITEE_TOKEN}" \
-                -F "file=@${APK};type=application/vnd.android.package-archive") || HTTP_CODE="000"
-              echo "Upload $NAME attempt $ATTEMPT HTTP $HTTP_CODE"
-              if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-                echo "$NAME uploaded to Gitee release"
-                return 0
-              fi
-              ATTEMPT=$((ATTEMPT + 1))
-            done
-            echo "::error::$NAME upload failed after 3 attempts"
-            return 1
-          }
-
-          if [ -f "$APK_PATH" ]; then
-            upload_apk "$APK_PATH" || exit 1
-          else
-            echo "::error::phone APK missing at $APK_PATH"
-            exit 1
-          fi
 
       # ── dev 专属步骤：构建预览包并发布 GitHub Pre-release ──
       # 默认发布；head commit 带 [skip preview] 时只做校验，不构建、不发布。
@@ -845,3 +766,93 @@ jobs:
     with:
       release_tag: ${{ needs.build.outputs.tag }}
     secrets: inherit
+
+  # ── 正式版同步到 Gitee（代码、tag、Release 与 APK）──
+  # 单独一个 job、和桌面两端并行：往 Gitee 传 APK 要好几分钟，放在 build 里会拖住桌面端出包。
+  # 失败不影响整次发版（Gitee 只是镜像与旧版本的更新源）。
+  gitee:
+    needs: build
+    if: always() && github.ref == 'refs/heads/main' && needs.build.outputs.released == 'success'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: app-release
+          path: apk
+
+      - name: Sync to Gitee (code + tag + release)
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+          BODY_JSON: ${{ needs.build.outputs.release_body }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          : "${TAG:?Release tag is required}"
+          : "${BODY_JSON:?Release body is required}"
+          OWNER="yeliqin666"
+          REPO="xjtu-toolbox-android"
+          APK_PATH="apk/app-release.apk"
+
+          bash .github/scripts/gitee_push.sh HEAD refs/heads/main
+          # tag 由 build 里的 Release action 在远端创建，本地还没有
+          git fetch -q origin "refs/tags/${TAG}:refs/tags/${TAG}" --force
+          bash .github/scripts/gitee_push.sh "refs/tags/${TAG}" "refs/tags/${TAG}"
+
+          # 删除已有的同名 Gitee release（同一版本重发时）
+          OLD_ID=$(curl -s "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
+          if [ -n "$OLD_ID" ] && [ "$OLD_ID" != "None" ]; then
+            curl -s -X DELETE "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" || true
+            echo "Deleted old Gitee release $OLD_ID"
+          fi
+
+          # 创建 Gitee release（target_commitish 必填）
+          RELEASE=$(curl -s -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"access_token\": \"${GITEE_TOKEN}\",
+              \"tag_name\": \"${TAG}\",
+              \"name\": \"${TAG}\",
+              \"body\": ${BODY_JSON},
+              \"target_commitish\": \"main\",
+              \"prerelease\": false
+            }")
+          RELEASE_ID=$(echo "$RELEASE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "None" ]; then
+            echo "::error::创建 Gitee release 失败：$RELEASE"
+            exit 1
+          fi
+          echo "Created Gitee release $RELEASE_ID"
+
+          # 上传 APK：最多 3 次，失败间隔 30s / 60s，单次超时 1 小时
+          test -f "$APK_PATH" || { echo "::error::APK missing at $APK_PATH"; exit 1; }
+          echo "Uploading $(wc -c < "$APK_PATH") bytes"
+          ATTEMPT=1
+          for DELAY in 0 30 60; do
+            if [ "$ATTEMPT" -gt 1 ]; then
+              echo "Retry $ATTEMPT/3 after ${DELAY}s"
+              sleep "$DELAY"
+            fi
+            HTTP_CODE=$(curl --max-time 3600 -s -w "%{http_code}" -o /tmp/gitee_upload_body.txt \
+              -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "file=@${APK_PATH};type=application/vnd.android.package-archive") || HTTP_CODE="000"
+            echo "Upload attempt $ATTEMPT HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "APK uploaded to Gitee release"
+              exit 0
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          echo "::error::APK upload failed after 3 attempts"
+          exit 1

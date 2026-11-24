@@ -52,7 +52,8 @@ class EmptyRoomApi(store: EmptyRoomStore? = null) {
     private val cache = store
 
     /** 教室名 → 座位数。value 为 null 表示"查过了，没有这个教室的容量数据"。 */
-    private val seatCache = mutableMapOf<String, Int?>()
+    // 值可以是 null（查过但没有容量），用不了 ConcurrentHashMap；多个详情页可能并发查，整表加锁
+    private val seatCache: MutableMap<String, Int?> = java.util.Collections.synchronizedMap(LinkedHashMap())
 
     /**
      * 获取指定日期的空闲教室数据
@@ -224,7 +225,7 @@ class EmptyRoomApi(store: EmptyRoomStore? = null) {
         seatCache[location] = size
         cache?.let { c ->
             runCatching {
-                val obj = JsonObject(seatCache.mapValues { (_, v) -> JsonPrimitive(v) })
+                val obj = JsonObject(synchronized(seatCache) { seatCache.mapValues { (_, v) -> JsonPrimitive(v) } })
                 c.writeJson(EmptyRoomStore.SEAT_CACHE_KEY, obj.toString())
             }
         }

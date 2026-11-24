@@ -25,7 +25,7 @@ body:
     id: body
     attributes:
       label: 正文
-      description: App 里按纯文本显示
+      description: App 支持 Markdown 排版，例如标题、列表、强调和链接
     validations:
       required: true
   - type: input

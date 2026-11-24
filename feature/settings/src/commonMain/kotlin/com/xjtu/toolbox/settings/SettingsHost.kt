@@ -24,6 +24,9 @@ enum class SettingsRow {
     /** 「主页设置」二级页：背景壁纸、卡片材质、网格开关、恢复默认分组和布局。 */
     HOME_SETTINGS,
 
+    /** 主页设置里的「首页小贴士」开关（首页真会画小贴士的端才列）。 */
+    HOME_TIPS,
+
     /** 默认启动 Tab。 */
     DEFAULT_TAB,
 
@@ -96,4 +99,7 @@ interface SettingsHost {
 
     /** 「小岱」整页设置；没接小岱的端（桌面 / Web）为 null，整条不出现。 */
     val agentPage: (@Composable (onBack: () -> Unit) -> Unit)? get() = null
+
+    /** 「关于 → 岱宗盒子的故事」的正文（外壳与顶栏由设置页给）；没有项目数据的端为 null，整条不出现。 */
+    val projectStoryPage: (@Composable () -> Unit)? get() = null
 }

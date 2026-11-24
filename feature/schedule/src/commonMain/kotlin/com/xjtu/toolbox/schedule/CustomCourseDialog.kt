@@ -190,9 +190,7 @@ fun CustomCourseDialog(
                     text = "删除",
                     onClick = { onDelete?.invoke(existing); onDismiss() },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColors(
-                        textColor = MiuixTheme.colorScheme.error
-                    )
+                    colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                 )
             }
         }
@@ -362,7 +360,7 @@ fun CustomCourseDialog(
             TextButton(
                 text = "删除",
                 onClick = { showDeleteConfirm.value = true },
-                colors = ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.error),
+                colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                 modifier = Modifier.weight(1f)
             )
         }

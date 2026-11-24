@@ -70,7 +70,7 @@ include(":desktop")
 
 include(":server")
 
-// ── 模块拆分：共享层（:shared:*）与功能模块（:feature:*）。:core / :data 只剩壳与残留（见 docs/kmp-module-map.md）──
+// ── 模块拆分：共享层（:shared:*）与功能模块（:feature:*）。:core / :data 只剩壳与残留（依赖方向见 CONTRIBUTING.md §4）──
 include(":shared:model")
 include(":shared:navigation")
 include(":shared:designsystem")

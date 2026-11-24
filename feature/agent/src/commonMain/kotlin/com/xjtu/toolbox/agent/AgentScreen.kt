@@ -118,8 +118,12 @@ fun AgentScreen(
     // 从主动提醒气泡进来时，**开一个新会话**并把提醒作为真实的第一条用户消息发出去。
     // 不新建会话的话会接在上一次的对话尾巴上，用户看到的就是"老对话"，
     // 跟刚才气泡说的事毫无关系。
+    // 只在这一页真显示着时取：底栏会在后台提前落地这一页，不看可见性的话，用户还没切过来消息就发出去了
+    // （在副作用里等，不在组合里读：读了整页每次切底栏都要重组）
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
     LaunchedEffect(config.isConfigured, AgentPendingPrompt.generation) {
         if (!config.isConfigured) return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
         val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
         showConfig = false
         vm.newSession()
@@ -136,6 +140,12 @@ fun AgentScreen(
             images = pending.images,
             contextLabel = pending.label,
         )
+    }
+
+    // 从小贴士「去试试」进来：直接打开设置页（同样等这一页真显示着再取）
+    LaunchedEffect(com.xjtu.toolbox.nav.AgentSettingsRequest.generation) {
+        androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
+        if (com.xjtu.toolbox.nav.AgentSettingsRequest.consume()) showConfig = true
     }
 
     // 点屁岱推送的通知进来：切到「推送记录」，定位并闪一下那一条（#194）
@@ -315,6 +325,7 @@ fun AgentScreen(
                             text = "删除",
                             onClick = { deleteTarget = target; actionTarget = null },
                             modifier = Modifier.fillMaxWidth(),
+                            colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                         )
                         TextButton(
                             text = "取消",
@@ -382,7 +393,7 @@ fun AgentScreen(
                                 deleteTarget = null
                             },
                             modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.textButtonColorsPrimary(),
+                            colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                         )
                     }
                 }

@@ -66,7 +66,9 @@ fun isTermCode(term: String): Boolean = TERM_CODE.matches(term)
 class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
 
     private var cachedTermCode: String? = null
-    private val termNameCache = mutableMapOf<String, String>()
+    // termList()/学期起始在 IO 线程写，日程页菜单在主线程 termNames() 拷快照：
+    // 普通 LinkedHashMap 边写边拷会抛 ConcurrentModificationException（6.0.2 闪退），换成并发表
+    private val termNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val termWeeksCache = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     override fun termNames(): Map<String, String> = termNameCache.toMap()
@@ -141,6 +143,9 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
     /** 这学期最近一次拉到的调课/停课/补课记录，形状是给人看的那一种（[ScheduleChangeEvent]）。 */
     override suspend fun changes(term: String): List<ScheduleChangeEvent> =
         JwxtChanges.apply(emptyList(), rawChanges(term)).changes
+
+    override suspend fun unscheduled(term: String): List<UnscheduledCourse> =
+        wdkbRows("xskcb/xswpkc.do", "xswpkc", term).mapNotNull(UnscheduledCourse::of)
 
     /** 调停课记录。拿不到就当没有：课表照原样给，比整张课表出不来强。 */
     private suspend fun rawChanges(term: String): List<JwxtChange> = try {

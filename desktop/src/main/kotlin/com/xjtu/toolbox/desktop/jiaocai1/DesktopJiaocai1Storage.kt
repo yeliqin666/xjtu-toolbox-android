@@ -134,5 +134,5 @@ internal fun jiaocai1CacheRoot(): File {
     if (override != null) return File(override, "cache")
     val base = System.getenv("XDG_CACHE_HOME")?.takeIf { it.isNotBlank() }?.let(::File)
         ?: File(System.getProperty("user.home") ?: "/tmp", ".cache")
-    return File(base, "xjtu-toolbox")
+    return File(base, "xjtu-dzhz")
 }

@@ -27,17 +27,17 @@ data class CampusQuestionnaire(
     val teacher: String,
     val pgType: String,
     val finished: Boolean,
-    /** QMS 答卷 id（serve 形态，契约 §5.15）。 */
+    /** QMS 答卷 id（serve 形态）。 */
     val responseId: String = "",
     /** serve 端算好的标签（期中 / 期末 / 过程评教）。 */
     val tag: String = "",
 )
 
-/** Web 端评教取数：serve 形态走 QMS（契约 §5.15），campus-api 形态只读。 */
+/** Web 端评教取数：serve 形态走 QMS，campus-api 形态只读。 */
 class CampusJudgeApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
     /** 查哪个学期；null = 上游评教学期 `CSZA`。 */
     private val term: String? = null,
@@ -70,7 +70,7 @@ class CampusJudgeApi(
         }
 
     /**
-     * 一键评教：一份答卷一发 `POST /api/jwxt/evaluations/submit`（契约 §5.15）。
+     * 一键评教：一份答卷一发 `POST /api/jwxt/evaluations/submit`。
      *
      * `submitted:false` 不是失败：已评过 ⇒ 200 + `submitted:false`（幂等），屏上照样从「未评」里移走。
      */
@@ -119,7 +119,7 @@ class CampusJudgeApi(
         }
 
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
-        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        // serve 契约的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
         if (mode == ApiMode.SERVE) return client.serveData("评教", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> if (v.isNotEmpty()) parameter(k, v) }
@@ -134,6 +134,6 @@ class CampusJudgeApi(
     }
 }
 
-/** 提交评教（契约 §5.15）：请求体 `{responseId}`，serve 端按最好一档填答后提交。 */
+/** 提交评教：请求体 `{responseId}`，serve 端按最好一档填答后提交。 */
 private const val SUBMIT_PATH = "/api/jwxt/evaluations/submit"
 

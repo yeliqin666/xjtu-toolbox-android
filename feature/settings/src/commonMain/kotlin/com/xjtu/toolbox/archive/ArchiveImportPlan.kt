@@ -24,7 +24,7 @@ data class ArchiveImportDiff(
     val filesUnchanged: Int = 0,
     /** 镜像档要删掉的 `files/` 条目数（档案里出现过的族里、本端多余的）。 */
     val filesDeleted: Int = 0,
-    /** 拼不出端内名 / 转不动形状 / 读不出来的条目数（§6.3 残尾，一条都没写）。 */
+    /** 拼不出端内名 / 转不动形状 / 读不出来的条目数（一条都没写）。 */
     val filesSkipped: Int = 0,
 ) {
 
@@ -92,7 +92,7 @@ internal sealed interface ArchiveImportStep {
     /** 删掉端内一个键（只有镜像档会产生这一笔）。 */
     data class RemoveKey(val rawName: String, val key: String) : ArchiveImportStep
 
-    /** 写一条 `files/`（[content] 已经是本端形状，§6.3）。 */
+    /** 写一条 `files/`（[content] 已经是本端形状）。 */
     data class PutFile(val suffix: String, val relPath: String, val content: String) : ArchiveImportStep
 
     /** 删掉端内一条 `files/`（只有镜像档会产生这一笔）。 */

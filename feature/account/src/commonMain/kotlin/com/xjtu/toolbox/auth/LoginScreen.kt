@@ -50,6 +50,9 @@ fun LoginScreen(
     state: LoginUiState,
     onSubmit: () -> Unit,
     footer: String? = null,
+    /** 身份（本科 / 研究生）：给了 [onAccountTypeChange] 才画选择条。 */
+    accountType: AccountType = AccountType.UNDERGRADUATE,
+    onAccountTypeChange: ((AccountType) -> Unit)? = null,
 ) {
     val cs = MiuixTheme.colorScheme
     val busy = state is LoginUiState.Submitting
@@ -78,6 +81,16 @@ fun LoginScreen(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
+
+            onAccountTypeChange?.let { onChange ->
+                val types = listOf(AccountType.UNDERGRADUATE, AccountType.POSTGRADUATE)
+                com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                    tabs = listOf("本科生", "研究生"),
+                    selectedTabIndex = types.indexOf(accountType).coerceAtLeast(0),
+                    onTabSelected = { if (!busy) onChange(types[it]) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             TextField(
                 value = username,

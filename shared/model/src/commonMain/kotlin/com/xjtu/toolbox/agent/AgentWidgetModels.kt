@@ -199,6 +199,15 @@ data class PlanProposal(
 @Serializable
 data class PlanWidget(val items: List<PlanProposal> = emptyList(), val caption: String = "") : AgentWidget
 
+/** 小岱起草的社区帖子：用户在卡片上核对、可改，点「发布」才用他的社区账号发出。 */
+@Serializable
+data class PostWidget(
+    val title: String = "",
+    val body: String = "",
+    val category: String = "",
+    val caption: String = "",
+) : AgentWidget
+
 /** 类型名是存盘格式的一部分（沿用旧版的类名），不要改。 */
 fun AgentWidget.toStored(): StoredWidget = when (this) {
     is NoticeWidget -> StoredWidget("NoticeWidget", AppJson.encodeToString(this))
@@ -213,6 +222,7 @@ fun AgentWidget.toStored(): StoredWidget = when (this) {
     is LibraryWidget -> StoredWidget("LibraryWidget", AppJson.encodeToString(this))
     is CampusMapWidget -> StoredWidget("CampusMapWidget", AppJson.encodeToString(this))
     is PlanWidget -> StoredWidget("PlanWidget", AppJson.encodeToString(this))
+    is PostWidget -> StoredWidget("PostWidget", AppJson.encodeToString(this))
     is BusWidget -> StoredWidget("BusWidget", AppJson.encodeToString(this))
     is LmsFileWidget -> StoredWidget("LmsFileWidget", AppJson.encodeToString(this))
 }
@@ -232,6 +242,7 @@ fun storedToWidget(stored: StoredWidget): AgentWidget? = runCatching {
         "LibraryWidget" -> AppJson.decodeFromString<LibraryWidget>(stored.json)
         "CampusMapWidget" -> AppJson.decodeFromString<CampusMapWidget>(stored.json)
         "PlanWidget" -> AppJson.decodeFromString<PlanWidget>(stored.json)
+        "PostWidget" -> AppJson.decodeFromString<PostWidget>(stored.json)
         "BusWidget" -> AppJson.decodeFromString<BusWidget>(stored.json)
         "LmsFileWidget" -> AppJson.decodeFromString<LmsFileWidget>(stored.json)
         else -> null

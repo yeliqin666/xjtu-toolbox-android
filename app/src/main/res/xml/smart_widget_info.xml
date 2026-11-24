@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  智能卡片的元数据。
+
+  `minHeight=110dp` 是**上限不是配额**（§7.3）：布局那边把主区做成 0dp + weight=1，
+  内容再多也只会被裁，底栏永远留在卡内；能不能放得下由 SmartLayout 的高度预算先算清楚。
+
+  `resizeMode="horizontal|vertical"` ⇒ 用户能把它拖成 4×2、2×4，所以两套运行时布局各一份，
+  `SmartWidgetProvider.onAppWidgetOptionsChanged` 会按实例的实际宽度在紧凑/宽之间切换。
+
+  `previewLayout` 用**另一份静态布局**：运行时那两套的内容全是填进去的，在选择器里预览时
+  一个字段都没有，用户看到的会是一张空白卡。`initialLayout` 仍然是运行时那套。
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:label="@string/smart_widget_name"
     android:description="@string/smart_widget_desc"
@@ -7,7 +19,7 @@
     android:targetCellWidth="2"
     android:targetCellHeight="2"
     android:updatePeriodMillis="1800000"
-    android:initialLayout="@layout/widget_smart"
-    android:previewLayout="@layout/widget_smart"
+    android:initialLayout="@layout/widget_smart_compact"
+    android:previewLayout="@layout/widget_smart_preview"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen" />

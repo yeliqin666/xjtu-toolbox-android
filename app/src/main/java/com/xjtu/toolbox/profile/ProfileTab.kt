@@ -59,7 +59,9 @@ import com.xjtu.toolbox.platform.rememberPhoneDialer
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.util.toDialableTels
+import com.xjtu.toolbox.util.withXianAreaCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
@@ -113,7 +115,15 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
             onClick = { expanded = !expanded },
         )
         AnimatedVisibility(visible = expanded) {
-            Column(Modifier.fillMaxWidth().padding(start = 62.dp, end = 16.dp, bottom = 14.dp)) {
+            // 左缘对齐标题文字，行距统一 8dp，导师一组再多空 6dp
+            Column(
+                Modifier.fillMaxWidth().padding(
+                    start = CouiPreferenceSpec.dividerStartInset,
+                    end = CouiPreferenceSpec.rowPaddingHorizontal,
+                    bottom = 14.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 val rows = buildList {
                     p.departmentName.takeIf { it.isNotBlank() }?.let { add("学院" to it) }
                     p.academyName.takeIf { it.isNotBlank() }?.let { add("书院" to it) }
@@ -127,22 +137,13 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
                     p.enterSchoolDate.takeIf { it.isNotBlank() }?.let { add("入学" to it) }
                     p.cardId.takeIf { it.isNotBlank() }?.let { add("校园卡号" to it) }
                 }
-                rows.forEachIndexed { index, (label, value) ->
-                    if (index > 0) Spacer(Modifier.height(8.dp))
-                    InfoLine(label, value)
-                }
+                rows.forEach { (label, value) -> InfoLine(label, value) }
 
                 if (p.hasMentor()) {
-                    Spacer(Modifier.height(14.dp))
-                    listOfNotNull(
-                        p.counselorName.takeIf { it.isNotBlank() }
-                            ?.let { Triple("辅导员", it, p.counselorPhone) },
-                        p.classTeacherName.takeIf { it.isNotBlank() }
-                            ?.let { Triple("班主任", it, p.classTeacherPhone) },
-                    ).forEach { (label, name, phone) -> MentorLine(label, name, phone) }
-                    p.counselorOffice.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(8.dp))
-                        InfoLine("辅导员办公室", it)
+                    Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        p.counselorName.takeIf { it.isNotBlank() }?.let { MentorLine("辅导员", it, p.counselorPhone) }
+                        p.counselorOffice.takeIf { it.isNotBlank() }?.let { InfoLine("办公室", it) }
+                        p.classTeacherName.takeIf { it.isNotBlank() }?.let { MentorLine("班主任", it, p.classTeacherPhone) }
                     }
                 }
             }
@@ -154,7 +155,7 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
  * 辅导员 / 班主任一行：姓名 + 电话。
  *
  * 只有 [toDialableTels] 解析出号码时才画成可点的蓝色：一个号码直接拨，多个号码先弹菜单选；
- * 长按复制原文（保留分机号）。姓名加 weight，长名字省略收尾而不把号码顶出屏幕。
+ * 长按复制原文（保留分机号）。号码紧跟姓名，多个号码放不下就换行，不挤掉姓名。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -162,46 +163,33 @@ private fun MentorLine(label: String, name: String, phone: String) {
     val dial = rememberPhoneDialer()
     val copy = rememberCopyText()
     val numbers = remember(phone) { phone.toDialableTels() }
+    val shown = remember(phone) { phone.withXianAreaCode() }
     var choosing by remember { mutableStateOf(false) }
 
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 32.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.width(64.dp)
-        )
+    Row(Modifier.fillMaxWidth()) {
+        InfoLabel(label)
         Text(
             name,
             style = MiuixTheme.textStyles.body2,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).copyOnLongPress(name, copy)
+            modifier = Modifier.widthIn(max = 112.dp).copyOnLongPress(name, copy)
         )
         if (phone.isNotBlank()) {
-            Spacer(Modifier.width(8.dp))
-            Box {
+            Spacer(Modifier.width(12.dp))
+            Box(Modifier.weight(1f)) {
                 Text(
-                    phone,
-                    style = MiuixTheme.textStyles.footnote1,
+                    shown,
+                    style = MiuixTheme.textStyles.body2,
                     color = if (numbers.isEmpty()) MiuixTheme.colorScheme.onSurfaceVariantSummary
                     else MiuixTheme.colorScheme.primary,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .then(
-                            if (numbers.isEmpty()) Modifier.copyOnLongPress(phone, copy)
-                            else Modifier.combinedClickable(
-                                onClickLabel = if (numbers.size == 1) "拨打 ${numbers[0]}" else "选择号码拨打",
-                                onLongClickLabel = "复制号码",
-                                onLongClick = { copy(phone) },
-                            ) { if (numbers.size == 1) dial(numbers[0]) else choosing = true }
-                        )
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                    modifier = if (numbers.isEmpty()) Modifier.copyOnLongPress(shown, copy)
+                    else Modifier.combinedClickable(
+                        onClickLabel = if (numbers.size == 1) "拨打 ${numbers[0]}" else "选择号码拨打",
+                        onLongClickLabel = "复制号码",
+                        onLongClick = { copy(shown) },
+                    ) { if (numbers.size == 1) dial(numbers[0]) else choosing = true }
                 )
                 AppDropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
                     numbers.forEach { number ->
@@ -223,15 +211,19 @@ private fun MentorLine(label: String, name: String, phone: String) {
 private fun InfoLine(label: String, value: String) {
     val copy = rememberCopyText()
     Row(Modifier.fillMaxWidth().copyOnLongPress(value, copy)) {
-        Text(
-            label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.width(64.dp)
-        )
+        InfoLabel(label)
         Text(value, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
     }
 }
+
+/** 标签列定宽 64dp，标签都控制在四个字以内，免得折行。 */
+@Composable
+private fun InfoLabel(label: String) = Text(
+    label,
+    style = MiuixTheme.textStyles.body2,
+    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+    modifier = Modifier.width(64.dp)
+)
 
 /** 列表行的点击：按压反馈用共享的 [pressHighlight]。 */
 @Composable
@@ -323,10 +315,16 @@ private fun MenuGroup(modifier: Modifier = Modifier, content: @Composable Column
     )
 }
 
+@Composable
+private fun FeedbackMenuRow(onNavigate: (AppRoute) -> Unit) =
+    ProfileMenuRow(
+        Icons.Default.Feedback, TINT_BLUE, "反馈与投票", subtitle = "不用登录，回复和投票都在这里",
+        onClick = { onNavigate(AppRoute.Feedback) }, route = AppRoute.Feedback,
+    )
+
 // 图标配色与设置页同一套固定色板，不跟主题色走：主题色可能被设成黑色这类极端色，
 // 跟着它走时有的图标底块看得见、有的看不见，一页里就不齐了
 private val TINT_TEAL = com.xjtu.toolbox.settings.SettingsColors.Teal
-private val TINT_SLATE = com.xjtu.toolbox.settings.SettingsColors.BlueGray
 private val TINT_BLUE = com.xjtu.toolbox.settings.SettingsColors.Blue
 private val TINT_INDIGO = com.xjtu.toolbox.settings.SettingsColors.Indigo
 private val TINT_ORANGE = com.xjtu.toolbox.settings.SettingsColors.Orange
@@ -520,12 +518,13 @@ internal fun ProfileTab(
     // 缓存优先：进页面先把磁盘上的读出来立刻渲染，再按新鲜度决定要不要静默刷新，
     // 全程不阻塞 UI，也不显示加载态——拿不到就退回原有的 YWTB 基础信息。
     val ctx = LocalContext.current
+    // 只在副作用里等它变真，组合里不读（读了整页每次切底栏都重组）
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
     var helloProfile by remember {
         mutableStateOf(com.xjtu.toolbox.hello.HelloProfileStore.cached(ctx))
     }
-    var helloAvatar by remember {
-        mutableStateOf(com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx))
-    }
+    // 头像在下面的 LaunchedEffect 里于 IO 线程解码，组合时不读盘
+    var helloAvatar by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
 
     /**
      * 学工档案拿到的姓名同时记成账号昵称。档案缓存在 cacheDir，会被系统清理、升级清缓存
@@ -566,6 +565,8 @@ internal fun ProfileTab(
         helloProfile = com.xjtu.toolbox.hello.HelloProfileStore.cached(ctx)
         helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
         hasCustomAvatar = com.xjtu.toolbox.hello.HelloProfileStore.hasCustomAvatar(ctx)
+        // 联网（可能要短信验证）等这一页真显示了再做：底栏会在后台提前落地这一页
+        androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
         com.xjtu.toolbox.hello.HelloProfileStore
             .ensure(ctx, loginState.sessionManager)
             ?.let {
@@ -699,10 +700,12 @@ internal fun ProfileTab(
                         onClick = {
                             if (!avatarSaving) {
                                 com.xjtu.toolbox.hello.HelloProfileStore.clearCustomAvatar(ctx)
-                                helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
                                 hasCustomAvatar = false
-                                avatarVersion++
                                 showAvatarSheet = false
+                                scope.launch {
+                                    helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
+                                    avatarVersion++
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -722,6 +725,9 @@ internal fun ProfileTab(
         LaunchedEffect(loginState.hasCredentials) {
             if (loginState.ywtbUserInfo != null) return@LaunchedEffect
             if (!loginState.hasCredentials) return@LaunchedEffect
+            // 同上：等这一页真显示了再登一网通办
+            androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
+            if (loginState.ywtbUserInfo != null) return@LaunchedEffect
             withContext(Dispatchers.IO) {
                 val ywtbSite = runCatching { loginState.sessionManager?.ensureSite(LoginType.YWTB) }.getOrNull()
                 if (ywtbSite != null && loginState.ywtbUserInfo == null) {
@@ -899,8 +905,12 @@ internal fun ProfileTab(
                     }
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
+                // 没登录的多半是新人：小贴士单独一组放在最前
+                MenuGroup(Modifier.enterOnce(2)) { TipsMenuRow(onNavigate) }
+
+                Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(2)) {
-                    ProfileMenuRow(Icons.Default.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
+                    FeedbackMenuRow(onNavigate)
                 }
             } else {
                 // ━━ 已登录 ━━
@@ -952,10 +962,12 @@ internal fun ProfileTab(
                         subtitle = downloadSummary ?: "查看下载进度和记录",
                         route = AppRoute.DownloadManager,
                     )
+                    MenuDivider()
+                    TipsMenuRow(onNavigate)
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(4)) {
-                    ProfileMenuRow(Icons.Default.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
+                    FeedbackMenuRow(onNavigate)
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
 
@@ -1009,9 +1021,7 @@ internal fun ProfileTab(
                                     scope.launch { accountManager.logoutCurrent() }
                                 },
                                 modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.textButtonColors(
-                                    textColor = MiuixTheme.colorScheme.error
-                                )
+                                colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors()
                             )
                         }
                     }
@@ -1022,3 +1032,10 @@ internal fun ProfileTab(
         Spacer(Modifier.height(PROFILE_GAP + extraBottomPadding))
     }
 }
+
+@Composable
+private fun TipsMenuRow(onNavigate: (AppRoute) -> Unit) =
+    ProfileMenuRow(
+        Icons.Default.Lightbulb, TINT_ORANGE, "小贴士", subtitle = "冷门功能和常见问题",
+        onClick = { onNavigate(AppRoute.Tips) }, route = AppRoute.Tips,
+    )

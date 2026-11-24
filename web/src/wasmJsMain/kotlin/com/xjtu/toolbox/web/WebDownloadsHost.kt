@@ -18,11 +18,11 @@ import kotlinx.coroutines.flow.flow
 /**
  * 下载管理（`AppRoute.DownloadManager`）在**浏览器这一端**的宿主。
  *
- * 屏是 `:core` 那份 [com.xjtu.toolbox.media.DownloadManagerScreen]，宿主走契约 §5.13 的 `/api/downloads`：
- * **队列、进度、落盘都真的发生在运行 serve 的那台机器上**，浏览器只是界面（会议 #9 = 丙「做法①」，
- * 所以这里**没有**影子引擎 —— 见 [DownloadsHost] 的 KDoc）。
+ * 屏是 `:core` 那份 [com.xjtu.toolbox.media.DownloadManagerScreen]，宿主走 `/api/downloads`：
+ * **队列、进度、落盘都真的发生在运行 serve 的那台机器上**，浏览器只是界面（所以这里**没有**影子引擎 ——
+ * 见 [DownloadsHost] 的 KDoc）。
  *
- * 三处如实差异（都写在契约 §5.13 与 [DownloadsHost] 的 KDoc 里）：
+ * 三处如实差异（[DownloadsHost] 的 KDoc 里也有）：
  *
  * 1. **没有推送** ⇒ [changes] 是轮询（契约给的就是「屏上轮询 `/progress`」那一档）；
  * 2. **[dirInfo] 要等第一次列表回来才有值**（它来自响应的 `dir` 那一格）；
@@ -74,23 +74,32 @@ internal class WebDownloadsHost(private val api: ServeDownloadsApi) : DownloadsH
      * 三个「全部」动作：serve 那一族**没有**批量端点（桌面那一屏是本机循环调的）⇒ 这里也循环。
      *
      * ⚠️ 逐条调的好处是**失败只影响那一条**（例如「已完成」那一条会回 409，其余照常）；坏处是 N 发请求。
-     * 批量端点要不要开，见契约 §5.13 末尾那条待拍项。
      */
     override suspend fun pauseAll() {
-        val tasks = api.list().tasks
+        val tasks = listOrNotice("全部暂停") ?: return
         tasks.filter { it.status == STATUS_DOWNLOADING || it.status == STATUS_PENDING }
             .forEach { runCatching { api.pause(it.id) } }
     }
 
     override suspend fun resumeAll() {
-        val tasks = api.list().tasks
+        val tasks = listOrNotice("全部继续") ?: return
         tasks.filter { it.status == STATUS_PAUSED || it.status == STATUS_PENDING }
             .forEach { runCatching { api.resume(it.id) } }
     }
 
     override suspend fun cancelAll() {
-        val tasks = api.list().tasks.filter { it.isActive }
+        val tasks = listOrNotice("全部取消")?.filter { it.isActive } ?: return
         tasks.forEach { runCatching { api.cancel(it.id) } }
+    }
+
+    /** 「全部」动作先拉一次列表；拉不到就发一句提示并放弃（不往屏上的协程里抛）。 */
+    private suspend fun listOrNotice(what: String) = try {
+        api.list().tasks
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        _notices.tryEmit(FriendlyError.of(e, what))
+        null
     }
 
     /**

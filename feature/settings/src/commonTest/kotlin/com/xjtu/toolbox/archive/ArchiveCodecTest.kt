@@ -8,7 +8,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** codec + 纯函数门面的验收（§7）。 */
+/** codec + 纯函数门面的验收。 */
 class ArchiveCodecTest {
 
 
@@ -59,7 +59,7 @@ class ArchiveCodecTest {
         )
         assertNull(absent.snapshot.keys["favorite_venue_ids"])
 
-        // 空字符串是「键存在但值为空」，≠ 键不存在（§2.2）
+        // 空字符串是「键存在但值为空」，≠ 键不存在
         val emptyStr = ArchiveCodec.decodeStore(
             ArchiveCodec.encodeStore(
                 StoreSnapshot("app_settings", mapOf("dark_mode" to StoreValue.S(""))), "app_settings", ""
@@ -144,7 +144,7 @@ class ArchiveCodecTest {
         assertTrue(manifest.redacted.contains("accounts/_2253415556/stores/sites_normal.json"))
         assertTrue(manifest.redacted.contains("accounts/_2253415556/stores/agent_config_secure.json"))
         assertTrue(manifest.redacted.contains("global/stores/github_community.json"))
-        // serve 是端内私有（§2.4）：既不写、也不进 redacted
+        // serve 是端内私有：既不写、也不进 redacted
         assertFalse(manifest.redacted.any { it.contains("serve") })
 
         val withCred = StoreArchive.export(

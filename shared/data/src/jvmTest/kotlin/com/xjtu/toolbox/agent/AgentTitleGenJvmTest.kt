@@ -36,7 +36,7 @@ class AgentTitleGenJvmTest {
         handler = { 200 to ok("本周考试安排") }
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.executor = Executors.newCachedThreadPool()
-        server.createContext("/chat/completions") { exchange ->
+        val route = com.sun.net.httpserver.HttpHandler { exchange ->
             val request = exchange.requestBody.readBytes().toString(StandardCharsets.UTF_8)
             bodies += request
             val (code, body) = handler(request)
@@ -44,6 +44,8 @@ class AgentTitleGenJvmTest {
             exchange.sendResponseHeaders(code, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
+        server.createContext("/chat/completions", route)
+        server.createContext("/responses", route)
         server.start()
         port = server.address.port
     }
@@ -105,6 +107,43 @@ class AgentTitleGenJvmTest {
     }
 
     @Test
+    fun `降级重试连额度和 temperature 一起去掉`() {
+        handler = { body -> if (body.contains("thinking")) 400 to "{}" else 200 to ok("本周考试安排") }
+        assertEquals("本周考试安排", generate())
+        assertFalse(bodies[1].contains("max_tokens"), bodies[1])
+        assertFalse(bodies[1].contains("temperature"), bodies[1])
+    }
+
+    @Test
+    fun `Responses 格式走 responses 端点，只取 message 里的 output_text`() {
+        handler = { body ->
+            assertTrue(body.contains("\"instructions\""), body)
+            assertTrue(body.contains("\"store\":false"), body)
+            200 to """{"output":[{"type":"reasoning","summary":[{"type":"summary_text","text":"用户问考试"}]},""" +
+                """{"type":"message","role":"assistant","content":[{"type":"output_text","text":"本周考试"}]}]}"""
+        }
+        val title = runBlocking {
+            AgentTitleGen.generate(config().copy(apiFormat = AgentConfig.API_RESPONSES), "这周有考试吗", "")
+        }
+        assertEquals("本周考试", title)
+        assertEquals(1, bodies.size)
+        assertTrue(bodies[0].contains("\"effort\":\"low\""), bodies[0])
+    }
+
+    @Test
+    fun `Responses 上非推理模型不认 reasoning 时去掉重试`() {
+        handler = { body ->
+            if (body.contains("reasoning")) 400 to """{"error":{"message":"reasoning not supported"}}"""
+            else 200 to """{"output":[{"type":"message","content":[{"type":"output_text","text":"本周考试"}]}]}"""
+        }
+        val title = runBlocking {
+            AgentTitleGen.generate(config().copy(apiFormat = AgentConfig.API_RESPONSES), "这周有考试吗", "")
+        }
+        assertEquals("本周考试", title)
+        assertEquals(2, bodies.size)
+    }
+
+    @Test
     fun `重试也失败就回退，不无限重试`() {
         handler = { 400 to """{"error":{"message":"bad request"}}""" }
         assertNull(generate())
@@ -161,5 +200,105 @@ class AgentTitleGenJvmTest {
     fun `没填密钥时直接返回 null，一个请求都不发`() {
         assertNull(generate(apiKey = "   "))
         assertTrue(bodies.isEmpty())
+    }
+
+    /** 模拟 OpenAI：GPT-6.2 Sol / Astra 收到 none 直接 400，不认 DeepSeek 的 thinking。 */
+    private fun strictOpenAi(body: String): Pair<Int, String> =
+        if (body.contains("\"none\"") && body.contains("gpt-6.2")) 400 to """{"error":{"message":"none is not supported"}}"""
+        else if (body.contains("thinking")) 400 to """{"error":{"message":"unknown field thinking"}}"""
+        else 200 to ok("本周考试安排")
+
+    private fun generateWith(model: String, format: String = AgentConfig.API_CHAT): String? = runBlocking {
+        AgentTitleGen.generate(config().copy(model = model, apiFormat = format), "这周有考试吗", "周四下午有高数期中")
+    }
+
+    @Test
+    fun `已知型号 Chat 直接发最低档，一次请求不挨 400`() {
+        handler = ::strictOpenAi
+        assertEquals("本周考试安排", generateWith("gpt-6.2-sol"))
+        assertEquals(1, bodies.size, "Sol 不该先发 none 再降级：$bodies")
+        val sol = bodies[0]
+        assertTrue(sol.contains("\"reasoning_effort\":\"low\""), sol)
+        assertFalse(sol.contains("\"none\""), sol)
+        assertFalse(sol.contains("thinking"), sol)
+        assertFalse(sol.contains("temperature"), sol)
+        assertFalse(sol.contains("max_tokens"), sol)
+        assertFalse(sol.contains("max_completion_tokens"), "low 档还要思考，不设上限：$sol")
+
+        bodies.clear()
+        assertEquals("本周考试安排", generateWith("gpt-6-luna"))
+        assertEquals(1, bodies.size)
+        assertTrue(bodies[0].contains("\"reasoning_effort\":\"none\""), bodies[0])
+        assertTrue(bodies[0].contains("\"max_completion_tokens\":64"), bodies[0])
+
+        bodies.clear()
+        assertEquals("本周考试安排", generateWith("gpt-5-mini"))
+        assertEquals(1, bodies.size)
+        assertTrue(bodies[0].contains("\"reasoning_effort\":\"minimal\""), bodies[0])
+
+        bodies.clear()
+        assertEquals("本周考试安排", generateWith("gpt-4o"))
+        assertEquals(1, bodies.size)
+        assertFalse(bodies[0].contains("reasoning_effort"), "非推理模型不发推理参数：${bodies[0]}")
+    }
+
+    @Test
+    fun `已知型号 Responses 直接发最低档，一次请求`() {
+        handler = { body ->
+            if (body.contains("\"none\"") && body.contains("gpt-6.2")) 400 to "{}"
+            else 200 to """{"output":[{"type":"message","content":[{"type":"output_text","text":"本周考试"}]}]}"""
+        }
+        assertEquals("本周考试", generateWith("gpt-6.2-sol", AgentConfig.API_RESPONSES))
+        assertEquals(1, bodies.size)
+        assertTrue(bodies[0].contains("\"effort\":\"low\""), bodies[0])
+
+        bodies.clear()
+        assertEquals("本周考试", generateWith("gpt-6-luna", AgentConfig.API_RESPONSES))
+        assertEquals(1, bodies.size)
+        assertTrue(bodies[0].contains("\"effort\":\"none\""), bodies[0])
+
+        bodies.clear()
+        assertEquals("本周考试", generateWith("gpt-4.1", AgentConfig.API_RESPONSES))
+        assertEquals(1, bodies.size)
+        assertFalse(bodies[0].contains("reasoning"), bodies[0])
+    }
+
+    @Test
+    fun `自定义端点上已知型号一直 400 也只多试一次`() {
+        handler = { 400 to """{"error":{"message":"bad request"}}""" }
+        assertNull(generateWith("gpt-6.2-sol"))
+        assertEquals(2, bodies.size, "去参数重试一次，不无限重试")
+    }
+
+    @Test
+    fun `中转不认推理参数时，已知型号去掉参数重试一次照样拿到标题`() {
+        // 用户自己接的中转：只要带推理参数就 400，错误文案也不提 reasoning
+        handler = { body ->
+            if (body.contains("reasoning")) 400 to """{"error":{"message":"Bad Request"}}"""
+            else 200 to ok("本周考试安排")
+        }
+        assertEquals("本周考试安排", generateWith("gpt-6.2-sol"))
+        assertEquals(2, bodies.size)
+        assertTrue(bodies[0].contains("\"reasoning_effort\":\"low\""), bodies[0])
+        assertFalse(bodies[1].contains("reasoning"), bodies[1])
+        assertFalse(bodies[1].contains("max_completion_tokens"), bodies[1])
+
+        bodies.clear()
+        handler = { body ->
+            if (body.contains("reasoning")) 400 to "{}"
+            else 200 to """{"output":[{"type":"message","content":[{"type":"output_text","text":"本周考试"}]}]}"""
+        }
+        assertEquals("本周考试", generateWith("gpt-6.2-sol", AgentConfig.API_RESPONSES))
+        assertEquals(2, bodies.size)
+        assertFalse(bodies[1].contains("reasoning"), bodies[1])
+    }
+
+    @Test
+    fun `未知型号仍然先试关思考参数，400 再降级`() {
+        handler = ::strictOpenAi
+        assertEquals("本周考试安排", generateWith("relay-unknown-model"))
+        assertEquals(2, bodies.size, "未知型号保留一次降级重试")
+        assertTrue(bodies[0].contains("\"reasoning_effort\":\"none\""), bodies[0])
+        assertFalse(bodies[1].contains("reasoning_effort"), bodies[1])
     }
 }

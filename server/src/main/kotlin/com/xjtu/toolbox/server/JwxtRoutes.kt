@@ -26,7 +26,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
-/** `/api/jwxt*` —— 十一个端点（`docs/api-contract.md` §5 的 P0）。 */
+/** `/api/jwxt*` 端点（`docs/api-contract.md`）。 */
 internal fun Route.jwxtRoutes(session: ServeSession) {
     route(JWXT_SEGMENT) {
 
@@ -247,7 +247,7 @@ internal fun Route.jwxtRoutes(session: ServeSession) {
         // ── 评教模块状态 ─────────────────────────────────────────────
         get(JWXT_EVALUATIONS_STATUS) {
             if (!session.authenticated) return@get call.respondLoginRequired()
-            // 撤回（undo）未开放。canSubmit 字段必须出现（契约 §5）
+            // 撤回（undo）未开放。canSubmit 字段必须出现
             call.respond(ApiEnvelope.ok(EvaluationsStatusData(canSubmit = EVALUATIONS_CAN_SUBMIT)))
         }
 
@@ -333,7 +333,7 @@ internal data class MergedScheduleData(
     val changes: List<ScheduleChangeEvent>,
 )
 
-/** [CourseItem] 的线上形状（`docs/api-contract.md` §5.9）。 */
+/** [CourseItem] 的线上形状。 */
 @Serializable
 internal data class MergedCourseDto(
     val courseName: String,
@@ -377,7 +377,7 @@ internal data class TextbookDto(
     val hasTextbook: Boolean,
 )
 
-/** `GET /api/jwxt/school-courses` 的 `data`：分页形状（§4）+ 两个筛选项开关。 */
+/** `GET /api/jwxt/school-courses` 的 `data`：分页形状 + 两个筛选项开关。 */
 @Serializable
 internal data class SchoolCoursePage(
     val page: Int,
@@ -388,7 +388,7 @@ internal data class SchoolCoursePage(
     val supportsElectiveFilter: Boolean,
 )
 
-/** `SchoolCourse` 的全量投影（契约 §5「要补」的那批字段都在）。 */
+/** `SchoolCourse` 的全量投影（人数、学时、上课时间地点、开课单位等都在）。 */
 @Serializable
 internal data class SchoolCourseDto(
     val courseCode: String,
@@ -417,7 +417,7 @@ internal data class SchoolCourseDto(
     val fillRatio: Float? = null,
 )
 
-/** `GET /api/jwxt/evaluations` 的 `data`：`canSubmit` 必须出现（契约 §5）。 */
+/** `GET /api/jwxt/evaluations` 的 `data`：`canSubmit` 必须出现。 */
 @Serializable
 internal data class EvaluationsData(
     val canSubmit: Boolean,
@@ -547,7 +547,7 @@ internal const val JWXT_EVALUATIONS_STATUS = "evaluations/status"
 internal const val JWXT_EVALUATIONS_SUBMIT = "evaluations/submit"
 internal const val JWXT_PARAM_TERM = "term"
 
-/** `?merged=`：只有 `1` 算数（`/api/jwxt/schedule` 那一条，见 §5.9）。 */
+/** `?merged=`：只有 `1` 算数（`/api/jwxt/schedule` 那一条）。 */
 internal const val JWXT_PARAM_MERGED = "merged"
 
 /** 本层有没有提交评教的能力（撤回 undo 未开放）。 */

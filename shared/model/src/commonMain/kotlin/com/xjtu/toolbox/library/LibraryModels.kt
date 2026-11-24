@@ -75,6 +75,24 @@ val INACTIVE_BOOKING_STATUSES = setOf(
 /** 需要用户立刻动手、不做就会丢座位的操作。 */
 val URGENT_BOOKING_ACTIONS = setOf("入馆签到", "中途返回")
 
+/**
+ * 这张预约算不算「人就在馆里」——自动勿扰据此开。
+ *
+ * 两种都算：
+ * - 状态「使用中」：闸机签到过了，学校自己认的在馆；
+ * - 状态「已预约」且是**在座位前扫码**约上的：人已经坐在那儿了，只是还没走签到流程。
+ *   这必须由 [seatedAtDesk] 显式传进来，不能从状态猜——远程在宿舍里约明天的座，
+ *   状态同样是「已预约」，那种人不在馆，不能开勿扰。
+ *
+ * 暂离、已完成、已取消这些一律不算。
+ */
+fun isSeatedInside(statusText: String?, seatedAtDesk: Boolean): Boolean = when (statusText) {
+    null -> false
+    "使用中" -> true
+    "已预约" -> seatedAtDesk
+    else -> false
+}
+
 /** 座位号 → 区域码的兜底推断（兴庆的字母前缀表）。 */
 fun guessAreaCode(seatId: String): String? {
     val prefix = seatId.firstOrNull()?.uppercaseChar() ?: return null

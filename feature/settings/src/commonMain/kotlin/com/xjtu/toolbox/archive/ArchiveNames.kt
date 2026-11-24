@@ -1,15 +1,15 @@
 package com.xjtu.toolbox.archive
 
-/** 账号命名空间后缀的纯函数（§4）。 */
+/** 账号命名空间后缀的纯函数。 */
 object ArchiveNames {
 
-    /** `safeSuffix()`（§4）。 */
+    /** `safeSuffix()`。 */
     fun suffixFor(accountId: String?): String {
         val id = accountId ?: return "default"
         return "_" + id.replace(Regex("[^a-zA-Z0-9]"), "_")
     }
 
-    /** 把端内名拆成 (base, suffix)，最长后缀优先（§1.4 / §2.0）。 */
+    /** 把端内名拆成 (base, suffix)，最长后缀优先。 */
     fun split(rawNames: List<String>, suffixes: List<String>): List<StoreId> {
         val byLength = suffixes.distinct().sortedByDescending { it.length }
         return rawNames.map { raw ->
@@ -28,5 +28,5 @@ object ArchiveNames {
             .sorted()
 }
 
-/** 端内名拆分结果：§2.0 那条唯一映射规则的左边。 */
+/** 端内名拆分结果：唯一映射规则的左边。 */
 data class StoreId(val raw: String, val base: String, val suffix: String)

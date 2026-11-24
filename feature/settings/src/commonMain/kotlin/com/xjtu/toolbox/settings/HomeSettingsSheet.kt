@@ -29,11 +29,16 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lightbulb
+import com.xjtu.toolbox.tips.TipsStore
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -74,11 +79,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
- * 「主页设置」抽屉（需求 §5 / 补充 §29）。
+ * 「主页设置」抽屉。
  *
- * 两套首页布局共用这一个抽屉，因为有三组设置是**跨布局共用**的——背景（壁纸 / 模糊）、
- * 卡片材质（液态玻璃）、顶栏排法，它们落在 [SettingsStore] 里；只有卡片组才有的几项
- * （网格开关、折射子开关、卡片圆角、背景不透明度、导出 / 导入布局、恢复默认分组和布局）落在
+ * 两套首页布局共用这一个抽屉：背景（壁纸 / 模糊）是**跨布局共用**的，落在 [SettingsStore] 里；
+ * 只有卡片组才有的几项
+ * （液态折射、卡片圆角、背景不透明度、导出 / 导入布局、恢复默认分组和布局）落在
  * [com.xjtu.toolbox.home.HomeLayoutStore] 里，切到经典分类卡时整块不画。
  *
  * 做成底部抽屉而不是二级页，是因为它要能从两处打开——全局设置里的那一行，和首页编辑态的齿轮；
@@ -88,35 +93,49 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 fun HomeSettingsSheet(
     show: Boolean,
     onDismiss: () -> Unit,
+    showTips: Boolean = false,
 ) {
-    // 返回键优先关抽屉（§31）：抽屉在前台时不把返回交给下面的页面
+    // 返回键优先关抽屉：抽屉在前台时不把返回交给下面的页面
     BackHandler(enabled = show) { onDismiss() }
     // 只有开着的那一份写这个标记：设置页里还挂着另一份（关着），别让它把标记冲掉
     DisposableEffect(show) {
         if (show) HomeSettingsOverlay.open = true
         onDispose { if (show) HomeSettingsOverlay.open = false }
     }
+    // 拖背景滑条时只留滑条，抽屉其余部分和遮罩渐变淡出（见 HomeSliderPeek）
+    val peek = remember { HomeSliderPeek() }
     OverlayBottomSheet(
         show = show,
+        modifier = Modifier.peekSheetModifier(peek),
         title = "主页设置",
         // 默认左右 24dp 内边距再叠卡片的 16dp 就成了 40dp；去掉这一层，标题与卡片的对齐和设置页一致
         insideMargin = DpSize(0.dp, 0.dp),
         // 默认底色 background 在浅色下是纯白，和卡片的 surfaceVariant 一样白，分组就看不出来了
         backgroundColor = MiuixTheme.colorScheme.surface,
+        // miuix 的遮罩只能开关，淡出期间换成 peekSheetModifier 自己画的那层
+        enableWindowDim = !peek.ownDimActive(),
         onDismissRequest = onDismiss,
     ) {
-        // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上（§29 补充）
-        HomeSettingsBody(
-            onDismiss = onDismiss,
-            modifier = Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding(),
-        )
+        CompositionLocalProvider(LocalHomeSliderPeek provides peek) {
+            // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上
+            HomeSettingsBody(
+                onDismiss = onDismiss,
+                showTips = showTips,
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding(),
+            )
+        }
     }
 }
 
-/** 抽屉和设置「外观」页共用的内容；滚动归外层。[onDismiss]：恢复默认或导入后要收起时调用。 */
+/**
+ * 抽屉和设置「外观」页共用的内容；滚动归外层。[onDismiss]：恢复默认或导入后要收起时调用。
+ * [showTips]：首页真会画小贴士的端才给「首页小贴士」开关。
+ */
 @Composable
-internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    // 卡片组独有：整页布局（分组与格位）、网格开关、折射、圆角、背景不透明度
+internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifier, showTips: Boolean = false) {
+    // 卡片组独有：整页布局（分组与格位）、液态折射、圆角、背景不透明度
     val store = remember { HomeLayoutStore() }
     // 两套布局共用：背景、卡片材质
     val settings = remember { SettingsStore() }
@@ -125,6 +144,7 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
     var layout by remember(revision) { mutableStateOf(settings.homeLayout) }
     var corner by remember { mutableIntStateOf(store.cardCorner) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
+    var refraction by remember { mutableStateOf(store.liquidRefraction) }
     var confirmReset by remember { mutableStateOf(false) }
     var showBackup by remember { mutableStateOf(false) }
     // 从文件读回来、等用户确认的那份布局；非 null = 导入确认弹窗开着
@@ -169,13 +189,22 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
                     HomeLayoutRevision.bump()
                 },
             )
+            if (showTips) {
+                SwitchPreference(
+                    title = "首页小贴士",
+                    summary = "每天一条，有公告时让位",
+                    checked = remember(TipsStore.revision) { TipsStore.enabled },
+                    startAction = { SettingsIcon(Icons.Default.Lightbulb, cOrange) },
+                    onCheckedChange = { TipsStore.enabled = it },
+                )
+            }
         }
 
         // ── 外观：背景与卡片（背景、材质三套布局共用） ──
         SmallTitle("首页背景与卡片")
         HomeSettingsCard {
             HomeBackgroundPreference(settings, startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) })
-            // 卡片组独有：壁纸再盖一层主题底色，文字对比度不够时自己往下拨
+            // 卡片组 + 自定义图片独有：不透明度、液态折射
             if (cards && wallpaper) {
                 SettingsSliderRow(
                     title = "背景不透明度",
@@ -188,6 +217,19 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
                     onChange = {
                         opacity = it.roundToInt()
                         store.backgroundOpacity = opacity
+                    },
+                    // 拖的时候首页跟着变，抽屉只留这根滑条
+                    livePreview = { store.notifyChanged() },
+                )
+                SwitchPreference(
+                    title = "液态折射",
+                    summary = "卡片边缘折射背景，关闭可省电",
+                    checked = refraction,
+                    startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue) },
+                    onCheckedChange = {
+                        refraction = it
+                        store.liquidRefraction = it
+                        store.notifyChanged()
                     },
                 )
             }
@@ -369,15 +411,44 @@ internal fun SettingsSliderRow(
     color: Color,
     onChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit = {},
+    /**
+     * 拖动中节流通知首页重读。非 null 且在主页设置抽屉里时，这条滑条拖动期间抽屉其余部分
+     * 淡出、滑条照常显示、上方加一枚数值小字（见 [HomeSliderPeek]）；只给背景那两条用。
+     */
+    livePreview: (() -> Unit)? = null,
 ) {
+    val peek = if (livePreview != null) LocalHomeSliderPeek.current else null
+    if (peek != null && peek.owner == title) {
+        SideEffect { peek.valueText = valueText }
+    }
     SliderPreference(
         value = value,
-        onValueChange = onChange,
+        onValueChange = { v ->
+            if (peek != null && livePreview != null) {
+                if (peek.owner != title) peek.start(title, valueText)
+                onChange(v)
+                peek.live(livePreview)
+            } else {
+                onChange(v)
+            }
+        },
         title = title,
         valueText = valueText,
         startAction = { SettingsIcon(icon, color) },
+        // 滑条正上方的 0 高锚点：拖动时按它找出那根滑条照常画、摆数值小字
+        bottomAction = if (peek != null) {
+            { Box(Modifier.fillMaxWidth().height(0.dp).onGloballyPositioned { peek.anchor(title, it) }) }
+        } else {
+            null
+        },
         valueRange = range,
-        onValueChangeFinished = onValueChangeFinished,
+        onValueChangeFinished = {
+            if (peek != null && livePreview != null && peek.owner == title) {
+                peek.finish()
+                livePreview()
+            }
+            onValueChangeFinished()
+        },
     )
 }
 

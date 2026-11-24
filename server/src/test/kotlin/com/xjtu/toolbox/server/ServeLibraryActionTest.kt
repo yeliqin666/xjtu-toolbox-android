@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonObject
 
-/** `POST /api/library/action` 的契约测试（`docs/api-contract.md` §5.3.1 的写路径）…… */
+/** `POST /api/library/action` 的契约测试（`docs/api-contract.md`）…… */
 class ServeLibraryActionTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -137,7 +137,7 @@ class ServeLibraryActionTest {
         assertEquals("已取消", envelopeData(cancel).optString("message"))
         assertTrue(fake.library.cancelled.get(), "应真打过 /my/?cancel=1 那一枪")
         val after = http.get("/api/library/my")
-        assertEquals(JsonNull, envelopeData(after).getValue("my"), "退座后 my 是 null（§4：null = 明确没有）")
+        assertEquals(JsonNull, envelopeData(after).getValue("my"), "退座后 my 是 null（null = 明确没有）")
     }
 
     @Test
@@ -170,7 +170,7 @@ class ServeLibraryActionTest {
 
         const val ACTION_PATH = "/api/library/action"
 
-        /** §3.4 红线的钉子组（编造值，非真人）。 */
+        /** 隐私红线的钉子组（编造值，非真人）。 */
         val IDENTITY = listOf("username", "studentId", "学号", "姓名", LibraryFakeUpstream.USERNAME)
     }
 }

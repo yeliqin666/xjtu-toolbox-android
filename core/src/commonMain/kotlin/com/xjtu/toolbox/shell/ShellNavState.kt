@@ -5,19 +5,36 @@ import androidx.compose.runtime.Stable
 import top.yukonga.miuix.kmp.basic.Badge
 import top.yukonga.miuix.kmp.basic.Text
 
-/** 底栏 / 侧栏共用的状态：当前在哪一页、哪一格该高亮、有没有账号角标、点了怎么办。 */
+/**
+ * 底栏 / 侧栏共用的状态：当前在哪一页、哪一格该高亮、有没有账号角标、点了怎么办。
+ *
+ * 当前页与「是不是返回」按需读取（[targetOf] / [returningOf] 可以读快照状态）：切页时只有读它的
+ * 底栏和页面容器重组，持有这份状态的宿主不必跟着重组。
+ */
 @Stable
 class ShellNavState(
     val tabs: ShellTabs,
-    val target: ShellTarget,
+    private val targetOf: () -> ShellTarget,
     val onSelect: (ShellTab) -> Unit,
     val accountBadge: ShellAccountBadge? = null,
-    /** 这次选中变化是返回键退回来的：切页时当前页缩回自己的按钮（见 `ShellTabZoom`）。 */
-    val returning: Boolean = false,
+    private val returningOf: () -> Boolean = { false },
 ) {
 
+    constructor(
+        tabs: ShellTabs,
+        target: ShellTarget,
+        onSelect: (ShellTab) -> Unit,
+        accountBadge: ShellAccountBadge? = null,
+        returning: Boolean = false,
+    ) : this(tabs, { target }, onSelect, accountBadge, { returning })
+
+    val target: ShellTarget get() = targetOf()
+
+    /** 这次选中变化是返回键退回来的：切页时当前页缩回自己的按钮（见 `ShellTabZoom`）。 */
+    val returning: Boolean get() = returningOf()
+
     /** [target] 落在的那一格；null = 不属于任何一格 ⇒ 底栏 / 侧栏一格都不高亮。 */
-    val selected: ShellTab? get() = tabs.tabs.firstOrNull { it.target == target }
+    val selected: ShellTab? get() = target.let { t -> tabs.tabs.firstOrNull { it.target == t } }
 
     /** [tab] 这一格上的角标；null = 不画。 */
     fun badge(tab: ShellTab): (@Composable () -> Unit)? {

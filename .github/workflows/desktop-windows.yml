@@ -69,6 +69,9 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
+          # jpackage 按自身 locale 选 MSI 的主 culture：zh_CN ⇒ 用 JDK 自带的中文 wxl（代码页 936），
+          # 中文应用名「岱宗盒子」才放得进 MSI；默认 en-us（代码页 1252）时 light.exe 报 LGHT0311（exit 311）
+          JAVA_TOOL_OPTIONS: -Duser.language=zh -Duser.country=CN
         run: |
           foreach ($p in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP)) {
             try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop } catch { Write-Host "::warning::Defender 排除失败：$p" }
@@ -81,9 +84,18 @@ jobs:
           }
           throw "连续 3 次出包失败，看 desktop/build/compose/logs/ 下的 jpackage 日志"
 
+      # 安装包按应用名「岱宗盒子-x.y.z.exe」产出；GitHub 会把资产名里的非 ASCII 字符换掉，上传前改回 ASCII
+      - name: 安装包改成 ASCII 文件名
+        shell: pwsh
+        run: |
+          Get-ChildItem desktop\build\compose\binaries\main\exe\*.exe | ForEach-Object {
+            $version = $_.BaseName -replace '^.*-', ''
+            Rename-Item $_.FullName "xjtu-dzhz-$version.exe"
+          }
+
       - uses: actions/upload-artifact@v4
         with:
-          name: xjtu-toolbox-windows
+          name: xjtu-dzhz-windows
           path: desktop/build/compose/binaries/main/exe/*.exe
           if-no-files-found: error
 

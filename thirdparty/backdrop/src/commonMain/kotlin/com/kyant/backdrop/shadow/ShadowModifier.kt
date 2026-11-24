@@ -73,6 +73,12 @@ internal class ShadowNode(
     /** 上一次设进 [paint] 的模糊半径：半径没变就别重建 `BlurMaskFilter`（见 HighlightModifier 同名注释）。 */
     private var appliedBlurRadius = Float.NaN
 
+    /**
+     * [岱宗盒子 vendor 改动] 上一次录进 [shadowLayer] 时的全部输入。没变就只把旧层画上去：这一层是离屏的，
+     * 每重录一次系统就要把带模糊的阴影整块重新栅格化；玻璃滚动、被采样时整块重画，上游每次都重录（Kyant #126 第 1 条）。
+     */
+    private var recordedKey: ShadowRecordKey? = null
+
     override fun ContentDrawScope.draw() {
         val shadow = shadow() ?: return drawContent()
 
@@ -85,25 +91,32 @@ internal class ShadowNode(
             val radius = shadow.radius.toPx()
             val offsetX = shadow.offset.x.toPx()
             val offsetY = shadow.offset.y.toPx()
-            val shadowSize = IntSize(
-                ceil(size.width + radius * 4f + offsetX).toInt(),
-                ceil(size.height + radius * 4f + offsetY).toInt()
+            val key = ShadowRecordKey(
+                size, density.density, layoutDirection, shapeProvider.innerShape,
+                shadow.radius, shadow.offset, shadow.color,
             )
-            val outline = shapeProvider.shape.createOutline(size, layoutDirection, density)
+            if (key != recordedKey) {
+                val shadowSize = IntSize(
+                    ceil(size.width + radius * 4f + offsetX).toInt(),
+                    ceil(size.height + radius * 4f + offsetY).toInt()
+                )
+                val outline = shapeProvider.shape.createOutline(size, layoutDirection, density)
 
-            configurePaint(shadow)
+                configurePaint(shadow)
 
+                shadowLayer.record(shadowSize) {
+                    translate(radius * 2f + offsetX, radius * 2f + offsetY) {
+                        val canvas = drawContext.canvas
+                        canvas.drawOutline(outline, paint)
+                        canvas.translate(-offsetX, -offsetY)
+                        canvas.drawOutline(outline, ShadowMaskPaint)
+                        canvas.translate(offsetX, offsetY)
+                    }
+                }
+                recordedKey = key
+            }
             shadowLayer.alpha = shadow.alpha
             shadowLayer.blendMode = shadow.blendMode
-            shadowLayer.record(shadowSize) {
-                translate(radius * 2f + offsetX, radius * 2f + offsetY) {
-                    val canvas = drawContext.canvas
-                    canvas.drawOutline(outline, paint)
-                    canvas.translate(-offsetX, -offsetY)
-                    canvas.drawOutline(outline, ShadowMaskPaint)
-                    canvas.translate(offsetX, offsetY)
-                }
-            }
 
             translate(-radius * 2f, -radius * 2f) {
                 drawLayer(shadowLayer)
@@ -127,6 +140,7 @@ internal class ShadowNode(
             graphicsContext.releaseGraphicsLayer(layer)
             shadowLayer = null
         }
+        recordedKey = null
     }
 
     private fun DrawScope.configurePaint(shadow: Shadow) {
@@ -138,6 +152,17 @@ internal class ShadowNode(
         }
     }
 }
+
+/** 决定阴影层内容的全部输入；透明度与混合模式是图层属性，不进键。 */
+private data class ShadowRecordKey(
+    val size: androidx.compose.ui.geometry.Size,
+    val density: Float,
+    val layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+    val shape: androidx.compose.ui.graphics.Shape,
+    val radius: androidx.compose.ui.unit.Dp,
+    val offset: androidx.compose.ui.unit.DpOffset,
+    val color: androidx.compose.ui.graphics.Color,
+)
 
 private val ShadowMaskPaint = Paint().apply {
     blendMode = BlendMode.Clear

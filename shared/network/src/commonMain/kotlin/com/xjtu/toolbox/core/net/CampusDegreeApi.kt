@@ -15,7 +15,7 @@ import com.xjtu.toolbox.util.safeStringOrNull
 import io.ktor.client.HttpClient
 import kotlinx.serialization.json.JsonObject
 
-/** 学业进度的 serve 版取数（契约 §5.16）：给 `:web` 用。campus-api 里没有这条链。 */
+/** 学业进度的 serve 版取数（`/api/degree`）：给 `:web` 用。campus-api 里没有这条链。 */
 class CampusDegreeApi(
     private val client: HttpClient,
     private val baseUrl: String = "",

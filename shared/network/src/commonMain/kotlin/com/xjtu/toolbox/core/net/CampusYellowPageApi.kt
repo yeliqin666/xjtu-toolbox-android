@@ -20,12 +20,12 @@ import com.xjtu.toolbox.util.CampusTimeZone
 class CampusYellowPageApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : YellowPageSource {
 
     override suspend fun getData(forceRefresh: Boolean): YellowPageData {
-        // serve 契约（§5.2）的形状与 campus-api **不是同一份投影**（见 serveYellowPage 的 KDoc）
+        // serve 契约的形状与 campus-api **不是同一份投影**（见 serveYellowPage 的 KDoc）
         if (mode == ApiMode.SERVE) return serveYellowPage()
         val text = client.get("$baseUrl/api/info/yellowpage").bodyAsText()
         val envelope = AppJson.parseToJsonElement(text) as? JsonObject
@@ -42,7 +42,7 @@ class CampusYellowPageApi(
         )
     }
 
-    /** serve 模式（契约 §5.2） */
+    /** serve 模式 */
     private suspend fun serveYellowPage(): YellowPageData {
         val data = client.serveData("加载黄页", baseUrl, "/api/info/yellowpage")
         return YellowPageData(

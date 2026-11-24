@@ -38,20 +38,22 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal class WebSettingsHost(
     private val notifyAppearanceChanged: () -> Unit,
     private val archive: WebArchiveActions,
+    /** serve 形态下日程有考勤角标（取数在 serve），那一行才有意义。 */
+    private val serveMode: Boolean = false,
 ) : SettingsHost {
 
     override val versionText: String = "Web 构建（wasm）"
 
     /** Web 端支持的设置项。 */
-    override val honoredRows: Set<SettingsRow> =
-        setOf(
-            SettingsRow.DARK_MODE,
-            SettingsRow.DYNAMIC_COLOR,
-            SettingsRow.HOME_HERO,
-            SettingsRow.HOME_SETTINGS,
-            SettingsRow.DEFAULT_TAB,
-            SettingsRow.NAV_STYLE,
-        )
+    override val honoredRows: Set<SettingsRow> = buildSet {
+        add(SettingsRow.DARK_MODE)
+        add(SettingsRow.DYNAMIC_COLOR)
+        add(SettingsRow.HOME_HERO)
+        add(SettingsRow.HOME_SETTINGS)
+        add(SettingsRow.DEFAULT_TAB)
+        add(SettingsRow.NAV_STYLE)
+        if (serveMode) add(SettingsRow.SCHEDULE_ATTENDANCE)
+    }
 
     /** 本端没有更新日志（`:app` 的 `AppChangelog` 在更新域里）⇒ 那一行不画。 */
     override val changelog: List<ChangelogEntry> = emptyList()
@@ -70,11 +72,7 @@ internal class WebSettingsHost(
 
     /** Web 端暂不支持的设置说明。 */
     override val gapNote: String =
-        "网页版没有这些设置（要调请用 App）：常用功能、连接模式、考勤角标" +
-            "——常用功能是手机首页上的快捷入口，网页外壳另做了一层。" +
-            "课表来源只有教务一个：考勤那一路要站点会话，serve 端还没有转发。" +
-            "这里也没有「通知与提醒」和「更新」两组——网页版随 serve 一起更新，没有单独的更新通道；" +
-            "提醒能不能弹，看这个站点有没有拿到浏览器通知权限。"
+        "常用功能、连接模式、课表来源和提醒设置请在手机上调整；网页版随服务器一起更新，刷新页面即是最新版。"
     override val onNetworkModeChanged: (() -> Unit)? = null
 
     override fun onAppearanceChanged() = notifyAppearanceChanged()
@@ -90,13 +88,13 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
     WebSettingsCard {
         ArrowPreference(
             title = "导出数据存档",
-            summary = "把本机数据打包成 zip 下载（不含密码等凭据）",
+            summary = "不含密码",
             startAction = { SettingsIcon(Icons.Default.Upload, SettingsColors.Teal) },
             onClick = { archive.export() },
         )
         ArrowPreference(
             title = "导入数据存档",
-            summary = "选一份 zip 档案读进来（先自校验，默认不覆盖本机数据）",
+            summary = "默认与现有数据合并",
             startAction = { SettingsIcon(Icons.Default.Download, SettingsColors.Blue) },
             onClick = {
                 archive.mode = ArchiveImportMode.MERGE

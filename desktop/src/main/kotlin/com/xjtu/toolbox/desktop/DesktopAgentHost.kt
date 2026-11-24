@@ -63,15 +63,7 @@ internal class DesktopAgentHost(
      * - 形象：`hero` / `appearanceSection` 都没交（见 [AgentScreen] 的槽位）⇒ 问候是纯文字的一句，
      *   形象、角色、皮肤在手机上调过的那套不会同步过来。
      */
-    override val gapNote: String =
-        "这一端能查的比手机少：成绩、一卡通、考勤、通知、图书馆、教材、加餐券、思源学堂、全校课表、" +
-            "体测、学辅资料都还没接（现在会查的是黄页、教师、校历、课表、考试、空教室、校园地图、算一算、" +
-            "功能引导，以及记住的偏好；配了联网搜索还能查网）⇒ 问这些它会说查不到，不是它偷懒。" +
-            "课表与考试读的是本机缓存（桌面不直连教务），缓存空时它会让你先去「日程」页刷一次；" +
-            "空教室只有 CDN 的逐节空闲表，没有智慧教室那种「此刻几个人在」。" +
-            "设闹钟、改设置、写进自建日程这几件在这里同样做不到。" +
-            "另外，这一端的屁岱是简单模样：问候只有一句文字，没有形象、角色和皮肤（那三样在手机上调，" +
-            "调过的那套不会同步过来）。"
+    override val gapNote: String = "桌面版能查的内容比手机少，部分问题会回答查不到。"
 
     override val io: CoroutineDispatcher = Dispatchers.IO
 
@@ -149,7 +141,7 @@ internal class DesktopAgentHost(
 
     // ── 附件图（见 [AgentCapability.IMAGE_INPUT] 与 [DesktopAgentImages]）────────
 
-    /** 这张附件图还在不在：拷进 `~/.cache/xjtu-toolbox/agent_images<suffix>` 的那一份还在地上。 */
+    /** 这张附件图还在不在：拷进 `~/.cache/xjtu-dzhz/agent_images<suffix>` 的那一份还在地上。 */
     override fun imageFileExists(path: String): Boolean = File(path).isFile
 
     /** 读一张附件图的字节（气泡里那颗缩略图解码用）。 */

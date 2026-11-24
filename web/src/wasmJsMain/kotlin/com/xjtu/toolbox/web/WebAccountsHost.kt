@@ -20,13 +20,14 @@ import com.xjtu.toolbox.core.net.ServeAccounts
 import com.xjtu.toolbox.core.net.ServeAccountsWrite
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.UserFacingFailure
+import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.LoadingState
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
 
-/** 账号管理（`AppRoute.Accounts`）在浏览器这一端的宿主（契约 §5.10 / §5.19）。 */
+/** 账号管理（`AppRoute.Accounts`）在浏览器这一端的宿主（`/api/accounts`）。 */
 internal class WebAccountsController(private val api: CampusAccountsApi) : AccountsController {
 
     /** 首次加载中（屏上那张加载态）。 */
@@ -41,7 +42,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
     var activeAccountId by mutableStateOf<String?>(null)
         private set
 
-    /** 服务端答的能力开关（§5.10）；加载完成前按只读。 */
+    /** 服务端答的能力开关；加载完成前按只读。 */
     var readOnly by mutableStateOf(true)
         private set
 
@@ -74,8 +75,10 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
     override suspend fun switchTo(accountId: String): Account? {
         ensureWritable()
         loggedOutAfterDelete = false
+        val previous = activeAccountId
         val result = requireOk(api.switchAccount(accountId), "切换账号")
         result.snapshot?.let(::applySnapshot)
+        if (activeAccountId != previous) clearAccountCaches()
         return rows.firstOrNull { it.accountId == accountId } ?: rows.firstOrNull { it.accountId == activeAccountId }
     }
 
@@ -89,6 +92,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
         // activate=true：与安卓 / 桌面「添加后切过去」一致。serve 不探活。
         val result = requireOk(api.addAccount(username, password, accountType, activate = true), "添加账号")
         result.snapshot?.let(::applySnapshot)
+        clearAccountCaches()
         // 投影里没有密码：返回的 Account.password 保持空串，避免进入 UI 状态或 toString。
         val added = rows.firstOrNull { it.accountId == activeAccountId } ?: rows.lastOrNull()
             ?: Account(accountId = "", accountType = accountType)
@@ -113,13 +117,22 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
         result.snapshot?.let(::applySnapshot)
         // 与 serve 一致：删的是当前账号 ⇒ 退出登录，不自动切到下一条，页顶请用户再切。
         loggedOutAfterDelete = wasActive && activeAccountId == null
+        if (wasActive) clearAccountCaches()
         return true
+    }
+
+    /**
+     * 浏览器里的课表族缓存不分账号（serve 那一侧换了人，这里不知道是谁）：换账号后清掉，
+     * 免得首页和日程接着显示上一个人的课表；下次进日程会按新账号重新拉。自建日程是本机数据，不动。
+     */
+    private fun clearAccountCaches() {
+        runCatching { keyValueStore(WebScheduleHost.SCHEDULE_CACHE_STORE).clear() }
     }
 
     /** 页顶那一行说明（随服务端的能力开关走；可写且未刚退出时不显示）。 */
     fun gapNote(): String = when {
         readOnly -> "当前是明文 HTTP，账号改动需要先开启 HTTPS（给 serve 加上 --https）。"
-        loggedOutAfterDelete -> "当前账号已删除，serve 现已退出登录。请切换到其他账号。"
+        loggedOutAfterDelete -> "当前账号已删除，已退出登录。请切换到其他账号。"
         else -> ""
     }
 
@@ -180,7 +193,7 @@ internal fun WebAccountsScreen(
             val message = accounts.errorMessage
             when {
                 accounts.loading -> FullPageState(Modifier.fillMaxSize()) {
-                    LoadingState("正在读取账号表…", Modifier.fillMaxSize())
+                    LoadingState("正在加载…", Modifier.fillMaxSize())
                 }
 
                 message != null -> FullPageState(Modifier.fillMaxSize()) {

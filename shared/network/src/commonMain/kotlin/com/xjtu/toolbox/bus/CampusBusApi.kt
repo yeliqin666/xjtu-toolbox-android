@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 
-/** 校车的 serve 版取数（契约 §5.18 `GET /api/bus/runs`）：给 Web 用，浏览器直连 xjbus 没有 CORS。 */
+/** 校车的 serve 版取数（`GET /api/bus/runs`）：给 Web 用，浏览器直连 xjbus 没有 CORS。 */
 class CampusBusApi(
     private val client: HttpClient,
     private val baseUrl: String = "",

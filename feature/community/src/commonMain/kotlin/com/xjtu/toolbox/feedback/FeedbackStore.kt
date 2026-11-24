@@ -73,42 +73,51 @@ object FeedbackStore {
 
     // ---- 拉取回复的节流 ----
 
-    /** 距上次拉回复是否已经够久。 */
-    fun shouldFetchReplies(hasPending: Boolean, force: Boolean = false): Boolean {
-        if (force) return true
+    /**
+     * 该不该去飞书拉回复（按次计额度，月上限可能只有 1 万）。下拉（[manual]）只防连点，隔 [REPLY_FETCH_GAP_MANUAL_MS]；
+     * 进页面自动拉只在有近期没回的工单时、每天一次——回复是维护者看了每天的日报才写的。
+     */
+    fun shouldFetchReplies(hasPending: Boolean, manual: Boolean = false): Boolean {
         val last = store.getString(K_REPLY_FETCH_AT)?.toLongOrNull() ?: 0L
-        val gap = if (hasPending) REPLY_FETCH_GAP_PENDING_MS else REPLY_FETCH_GAP_MS
-        return now() - last >= gap
+        return when {
+            manual -> now() - last >= REPLY_FETCH_GAP_MANUAL_MS
+            hasPending -> now() - last >= REPLY_FETCH_GAP_MS
+            else -> false
+        }
     }
+
+    /** 这条工单还算「在等回复」：交了不到 [PENDING_WINDOW_MS]。更早没回的多半是跳过了，不再催着查。 */
+    fun isRecent(ticket: Ticket): Boolean = now() - ticket.createdAt < PENDING_WINDOW_MS
 
     fun markRepliesFetched() {
         store.putString(K_REPLY_FETCH_AT, now().toString())
     }
 
     /** 上次拉到的回复，节流命中时直接用它渲染，避免页面空着。 */
-    fun cachedReplies(): Map<String, Pair<String, String>> {
+    fun cachedReplies(): Map<String, FeedbackReply> {
         val raw = store.getString(K_REPLY_CACHE) ?: return emptyMap()
         val obj = runCatching { AppJson.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return emptyMap()
         return buildMap {
             obj.keys.forEach { k ->
                 val o = obj[k] as? JsonObject ?: return@forEach
-                put(k, o.text("text") to o.text("time"))
+                put(k, FeedbackReply(o.text("text"), o.text("time"), o.text("by")))
             }
         }
     }
 
-    fun cacheReplies(replies: Map<String, Pair<String, String>>) {
+    fun cacheReplies(replies: Map<String, FeedbackReply>) {
         val obj = buildJsonObject {
             replies.forEach { (k, v) ->
-                put(k, buildJsonObject { put("text", v.first); put("time", v.second) })
+                put(k, buildJsonObject { put("text", v.text); put("time", v.time); put("by", v.by) })
             }
         }
         store.putString(K_REPLY_CACHE, obj.toString())
     }
 
-    fun shouldFetchPublicQa(): Boolean {
+    /** 「大家在问」每 4 天才生成一次，进页面隔 4 天拉一次就够；下拉刷新照拉（读 Gitee，不碰飞书）。 */
+    fun shouldFetchPublicQa(manual: Boolean): Boolean {
         val last = store.getString(K_PUBLIC_QA_AT)?.toLongOrNull() ?: 0L
-        return last == 0L || now() - last >= REPLY_FETCH_GAP_MS
+        return manual || now() - last >= PUBLIC_QA_GAP_MS
     }
 
     fun cachedPublicQa(): List<FeedbackPublicQa> {
@@ -118,14 +127,14 @@ object FeedbackStore {
             val o = e as? JsonObject ?: return@mapNotNull null
             val q = o.text("q")
             val a = o.text("a")
-            if (q.isBlank() || a.isBlank()) null else FeedbackPublicQa(q, a, o.text("c"))
+            if (q.isBlank() || a.isBlank()) null else FeedbackPublicQa(q, a, o.text("c"), o.text("b"))
         }
     }
 
     fun cachePublicQa(items: List<FeedbackPublicQa>) {
         val arr = buildJsonArray {
             items.forEach {
-                add(buildJsonObject { put("q", it.question); put("a", it.answer); put("c", it.category) })
+                add(buildJsonObject { put("q", it.question); put("a", it.answer); put("c", it.category); put("b", it.by) })
             }
         }
         store.putString(K_PUBLIC_QA, arr.toString())
@@ -136,14 +145,23 @@ object FeedbackStore {
     private const val K_REPLY_CACHE = "reply_cache"
     private const val K_PUBLIC_QA = "public_qa"
     private const val K_PUBLIC_QA_AT = "public_qa_at"
-    private const val REPLY_FETCH_GAP_MS = 6L * 60 * 60 * 1000
-    private const val REPLY_FETCH_GAP_PENDING_MS = 10L * 60 * 1000
+    private const val REPLY_FETCH_GAP_MS = 24L * 60 * 60 * 1000
+    private const val REPLY_FETCH_GAP_MANUAL_MS = 60L * 1000
+    private const val PENDING_WINDOW_MS = 14L * 24 * 60 * 60 * 1000
+    private const val PUBLIC_QA_GAP_MS = 4L * 24 * 60 * 60 * 1000
 
     // ---- 定点弹问卷的节流 ----
 
     /** 是否该弹一次轻量评价。 */
     fun shouldPrompt(versionCode: Int, usageCount: Int, isConfigured: Boolean): Boolean {
         if (!isConfigured) return false
+        // 新版本装上满几天再问：刚升级时用户还没用过，也免得和更新日志叠着弹
+        val seen = store.getString(K_VERSION_SEEN)?.split(':')
+        if (seen?.firstOrNull()?.toIntOrNull() != versionCode) {
+            store.putString(K_VERSION_SEEN, "$versionCode:${now()}")
+            return false
+        }
+        if (now() - (seen.getOrNull(1)?.toLongOrNull() ?: 0L) < MIN_VERSION_AGE_MS) return false
         if (usageCount < MIN_USAGE) return false
         if (store.getString(K_PROMPT_DONE)?.toIntOrNull() == versionCode) return false
         val last = store.getString(K_PROMPT_AT)?.toLongOrNull() ?: 0L
@@ -158,6 +176,8 @@ object FeedbackStore {
 
     private const val MIN_USAGE = 8
     private const val MIN_GAP_MS = 14L * 24 * 60 * 60 * 1000
+    private const val MIN_VERSION_AGE_MS = 3L * 24 * 60 * 60 * 1000
+    private const val K_VERSION_SEEN = "prompt_version_seen"
 
     data class Ticket(
         val id: String,

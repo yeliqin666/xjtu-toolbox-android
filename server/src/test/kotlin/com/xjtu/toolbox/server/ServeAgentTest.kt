@@ -37,7 +37,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** `/api/agent/…` 的契约验收（`docs/api-contract.md` §5.11）。 */
+/** `/api/agent/…` 的契约验收（`docs/api-contract.md`）。 */
 class ServeAgentTest {
 
     @AfterTest
@@ -203,7 +203,7 @@ class ServeAgentTest {
             assertNoKey(res.body(), "GET /api/agent/config（写过之后）")
 
             // 夹具里明明有那把 key：它确实落在 `agent_config_secure<default>` 里 —— 上面那两条
-            // 「不出现」的断言因此不是空的（写法见 `docs/api-contract.md` §5.2）。
+            // 「不出现」的断言因此不是空的（写法见 `docs/api-contract.md`「隐私红线」）。
             assertEquals(
                 AgentFixture.FAKE_API_KEY,
                 protectedSecureKeyValueStore(AgentConfigStore.STORE_SECURE + "default").getString("api_key"),
@@ -550,7 +550,7 @@ class ServeAgentTest {
             assertEquals("get_schedule", frames[1].data!!.optString("name"))
             assertEquals("get_schedule", frames[2].data!!.optString("name"))
             assertEquals(true, frames[2].data!!.optBoolean("success"))
-            // 成功时 error 是**明确的 null**（§4：null = 本端明确说没有）
+            // 成功时 error 是**明确的 null**（null = 本端明确说没有）
             assertEquals(JsonNull, frames[2].data!!.getValue("error"))
             assertEquals(
                 listOf("查看课表"),
@@ -815,7 +815,7 @@ class ServeAgentTest {
             assertEquals(
                 listOf(
                     "get_calendar", "get_schedule", "get_exam_schedule", "get_empty_rooms",
-                    "search_yellow_page", "preference", "find_faculty", "app_guide", "calculate", "campus_map",
+                    "search_yellow_page", "preference", "find_faculty", "app_guide", "search_campus_guide", "calculate", "campus_map",
                     "get_campus_bus", "get_degree_progress",
                 ),
                 agent.toolAllowlist(AgentConfig()),

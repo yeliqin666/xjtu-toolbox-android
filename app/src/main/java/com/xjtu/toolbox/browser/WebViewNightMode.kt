@@ -65,7 +65,13 @@ object WebViewNightMode {
         val raw = url.orEmpty()
         if (raw.isBlank() || raw == "about:blank") return true
         val host = runCatching { Uri.parse(raw).host.orEmpty().lowercase() }.getOrDefault("")
-        if (host == "login.xjtu.edu.cn" || host == "cas.xjtu.edu.cn") return true
+        // `identity1` 是统一认证的 broker 中间站：lms-h5 这类新站点先跳到它、再由它转 CAS，
+        // 一路都是登录页（含扫码图），一并按浅色原样显示。
+        if (host == "login.xjtu.edu.cn" || host == "cas.xjtu.edu.cn" ||
+            host == "identity1.xjtu.edu.cn" || host == "org.xjtu.edu.cn"
+        ) {
+            return true
+        }
         val lower = raw.lowercase()
         return "captcha" in lower || "geetest" in lower
     }

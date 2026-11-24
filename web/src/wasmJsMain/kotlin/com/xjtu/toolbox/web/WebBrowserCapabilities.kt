@@ -26,7 +26,7 @@ internal object WebBrowserCapabilities {
             label = "安全上下文（HTTPS 或 localhost）",
             present = secureContext,
             note = "剪贴板 / crypto.subtle / 相机 都只在这种页面里存在。默认的 127.0.0.1 算， " +
-                "`--host 0.0.0.0` 且不带 --https 的地址栏地址不算（契约 §3.5；--https 见 D11）。",
+                "`--host 0.0.0.0` 且不带 --https 的地址栏地址不算（可用 --https）。",
         ),
         BrowserCapabilityRow(
             label = "剪贴板写入（navigator.clipboard.writeText）",

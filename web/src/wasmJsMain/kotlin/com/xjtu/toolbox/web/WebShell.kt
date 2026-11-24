@@ -25,7 +25,7 @@ internal object WebRoutes {
     const val SERVE = "serve"
 
     /** 「学辅」那一格：web 这一端自己的「本端有什么」页（见 [WebServicesScreen]）。 */
-    const val SERVICES = "zyxf"
+    const val SERVICES = "services"
 
     /** 「我的」那一格：共享的设置屏（web 没有账号这回事，见 `ToolboxWebApp` 的 `page`）。 */
     const val PROFILE = "profile"
@@ -77,8 +77,13 @@ internal fun ShellTarget.toWeb(): WebTarget? = when (this) {
     }
 }
 
-/** Web 那一份 tab 集合（五格与 `:app` 的 `BottomTab` 一致）。 */
-internal fun webTabs(): ShellTabs = WEB_SHELL_TABS
+/** Web 那一份 tab 集合（五格与 `:app` 的 `BottomTab` 一致）；campus-api 形态没有小岱的取数，那一格不画。 */
+internal fun webTabs(serveMode: Boolean = true): ShellTabs =
+    if (serveMode) WEB_SHELL_TABS else WEB_CAMPUS_API_TABS
+
+private val WEB_CAMPUS_API_TABS: ShellTabs by lazy {
+    ShellTabs(WEB_SHELL_TABS.tabs.filterNot { it.target == ShellTarget.App(AppRoute.Agent) })
+}
 
 /** 见 [webTabs]。 */
 internal val WEB_SHELL_TABS: ShellTabs = ShellTabs(

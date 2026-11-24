@@ -28,7 +28,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** 桌面（jvm）档案宿主的验收（§7）。 */
+/** 桌面（jvm）档案宿主的验收。 */
 class DesktopArchiveJvmTest {
 
     private fun withRoot(block: (File) -> Unit) {
@@ -97,7 +97,7 @@ class DesktopArchiveJvmTest {
             ),
         )
 
-        // 数据根文件名 → 档案路径（拆分要靠后缀清单，§2.0）
+        // 数据根文件名 → 档案路径（拆分要靠后缀清单）
         assertEquals(
             "accounts/_2253415556/stores/course_colors.json",
             DesktopArchiveIo.storeArchivePath("course_colors_2253415556", suffixes),
@@ -149,7 +149,7 @@ class DesktopArchiveJvmTest {
             "课表族的店不进 stores（实际：${archive.keys.sorted()}）",
         )
         val path = "accounts/$suffix/files/schedule/schedule_current_term.json"
-        // 值本身是 AppJson 编出来的 JSON 串（§2.3「原样搬运、不重新建模」）⇒ 档案里是带引号的原文
+        // 值本身是 AppJson 编出来的 JSON 串（原样搬运、不重新建模）⇒ 档案里是带引号的原文
         assertEquals("\"2026-2027-1\"", outcome.directory.resolve(path).readText(), "档案里那份值：$path")
         assertTrue(
             "schedule/schedule_current_term.json" in ArchiveCodec
@@ -219,13 +219,13 @@ class DesktopArchiveJvmTest {
         assertEquals(zip.toList(), DesktopArchiveIo.zip(archive).toList(), "zip 字节可复现（条目时间是固定值）")
     }
 
-    // ── 数据根扫描 + 一次性导入的闸门（§6.2） ───────────────────────────────
+    // ── 数据根扫描 + 一次性导入的闸门 ───────────────────────────────
 
     @Test
     fun `数据根扫描：没有档案时静默跳过，导出后能扫到目录形态与 zip 形态`() = withRoot { root ->
         assertTrue(DesktopArchiveHost.pendingArchives().isEmpty())
-        assertNull(DesktopArchiveHost.maybeImportPendingArchive(), "没档案 ⇒ 静默跳过（§6.2 第 1 条）")
-        assertEquals("数据根下没有待导入的档案", importStatusText())
+        assertNull(DesktopArchiveHost.maybeImportPendingArchive(), "没档案 ⇒ 静默跳过")
+        assertEquals("没有待导入的存档", importStatusText())
 
         DesktopArchiveHost.exportToDataRoot(now = { FIXED_NOW })
 
@@ -242,8 +242,8 @@ class DesktopArchiveJvmTest {
         )
 
         val text = importStatusText()
-        assertTrue(text.startsWith("发现待导入档案 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
-        assertTrue(text.contains("StoreArchive.import"), "如实交代「合并那一半还没落地」：$text")
+        assertTrue(text.startsWith("存档 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
+        assertTrue(text.contains("已导入"), text)
     }
 
     @Test
@@ -297,7 +297,7 @@ class DesktopArchiveJvmTest {
         assertFalse("global/stores/github_community.json" in archive)
         assertTrue("global/stores/xjtu_credentials.json" in manifest.redacted)
         assertTrue("global/stores/github_community.json" in manifest.redacted)
-        assertTrue(manifest.noAccount, "没有账号 ⇒ noAccount=true（§2.1）")
+        assertTrue(manifest.noAccount, "没有账号 ⇒ noAccount=true")
         assertTrue("global/stores/s5_a8_plain.json" in archive, "非凭据族的 global store 照写")
         assertEquals(listOf("s5_a8_plain"), manifest.stores)
     }

@@ -88,6 +88,8 @@ class SeamlessPageActivity : ComponentActivity() {
             finish()
             return
         }
+        // 这里也能打开要定位的页（活动签到、小岱地图）：权限弹窗得由盖在最上面的这个 Activity 发起
+        com.xjtu.toolbox.agent.AgentLocation.register(this)
         val appearance = AppearanceSettings.get(this)
         setContent {
             val darkMode by appearance.darkMode.collectAsStateWithLifecycle()
@@ -208,6 +210,7 @@ private fun SeamlessPageHost(initialRoute: AppRoute, onExit: () -> Unit) {
     }
 
     val navStyle by AppearanceSettings.get(context).navBarStyle.collectAsStateWithLifecycle()
+    val reducedEffects by AppearanceSettings.get(context).reducedEffects.collectAsStateWithLifecycle()
     val screenCornerPx = with(LocalDensity.current) { rememberNavSystemCornerRadius().toPx() }
     val transitions = remember(screenCornerPx) { mutableMapOf<KClass<out AppRoute>, NavTransition>() }
 
@@ -218,6 +221,7 @@ private fun SeamlessPageHost(initialRoute: AppRoute, onExit: () -> Unit) {
         },
         LocalIsWideLayout provides calculateIsWideLayout(),
         LocalGlassStyle provides (navStyle == CredentialStore.NAV_STYLE_FLOATING),
+        com.xjtu.toolbox.ui.components.LocalReducedEffects provides reducedEffects,
     ) {
         // 全应用唯一的 MFA 弹窗 / 排行榜弹窗，在独立宿主里也要有（骨架后面补登录会用到）。
         MfaDialogHost(loginState.sessionManager)

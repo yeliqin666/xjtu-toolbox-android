@@ -1,7 +1,11 @@
 package com.xjtu.toolbox.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 
-/** jvm / 桌面端没有系统分享面板，空实现。 */
+/** 桌面没有系统分享面板：复制链接并提示。 */
 @Composable
-actual fun rememberShareLink(): (title: String, url: String) -> Unit = { _, _ -> }
+actual fun rememberShareLink(): (title: String, url: String) -> Unit {
+    val copy = rememberCopyText()
+    return remember(copy) { { _, url -> copy(url) } }
+}

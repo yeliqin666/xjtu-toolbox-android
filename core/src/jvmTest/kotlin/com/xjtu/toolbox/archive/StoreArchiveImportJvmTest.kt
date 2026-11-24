@@ -45,7 +45,7 @@ class StoreArchiveImportJvmTest {
 
         val result = StoreArchive.import(archiveSourceOf(archive), LocalStoreTarget())
         assertTrue(result is ImportResult.Ok, "$result")
-        assertEquals(0, (result as ImportResult.Ok).keysWritten, "自导出那份在 §6.4 下全是「本端胜」⇒ 一个键都不写")
+        assertEquals(0, (result as ImportResult.Ok).keysWritten, "自导出那份按默认合并规则全是「本端胜」⇒ 一个键都不写")
 
         assertEquals(before, readsOf(settings, cache), "A4：原读法读出的每条逐字相同")
     }
@@ -171,7 +171,7 @@ private class LocalStoreTarget : ArchiveImportTarget {
     override fun putKey(rawName: String, key: String, value: StoreValue, at: Long?) {
         val store = keyValueStore(rawName)
         // 键值缝只有 String / Boolean / Int / Set 四档（见它的 KDoc）：`l`/`f` 按 Properties 那一套
-        // 写字符串，读回来由 §6.3 的反推规则还原成带标签的值。
+        // 写字符串，读回来按类型反推规则还原成带标签的值。
         when (value) {
             is StoreValue.S -> store.putString(key, value.v)
             is StoreValue.B -> store.putBoolean(key, value.v)
@@ -180,7 +180,7 @@ private class LocalStoreTarget : ArchiveImportTarget {
             is StoreValue.F -> store.putString(key, value.v.toString())
             is StoreValue.SetValue -> store.putStringSet(key, value.v.toSet())
         }
-        // 课表族的 TTL 靠 `<key>#written_at`（§5.2 第 5 条）⇒ 档案带了 `at` 就把它重建回去
+        // 课表族的 TTL 靠 `<key>#written_at` ⇒ 档案带了 `at` 就把它重建回去
         if (at != null) store.putString(key + ArchiveCodec.WRITTEN_AT_SUFFIX, at.toString())
     }
 

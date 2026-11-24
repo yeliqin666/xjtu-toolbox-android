@@ -4,13 +4,14 @@ import kotlin.concurrent.Volatile
 
 /**
  * 别处（屁岱的座位卡片、首页扫桌面二维码）想让图书馆页一打开就定位到某个区域。放一次、取一次。
- * 带 [Target.seatId] 时，区域加载完会弹出这个座位的预约确认（扫码的场景）。
+ * 带 [Target.seatId] 时，区域加载完会弹出这个座位的预约确认（扫码的场景）；
+ * [Target.pick] 时只选中这个座位、提示用户手动确认，也不替用户切校区（首页「上次预约」推荐，#461）。
  *
  * 这是**进程内的一个信箱**，不是取数：`:app` 的几处宿主（首页、屁岱、扫码）往里放，
  * 共享的 ViewModel 取。Web 端没有任何人放 ⇒ 永远取不到 null 以外的东西。
  */
 object LibraryFocus {
-    data class Target(val campusId: String, val areaCode: String, val seatId: String? = null)
+    data class Target(val campusId: String, val areaCode: String, val seatId: String? = null, val pick: Boolean = false)
 
     @Volatile private var pending: Target? = null
 

@@ -119,84 +119,52 @@ object FeedbackApi {
         }
     }
 
-    /** 拉取这些工单号对应的回复。 */
+    /**
+     * 拉取这些工单号对应的回复（同一工单取最新）。按工单号 OR 查，只拿自己的；
+     * 本地账本最多 20 个工单，正好一次调用（飞书按次计额度）。全部失败抛异常，让调用方保留缓存。
+     */
     suspend fun replies(tickets: List<String>): Map<String, FeedbackReply> =
         withContext(Dispatchers.IO) {
-            if (tickets.isEmpty()) return@withContext emptyMap()
-            val cfg = requireConfig()
-            val wanted = tickets.take(20).map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            val wanted = tickets.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
             if (wanted.isEmpty()) return@withContext emptyMap()
-
-            val conditions = buildJsonArray {
-                wanted.forEach { id ->
-                    add(
-                        buildJsonObject {
-                            put("field_name", F_TICKET)
-                            put("operator", "contains")
-                            put("value", buildJsonArray { add(JsonPrimitive(id)) })
-                        },
-                    )
-                }
-            }
-            val filter = buildJsonObject {
-                put("conjunction", "or")
-                put("conditions", conditions)
-            }
-
             val found = linkedMapOf<String, FeedbackReply>()
-            var pageToken: String? = null
-            var pages = 0
-            var useFilter = true
-            do {
+            wanted.chunked(20).forEach { batch ->
                 val json = searchRecords(
-                    tableId = cfg.replyTable,
-                    filter = if (useFilter) filter else null,
-                    pageToken = pageToken,
+                    requireConfig().replyTable,
+                    // contains 而不是 is：早期手填的工单号可能带空格
+                    filter("or", batch.map { condition(F_TICKET, "contains", it) }),
+                    pageToken = null,
                 )
-                val code = json.intOr("code", -1)
-                if (code != 0) {
-                    Log.w("FeedbackApi", "search replies failed: $code ${json.textOrEmpty("msg")}")
-                    if (useFilter) {
-                        useFilter = false
-                        pageToken = null
-                        continue
-                    }
-                    break
-                }
-                val data = json["data"] as? JsonObject ?: break
-                collectReplies(data["items"] as? JsonArray, wanted, found)
-                val more = data.boolOr("has_more", false)
-                pageToken = data["page_token"]?.textOrEmpty()?.takeIf { more && it.isNotBlank() }
-                pages++
-            } while (pageToken != null && found.size < wanted.size && pages < 5)
+                if (json.intOr("code", -1) != 0) error("回复拉取失败：${json.intOr("code", -1)} ${json.textOrEmpty("msg")}")
+                // 同一工单回复多次也就几条，一页 500 足够，不翻页
+                collectReplies((json["data"] as? JsonObject)?.get("items") as? JsonArray, batch.toSet(), found)
+            }
             found
         }
 
-    /** 所有人都能看的问答。 */
+    private fun condition(field: String, operator: String, vararg values: String) = buildJsonObject {
+        put("field_name", field)
+        put("operator", operator)
+        put("value", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
+    }
+
+    private fun filter(conjunction: String, conditions: List<JsonObject>) = buildJsonObject {
+        put("conjunction", conjunction)
+        put("conditions", JsonArray(conditions))
+    }
+
+    /** 所有人都能看的问答，直接查飞书。App 平时读 Action 生成的 feedback-qa.json（见 AppFeedbackSource），这里是兜底。 */
     suspend fun publicQa(): List<FeedbackPublicQa> = withContext(Dispatchers.IO) {
         val cfg = requireConfig()
-        val filter = buildJsonObject {
-            put("conjunction", "and")
-            put(
-                "conditions",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("field_name", F_PUBLIC)
-                            put("operator", "is")
-                            put("value", buildJsonArray { add(JsonPrimitive("true")) })
-                        },
-                    )
-                },
-            )
-        }
-        val out = ArrayList<FeedbackPublicQa>()
+        // 同一工单可能回复多次（/reply 只追加）：按工单取回复时间最新的一条，它公开才展示——
+        // 后来改成私密就等于撤下。所以这里不按「公开」筛，拉全表再挑。没工单号的手填问答按问题去重。
+        val latest = linkedMapOf<String, Pair<String, FeedbackPublicQa?>>()
         var pageToken: String? = null
         var pages = 0
         do {
             val json = searchRecords(
                 tableId = cfg.replyTable,
-                filter = filter,
+                filter = null,
                 pageToken = pageToken,
             )
             if (json.intOr("code", -1) != 0) {
@@ -211,22 +179,25 @@ object FeedbackApi {
             val items = data["items"] as? JsonArray ?: JsonArray(emptyList())
             for (i in 0 until items.size) {
                 val fields = (items[i] as? JsonObject)?.get("fields") as? JsonObject ?: continue
-                if (!fields.fieldChecked(F_PUBLIC)) continue
                 val question = fields.fieldText("问题", "公开问题", "问")
                 val answer = fields.fieldText("回复", "回复内容", "答", "回答")
                 if (question.isBlank() || answer.isBlank()) continue
-                out.add(
-                    FeedbackPublicQa(
-                        question = question,
-                        answer = answer,
-                        category = fields.fieldText("类型", "分类"),
-                    )
-                )
+                val key = normalizeTicket(fields.fieldText(F_TICKET)).ifEmpty { "q:$question" }
+                val time = fields.fieldText("回复时间", "时间")
+                val prev = latest[key]
+                if (prev != null && time < prev.first) continue
+                latest[key] = time to FeedbackPublicQa(
+                    question = question,
+                    answer = answer,
+                    category = fields.fieldText("类型", "分类"),
+                    by = fields.fieldText("回复人"),
+                ).takeIf { fields.fieldChecked(F_PUBLIC) }
             }
             val more = data.boolOr("has_more", false)
             pageToken = data["page_token"]?.textOrEmpty()?.takeIf { more && it.isNotBlank() }
             pages++
-        } while (pageToken != null && pages < 3)
+        } while (pageToken != null && pages < 10)
+        val out = latest.values.sortedByDescending { it.first }.mapNotNull { it.second }
         out
     }
 
@@ -238,7 +209,8 @@ object FeedbackApi {
         val cfg = requireConfig()
         val url = buildString {
             append("$HOST/bitable/v1/apps/${cfg.baseToken}")
-            append("/tables/$tableId/records/search?page_size=100")
+            // 飞书单页上限 500；按次计费，页大一点少翻几页
+            append("/tables/$tableId/records/search?page_size=500")
             if (!pageToken.isNullOrBlank()) {
                 append("&page_token=").append(java.net.URLEncoder.encode(pageToken, "UTF-8"))
             }
@@ -268,7 +240,10 @@ object FeedbackApi {
             if (ticket.isEmpty() || ticket !in wanted) continue
             val text = fields.fieldText("回复", "回复内容", "内容", "reply")
             if (text.isBlank()) continue
-            into[ticket] = FeedbackReply(text, fields.fieldText("回复时间", "时间"))
+            // 同一工单可能回复多次（/reply 只追加不改），取回复时间最新的；时间是 "yyyy-MM-dd[ HH:mm]" 文本，按字符串比
+            val time = fields.fieldText("回复时间", "时间")
+            val prev = into[ticket]
+            if (prev == null || time >= prev.time) into[ticket] = FeedbackReply(text, time, fields.fieldText("回复人"))
         }
     }
 

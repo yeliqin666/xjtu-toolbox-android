@@ -2,6 +2,8 @@ package com.xjtu.toolbox
 
 import android.app.Application
 import android.content.Context
+import com.xjtu.toolbox.auth.CampusProbe
+import com.xjtu.toolbox.auth.init
 import com.xjtu.toolbox.error.CrashReporter
 import com.xjtu.toolbox.notification.AppNotificationChannels
 import kotlinx.coroutines.CoroutineScope
@@ -19,9 +21,10 @@ import kotlinx.coroutines.launch
  * 其余启动钩子（性能打点 / 渠道开关）保持空。
  */
 class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
-    /** 图片磁盘缓存封顶，不用 Coil 的默认上限，免得社区看多了占掉一大块空间。 */
+    /** 图片磁盘缓存封顶，免得社区看多了占掉一大块空间；带 SVG 解码（star-history、徽章都是 SVG）。 */
     override fun newImageLoader(context: coil3.PlatformContext): coil3.ImageLoader =
         coil3.ImageLoader.Builder(context)
+            .components { add(coil3.svg.SvgDecoder.Factory()) }
             .diskCache {
                 coil3.disk.DiskCache.Builder()
                     .directory(okio.Path.Companion.run { cacheDir.resolve("coil3_disk_cache").absolutePath.toPath() })
@@ -69,8 +72,15 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
         com.xjtu.toolbox.archive.AppArchiveUx.maybeImportPendingArchive(base)
     }
 
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
     override fun onCreate() {
+        // 带焦点的内嵌 View（WebView 等）被移除时，Android 同步把焦点还给 Compose 根视图；
+        // 这个开关下 Compose 会做一次越界焦点搜索，去子组合 Pager 里还没应用的页，
+        // 抛 "pending composition has not been applied"（b/469958424，ui 1.12.1 仍未修）。
+        // 官方给的规避是关掉它；必须在第一次组合之前设。出栈路径另见 AppNavigator.dropEmbeddedFocus。
+        androidx.compose.ui.ComposeUiFlags.isBypassUnfocusableComposeViewEnabled = false
         super.onCreate()
+        if (BuildConfig.DEBUG) com.xjtu.toolbox.debug.StateWriteTracer.install()
         com.xjtu.toolbox.platform.initAndroidPlatform(this)
         // 同一件事的 :data 版：会话内核要的密文存储（cookie / 站点快照）按名字从
         // `:data` 的平台缝取，Android 那份 actual 同样需要进程级 Context。
@@ -83,6 +93,9 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
         // 而重画要 Context 与 AppWidgetManager（都在 :app）⇒ 用回调挂上去（见 InboxWidgetHook）。
         com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {
             runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(this) }
+            // 智能卡片的钩子行与「快截止」那一档也读同一份待办：待办一变就得重画，
+            // 否则桌面上会挂着一条已经交掉的作业
+            runCatching { com.xjtu.toolbox.widget.SmartWidgetUpdater.requestUpdate(this) }
         }
         // 自建待办的截止提醒：存储在 :shared:model（各端共用），排期要 WorkManager（只在 :app）⇒ 同样挂回调。
         com.xjtu.toolbox.inbox.SelfTodoHooks.onChanged = { account, before, after ->
@@ -97,7 +110,7 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
         }
         // 小游戏全服榜的服务端地址（构建期可覆盖，见 app/build.gradle.kts；空串 = 不出现排行榜）
         com.xjtu.toolbox.game.board.LeaderboardApi.install(BuildConfig.LEADERBOARD_BASE_URL)
-        com.xjtu.toolbox.auth.CampusProbe.init(this)
+        CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)
@@ -108,6 +121,7 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)
+            com.xjtu.toolbox.notification.GradeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.CommunityWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.agent.PidaiJobScheduler.apply(this@XjtuApp)
         }

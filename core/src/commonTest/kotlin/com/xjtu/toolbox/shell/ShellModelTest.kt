@@ -93,6 +93,19 @@ class ShellModelTest {
     }
 
     @Test
+    fun `按需读取的当前页随来源变化，同一份状态不必重建`() {
+        var current: ShellTarget = ShellTarget.Custom("HOME")
+        var back = false
+        val nav = ShellNavState(tabs, targetOf = { current }, onSelect = {}, returningOf = { back })
+        assertEquals("HOME", nav.selected?.id)
+        assertFalse(nav.returning)
+        current = ShellTarget.Custom("PIDAI")
+        back = true
+        assertEquals("PIDAI", nav.selected?.id)
+        assertTrue(nav.returning)
+    }
+
+    @Test
     fun `点了某一格回调拿到的就是那一格`() {
         var picked: ShellTab? = null
         val nav = ShellNavState(tabs = tabs, target = ShellTarget.Custom("HOME"), onSelect = { picked = it })

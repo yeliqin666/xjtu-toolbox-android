@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +48,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
@@ -53,7 +56,14 @@ import kotlin.math.roundToInt
 /** 首页头卡的外观，落盘在 [SettingsStore] 的 `hero_*` 几项；默认值就是随时间和主题变化的自动外观。 */
 data class HeroAppearance(
     val palette: String = "auto",
-    val colorHex: String = "#2F7CFF",
+    /**
+     * 纯色模式的底色（`#RRGGBB`）；**空串 = 跟随主题色**。
+     *
+     * 2026-11 维护者要求纯色默认就是主题色：以前这里写死 `#2F7CFF`，选了「纯色」却拿到一个
+     * 跟主题毫无关系的蓝。现在没挑过色就跟着 `MiuixTheme.colorScheme.primary` 走，
+     * 挑过（取色器拖动或填 Hex）才用它；「跟随主题色」按钮把它清回空串。
+     */
+    val colorHex: String = "",
     val motion: String = "auto",
     val seed: Int = -1,
     val background: String = "liquid",
@@ -64,11 +74,25 @@ data class HeroAppearance(
     /** 自定义背景的亮度（百分比，20..100）；100 = 原图。 */
     val imageBrightness: Int = 100,
 ) {
-    val solidColor: Color get() = CourseColors.parseHex(colorHex) ?: Color(0xFF2F7CFF)
+    /** 挑过的纯色；null = 没挑过 ⇒ 纯色模式跟随主题色。 */
+    val pickedSolidColor: Color? get() = CourseColors.parseHex(colorHex)
 
-    /** 纯色底的亮度决定用黑字还是白字。 */
-    val contentColor: Color
-        get() = if (background == "solid" && solidColor.luminance() > 0.179f) Color.Black else Color.White
+    /**
+     * 纯色模式实际铺的底色：挑过就用挑的，没挑过就是 [primary]（主题色）。
+     *
+     * 写成「外面把主题色传进来」而不是在类里读 `MiuixTheme`：这个类要能被单测直接构造，
+     * 而且 [applyTo] 那套液体配色也在纯函数里算，读 CompositionLocal 会把它绑死在组合上。
+     */
+    fun solidColorOn(primary: Color): Color = pickedSolidColor ?: primary
+
+    /**
+     * 头卡上该用的字色：纯色底按**实际铺的那个底色**的亮度决定黑字还是白字，其余背景一律白字。
+     *
+     * 判据沿用原来的 0.179 亮度门（比 WCAG 的 4.5:1 更保守，浅色底上黑字立得住）。
+     */
+    fun contentColorOn(primary: Color): Color =
+        if (background == "solid" && solidColorOn(primary).luminance() > SOLID_BLACK_TEXT_MIN_LUMINANCE) Color.Black
+        else Color.White
 
     /** 设置页那一行右侧的摘要：只报样式名（液体 / 森林 / 像素 / 纯色 / 自定义）。 */
     val summary: String
@@ -93,6 +117,12 @@ data class HeroAppearance(
     }
 
     companion object {
+        /**
+         * 纯色底亮度超过它就改黑字。取的是「黑字在白底上看着够沉」的那条线，
+         * 比 WCAG 4.5:1 更保守一点，浅色自定义色上不会出现白字糊成一片。
+         */
+        private const val SOLID_BLACK_TEXT_MIN_LUMINANCE = 0.179f
+
         fun read(store: SettingsStore, dark: Boolean) = HeroAppearance(
             palette = store.heroPalette,
             colorHex = store.heroColorHex(dark),
@@ -119,8 +149,7 @@ object HeroAppearanceRevision {
     }
 }
 
-private fun paletteLabel(key: String): String = when (key) {
-    "midnight" -> "午夜蓝"
+private fun paletteLabel(key: String): String = when (key) {    "midnight" -> "午夜蓝"
     "orchid" -> "兰紫"
     "blossom" -> "樱粉"
     "lagoon" -> "湖绿"
@@ -152,8 +181,7 @@ fun HomeHeroAppearanceDialog(store: SettingsStore, onDismiss: () -> Unit) {
     )
 }
 
-/** 草稿只作用于弹窗预览，确定后落盘；返回、点外面和取消均丢弃草稿。 */
-@OptIn(ExperimentalEncodingApi::class)
+/** 草稿只作用于弹窗预览，确定后落盘；返回、点外面和取消均丢弃草稿。 */@OptIn(ExperimentalEncodingApi::class)
 @Composable
 fun HeroAppearanceDialog(
     current: HeroAppearance,
@@ -161,6 +189,8 @@ fun HeroAppearanceDialog(
     examSoon: Boolean = false,
     onDismiss: () -> Unit,
     onApply: (HeroAppearance) -> Unit,
+    /** 非 null 时在底部给一行「打开主页设置」（#434）；草稿不落盘，跟取消一样。 */
+    onOpenHomeSettings: (() -> Unit)? = null,
 ) {
     val dark = LocalIsDarkTheme.current
     var draft by remember(current, dark) { mutableStateOf(current) }
@@ -213,6 +243,20 @@ fun HeroAppearanceDialog(
             )
         } else {
             Column {
+                // 放在标题下：长按卡片后手指就在上半屏，不用再够到底部
+                if (onOpenHomeSettings != null) {
+                    Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "打开主页设置",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClick = onOpenHomeSettings)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
                 Column(
                     Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -227,7 +271,7 @@ fun HeroAppearanceDialog(
                     )
                     Box(Modifier.fillMaxWidth().height(104.dp).clip(RoundedCornerShape(20.dp))) {
                         when (draft.background) {
-                            "solid" -> Box(Modifier.matchParentSize().background(draft.solidColor))
+                            "solid" -> Box(Modifier.matchParentSize().background(draft.solidColorOn(MiuixTheme.colorScheme.primary)))
                             "forest" -> {
                                 HeroForestBackground(Modifier.matchParentSize())
                                 Box(Modifier.matchParentSize().background(HeroForestScrim))
@@ -255,7 +299,7 @@ fun HeroAppearanceDialog(
                             }
                         }
                         Column(Modifier.align(Alignment.CenterStart).padding(18.dp)) {
-                            Text("今日安排", color = draft.contentColor, style = MiuixTheme.textStyles.body1)
+                            Text("今日安排", color = draft.contentColorOn(MiuixTheme.colorScheme.primary), style = MiuixTheme.textStyles.body1)
                             Text(
                                 when (draft.background) {
                                     "forest" -> "预览森林与暗色渐隐"
@@ -263,7 +307,7 @@ fun HeroAppearanceDialog(
                                     "custom" -> if (draft.imageData.isEmpty()) "选择一张图片作为背景" else "预览自定义图片"
                                     else -> "预览配色与流动效果"
                                 },
-                                color = draft.contentColor.copy(alpha = 0.8f),
+                                color = draft.contentColorOn(MiuixTheme.colorScheme.primary).copy(alpha = 0.8f),
                                 style = MiuixTheme.textStyles.footnote1,
                             )
                         }
@@ -333,7 +377,24 @@ fun HeroAppearanceDialog(
                             ).forEach { (key, label) -> AppFilterChip(selected = draft.palette == key, onClick = { draft = draft.copy(palette = key) }, label = label) }
                         }
                     }
-                    if (draft.background == "solid" || (draft.background == "liquid" && draft.palette == "custom")) {
+                    // 纯色：默认就是主题色，「跟随主题色」可随时清回去；要别的色就拖取色器或直接填 Hex
+                    if (draft.background == "solid") {
+                        AppFilterChip(
+                            selected = draft.colorHex.isEmpty(),
+                            onClick = { draft = draft.copy(colorHex = "") },
+                            label = "跟随主题色",
+                        )
+                        AppColorPicker(
+                            color = draft.solidColorOn(MiuixTheme.colorScheme.primary),
+                            onColorChanged = { draft = draft.copy(colorHex = CourseColors.toHex(it)) },
+                        )
+                        HeroHexField(
+                            hex = draft.colorHex,
+                            fallback = MiuixTheme.colorScheme.primary,
+                            onHex = { draft = draft.copy(colorHex = it) },
+                        )
+                    }
+                    if (draft.background == "liquid" && draft.palette == "custom") {
                         AppColorPicker(
                             color = CourseColors.parseHex(draft.colorHex) ?: Color(0xFF2F7CFF),
                             onColorChanged = { draft = draft.copy(colorHex = CourseColors.toHex(it)) },
@@ -366,8 +427,10 @@ fun HeroAppearanceDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
                     TextButton(
+                        // 「跟随主题色」时 colorHex 是空串，那不是非法输入，不该把确定按钮卡住
                         text = "确定",
-                        enabled = draft.background != "custom" || draft.imageData.isNotEmpty(),
+                        enabled = (draft.background != "custom" || draft.imageData.isNotEmpty()) &&
+                            (draft.colorHex.isEmpty() || CourseColors.parseHex(draft.colorHex) != null),
                         onClick = { onApply(draft) },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),
@@ -375,5 +438,52 @@ fun HeroAppearanceDialog(
                 }
             }
         }
+    }
+}
+
+/**
+ * 纯色模式的 Hex 输入框：可以直接把 `#RRGGBB` 粘进来。
+ *
+ * 输入框里保留用户正在打的原文（半截的 `#12` 也算），只在整串能解析成颜色时才回写给草稿；
+ * 认不出来就把说明染成错误色，**不**替用户改字。清空这一框 = 回到「跟随主题色」。
+ */
+@Composable
+private fun HeroHexField(
+    hex: String,
+    /** 没挑过色时框里显示的就是主题色的 Hex（只作提示，落盘的仍是空串）。 */
+    fallback: Color,
+    onHex: (String) -> Unit,
+) {
+    val committed = hex.ifEmpty { CourseColors.toHex(fallback) }
+    var text by remember { mutableStateOf(committed) }
+    // 上一次「由本框写出去」的值：只有外面把它改成别的色（拖取色器、点「跟随主题色」）才整框换新，
+    // 否则用户刚打完的大小写、半截输入都会被自己这一下行回写冲掉。
+    var emitted by remember { mutableStateOf(hex) }
+    SideEffect {
+        if (hex != emitted) {
+            emitted = hex
+            text = committed
+        }
+    }
+    val valid = text.isBlank() || CourseColors.parseHex(text) != null
+    TextField(
+        value = text,
+        onValueChange = { typed ->
+            text = typed
+            val parsed = CourseColors.parseHex(typed)?.let { CourseColors.toHex(it) }
+            if (typed.isBlank()) {
+                emitted = ""
+                onHex("")
+            } else if (parsed != null) {
+                emitted = parsed
+                onHex(parsed)
+            }
+        },
+        label = if (hex.isEmpty()) "Hex 色值（留空 = 跟随主题色）" else "Hex 色值（#RRGGBB）",
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    if (!valid) {
+        Text("这个 Hex 认不出来，格式是 #RRGGBB", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.error)
     }
 }

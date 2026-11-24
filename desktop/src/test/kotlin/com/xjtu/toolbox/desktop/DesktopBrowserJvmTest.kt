@@ -15,19 +15,10 @@ import kotlin.test.assertTrue
 class DesktopBrowserJvmTest {
 
     @Test
-    fun `中转页在「真能用」那张表里（名字照 app 那一屏的标题）`() {
-        val entry = assertNotNull(
-            DESKTOP_SUPPORTED_ROUTES.firstOrNull { it.first == AppRoute.Browser() },
-            "AppRoute.Browser 必须进 DESKTOP_SUPPORTED_ROUTES，否则索引页列不出它",
-        )
-        assertEquals(
-            "浏览器",
-            entry.second,
-            "名字照 :app 侧那一屏自己的标题（`BrowserScreen` 的 `pageTitle` 初值就是「浏览器」）",
-        )
-        assertTrue(
-            AppRoute.Browser().id in DESKTOP_OPENABLE_ROUTE_IDS,
-            "首页宫格那张「真能打开」的表也要有它（它由 DESKTOP_SUPPORTED_ROUTES 长出来）",
+    fun `中转页不进索引页（空地址点进去只有「链接为空」）`() {
+        assertNull(
+            DESKTOP_SUPPORTED_ROUTES.firstOrNull { it.first is AppRoute.Browser },
+            "AppRoute.Browser 只由别的页带着地址跳进来，索引页不列它",
         )
     }
 

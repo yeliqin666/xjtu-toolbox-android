@@ -130,7 +130,8 @@ private fun runtimeSpotlight(
     val visible by remember(light) {
         derivedStateOf(structuralEqualityPolicy()) { light.progress > 0f }
     }
-    val shader = remember { RuntimeShader(SpotlightShader) }
+    // 每次画之前四个 uniform 全部重设、随即录制，可以全进程共用（见 CouiShaderCache）
+    val shader = remember { CouiShaderCache.get(SpotlightShader) }
     val paint = remember(style.blendMode) { Paint().apply { blendMode = style.blendMode } }
     var inputCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val touchModifier = Modifier

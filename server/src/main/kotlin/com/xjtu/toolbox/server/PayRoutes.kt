@@ -9,7 +9,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
-/** `/api/pay*` —— 付款码（`docs/api-contract.md` §5.7）的两个只读端点：拿码 + 可用加餐券列表。 */
+/** `/api/pay*` —— 付款码（`docs/api-contract.md`）的两个只读端点：拿码 + 可用加餐券列表。 */
 internal fun Route.payRoutes(session: ServeSession) {
     route(PAY_SEGMENT) {
 
@@ -80,7 +80,7 @@ internal data class PayVoucherDto(
     val showCardId: String,
     val voucherName: String,
     val typeName: String,
-    /** **分**（与 §5.5 的 `/api/coupon*` 同一个单位；除 100 是消费方的事）。 */
+    /** **分**（与 `/api/coupon*` 同一个单位；除 100 是消费方的事）。 */
     val amountFen: Long,
     val endDate: String,
 )
@@ -107,7 +107,7 @@ internal data class PayVoucherSelectRequest(
     val showCardIds: List<String>,
 )
 
-/** `POST /api/pay/vouchers/select` 的 `data`（与 §5.3.1 / §5.3.2 两个写端点同一个 `{ok, message}` 形状）。 */
+/** `POST /api/pay/vouchers/select` 的 `data`（与图书馆、场馆的写端点同一个 `{ok, message}` 形状）。 */
 @Serializable
 internal data class PayActionResult(val ok: Boolean, val message: String)
 

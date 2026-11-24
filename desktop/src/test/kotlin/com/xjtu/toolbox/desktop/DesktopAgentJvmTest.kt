@@ -39,7 +39,7 @@ class DesktopAgentJvmTest {
         // 这一端没有登录：命名空间是 `default`（见 `AccountContext.suffixFor(null)`）
         AccountContext.activeAccountId = null
         // ⚠️ 先指到临时根目录、再清：`wipeSecureStore` 删的是**当前根目录**下那个文件，
-        // 顺序反了就会去删用户真实的 ~/.local/share/xjtu-toolbox。
+        // 顺序反了就会去删用户真实的 ~/.local/share/xjtu-dzhz。
         dataRootOverride = root
         // 存储是**进程级缓存**（`:data` 的 `secureKeyValueStore` 按名字缓存实例）⇒ 每条用例先按名字清一遍：
         // 不清的话新根目录下会拿到上一条用例建的实例（文件句柄还指在旧根目录里）。
@@ -160,7 +160,7 @@ class DesktopAgentJvmTest {
     }
 
     @Test
-    fun `工具表与 serve 同档：九件都画，没接的一档都不画`() {
+    fun `工具表与 serve 同档：十件都画，没接的一档都不画`() {
         val host = newHost()
         val tools = host.tools(AgentConfig())
 
@@ -202,17 +202,14 @@ class DesktopAgentJvmTest {
             assertEquals("2*3+4 = 10", tools.execute("calculate", """{"expression":"2*3+4"}"""))
             assertEquals("error: missing_param; param: expression", tools.execute("calculate", "{}"))
 
-            // app_guide：两个话题的判据与 `:core` 的 agentGuideText 同一份
-            val campus = tools.execute("app_guide", """{"topic":"campus"}""")
-            assertTrue(campus.contains("兴庆校区"), "campus 话题没给校区那段：$campus")
-            assertTrue(!campus.contains("App 功能与入口"), "campus 话题不该带 App 功能那段")
-            val both = tools.execute("app_guide", "{}")
-            assertTrue(both.contains("App 功能与入口") && both.contains("兴庆校区"), "不带 topic 时两段都要给")
+            assertTrue(tools.execute("app_guide", "{}").contains("App 功能与入口"))
+            val canteen = tools.execute("search_campus_guide", """{"query":"兴庆食堂"}""")
+            assertTrue(canteen.contains("梧桐苑"), "校园指南没查到兴庆食堂：$canteen")
 
             // preference：记下来就进系统提示那一段，删掉就没了
-            assertEquals("记住了：常在 = 兴庆", tools.execute("preference", """{"key":"常在","value":"兴庆"}"""))
+            assertEquals("记住了：常在 = 兴庆\n当前偏好：常在 = 兴庆", tools.execute("preference", """{"key":"常在","value":"兴庆"}"""))
             assertTrue(tools.memoryBlock().contains("- 常在：兴庆"), "偏好没进系统提示：${tools.memoryBlock()}")
-            assertEquals("忘掉了「常在」。", tools.execute("preference", """{"key":"常在"}"""))
+            assertEquals("忘掉了「常在」。\n当前没有记住的偏好。", tools.execute("preference", """{"key":"常在"}"""))
             assertTrue(tools.memoryBlock().isEmpty(), "删掉之后不该还在：${tools.memoryBlock()}")
         }
 
@@ -255,7 +252,7 @@ class DesktopAgentJvmTest {
         }
     }
 
-    /** 密钥那一半的落盘（`docs/agent-web-spec.md` §5.1）。 */
+    /** 密钥那一半的落盘。 */
     @Test
     fun `密钥那一半：旧明文读得回、文件名不变、有保护器时落信封`() {
         val secureFile = File(root, "agent_config_secure${AccountContext.safeSuffix()}.properties")

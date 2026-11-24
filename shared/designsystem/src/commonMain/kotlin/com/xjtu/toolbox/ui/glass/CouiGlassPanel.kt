@@ -31,6 +31,8 @@ expect fun CouiGlassPanel(
     tint: Color = Color.Unspecified,
     /** 兜底实底颜色；[Color.Unspecified] = 纯白（浅色）/ 纯黑（深色）。承白字的表面要传自己的主色。 */
     fallbackColor: Color = Color.Unspecified,
+    /** 背后内容的模糊半径（像素）；默认与有色浮层一致。只有 Android 15+ 的 AGSL 材质用得上。 */
+    blurRadius: Float = 10f,
     content: @Composable BoxScope.() -> Unit,
 )
 

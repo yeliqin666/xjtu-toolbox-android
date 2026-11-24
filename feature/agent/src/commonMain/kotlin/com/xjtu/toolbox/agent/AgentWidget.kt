@@ -7,6 +7,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forum
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import androidx.compose.material.icons.Icons
@@ -98,6 +102,7 @@ fun AgentWidgetView(
         is ZyxfWidget       -> ZyxfWidgetView(widget, host, modifier, onAsk)
         is CampusMapWidget  -> CampusMapWidgetView(widget, modifier)
         is PlanWidget       -> PlanWidgetView(widget, modifier, onTool)
+        is PostWidget       -> PostWidgetView(widget, modifier, onTool, onNavigate)
         is BusWidget        -> BusWidgetView(widget, modifier, onNavigate)
         is LmsFileWidget    -> LmsFileWidgetView(widget, host, modifier, onNavigate, onTool)
     }
@@ -949,6 +954,129 @@ private fun PlanProposalRow(p: PlanProposal, state: PlanAddState, onAdd: ((Boole
                 enabled = state != PlanAddState.Added && state != PlanAddState.Busy,
                 onClick = { onAdd(state is PlanAddState.Conflict) },
             )
+        }
+    }
+}
+
+/** 发过 / 取消过的帖子按原稿记在本机：重绘历史消息、重启后仍是「已发布」或「已取消」，不会重复发。 */
+private object PostPublishedLog {
+    private const val CANCELLED = "cancelled"
+    private val store get() = com.xjtu.toolbox.platform.keyValueStore("agent_post_published" + com.xjtu.toolbox.account.AccountContext.safeSuffix())
+    private fun keyOf(w: PostWidget) = (w.title + "\u0001" + w.body).hashCode().toString()
+    fun stateOf(w: PostWidget): PostState = when (val v = store.getString(keyOf(w))) {
+        null -> PostState.Idle
+        CANCELLED -> PostState.Cancelled
+        else -> v.toIntOrNull()?.let { PostState.Done(it) } ?: PostState.Idle
+    }
+    fun put(w: PostWidget, number: Int) = store.putString(keyOf(w), number.toString())
+    fun cancel(w: PostWidget) = store.putString(keyOf(w), CANCELLED)
+}
+
+private sealed interface PostState {
+    data object Idle : PostState
+    data object Busy : PostState
+    data object Cancelled : PostState
+    data class Done(val number: Int) : PostState
+    data class Failed(val message: String) : PostState
+}
+
+@Composable
+private fun PostWidgetView(
+    w: PostWidget,
+    modifier: Modifier,
+    onTool: (suspend (String, String) -> String)?,
+    onNavigate: (AppRoute) -> Unit,
+) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var title by androidx.compose.runtime.saveable.rememberSaveable(w) { androidx.compose.runtime.mutableStateOf(w.title) }
+    var body by androidx.compose.runtime.saveable.rememberSaveable(w) { androidx.compose.runtime.mutableStateOf(w.body) }
+    var category by androidx.compose.runtime.saveable.rememberSaveable(w) { androidx.compose.runtime.mutableStateOf(w.category) }
+    var editing by androidx.compose.runtime.saveable.rememberSaveable(w) { androidx.compose.runtime.mutableStateOf(false) }
+    var state by androidx.compose.runtime.remember(w) {
+        androidx.compose.runtime.mutableStateOf(PostPublishedLog.stateOf(w))
+    }
+    val done = state as? PostState.Done
+    val cancelled = state == PostState.Cancelled
+    val canEdit = onTool != null && done == null && !cancelled
+    WidgetCard(
+        title = "社区帖子", icon = Icons.Default.Forum, accent = MiuixTheme.colorScheme.primary,
+        subtitle = when {
+            done != null -> "已发布到「$category」"
+            cancelled -> "已取消，不会发布"
+            onTool == null -> category
+            else -> "$category · 核对后点「发布」才会发出"
+        },
+        modifier = modifier,
+    ) {
+        if (w.caption.isNotBlank()) Text(w.caption, style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(bottom = 10.dp))
+        if (canEdit) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 10.dp)) {
+                AgentPostCard.CATEGORIES.forEach { c ->
+                    com.xjtu.toolbox.ui.components.PidaiChip(c, selected = category == c, onClick = { category = c })
+                }
+            }
+        }
+        if (editing && canEdit) {
+            top.yukonga.miuix.kmp.basic.TextField(value = title, onValueChange = { title = it }, label = "标题",
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            top.yukonga.miuix.kmp.basic.TextField(value = body, onValueChange = { body = it }, label = "正文（Markdown）",
+                modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp))
+        } else {
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(com.xjtu.toolbox.ui.components.AppInsetColor)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold)
+                Text(body, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 14, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        (state as? PostState.Failed)?.let {
+            Text(it.message, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 8.dp))
+        }
+        if (onTool != null || done != null) {
+            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (done != null) {
+                    com.xjtu.toolbox.ui.components.PidaiChip("查看帖子 #${done.number}", icon = Icons.Default.Check,
+                        onClick = { onNavigate(AppRoute.CommunityPost(done.number)) })
+                } else if (cancelled) {
+                    com.xjtu.toolbox.ui.components.PidaiChip("已取消", icon = Icons.Default.Close, enabled = false, onClick = {})
+                } else if (onTool != null) {
+                    com.xjtu.toolbox.ui.components.PidaiChip("取消", icon = Icons.Default.Close,
+                        enabled = state != PostState.Busy,
+                        onClick = {
+                            editing = false
+                            PostPublishedLog.cancel(w)
+                            state = PostState.Cancelled
+                        })
+                    com.xjtu.toolbox.ui.components.PidaiChip(if (editing) "改好了" else "修改",
+                        enabled = state != PostState.Busy, onClick = { editing = !editing })
+                    com.xjtu.toolbox.ui.components.PidaiChip(
+                        if (state == PostState.Busy) "发布中" else "发布",
+                        icon = Icons.AutoMirrored.Filled.Send,
+                        emphasized = true,
+                        enabled = state != PostState.Busy && title.isNotBlank() && body.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                state = PostState.Busy
+                                editing = false
+                                val reply = runCatching { onTool(AgentPostCard.TOOL, AgentPostCard.publishArgs(title.trim(), body.trim(), category)) }
+                                    .getOrElse { "error: ${it.message}" }
+                                val number = reply.takeIf { it.startsWith("ok:") }?.substringAfter('#')?.takeWhile { it.isDigit() }?.toIntOrNull()
+                                state = if (number != null) {
+                                    PostPublishedLog.put(w, number)
+                                    PostState.Done(number)
+                                } else PostState.Failed(reply.removePrefix("error:").trim().ifBlank { "没发出去，可再试一次" })
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 }

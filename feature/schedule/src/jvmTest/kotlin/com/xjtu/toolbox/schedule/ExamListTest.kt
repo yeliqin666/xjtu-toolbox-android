@@ -7,7 +7,7 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 
 /**
- * 考试列表排序的契约单测（plan2 §1.3④）：未结束的按时间正序在前、日期待定的排最后，
+ * 考试列表排序的契约单测：未结束的按时间正序在前、日期待定的排最后，
  * 已结束的单独收着并按日期倒序（最近考完的排最上面）。
  */
 class ExamListTest {

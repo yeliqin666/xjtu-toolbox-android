@@ -2,6 +2,10 @@ package com.xjtu.toolbox.widget
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.text.SpannableString
 import android.text.style.StrikethroughSpan
 import android.widget.RemoteViews
@@ -28,6 +32,30 @@ private class ScheduleWidgetCourseFactory(
 
     private var courses: List<WidgetCourse> = emptyList()
 
+    /** 4x2 左侧色条，按颜色缓存（#448，见 [stripe]）。 */
+    private val stripes = HashMap<Int, Bitmap>()
+
+    /**
+     * 4x2 的色条直接画成该颜色的小图交给桌面，不再对共用的白色色条图 `setColorFilter`。
+     *
+     * 同一张 drawable 在桌面进程里各行共用一份状态，HyperOS 桌面上滤镜会串：所有行的色条
+     * 都成了同一种颜色，长按部件、从部件进应用重绘一次又换成另一行的颜色（#448）。
+     * 每行一张自己的位图就没有可串的状态了。尺寸取色条实际的 3dp 宽、两行字高，
+     * `fitXY` 纵向拉伸只影响 2dp 的圆角，看不出来。
+     */
+    private fun stripe(color: Int): Bitmap = stripes.getOrPut(color) {
+        val density = context.resources.displayMetrics.density
+        val w = (3 * density).toInt().coerceAtLeast(1)
+        val h = (32 * density).toInt().coerceAtLeast(1)
+        val r = 2 * density
+        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also {
+            Canvas(it).drawRoundRect(
+                RectF(0f, 0f, w.toFloat(), h.toFloat()), r, r,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color },
+            )
+        }
+    }
+
     override fun onCreate() = Unit
 
     override fun onDataSetChanged() {
@@ -43,6 +71,7 @@ private class ScheduleWidgetCourseFactory(
 
     override fun onDestroy() {
         courses = emptyList()
+        stripes.clear()
     }
 
     override fun getCount(): Int = courses.size
@@ -68,10 +97,16 @@ private class ScheduleWidgetCourseFactory(
         fun title(text: String): CharSequence =
             if (!course.done) text
             else SpannableString(text).apply { setSpan(StrikethroughSpan(), 0, length, 0) }
-        if (course.done) {
-            views.setColor(colorTarget, "setColorFilter", R.color.widget_course_done)
-        } else {
-            views.setInt(colorTarget, "setColorFilter", course.color)
+        when (widgetSize) {
+            WidgetSize.SMALL -> if (course.done) {
+                views.setColor(colorTarget, "setColorFilter", R.color.widget_course_done)
+            } else {
+                views.setInt(colorTarget, "setColorFilter", course.color)
+            }
+            WidgetSize.LARGE -> views.setImageViewBitmap(
+                colorTarget,
+                stripe(if (course.done) context.getColor(R.color.widget_course_done) else course.color),
+            )
         }
         views.setColorStateList(
             R.id.widget_course_desc, "setTextColor",

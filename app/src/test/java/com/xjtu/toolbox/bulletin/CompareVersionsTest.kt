@@ -57,12 +57,12 @@ class CompareVersionsTest {
 
     @Test
     fun betaSchemeMigration() {
-        // 迁移后的预览号：同一核心版本内序号按数字递增，正式版最高（DEVELOP.md §1.3）
+        // 迁移后的预览号：同一核心版本内序号按数字递增，正式版最高（CONTRIBUTING.md §1.3）
         assertLessThan("6.0.1-beta.1", "6.0.1-beta.2")
         assertLessThan("6.0.1-beta.2", "6.0.1-beta.10")
         assertLessThan("6.0.1-beta.10", "6.0.1")
         // 旧预览用户（-dev.N）能升到新核心版本的 beta：靠核心版本号抬升，而不是靠 -beta 字面量。
-        // 同一核心版本内 dev 反而比 beta 大，这正是 §1.8 要求「迁移与抬核心版本号同一提交完成」的原因。
+        // 同一核心版本内 dev 反而比 beta 大，所以迁移时一并抬了核心版本号（CONTRIBUTING.md §1.8）。
         assertLessThan("6.0.0-dev.384", "6.0.1-beta.1")
         assertLessThan("6.0.0-dev.999", "6.0.1-beta.1")
         assertLessThan("6.0.1-beta.1", "6.0.1-dev.1")

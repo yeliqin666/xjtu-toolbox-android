@@ -18,11 +18,11 @@ import kotlinx.serialization.json.put
 class CampusCouponApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.5）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : CouponSource {
 
-    /** 见类 KDoc：领券端了（`POST /api/coupon/activate`，契约 §5.5）⇒ 屏上那个按钮照旧画。 */
+    /** 见类 KDoc：领券端了（`POST /api/coupon/activate`）⇒ 屏上那个按钮照旧画。 */
     override val canActivate: Boolean get() = true
 
     override suspend fun queryCoupons(filter: CouponFilter, page: Int, pageSize: Int): CouponPage {
@@ -64,7 +64,7 @@ class CampusCouponApi(
     override suspend fun getCouponDetail(showCardId: String): CouponDetail {
         requireServe()
         val data = client.serveData("加载加餐券详情", baseUrl, DETAIL_PATH, listOf("showCardId" to showCardId))
-        // `showCardId` 用**请求给的那个**（§5.5：响应里那一格就是请求原样回）
+        // `showCardId` 用**请求给的那个**（响应里那一格就是请求原样回）
         return CouponDetail(
             showCardId = showCardId,
             voucherName = data["voucherName"].safeString(),

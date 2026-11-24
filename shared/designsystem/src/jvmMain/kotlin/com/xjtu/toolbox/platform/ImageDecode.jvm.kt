@@ -47,6 +47,8 @@ actual fun decodeImageDownToWidth(
 ): ImageBitmap? = decodeImageFull(bytes)
 
 /** JVM 侧：拿不到进程可用内存 ⇒ 固定 32MB。 */
+actual fun ImageBitmap.toDisplayBitmap(): ImageBitmap = this
+
 actual fun imageMemoryCacheBudgetBytes(): Int = 32 * 1024 * 1024
 
 actual fun cropImageToJpegDataUri(bytes: ByteArray, left: Int, top: Int, right: Int, bottom: Int, maxDim: Int): String? =

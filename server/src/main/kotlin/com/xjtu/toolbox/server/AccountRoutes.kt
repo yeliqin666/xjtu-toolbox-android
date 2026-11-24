@@ -13,9 +13,9 @@ import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
 /**
- * `/api/accounts` —— 多账号页在这一端的端点族（`docs/api-contract.md` §5.10）。
+ * `/api/accounts` —— 多账号页在这一端的端点族（`docs/api-contract.md`）。
  *
- * 一条读 + 四条写（`docs/parity-ledger.md` §6.1 会议 #10 = 丙：写侧全做，HTTPS 成硬前提）：
+ * 一条读 + 四条写（写侧要求 HTTPS）：
  *
  * | 端点 | 请求体 | 干什么 |
  * |---|---|---|

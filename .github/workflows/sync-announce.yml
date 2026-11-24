@@ -90,7 +90,11 @@ jobs:
           git remote add gitee "$GITEE_URL" 2>/dev/null || git remote set-url gitee "$GITEE_URL"
           git config --local --replace-all 'credential.https://gitee.com.helper' \
             '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
-          git push gitee HEAD:announce --force
+          # 先普通推，被拒（Gitee 上分叉了）才强推并告警；这份 workflow 跑在 announce 分支上，用不到 .github/scripts
+          git push gitee HEAD:announce || {
+            echo "::warning::Gitee 上的 announce 与 GitHub 分叉，改为强推覆盖"
+            git push gitee HEAD:announce --force
+          }
           echo "announce branch synced to Gitee"
 
       - name: Fail if OSS bulletin upload failed

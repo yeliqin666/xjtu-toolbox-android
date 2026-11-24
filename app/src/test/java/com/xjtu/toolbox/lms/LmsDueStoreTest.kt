@@ -6,7 +6,7 @@ import org.junit.Test
 import java.time.Instant
 
 /**
- * LmsDueStore 合并规则的契约单测（plan2 §5.4）：新旧覆盖按 fetchedAt，
+ * LmsDueStore 合并规则的契约单测：新旧覆盖按 fetchedAt，
  * 过期（截止早于「现在减 1 天」）的条目丢弃。
  */
 class LmsDueStoreTest {

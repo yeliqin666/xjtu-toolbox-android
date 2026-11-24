@@ -75,9 +75,26 @@ data class Bulletin(
     val allowMultiple: Boolean = false,
     /** 附加一个"其他（自己填）"文本框；填了就作为额外一条选项一起提交。 */
     val allowOther: Boolean = false,
+    /** 投票结果，每 4 天由 Action 写回（见 .github/scripts/announce.py）；按 [options] 的顺序，末尾可能多一项「其他」。 */
+    val results: List<PollResult> = emptyList(),
+    /** 参与投票的人数（按设备去重）。 */
+    val voters: Int = 0,
+    /** 结果统计时间，ISO 文本。 */
+    val resultsAt: String? = null,
+    /** 社区里建这个投票的帖子，结果每天同步过去。 */
+    val discussionUrl: String? = null,
 ) {
     val isPoll: Boolean get() = options.isNotEmpty()
+
+    /** 投票截止就是公告的 [endsAt]（关闭投票帖 = 改成关帖时刻），旧版 App 到点同样不再提示。 */
+    fun isClosedAt(now: Instant): Boolean = endsAt != null && now >= endsAt
 }
+
+/** 投票的一个选项拿到几票。 */
+data class PollResult(val option: String, val votes: Int)
+
+/** 这条公告在消息收纳里的条目 id（首页、弹窗、收纳三处对账都靠它）。 */
+val Bulletin.inboxId: String get() = "bulletin:$id"
 
 object BulletinRules {
     private val beijing = CampusTimeZone
@@ -125,6 +142,14 @@ object BulletinRules {
                     .orEmpty(),
                 allowMultiple = obj.get("allowMultiple")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
                 allowOther = obj.get("allowOther")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
+                results = obj.get("results")?.takeIf { it.isArray }?.jsonArray?.mapNotNull { r ->
+                    val o = r.takeIf { it.isObject }?.jsonObject ?: return@mapNotNull null
+                    val option = o.get("option")?.takeIf { it.isPrimitive }?.stringValue?.trim().orEmpty()
+                    if (option.isEmpty()) null else PollResult(option, parseInt(o.get("votes")) ?: 0)
+                }.orEmpty(),
+                voters = parseInt(obj.get("voters")) ?: 0,
+                resultsAt = obj.get("resultsAt")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                discussionUrl = obj.get("discussionUrl")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
             )
         }
     }
@@ -168,6 +193,8 @@ object BulletinRules {
         snoozedIds: Set<String>,
     ): Boolean {
         if (bulletin.id in snoozedIds) return true
+        // 「必须升级」不能被永久关掉：只认本次启动里的推迟
+        if (bulletin.level == BulletinLevel.FORCE_UPDATE) return false
         if (bulletin.id in dismissedIds) return true
         if (bulletin.level == BulletinLevel.CRITICAL && bulletin.mustAck && bulletin.id in ackedIds) {
             return true
@@ -191,8 +218,9 @@ object BulletinRules {
     ): List<Bulletin> {
         return items
             .filter { isActive(it, now, currentVersion, currentVersionCode) }
-            .filterNot { isHidden(it, dismissedIds, ackedIds, snoozedIds) }
+            // 先按版本升级成「必须升级」再判断关没关过：以「更新」关掉的公告后来加了强制门槛，照样要出现
             .map { resolveForVersion(it, currentVersion) }
+            .filterNot { isHidden(it, dismissedIds, ackedIds, snoozedIds) }
             .sortedWith(
                 compareByDescending<Bulletin> { it.level.rank }
                     .thenByDescending { it.id },

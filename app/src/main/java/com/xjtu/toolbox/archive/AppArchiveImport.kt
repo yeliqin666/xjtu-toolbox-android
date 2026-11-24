@@ -2,7 +2,7 @@ package com.xjtu.toolbox.archive
 
 import java.io.File
 
-/** `:app` 侧的一次性导入编排：自校验 → 行数组预检 → §6.4 合并 → 落「已导入」标记。 */
+/** `:app` 侧的一次性导入编排：自校验 → 行数组预检 → 合并 → 落「已导入」标记。 */
 object AppArchiveImport {
 
     /** 标记文件名（档案目录里的一份点文件；[AppArchiveHost.readDirectory] 读档案时会跳过点文件）。 */
@@ -18,7 +18,7 @@ object AppArchiveImport {
             File(archive.parentFile, archive.name + MARKER_SUFFIX)
         }
 
-    /** 档案的身份（§2.1）：同一份档案再导入一次要被认出来（§6.1 第 1 条的幂等）。 */
+    /** 档案的身份：同一份档案再导入一次要被认出来（导入幂等）。 */
     fun identityOf(manifest: ArchiveManifest): String =
         "${manifest.createdAt}|${manifest.createdBy}|${manifest.version}"
 
@@ -42,7 +42,7 @@ object AppArchiveImport {
     }
 
     /**
-     * 第一步：算差异，**端内一个字节不动**（§6.4「显式镜像档」的三端同一步）。
+     * 第一步：算差异，**端内一个字节不动**（「显式镜像档」的三端同一步）。
      *
      * 链路与 [run] 完全同一套：自校验 → 幂等标记 → 行数组预检 → [StoreArchive.plan]。
      * 拿到的 [AppArchivePlanOutcome.Planned] 就是弹窗的全部素材（档位话术见 [ArchiveImportPrompt]），
@@ -122,7 +122,7 @@ sealed interface ArchiveImportOutcome {
     /** 真的导了：写了几笔见 [result]。 */
     data class Imported(val archive: File, val identity: String, val result: ImportResult.Ok) : ArchiveImportOutcome
 
-    /** 这份档案的身份与标记一致 ⇒ 什么都不做（§6.1 第 1 条：导入幂等）。 */
+    /** 这份档案的身份与标记一致 ⇒ 什么都不做（导入幂等）。 */
     data class AlreadyImported(val archive: File, val identity: String) : ArchiveImportOutcome
 
     /** 明确失败，端内零改动。 */

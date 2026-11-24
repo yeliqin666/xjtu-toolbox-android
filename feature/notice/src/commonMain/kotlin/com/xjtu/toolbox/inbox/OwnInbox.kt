@@ -2,6 +2,7 @@ package com.xjtu.toolbox.inbox
 
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.bulletin.BulletinRules
+import com.xjtu.toolbox.bulletin.inboxId
 import com.xjtu.toolbox.community.CommunityActivity
 import com.xjtu.toolbox.community.CommunityActivityKind
 import com.xjtu.toolbox.library.MyBookingInfo
@@ -15,9 +16,13 @@ import kotlin.time.Instant
 
 /** 我们自己的提醒转成收纳条目，调用方一行搞定。 */
 object OwnInbox {
-    fun grade(newCount: Int, total: Int) = InboxItem(
-        id = "grade:$total", category = InboxCategories.GRADE, source = "成绩",
-        title = "出了 $newCount 门新成绩", body = "目前共 $total 门", time = Clock.System.now().toEpochMilliseconds(), route = "jwapp_score",
+    /** @param courses 新出分的课名（可空）；门数不变的一增一删靠它区分条目 id。 */
+    fun grade(newCount: Int, total: Int, courses: List<String> = emptyList()) = InboxItem(
+        id = if (courses.isEmpty()) "grade:$total" else "grade:$total:${courses.sorted().joinToString("|").hashCode()}",
+        category = InboxCategories.GRADE, source = "成绩",
+        title = "出了 $newCount 门新成绩",
+        body = if (courses.isEmpty()) "目前共 $total 门" else "${courses.take(3).joinToString("、")}${if (courses.size > 3) " 等" else ""} · 目前共 $total 门",
+        time = Clock.System.now().toEpochMilliseconds(), route = "jwapp_score",
     )
 
     fun attendance(text: String) = InboxItem(
@@ -42,21 +47,27 @@ object OwnInbox {
         route = AppRoute.Browser(n.link).id,
     )
 
-    /** 社区里别人的回复或 @。标题用帖子标题，同一帖的多条在收纳里折成一组；点开直达那一楼。 */
+    /**
+     * 社区里别人的回复或 @。标题用帖子标题，同一帖的多条在收纳里折成一组。
+     *
+     * 点开落到 App 内的那一帖（[AppRoute.CommunityPost]），不再丢给浏览器里的 github.com：
+     * 社区本来就是 App 里自带的页面，跳出去等于让用户重新登录一遍 GitHub。
+     * 只有编号拿不到（老数据 / 接口没给）时才退回网页。
+     */
     fun community(a: CommunityActivity) = InboxItem(
         id = "community:${a.id}", category = InboxCategories.COMMUNITY, source = "社区",
         title = a.title,
         body = a.author + (if (a.kind == CommunityActivityKind.MENTION) " @了你：" else " 回复：") +
             a.body.replace(Regex("\\s+"), " ").trim().take(80),
         time = runCatching { Instant.parse(a.createdAt).toEpochMilliseconds() }.getOrElse { Clock.System.now().toEpochMilliseconds() },
-        route = AppRoute.Browser(a.url).id,
+        route = a.number.takeIf { it > 0 }?.let { AppRoute.CommunityPost(it).id } ?: AppRoute.Browser(a.url).id,
     )
 
     /** 工具箱公告。时间取开始时间，没有就取 id 开头的日期（公告 id 都以发布日期开头），再没有就算现在。 */
     fun bulletin(b: Bulletin): InboxItem {
         val dated = BulletinRules.parseInstant(b.id.take(10))?.toEpochMilliseconds()
         return InboxItem(
-            id = "bulletin:${b.id}", category = InboxCategories.BULLETIN, source = "工具箱",
+            id = b.inboxId, category = InboxCategories.BULLETIN, source = "工具箱",
             title = b.title, body = b.body, time = b.startsAt?.toEpochMilliseconds() ?: dated ?: Clock.System.now().toEpochMilliseconds(),
             route = b.url?.let { AppRoute.Browser(it).id },
         )

@@ -15,6 +15,7 @@ fun LoginType.siteKey(): String = when (this) {
     LoginType.ATTENDANCE -> "new_attendance"
     LoginType.ICLASSFACE -> "iclassface"
     LoginType.QMS -> QmsSession.SITE_KEY
+    LoginType.SS -> SsSession.SITE_KEY
 }
 
 /**
@@ -40,3 +41,13 @@ suspend fun SessionManager.ensureSite(
     userInitiated: Boolean = false,
     silent: Boolean = false,
 ): SiteSession = ensureSite(type.siteKey(), userInitiated, silent)
+
+/**
+ * 打开学堂网页（作业提交页）之前：学堂会话和统一认证的登录态都补到可用，内置浏览器注进去就能免密进，
+ * 见 [LmsSession.ensureWebSso]。
+ */
+suspend fun SessionManager.ensureLmsWebSso() {
+    val site = getSite(LmsSession.SITE_KEY) as? LmsSession ?: return
+    val creds = credentials ?: throw AuthExpiredException(site.siteName, "未配置凭据")
+    site.ensureWebSso(creds.first, creds.second)
+}

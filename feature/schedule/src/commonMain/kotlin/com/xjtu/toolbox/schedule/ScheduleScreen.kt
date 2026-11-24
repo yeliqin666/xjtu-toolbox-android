@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 
+import androidx.lifecycle.repeatOnLifecycle
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.graphicsLayer
@@ -62,7 +63,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.EventAvailable
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -124,6 +125,8 @@ fun ScheduleScreen(
     val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     val vm: ScheduleViewModel = viewModel(key = "schedule") { ScheduleViewModel(host) }
     LaunchedEffect(campusNow.date, vm.startOfTerm, vm.totalWeeks) { vm.refreshClock(campusNow.date) }
+    // 系统日历（设置里打开才有）：进页面、跨天时重读；从设置或日历 App 回来时 onResume 也会重读
+    LaunchedEffect(campusNow.date) { vm.refreshSystemCalendar(campusNow.date) }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
@@ -146,6 +149,10 @@ fun ScheduleScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    // 系统日历：页面在前台时监听日历库（日历 App 里增删改、账户同步完），变了就重读；退到后台即注销
+    LaunchedEffect(vm, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) { vm.watchSystemCalendar() }
     }
 
     var showAddCourseDialog by remember { mutableStateOf(false) }
@@ -186,8 +193,8 @@ fun ScheduleScreen(
     // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用
     // 取 dev 那一份（它把 `campusNow` 带进了 buildUpcoming / ExamCountdown），
     // 并保留 parity 那一条新加的「作业截止没接就带一句缺口说明」
-    val upcomingItems = remember(vm.exams, vm.homeworkDue, campusNow.date, campusNow.hour, campusNow.minute) {
-        buildUpcoming(vm.exams, vm.homeworkDue, campusNow)
+    val upcomingItems = remember(vm.exams, vm.homeworkDue, vm.systemCalendarEvents, campusNow.date, campusNow.hour, campusNow.minute) {
+        buildUpcoming(vm.exams, vm.homeworkDue, campusNow, vm.systemCalendarEvents)
     }
     // 作业截止这一档没接的端，「接下来」里永远没有作业；把宿主的那一句带到时间轴底下。
     val dueHomeworkGap = remember(host) {
@@ -253,7 +260,12 @@ fun ScheduleScreen(
     }
 
     // 好友课表（匹配页存下的）：周视图可以挑一位叠上去，只叠同一学期的
-    val friends = remember(FriendTimetables.revision, host.login.accountId) { FriendTimetables.all() }
+    // 读存储 + 反序列化全部好友课表放到后台：日程常是启动页，不该在首次组合里同步做
+    val friends by androidx.compose.runtime.produceState(
+        emptyList<com.xjtu.toolbox.social.FriendTimetable>(),
+        FriendTimetables.revision,
+        host.login.accountId,
+    ) { value = withContext(kotlinx.coroutines.Dispatchers.Default) { FriendTimetables.all() } }
     val overlayFriend = remember(friends) { FriendTimetables.overlayId?.let { id -> friends.firstOrNull { it.id == id } } }
     val friendCourses = remember(overlayFriend, vm.selectedTermCode, vm.startOfTerm, vm.holidayDates) {
         overlayFriend?.takeIf { it.term == vm.selectedTermCode }
@@ -293,7 +305,7 @@ fun ScheduleScreen(
                 Icon(Icons.Default.Add, contentDescription = "添加日程")
             }
         }
-        // 周视图/全部周叠加的切换在标签行「第 N 周」那一格的选周里（§1.4），
+        // 周视图/全部周叠加的切换在标签行「第 N 周」那一格的选周里，
         // 这里不再放一个意思含糊的按钮。
         Box {
             // 主菜单
@@ -382,7 +394,7 @@ fun ScheduleScreen(
             // 分段控件按等分排，「第 N 周」那一格就是选周菜单的锚点
             BoxWithConstraints {
                 AppSegmentedTabs(
-                    // 今日 / 周 / 学期三格，见 plan2 §1.5；非本学期去掉今日
+                    // 今日 / 周 / 学期三格；非本学期去掉今日
                     tabs = listOf("今日", if (selectedTab == 1) "$weekLabel ▾" else weekLabel, "学期").drop(firstTab),
                     selectedTabIndex = (selectedTab - firstTab).coerceAtLeast(0),
                     // 原版分段控件不重复回调已选中项；选周要靠「第 N 周」二次点击，这里打开
@@ -465,7 +477,7 @@ fun ScheduleScreen(
     Scaffold(
         snackbarHost = {
             Box(Modifier.padding(bottom = contentBottomPadding)) {
-                SnackbarHost(snackbarHostState)
+                AppSnackbarHost(snackbarHostState)
             }
         },
     ) { _ ->
@@ -489,9 +501,15 @@ fun ScheduleScreen(
             val dndPrompt = host.autoDnd?.takeIf {
                 ScheduleCapability.AUTO_DND in host.honored && filteredMergedCourses.isNotEmpty() && it.shouldPrompt()
             }
-            val staticHeaderShown = (vm.showingStaleData && !vm.isLoading) || dndPrompt != null ||
-                (!vm.isLoading && vm.errorMessage == null &&
-                    ((currentContent == "week" && vm.isSwitching) || nextExam != null))
+            // 每条横幅的显示条件只在这里算一次，下面渲染直接读这几个值：新增横幅必须加进 staticHeaderShown，
+            // 否则它会画在玻璃顶栏底下、列表还多留一截空白（#517 就是漏了「未排课程」那条）
+            val ready = !vm.isLoading && vm.errorMessage == null
+            val showStale = vm.showingStaleData && !vm.isLoading
+            val showSwitching = ready && currentContent == "week" && vm.isSwitching
+            val examBanner = nextExam?.takeIf { ready }
+            val unscheduled = vm.pendingUnscheduled.takeIf { ready && it.isNotEmpty() }
+            val staticHeaderShown = showStale || dndPrompt != null || showSwitching ||
+                examBanner != null || unscheduled != null
             if (staticHeaderShown && contentTopPadding > 0.dp) Spacer(Modifier.height(contentTopPadding))
             val listTopPadding = if (staticHeaderShown) 0.dp else contentTopPadding
             dndPrompt?.let {
@@ -503,7 +521,7 @@ fun ScheduleScreen(
             }
 
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
-            if (vm.showingStaleData && !vm.isLoading) {
+            if (showStale) {
                 Surface(
                     color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                     modifier = Modifier
@@ -549,7 +567,7 @@ fun ScheduleScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                if (currentContent == "week" && vm.isSwitching) {
+                if (showSwitching) {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         height = 2.dp
@@ -558,13 +576,22 @@ fun ScheduleScreen(
                 // 没有独立的「考试」tab，改成常驻横幅——功能不能因为改版就消失。
                 // 点开是完整考试列表。
                 var showExamSheet by remember { mutableStateOf(false) }
-                nextExam?.let { n ->
+                examBanner?.let { n ->
                     ExamCountdownBanner(
                         n,
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 6.dp)
                             .clickable { showExamSheet = true },
+                    )
+                }
+                LaunchedEffect(vm.selectedTermCode, vm.isLoading) { if (!vm.isLoading) vm.loadUnscheduled() }
+                unscheduled?.let { pending ->
+                    UnscheduledBanner(
+                        pending,
+                        onDismiss = { vm.dismissUnscheduled(it.id) },
+                        onFill = { vm.draftFromUnscheduled(it); showAddCourseDialog = true },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                     )
                 }
                 if (showExamSheet) {
@@ -626,6 +653,7 @@ fun ScheduleScreen(
                                     textbooksProblem = vm.textbooksBackgroundError,
                                     onRequestTextbooks = vm::requestTextbooksInBackground,
                                     onNavigate = onNavigate,
+                                    calendarRevision = vm.systemCalendarEvents,
                                     // 宽屏：周视图点课不再弹窗，写进与今日 / 学期两级同一份选中状态，
                                     // 由右栏展示。三个入口一个面板。
                                     onCourseSelected = if (isWideLayout) {
@@ -663,6 +691,7 @@ fun ScheduleScreen(
                                     dueHomeworkGap = dueHomeworkGap,
                                     onAddPlan = vm::addPlanItems,
                                     onNavigate = onNavigate,
+                                    calendarEvents = vm.systemCalendarEvents,
                                 )
                             }
                         }
@@ -787,6 +816,7 @@ fun ScheduleScreen(
                             dueHomeworkGap = dueHomeworkGap,
                             onAddPlan = vm::addPlanItems,
                             onNavigate = onNavigate,
+                            calendarEvents = vm.systemCalendarEvents,
                         )
                     }
                 }
@@ -893,6 +923,8 @@ private fun ScheduleTabContent(
      * 窄屏传 null，走下面的本地选中 + 弹窗，行为与改造前一致。
      */
     onCourseSelected: ((CourseItem, Occurrence?) -> Unit)? = null,
+    /** 系统日历读过一次就换一个值（传日程页那份事件表）：变了周视图就重读这一周。 */
+    calendarRevision: Any? = null,
 ) {
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
     var selectedCourse by remember { mutableStateOf<CourseItem?>(null) }
@@ -974,7 +1006,8 @@ private fun ScheduleTabContent(
         // 一节课都没有（暑假、还没选课）。0 页 Pager 会崩，20 页空网格是原来的毛病。
         // 判的是 courses（含自定义日程）而不是 totalWeeks：后者只数教务课表，
         // 教务为空时用户自己加的日程也会被这一句挡住，加了等于没加。
-        if (courses.isEmpty()) {
+        // 知道开学日期时照样按周翻：系统日历的日程要按周画上去（#462），没课的周由下面的「这周没课」兜底。
+        if (courses.isEmpty() && (startOfTerm == null || showAllWeeks)) {
             // 空状态也要能下拉刷新（副文案就是这么引导的）：PullToRefresh 的拖动量
             // 全靠嵌套滚动分发，内容不满一屏又没有滚动容器时手势根本传不到它，
             // 垫一层 verticalScroll 只为建立滚动链，内容没有可滚的距离、视觉无变化。
@@ -1029,7 +1062,25 @@ private fun ScheduleTabContent(
                         (0..6).map { civilFromEpochDay(monday.toEpochDays().toLong() + it) }
                     } else null
                 }
-                if (weekCourses.isEmpty() && weekFriend.isEmpty() && courses.isNotEmpty()) {
+                // 系统日历（#462）：按这一周去读，翻到哪周读哪周；日历库变了（calendarRevision 换了）也重读
+                val weekEvents by produceState(emptyList<SystemCalendarEvent>(), weekDates, calendarRevision) {
+                    val days = weekDates
+                    value = if (days == null) emptyList() else {
+                        val (from, to) = SystemCalendarRules.queryWindow(days.first(), 7)
+                        try {
+                            kotlinx.coroutines.withContext(host.io) { host.systemCalendarEvents(from, to) }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
+                val weekCal = remember(weekEvents, weekDates, weekN) {
+                    weekDates?.let { weekCalendar(it, weekN, weekEvents) } ?: WeekCalendar(emptyList(), emptyMap())
+                }
+                val weekSlots = remember(weekCourses, weekCal) { weekCourses + weekCal.slots }
+                if (weekSlots.isEmpty() && weekFriend.isEmpty() && weekCal.allDay.isEmpty()) {
                     val emptyScroll = rememberScrollState()
                     com.xjtu.toolbox.ui.glass.ReportScrollPosition(emptyScroll)
                     EmptyState(
@@ -1040,10 +1091,11 @@ private fun ScheduleTabContent(
                     )
                 } else {
                     ScheduleGrid(
-                        weekCourses, allNames,
+                        weekSlots, allNames,
                         isCurrentWeek = (weekN == realCurrentWeek && selectedTermCode == currentTermCode),
                         weekDates = weekDates,
                         holidayNames = holidayDates,
+                        allDayEvents = weekCal.allDay,
                         bottomPadding = bottomPadding,
                         topPadding = gridTopPadding,
                         slotBadge = { badgeOf(it, weekN) },
@@ -1053,6 +1105,12 @@ private fun ScheduleTabContent(
                         },
                         onSlotClick = { item ->
                             val course = item as? CourseItem ?: return@ScheduleGrid
+                            // 系统日历条目不是课：报一下时间地点就行，改要去日历 App
+                            if (course.courseCode.startsWith(SYSTEM_CALENDAR_CODE_PREFIX)) {
+                                val time = formatMinute(course.startMinuteOfDay) + "–" + formatMinute(course.endMinuteOfDay)
+                                showBriefMessage("${course.courseName} · $time" + course.location.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty())
+                                return@ScheduleGrid
+                            }
                             val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
                             if (customEntity != null) onEditCustomCourse(customEntity)
                             else {
@@ -1449,6 +1507,44 @@ private fun CourseDetailDialog(
             // 下钻跳转前先关弹窗，行为与抽出前一致。
             onNavigate = { route -> close(); onNavigate(route) },
         )
+    }
+}
+
+/** 没排时间地点的课（#360），常驻页面顶部：每门课可忽略，或填时间地点存成自定义日程。 */
+@Composable
+private fun UnscheduledBanner(
+    courses: List<UnscheduledCourse>,
+    onDismiss: (UnscheduledCourse) -> Unit,
+    onFill: (UnscheduledCourse) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accent = MiuixTheme.colorScheme.primary
+    Surface(modifier = modifier, shape = RoundedCornerShape(12.dp), color = accent.copy(alpha = 0.08f)) {
+        Column(Modifier.padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 4.dp)) {
+            Text(
+                "${courses.size} 门课没排时间地点",
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Bold,
+                color = accent,
+            )
+            courses.forEach { u ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+                        Text(u.name, style = MiuixTheme.textStyles.body2, maxLines = 1)
+                        val detail = listOfNotNull(
+                            u.teacher.takeIf { it.isNotEmpty() },
+                            u.weeksText.takeIf { it.isNotEmpty() },
+                            u.credit.takeIf { it.isNotEmpty() }?.let { "$it 学分" },
+                        ).joinToString(" · ")
+                        if (detail.isNotEmpty()) {
+                            Text(detail, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1)
+                        }
+                    }
+                    TextButton(text = "忽略", onClick = { onDismiss(u) })
+                    TextButton(text = "填时间", onClick = { onFill(u) })
+                }
+            }
+        }
     }
 }
 

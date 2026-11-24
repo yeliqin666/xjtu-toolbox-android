@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -120,6 +122,8 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                 }
             }
 
+            PersonaRow(characterId)
+
             // 形状只对经典小岱生效。4 列：8 种形状刚好两行，缩略图能看出眼睛有没有被轮廓啃掉
             if (characterId == CLASSIC_ID && !plain) {
                 Text(
@@ -224,6 +228,89 @@ fun PidaiPushPreferences() {
 private const val PREVIEW_AT = 1.0
 
 private val TILE_RADIUS = 14.dp
+
+/**
+ * 角色提示词（#423）：当前角色的说话口吻，拼进小岱的系统提示，新对话生效。
+ * 经典小岱默认空，其余角色默认填好各自的口吻；都能改，也能恢复默认。
+ */
+@Composable
+private fun PersonaRow(characterId: String) {
+    val context = LocalContext.current
+    var revision by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val current = remember(characterId, revision) { PidaiAppearanceHost.persona(context, characterId) }
+    var editing by remember { mutableStateOf(false) }
+    // 做成一块浅底卡片 + 右侧「编辑」：只是一行字的话看不出能点
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+            .clickable { editing = true }
+            .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("角色提示词", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+            Text(
+                current.ifBlank { "未设置：小岱按默认语气说话" },
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            top.yukonga.miuix.kmp.basic.Icon(
+                androidx.compose.material.icons.Icons.Outlined.Edit,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text("编辑", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
+        }
+    }
+    if (!editing) return
+    var draft by remember(characterId) { mutableStateOf(current) }
+    top.yukonga.miuix.kmp.window.WindowDialog(
+        show = true,
+        title = "角色提示词",
+        summary = "决定小岱说话的口吻，新对话生效。只影响语气，不影响查到的数据。",
+        onDismissRequest = { editing = false },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            top.yukonga.miuix.kmp.basic.TextField(
+                value = draft,
+                onValueChange = { if (it.length <= 500) draft = it },
+                label = "留空则按默认语气",
+                singleLine = false,
+                maxLines = 8,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                top.yukonga.miuix.kmp.basic.TextButton(
+                    text = "恢复默认",
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        PidaiAppearanceHost.resetPersona(context, characterId)
+                        revision++
+                        editing = false
+                    },
+                )
+                top.yukonga.miuix.kmp.basic.TextButton(
+                    text = "保存",
+                    colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColorsPrimary(),
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        PidaiAppearanceHost.setPersona(context, characterId, draft)
+                        revision++
+                        editing = false
+                    },
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun CharacterTile(

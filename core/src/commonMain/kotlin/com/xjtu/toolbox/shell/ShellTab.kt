@@ -14,16 +14,17 @@ data class ShellTab(
     val iconSize: Dp = 24.dp,
     val showsAccountBadge: Boolean = false,
     /**
-     * 这一页自己画顶栏（原本是压栈的子页，被放到了底栏上）：壳不画主顶栏，
-     * 也不按主顶栏的折叠给它做位移（见 ShellBarPage）。
+     * 这一页自己画顶栏（首页，或原本压栈、被放到底栏上的子页）：壳不画主顶栏，
+     * 也不按主顶栏的折叠给它做位移。两种风格下都从屏幕顶边画起，顶栏自己盖住状态栏
+     *（拿到的 `contentTopPadding` 就是状态栏高度），见 ShellBarPage。
      */
     val drawsOwnTopBar: Boolean = false,
     /**
-     * 这一页两种导航风格都从屏幕顶边画起，自己让状态栏（拿到的 `contentTopPadding` 就是状态栏高度）。
-     * 首页的顶栏和模糊带是页面自己的，经典风格下也要盖住状态栏，不然两条割裂。
-     * 其余自画顶栏的子页（[drawsOwnTopBar]）经典风格下仍由壳垫状态栏。
+     * 这一页可以在后台提前落地（建节点、跑副作用、首次测量），切过来时第一帧就是现成的。
+     * 只给副作用全是本地读写的页开：会联网、会登录的页提前落地等于用户没点开就发请求。
+     * 不开的页后台只组合、不落地，切过来时再落地（见 ShellTabHost）。
      */
-    val edgeToEdge: Boolean = false,
+    val prewarm: Boolean = false,
 )
 
 /** 一个端的那份 tab 集合。 */

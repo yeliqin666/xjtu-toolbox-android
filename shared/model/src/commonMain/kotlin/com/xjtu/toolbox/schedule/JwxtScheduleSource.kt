@@ -21,6 +21,9 @@ interface JwxtScheduleSource {
     /** 这学期最近一次拉到的调课/停课/补课记录（与 [schedule] 同一份数据的说明面）。 */
     suspend fun changes(term: String): List<ScheduleChangeEvent>
 
+    /** 选上了但没排时间地点的课（[UnscheduledCourse]）；不支持的一端为空表。 */
+    suspend fun unscheduled(term: String): List<UnscheduledCourse> = emptyList()
+
     /** 考试安排。[term] 为空取当前学期。 */
     suspend fun examSchedule(term: String? = null): List<ExamItem>
 

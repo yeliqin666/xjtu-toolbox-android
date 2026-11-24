@@ -62,6 +62,23 @@ fun FeedbackPromptSheet(
 
     var note by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
+    /** 点了「有问题」但没写内容：光一个「有问题」排查不了，先请他写一句 */
+    var needDetail by remember { mutableStateOf(false) }
+    var privacyNotice by remember { mutableStateOf<String?>(null) }
+    var beforeScrub by remember { mutableStateOf("") }
+    var unguarded by remember { mutableStateOf<String?>(null) }
+
+    /** 备注里有个人信息就先打码、停下说明，再点一次才发；恢复原文后这段原样内容不再检查。 */
+    fun scrubbed(): String? {
+        val raw = note.trim()
+        if (raw == unguarded) return raw
+        val r = PrivacyGuard.scrub(raw, source.privateTerms())
+        if (r.found.isEmpty()) return r.text
+        beforeScrub = raw
+        note = r.text
+        privacyNotice = PrivacyGuard.notice(r.found)
+        return null
+    }
 
     fun close() {
         FeedbackStore.markPrompted(versionCode)
@@ -81,9 +98,10 @@ fun FeedbackPromptSheet(
                     anonId = FeedbackStore.anonId(),
                 )
             }.onSuccess {
-                FeedbackStore.addTicket(
-                    FeedbackStore.Ticket(ticket, "版本评价", text, nowMillis())
-                )
+                // 只点了「挺好」没写字的不记：不会有回复，记了只会占「我提过的」、还让回复一直显得没到
+                if (text.isNotBlank()) {
+                    FeedbackStore.addTicket(FeedbackStore.Ticket(ticket, "版本评价", text, nowMillis()))
+                }
             }
         }
         FeedbackStore.markPrompted(versionCode)
@@ -104,7 +122,7 @@ fun FeedbackPromptSheet(
         ) {
             if (sent) {
                 Text(
-                    "谢了，收到。回复会出现在社区的「旧版反馈」里。",
+                    "谢了，收到。开发者的回复会显示在「社区 → 反馈与投票」里。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -121,32 +139,51 @@ fun FeedbackPromptSheet(
             // 原来是"选好用/有问题 → 换一屏填备注 → 再点发送"两步；合并成一步：
             // 备注框和评价按钮一开始就都在，点评价按钮直接带上当前备注一并提交。
             Text(
-                "一句话就行，不用注册。划掉就不会再问。",
+                "反馈会公开展示，请勿留个人信息。",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             Spacer(Modifier.height(16.dp))
             TextField(
                 value = note,
-                onValueChange = { note = it },
-                label = "有什么想说的？（选填）",
+                onValueChange = { note = it; needDetail = false; privacyNotice = null },
+                label = if (needDetail) "哪里有问题？在哪个页面、做了什么" else "有什么想说的？（选填）",
                 singleLine = false,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 96.dp),
             )
+            val warn = privacyNotice
+                ?: if (needDetail) "写一句就能帮我们定位；要附截图或详细描述，可以到「社区 → 反馈与投票」。" else null
+            if (warn != null) {
+                Text(
+                    warn,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            if (privacyNotice != null) {
+                TextButton(
+                    text = "恢复原文",
+                    onClick = { note = beforeScrub; unguarded = beforeScrub; privacyNotice = null },
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             Spacer(Modifier.height(12.dp))
             // 底部弹窗惯例：左次要、右主要，两个。「别问了」删了——下滑/点外面关掉就是不再问，
             // 和两个评价并排反而像三选一。
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
                     text = "有问题",
-                    onClick = { send("有问题", note.trim()) },
+                    onClick = {
+                        if (note.isBlank()) needDetail = true else scrubbed()?.let { send("有问题", it) }
+                    },
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(
                     text = "挺好",
-                    onClick = { send("好用", note.trim()) },
+                    onClick = { scrubbed()?.let { send("好用", it) } },
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                     modifier = Modifier.weight(1f),
                 )

@@ -68,6 +68,20 @@ class CommunityActivityTest {
             items.map { it.id to it.kind },
         )
         assertEquals("我的帖子", items.first().title)
+        // 帖子编号一并带回来：收纳里点开要在 App 内直达那一帖，不再丢给浏览器
+        assertTrue("number" in sent, "查询必须带 number 字段：$sent")
+        assertEquals(42, items.first().number)
+        assertEquals(7, items.first { it.kind == MENTION }.number)
+    }
+
+    @Test
+    fun discussionNumberAndAnchorComeFromTheUrl() {
+        assertEquals(42, discussionNumberOf("https://github.com/o/n/discussions/42"))
+        assertEquals(42, discussionNumberOf("https://github.com/o/n/discussions/42#discussioncomment-123"))
+        assertEquals(null, discussionNumberOf("https://github.com/o/n/issues/42"))
+        assertEquals(null, discussionNumberOf("https://github.com/o/n/discussions/"))
+        assertEquals("discussioncomment-123", discussionCommentAnchor("https://github.com/o/n/discussions/42#discussioncomment-123"))
+        assertEquals(null, discussionCommentAnchor("https://github.com/o/n/discussions/42"))
     }
 
     private companion object {
@@ -75,7 +89,7 @@ class CommunityActivityTest {
             """{"id":"$id","url":"u/$id","body":"$body","createdAt":"2026-10-27T00:00:00Z","author":{"login":"$login"}$extra}"""
 
         fun post(id: String, login: String, body: String, comments: String) =
-            node(id, login, body, ""","title":"${if (login == "me") "我的帖子" else "别人的帖子"}","comments":{"nodes":[$comments]}""")
+            node(id, login, body, ""","number":${if (login == "me") 42 else 7},"title":"${if (login == "me") "我的帖子" else "别人的帖子"}","comments":{"nodes":[$comments]}""")
 
         fun comment(id: String, login: String, body: String, replies: String = "") =
             node(id, login, body, ""","replies":{"nodes":[$replies]}""")

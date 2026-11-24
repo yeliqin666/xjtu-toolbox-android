@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 class WebRouteCoverageTest {
 
     /** 见文件头：每条失败信息都带上它。 */
-    private val criterion = "这条判据是 docs/desktop-port-plan.md §16.2 第 1 条" +
+    private val criterion = "Web 路由全覆盖" +
         "（路由全等：openableRouteTypes 与 AppRoute 的差集只允许剩「这一端永远做不到」的条目，且每条都有如实说明）"
 
     // ── 读源码（构建期生成的快照，见文件头） ──
@@ -68,9 +68,9 @@ class WebRouteCoverageTest {
     @Test
     fun `路由差集只剩那几条登记过的，且每条都在 WebSupport 的文件头里有如实说明`() {
         assertEquals(
-            46,
+            50,
             declaredRoutes.size,
-            "AppRoute 的声明数不是 46 了（现在 ${declaredRoutes.size}）：$criterion；" +
+            "AppRoute 的声明数不是 50 了（现在 ${declaredRoutes.size}）：$criterion；" +
                 "加/删一条声明要同时看这里与 desktop 那份 DesktopRouteCoverageJvmTest",
         )
         assertEquals(
@@ -78,6 +78,8 @@ class WebRouteCoverageTest {
                 "Browser",
                 "NoticeDetail",
                 "QrScan",
+                "SsActivity",
+                "TermReport",
                 "Zyxf",
             ),
             notOpenableNames.sorted(),

@@ -14,7 +14,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/** serve 契约 §5.10 的客户端那一侧：多账号页的那一条只读端点（`GET /api/accounts`，[CampusAccountsApi]）。 */
+/** serve 契约的客户端那一侧：多账号页的那一条只读端点（`GET /api/accounts`，[CampusAccountsApi]）。 */
 class ServeAccountsApiTest {
 
     private class Call(val path: String, val url: String)

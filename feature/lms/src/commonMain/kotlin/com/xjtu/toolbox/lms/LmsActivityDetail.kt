@@ -45,6 +45,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.html.HtmlContent
+import com.xjtu.toolbox.media.DownloadedFile
+import com.xjtu.toolbox.media.DownloadedFilesHost
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 private const val TAG = "LmsScreen"
@@ -64,11 +66,23 @@ internal fun ActivityDetailPage(
     onOpenCourse: (() -> Unit)? = null,
     onTopicSelected: (LmsForumTopic) -> Unit = {},
     onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
+    /**
+     * 打开一个外部网页。作业的「提交」这一档只走学堂官方页面（h5），本 App 不自己实现提交
+     * （选附件、正文、点提交都在官方页里）：[LmsActivityDetail] 只负责把地址拼出来交给它。
+     * 没接浏览器那一层的端传 null，那个按钮就不出现。
+     */
+    onOpenUrl: ((String) -> Unit)? = null,
+    /**
+     * 已下载文件的登记表（与「我的-下载管理」同一份）。附件卡据此判断「这份资料是不是已经下过了」：
+     * 下过且文件相同就**不再重复下载，点一下直接打开**（走的正是这一端下载管理里那同一条打开路径）。
+     * `null` = 本端没有登记表（serve 形态）⇒ 与以前一样：点了就下。
+     */
+    files: DownloadedFilesHost? = null,
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
 ) {
     val authExpiry = LocalAuthExpiry.current
     // 本端能不能把附件落下来（见 `LmsSource.supportsDownload` 的 KDoc）：serve 形态的附件只有
-    // 元数据（三个地址都不投影，契约 §5.6）⇒ 附件卡只展示名字与大小，不画预览/下载那两个入口。
+    // 元数据（serve 契约不投影三个地址）⇒ 附件卡只展示名字与大小，不画预览/下载那两个入口。
     val uploadSource = if (source.supportsDownload) source else null
     val detail = cache.details[activity.id]
     var isLoading by remember { mutableStateOf(cache.details[activity.id] == null) }
@@ -149,7 +163,9 @@ internal fun ActivityDetailPage(
             errorMsg = null
             try {
                 // 详情接口不返回 deadline，得把列表里那条一起传进去（见 LmsApi.mergeBrief）
-                cache.details[activity.id] = source.activityDetail(activity.id, activity)
+                val loaded = source.activityDetail(activity.id, activity)
+                cache.details[activity.id] = loaded
+                scope.launch(kotlinx.coroutines.Dispatchers.Default) { recordSubmission(loaded, course.name) }
             } catch (e: Exception) {
                 if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
                     authExpiry.onAuthExpired(AppRoute.Lms(), onBack)
@@ -251,13 +267,28 @@ internal fun ActivityDetailPage(
                         if (d.uploads.isNotEmpty()) {
                             item(key = "uploads_header") { SectionHeader("附件 (${d.uploads.size})") }
                             items(d.uploads, key = { "upload_${it.id}" }) { upload ->
-                                UploadCard(upload, uploadSource, activityClosed = d.isClosed)
+                                UploadCard(upload, uploadSource, activityClosed = d.isClosed, files = files)
                             }
                         }
 
                         // 作业信息 + 提交记录
                         if (d.type == LmsActivityType.HOMEWORK) {
                             item(key = "hw_meta") { HomeworkMetaCard(d) }
+
+                            // 「去提交作业」：只把学堂官方的 h5 提交页打开，本 App 不实现提交本身
+                            // （选附件、填正文、点提交都在官方页里）。活动已结束时不给这个入口 ——
+                            // 学堂自己在那一侧也会拒，画一个点了只会报错的按钮没有任何意义。
+                            val openUrl = onOpenUrl
+                            if (openUrl != null && !d.isClosed) {
+                                item(key = "hw_submit") {
+                                    OpenOfficialPageButton(
+                                        text = if (d.userSubmitCount > 0) "再交一次（学堂网页）" else "去提交作业",
+                                        source = source,
+                                        activity = d,
+                                        onOpenUrl = openUrl,
+                                    )
+                                }
+                            }
 
                             // 提交记录：那一块里有提交人的姓名与学号（红线）⇒ serve 形态拿不到
                             // （`submissionList` 恒 null）。此时**整块不画** —— 画「还没有提交记录」
@@ -267,7 +298,7 @@ internal fun ActivityDetailPage(
                                 if (submissions.isNotEmpty()) {
                                     item(key = "sub_header") { SectionHeader("提交记录 (${submissions.size})") }
                                     items(submissions, key = { "sub_${it.id}" }) { sub ->
-                                        SubmissionCard(sub, uploadSource, activityClosed = d.isClosed)
+                                        SubmissionCard(sub, uploadSource, activityClosed = d.isClosed, files = files)
                                     }
                                 } else {
                                     // 一条都没有时必须明确说出来。之前这里什么都不渲染，
@@ -559,11 +590,30 @@ internal fun UploadCard(
     /** 取数与落盘。 */
     source: LmsSource? = null,
     activityClosed: Boolean = false,
+    /**
+     * 「这份是不是已经下过了」的查询与打开。`null` = 本端没有登记表（serve 形态）⇒ 与以前一样：
+     * 点了就下。
+     *
+     * 给了它就先把这一格填上（见 `LaunchedEffect`）：已经下过的附件不再重复下载 —— 那会在
+     * `Download/XJTUToolBox/课程/` 里叠出一份同名的 `(1)`、`(2)`；点一下直接打开，
+     * 打开走的正是「我的-下载管理」里那一格的同一条路。
+     */
+    files: DownloadedFilesHost? = null,
 ) {
     val isImage = upload.type.startsWith("image", ignoreCase = true)
     var previewBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
+    // 已经下过的那一份；null = 没下过 / 还不知道
+    var saved by remember(upload.id, upload.name) { mutableStateOf<DownloadedFile?>(null) }
+    // 查过一次就不再查：每次重组都问一遍登记表，滑一下列表就是几十次 IO
+    var lookupDone by remember(upload.id, upload.name) { mutableStateOf(files == null) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(upload.id, upload.name, files) {
+        if (files == null) return@LaunchedEffect
+        saved = runCatching { files.findDownloaded(upload.name, upload.size.toLong()) }.getOrNull()
+        lookupDone = true
+    }
 
     // 图片预览弹窗
     if (previewBitmap != null) {
@@ -589,6 +639,12 @@ internal fun UploadCard(
 
     Card(
         onClick = {
+            // 已经下过：点一下就打开，既不重复下载，也不受「活动已结束，学堂关了下载」影响
+            // —— 文件早就在本机了，跟学堂关不关没关系。
+            saved?.let { already ->
+                files?.open(already)
+                return@Card
+            }
             if (activityClosed) {
                 showBriefMessage("活动已结束，学堂已关闭下载")
                 return@Card
@@ -613,6 +669,10 @@ internal fun UploadCard(
                             LmsDownloadJob(name = upload.name, mimeType = upload.type, folder = "", upload = upload)
                         )
                         isDownloading = false
+                        // 刚落盘这一份就记下来：再点一次应当打开它，而不是又下一份 (1)
+                        if (result == LmsDownloadResult.Ok) {
+                            saved = runCatching { files?.findDownloaded(upload.name, upload.size.toLong()) }.getOrNull()
+                        }
                         showBriefMessage(downloadToast(result))
                     }
                 }
@@ -629,19 +689,28 @@ internal fun UploadCard(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(upload.name, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (upload.readableSize.isNotEmpty()) {
+                // 下过的那份写一句「已下载」，比只换个图标更明白：点它是打开，不是再下一份
+                if (saved != null) {
+                    Text("已下载", fontSize = 12.sp, color = Color(0xFF22C55E))
+                } else if (upload.readableSize.isNotEmpty()) {
                     Text(upload.readableSize, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
             if (isDownloading) {
                 CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
+            } else if (saved != null) {
+                // 已经下过：图标换成「打开」，点一下就走「我的-下载管理」里那同一条 ACTION_VIEW
+                Icon(Icons.Default.OpenInNew, null, tint = Color(0xFF22C55E))
             } else if (source != null) {
                 // 只有真能取字节时才画那个图标：取不到还画一个下载/放大图标，就是许一个点了不会动的东西
-                // （serve 形态：契约 §5.6 不端附件的三个地址）
+                // （serve 形态不端附件的三个地址）
                 Icon(
                     if (isImage) Icons.Default.ZoomIn else Icons.Default.Download,
                     null, tint = MiuixTheme.colorScheme.primary
                 )
+            } else if (!lookupDone) {
+                // 还在查「是不是已经下过」，先转一下，别把下载图标亮出来骗人点
+                CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
             }
         }
     }
@@ -727,15 +796,45 @@ private fun NoSubmissionCard(closed: Boolean) {
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "提交请前往思源学堂网页端",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
         }
     }
 }
+
+/**
+ * 「去提交作业」：把学堂官方的 h5 提交页打开，提交本身在官方页里做。
+ *
+ * 地址里那个 committerId（个人作业 = 登录者 id）要现问一次 `/user/index`，所以**进页面时先问好**，
+ * 点击时全程同步 —— 一是点击里不该卡一下再跳，二是 `:web` 那端的 `window.open` 丢了用户手势会被
+ * 浏览器拦掉。问不到（或本端没有这个接口）就退回作业详情页：官方那页自己会给提交入口，
+ * 多一次点击，但不拿猜出来的号去拼一个 404。
+ */
+@Composable
+private fun OpenOfficialPageButton(
+    text: String,
+    source: LmsSource,
+    activity: LmsActivity,
+    onOpenUrl: (String) -> Unit,
+) {
+    // 分组作业的 committerId 就在详情里（groupId），只有个人作业才需要问这一次
+    var myUserId by remember(activity.id) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(source, activity.id, activity.submitByGroup) {
+        myUserId = if (activity.submitByGroup) null else source.currentUserIdOrNull()
+    }
+
+    Button(
+        onClick = { onOpenUrl(lmsHomeworkSubmissionUrl(activity, myUserId)) },
+        colors = ButtonDefaults.buttonColorsPrimary(),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+        Icon(Icons.Default.Upload, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
+        Spacer(Modifier.width(6.dp))
+        Text(text, color = MiuixTheme.colorScheme.onPrimary)
+    }
+}
+
+/** [LmsSource.currentUserId] 的「取不到就当没有」包装：拼地址这一步失败不该拦住页面。 */
+private suspend fun LmsSource.currentUserIdOrNull(): Int? =
+    runCatching { currentUserId() }.onFailure { Log.w(TAG, "currentUserId failed", it) }.getOrNull()
 /**
  * `"%.1f".format(x)` 的跨端等价（`java.util.Formatter` 是 JVM 专属，`:core` 还要编到 wasm ——
  * 与 `:data` 里 `LmsReplayVideo` 的 `oneDecimalMb` 同一条手写口径）。
@@ -743,6 +842,20 @@ private fun NoSubmissionCard(closed: Boolean) {
 private fun formatScore1f(value: Double): String {
     val tenths = (value * 10.0).roundToLong()
     return "${tenths / 10}.${tenths % 10}"
+}
+
+/** 交过的作业记下截止与最后一次提交的时刻，给学期总结用（详情本来就带提交列表，不额外请求）。 */
+private fun recordSubmission(a: LmsActivity, courseName: String) {
+    if (a.type != LmsActivityType.HOMEWORK) return
+    val submitted = a.submissionList?.list.orEmpty().filter { !it.isDraft }
+        .mapNotNull { s -> s.submittedAt?.let(::lmsInstant) }.maxOrNull() ?: return
+    val deadline = (a.deadline ?: a.endTime)?.let(::lmsInstant)
+    runCatching {
+        com.xjtu.toolbox.util.LmsSubmitLog.record(
+            a.id,
+            com.xjtu.toolbox.util.LmsSubmitRecord(courseName, a.title, deadline?.toEpochMilliseconds(), submitted.toEpochMilliseconds()),
+        )
+    }
 }
 
 /** 距截止还剩多久；已过返回「已过期」。 */
@@ -762,6 +875,8 @@ private fun SubmissionCard(
     sub: LmsSubmissionItem,
     source: LmsSource?,
     activityClosed: Boolean = false,
+    /** 已下载文件的登记表：附件卡据此把「再下一份」改成「打开」。见 [UploadCard]。 */
+    files: DownloadedFilesHost? = null,
 ) {
     val scope = rememberCoroutineScope()
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
@@ -816,7 +931,7 @@ private fun SubmissionCard(
                 Spacer(Modifier.height(8.dp))
                 Text("批改附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 correctUploads.forEach { upload ->
-                    UploadCard(upload, source, activityClosed = activityClosed)
+                    UploadCard(upload, source, activityClosed = activityClosed, files = files)
                 }
             }
 
@@ -825,7 +940,7 @@ private fun SubmissionCard(
                 Spacer(Modifier.height(8.dp))
                 Text("提交附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 sub.uploads.forEach { upload ->
-                    UploadCard(upload, source, activityClosed = activityClosed)
+                    UploadCard(upload, source, activityClosed = activityClosed, files = files)
                     // 「下载批改版」要真能把文件落下来（`attachmentUrl` 只有 `:data` 那条链给得出）：
                     // 本端没有下载那一档时（serve 形态，source 为 null）连这个按钮都不画
                     val jobSource = source

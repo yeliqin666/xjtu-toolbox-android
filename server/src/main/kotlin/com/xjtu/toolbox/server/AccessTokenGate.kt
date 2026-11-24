@@ -22,7 +22,7 @@ internal fun accessTokenGate(expected: String): RouteScopedPlugin<Unit> =
 
 private const val GATE_NAME = "ServeAccessTokenGate"
 
-/** 闸门豁免的路径：契约 §3.4 的唯一免令牌端点。 */
+/** 闸门豁免的路径：契约里唯一的免令牌端点。 */
 private val EXEMPT_PATHS = setOf(API_STATUS_PATH)
 
 /** 请求里带的令牌是不是 [expected]。两种形态任一命中即可。 */

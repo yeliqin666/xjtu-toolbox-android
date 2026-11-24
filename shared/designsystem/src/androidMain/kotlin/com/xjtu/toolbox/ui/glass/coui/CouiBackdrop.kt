@@ -63,21 +63,26 @@ class CouiBackdrop internal constructor(
     private var recordCallbackCount = 0L
     private var sampleCount = 0L
     private var lastRecordMs = 0L
-    private var isolateWhenIdle = true
+    // 采样源默认不离屏：内容直接画上屏，采样者（顶栏、底栏）在各自那一小块里重放同一份绘制指令。
+    // 离屏的话内容每变一次就要整屏栅格化一遍再贴回去，壳的源里还套着页面的源，滚动、转场时
+    // 每帧多出两遍整屏填充和两张整屏纹理。只有需要隔离内容的菜单层才置 true。
+    private var isolate = false
     private var activeConsumers = 0
     private val redrawSignal = mutableStateOf(Unit, neverEqualPolicy())
+    // 自上次通知以来有没有跨窗口的采样者读过信号。没人读时不写：每次写都会让 Recomposer 再排一帧空帧
+    private var crossWindowReader = false
     private val sourceToTarget = Matrix()
     // 首次采样可能先于源绘制, 就绪状态必须唤醒已等待的消费者。
     private var recorded by mutableStateOf(false)
     internal var coordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
 
     init {
-        layer.compositingStrategy = CompositingStrategy.Offscreen
+        layer.compositingStrategy = CompositingStrategy.Auto
         layer.clip = true
     }
 
-    internal fun setIsolateWhenIdle(isolate: Boolean) {
-        isolateWhenIdle = isolate
+    internal fun setIsolated(isolated: Boolean) {
+        isolate = isolated
         updateCompositingStrategy()
     }
 
@@ -93,24 +98,17 @@ class CouiBackdrop internal constructor(
     private fun retain() {
         activeConsumers++
         parent?.retain()
-        updateCompositingStrategy()
     }
 
     private fun release() {
         check(activeConsumers > 0) { "背景源消费者必须成对释放" }
         activeConsumers--
         parent?.release()
-        updateCompositingStrategy()
     }
 
     private fun updateCompositingStrategy() {
         if (layer.isReleased) return
-        // 保留源的指令、坐标和裁剪; 有消费者时仍先按原分辨率栅格化一次。
-        layer.compositingStrategy = if (isolateWhenIdle || activeConsumers > 0) {
-            CompositingStrategy.Offscreen
-        } else {
-            CompositingStrategy.Auto
-        }
+        layer.compositingStrategy = if (isolate) CompositingStrategy.Offscreen else CompositingStrategy.Auto
     }
 
     /** 目标 DrawScope 原点须对应 target; 扩展采样区由调用方平移。 */
@@ -120,7 +118,10 @@ class CouiBackdrop internal constructor(
         val source = coordinates ?: return
         if (!recorded || !source.isAttached || !target.isAttached) return
         // 同窗口沿用 RenderNode 依赖更新; 仅跨窗口订阅 PreDraw, 避免持续驱动页面重绘。
-        if (source.findRootCoordinates() !== target.findRootCoordinates()) redrawSignal.value
+        if (source.findRootCoordinates() !== target.findRootCoordinates()) {
+            crossWindowReader = true
+            redrawSignal.value
+        }
         val width = source.size.width.toFloat()
         val height = source.size.height.toFloat()
         if (width <= 0f || height <= 0f) return
@@ -157,7 +158,10 @@ class CouiBackdrop internal constructor(
         invalidate()
     }
 
+    /** 通知跨窗口的采样者重画；它重画时读信号会重新登记，同窗口的靠 RenderNode 依赖自动更新。 */
     internal fun invalidate() {
+        if (!crossWindowReader) return
+        crossWindowReader = false
         redrawSignal.value = Unit
     }
 
@@ -185,7 +189,7 @@ class CouiBackdrop internal constructor(
         .put("translationY", layer.translationY.toDouble())
         .put("blendMode", layer.blendMode.toString())
         .put("compositingStrategy", layer.compositingStrategy.toString())
-        .put("isolateWhenIdle", isolateWhenIdle)
+        .put("isolated", isolate)
         .put("activeConsumers", activeConsumers)
         .put("drawPassCount", drawPassCount)
         .put("recordCallbackCount", recordCallbackCount)

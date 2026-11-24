@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.degree
 
+import com.xjtu.toolbox.auth.AuthTrace
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
@@ -36,7 +37,20 @@ class AppDegreeSource(
 
     private data class Plan(val code: String, val name: String, val required: Double?, val grade: String?, val studentId: String, val studentName: String)
 
-    private suspend fun site(): SiteSession = sessionManager.ensureSite(JWXT, silent = true)
+    private suspend fun site(): SiteSession = try {
+        sessionManager.ensureSite(JWXT, silent = true)
+    } catch (e: Exception) {
+        if (e !is CancellationException) AuthTrace.error("[degree] ensureSite(jwxt, silent)", e)
+        throw e
+    }
+
+    /** 请求出错时把是哪一步记进 [AuthTrace]，用户反馈时有据可查。 */
+    private suspend fun <T> traced(site: SiteSession, label: String, request: Request, read: (okhttp3.Response, String) -> T): T = try {
+        site.executeWithReAuth(request).use { response -> read(response, response.body?.string().orEmpty()) }
+    } catch (e: Exception) {
+        if (e !is CancellationException) AuthTrace.error("[degree] $label", e)
+        throw e
+    }
 
     private suspend fun post(site: SiteSession, app: String, url: String, form: Map<String, String> = emptyMap()): JsonObject {
         val body = FormBody.Builder().apply { form.forEach { (k, v) -> add(k, v) } }.build()
@@ -46,23 +60,37 @@ class AppDegreeSource(
             .header("Referer", "$BASE/sys/$app/*default/index.do")
             .post(body)
             .build()
-        return site.executeWithReAuth(request).use { response ->
+        return traced(site, "POST ${url.substringAfterLast('/')}", request) { response, text ->
             // 只带接口名和状态码，不让上游内容和个人信息进错误文案
             if (!response.isSuccessful) throw RuntimeException("教务接口 ${url.substringAfterLast('/')} HTTP ${response.code}")
-            response.body?.string().orEmpty().safeParseJsonObject()
+            text.safeParseJsonObject()
         }
     }
 
-    /** 先切到学生身份再进应用页：没选身份时进页面会被教务 403。 */
+    /**
+     * 切到「学生」身份再进应用页。
+     *
+     * 账号的当前身份是按用户存在服务端的，移动教务登录会把它切成「移动应用学生」，
+     * 这个身份下培养方案、学业完成一律 403，重登多少次都一样（#450）。`setJwCommonAppRole`
+     * 改不动它，得用首页的 `changeAppRole` 切回来，网页首页切身份走的就是这个。
+     */
     private suspend fun enterApp(site: SiteSession, app: String) {
-        val roleId = runCatching {
-            site.executeWithReAuth(Request.Builder().url("$BASE/sys/homeapp/api/home/currentUser.do").get().build()).use { response ->
-                val groups = response.body?.string().orEmpty().safeParseJsonObject()["datas"]?.jsonObject?.get("userGroups") as? JsonArray
-                groups?.map { it.jsonObject }?.firstOrNull { it["roleName"].safeStringOrNull() == "学生" }?.get("roleId").safeStringOrNull()
+        val student = runCatching {
+            traced(site, "GET currentUser", Request.Builder().url("$BASE/sys/homeapp/api/home/currentUser.do").get().build()) { _, text ->
+                val groups = text.safeParseJsonObject()["datas"]?.jsonObject?.get("userGroups") as? JsonArray
+                groups?.map { it.jsonObject }?.firstOrNull { it["roleName"].safeStringOrNull() == "学生" }
             }
         }.getOrNull()
+        val roleId = student?.get("roleId").safeStringOrNull()
+        if (roleId != null && student?.get("currentRole")?.toString() != "true") {
+            AuthTrace.write("INFO", "[degree] 当前身份不是「学生」，切回去")
+            traced(site, "POST changeAppRole(学生)", Request.Builder()
+                .url("$BASE/sys/homeapp/api/home/changeAppRole.do")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .post(FormBody.Builder().add("appRole", roleId).build()).build()) { _, _ -> }
+        }
         if (roleId != null) post(site, app, "sys/jwpubapp/pub/setJwCommonAppRole.do", mapOf("ROLEID" to roleId))
-        site.executeWithReAuth(Request.Builder().url("$BASE/sys/$app/*default/index.do").get().build()).close()
+        traced(site, "GET $app/index.do", Request.Builder().url("$BASE/sys/$app/*default/index.do").get().build()) { _, _ -> }
     }
 
     private fun rows(root: JsonObject, module: String): List<JsonObject> {
@@ -73,7 +101,12 @@ class AppDegreeSource(
 
     private suspend fun plan(site: SiteSession): Plan {
         enterApp(site, PLAN_APP)
-        val all = rows(post(site, PLAN_APP, "sys/xsfacx/modules/pyfacxepg/grpyfacx.do"), "grpyfacx")
+        val all = try {
+            rows(post(site, PLAN_APP, "sys/xsfacx/modules/pyfacxepg/grpyfacx.do"), "grpyfacx")
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            // 登录是好的、只有这个接口 403：别报「登录失效」，那会让人一遍遍重登
+            throw RuntimeException("教务暂不让查培养方案：到网页版教务首页把身份切换成「学生」后再试", e)
+        }
         // 辅修、微专业也在这里；第一版只看主修
         val row = all.firstOrNull { it["XDLXDM"].safeStringOrNull() == "01" } ?: all.firstOrNull()
             ?: throw RuntimeException("没有查到你的培养方案")
@@ -88,6 +121,13 @@ class AppDegreeSource(
     }
 
     override suspend fun fetch(): DegreeRaw = withContext(Dispatchers.IO) {
+        try { fetchMine() } catch (e: Exception) {
+            if (e !is CancellationException) AuthTrace.error("[degree] fetch", e)
+            throw e
+        }
+    }
+
+    private suspend fun fetchMine(): DegreeRaw {
         val site = site()
         val plan = plan(site)
         val byPlan = mapOf("PYFADM" to plan.code)
@@ -97,7 +137,7 @@ class AppDegreeSource(
             val row = rows(post(site, PLAN_APP, "sys/jwpubapp/modules/pyfa/qxpyfacx.do", byPlan), "qxpyfacx").firstOrNull()
             listOf("KZZD1", "KZZD2", "FATS", "XDYQ").mapNotNull { row?.get(it).safeStringOrNull()?.takeIf { s -> s.isNotBlank() } }.joinToString("\n")
         }.orEmpty()
-        DegreeRaw(
+        return DegreeRaw(
             planCode = plan.code,
             planName = plan.name,
             required = plan.required,
@@ -170,6 +210,7 @@ class AppDegreeSource(
         throw e
     } catch (e: Exception) {
         Log.w(TAG, "$what 取不到：${e.message}")
+        AuthTrace.error("[degree] 可选项「$what」", e)
         null
     }
 

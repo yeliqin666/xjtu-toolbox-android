@@ -11,7 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 导入写侧接到 `:core` 的 [StoreArchive.import]（§6.4）后 `:app` 侧该成立的几条。 */
+/** 导入写侧接到 `:core` 的 [StoreArchive.import] 后 `:app` 侧该成立的几条。 */
 class AppArchiveImportTest {
 
 
@@ -44,7 +44,7 @@ class AppArchiveImportTest {
         val outcome = importInto(local, entries)
 
         assertEquals(ImportResult.Ok(keysWritten = 1, keysKept = 0, filesWritten = 0), (outcome as ArchiveImportOutcome.Imported).result)
-        // §8.4：写成逗号串的话这一句就 ClassCastException 了（`getStringSet` 的属性就是「它必须真是集合」）
+        // 写成逗号串的话这一句就 ClassCastException 了（`getStringSet` 的属性就是「它必须真是集合」）
         assertEquals(setOf("A-101", "B-2"), local.of("library_favorites").getStringSet("favorite_seats", null))
     }
 
@@ -143,7 +143,7 @@ class AppArchiveImportTest {
             val outcome = importInto(local, AppArchiveUx.readArchive(root).orEmpty(), root)
 
             assertTrue("$outcome", outcome is ArchiveImportOutcome.Failed)
-            // 预检排在 §6.4 合并之前 ⇒ 连那条「端内没有的键」都没被写进来
+            // 预检排在合并之前 ⇒ 连那条「端内没有的键」都没被写进来
             assertEquals(before, local.snapshot())
             assertNull(local.of("app_settings").getString("default_tab", null))
         } finally {
@@ -207,7 +207,7 @@ class AppArchiveImportTest {
 
     @Test
     fun `Room 行数组真写回 且再导出时六键升序稳定`() {
-        // 档案里的行数组故意是乱的（id 3 / 1 / 2），写回之后「再导出一次」必须是 §2.3 的排序
+        // 档案里的行数组故意是乱的（id 3 / 1 / 2），写回之后「再导出一次」必须是规定的排序
         val rows = """
             [{"id":3,"accountId":"B","courseName":"c","weekBits":"1","dayOfWeek":5,"startSection":3,"endSection":4,"termCode":"2026-2027-1"},
              {"id":1,"accountId":"A","courseName":"a","weekBits":"1","dayOfWeek":1,"startSection":1,"endSection":2,"termCode":"2026-2027-1"},
@@ -265,7 +265,7 @@ class AppArchiveImportTest {
             assertEquals("本端已有 ⇒ 保持不变", """[{"id":"local"}]""", existing.readText())
             assertEquals("""{"id":"1"}""", File(filesRoot, "agent_sessions_2253415556/convo_1.json").readText())
             assertEquals("\"2026-2027-1\"", File(cacheRoot, "data_cache/schedule_current_term.json").readText())
-            // §8.8：原子写的临时文件不留残片
+            // 原子写的临时文件不留残片
             assertFalse(File(filesRoot, "agent_sessions_2253415556/convo_1.json.tmp").exists())
             assertFalse(File(cacheRoot, "data_cache/schedule_current_term.json.tmp").exists())
         } finally {
@@ -274,7 +274,7 @@ class AppArchiveImportTest {
         }
     }
 
-    // ── 通道发现（§6.2 的三种落地形态） ─────────────────────────────────────
+    // ── 通道发现（三种落地形态） ─────────────────────────────────────
 
     @Test
     fun `待导入档案的三种形态都认得出来`() {
@@ -319,7 +319,7 @@ class AppArchiveImportTest {
         options = ExportOptions(now = { FIXED_NOW }),
     )
 
-    /** 自校验 → 行数组预检 → §6.4 合并 → 标记。 */
+    /** 自校验 → 行数组预检 → 合并 → 标记。 */
     private fun importInto(
         prefs: Prefs,
         entries: Map<String, String>,

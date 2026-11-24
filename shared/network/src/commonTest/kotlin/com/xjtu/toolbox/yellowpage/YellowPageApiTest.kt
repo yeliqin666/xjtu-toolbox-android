@@ -54,8 +54,8 @@ class YellowPageApiTest {
         )
         val phone = departments.single().phone
         assertEquals(listOf("029-82668888", "82668889"), departments.single().phoneItems)
-        assertEquals("82668888", departments.single().dialNumber("029-82668888"))
-        assertEquals("82668889", departments.single().dialNumber("82668889"))
+        assertEquals("02982668888", departments.single().dialNumber("029-82668888"))
+        assertEquals("02982668889", departments.single().dialNumber("82668889"))
         assertEquals("", departments.single().dialNumber("见年级群"))
         assertEquals("029-82668888 / 82668889", phone)
     }

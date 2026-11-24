@@ -37,6 +37,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
+import com.xjtu.toolbox.ui.markdown.BulletinMarkdown
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -98,11 +99,7 @@ fun NoticeDetailScreen(
                     colors = CardDefaults.defaultColors(color = AppCardColor),
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            notice.body.ifBlank { "这条公告没有更多内容。" },
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
+                        BulletinMarkdown(notice.body.ifBlank { "这条公告没有更多内容。" })
                     }
                 }
                 if (notice.url.isNotBlank()) {

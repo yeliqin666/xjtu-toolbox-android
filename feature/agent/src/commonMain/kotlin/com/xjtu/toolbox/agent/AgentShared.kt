@@ -32,11 +32,13 @@ fun agentToolLabel(name: String): String = when (name) {
     "add_schedule_event"    -> "添加日程…"
     "add_todo"              -> "记待办…"
     "propose_plan"          -> "列出可加的安排…"
+    "propose_post"          -> "起草社区帖子…"
     "get_todos"             -> "查看待办…"
     "complete_todo"         -> "标记完成…"
     "get_library"           -> "查询图书馆…"
     "get_textbooks"         -> "查询日程教材…"
     "get_coupons"           -> "查询加餐券…"
+    "activity"              -> "查询智慧社区活动…"
     "get_lms"               -> "查询思源学堂…"
     "get_lms_activity"      -> "读取课程活动…"
     "list_zyxf"             -> "检索学辅资料…"
@@ -48,7 +50,9 @@ fun agentToolLabel(name: String): String = when (name) {
     "preference"            -> "记下偏好…"
     "app_setting"           -> "读取 / 修改设置…"
     "calculate"             -> "计算…"
+    AgentRetitle.TOOL       -> "改对话标题…"
     "app_guide"             -> "查看 App 指南…"
+    "search_campus_guide"   -> "查校园指南…"
     else                    -> "调用工具 $name…"
 }
 

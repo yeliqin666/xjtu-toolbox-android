@@ -27,7 +27,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 
 /**
- * 下载那一族的契约测试（`docs/api-contract.md` §5.13）。
+ * 下载那一族的契约测试（`docs/api-contract.md`）。
  *
  * ⚠️ 注入一份**可控的** [DownloadManager]：生产装配里的 `JvmDownloadEngine` 会真发 HTTP、
  * `JvmDownloadFileSystem` 会往操作者的 `~/Downloads` 写文件 —— 契约测试不该碰这两样。
@@ -180,7 +180,7 @@ class ServeDownloadRoutesTest {
             task.optString("filePath").orEmpty().startsWith(root.absolutePath),
             "落点在那台机器的下载目录下：${task.optString("filePath")}",
         )
-        assertNotNull(task.optString("createTime"), "创建时间是 ISO-8601（契约 §4）")
+        assertNotNull(task.optString("createTime"), "创建时间是 ISO-8601")
         assertTrue(task.optString("createTime").orEmpty().contains("+08:00"), "带时区：${task.optString("createTime")}")
 
         // ── 放行闸门 ⇒ 完成 ──

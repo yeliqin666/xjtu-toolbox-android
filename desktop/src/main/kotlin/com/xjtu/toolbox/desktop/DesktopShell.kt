@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.desktop
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Home
@@ -51,14 +50,6 @@ internal val DESKTOP_SHELL_TABS: ShellTabs = ShellTabs(
             icon = Icons.Filled.SportsEsports,
             target = ShellTarget.App(AppRoute.Games),
         ),
-        // 第六格：这一端真能打开的路由都列在那一页上（`RoutesPage`）。`AllPages` 是共享壳里
-        // 「更多 / 全部」那一档 —— 它**不是一条路由**，所以不会与上面五格混起来。
-        ShellTab(
-            id = "all",
-            label = "全部",
-            icon = Icons.Filled.Apps,
-            target = ShellTarget.AllPages,
-        ),
     ),
 )
 
@@ -85,14 +76,14 @@ internal fun ShellTarget.toDesktop(): DesktopTarget? = when (this) {
  * 规范化默认启动落点 → 这一端开场那一页（三张映射表之一：另两张是 `:app` 的 `bottomTabOf()`
  * 与 `:web` 的 `webStartTarget()`）。
  *
- * 桌面六格（首页 / 校历 / 图书馆 / 黄页 / 游戏 / 全部）与 `:app` 五格不同构，所以这张表不是一一对应，
+ * 桌面五格（首页 / 校历 / 图书馆 / 黄页 / 游戏）与 `:app` 五格不同构，所以这张表不是一一对应，
  * 而是「差最近的那一页」—— 并如实写明差在哪里：
  *
  * - `home` → [AppRoute.Main]（就是第一格，一一对应）；
  * - `schedule` → [AppRoute.Schedule]（课表是一页，但**底栏里没有这一格** ⇒ 一格都不高亮，
  *   这是共享壳里就允许的状态，见 `ShellNavState.selected` 的 KDoc）；
  * - `agent` → [AppRoute.Agent]（同上：屁岱有页无格）；
- * - `services` → [DesktopTarget.Routes]（「全部」那一页列的是本端真能打开的路由，与「学辅」目录同位）；
+ * - `services` → [DesktopTarget.Routes]（列本端真能打开的路由，与「学辅」目录同位；dock 里没有这一格）；
  * - `profile` → [AppRoute.Settings]（桌面没有「我的」那格；与账号/外观相关的只有设置页）。
  *
  * 认不出（老文件、手工改过的值）退日程：与 `SettingsStore.TAB_KEY_DEFAULT` 同一档。

@@ -40,12 +40,12 @@ import kotlin.math.roundToInt
 /** 「今天吃啥」：照近三周的吃饭习惯、余额和今天的课，推荐今天还没吃的几顿。 */
 private val MEAL_PICKS = InsightSpec(
     id = "meal_picks",
-    tools = setOf("get_schedule", "app_guide", "campus_map"),
+    tools = setOf("get_schedule", "search_campus_guide", "campus_map"),
     ttlMs = 3 * 60 * 60 * 1000L,
     busyHint = "在翻你的饭卡流水…",
     instruction = """
 任务：推荐用户今天接下来几顿（早饭 / 午饭 / 晚饭 / 夜宵里还没过点也还没吃的）去哪吃、吃什么。
-- 依据给你的近三周就餐习惯（常去哪、花多少、几点吃）和今天已经吃过的。可以调 get_schedule 看今天的课在哪栋楼，饭点前后在哪上课就推离那儿近的食堂；app_guide(campus) 有食堂分布和开放时间。
+- 依据给你的近三周就餐习惯（常去哪、花多少、几点吃）和今天已经吃过的。可以调 get_schedule 看今天的课在哪栋楼，饭点前后在哪上课就推离那儿近的食堂；search_campus_guide 查「食堂」有食堂分布和开放时间。
 - 换着吃：最近三天连着吃的那家往后放，推一家他去过但不常去的，或同一食堂的另一个档口。
 - 看钱：余额撑不了几天就推便宜的，价格按他在那家的历史均价估。
 - 不知道具体菜名就别编菜名，说档口或品类。

@@ -11,11 +11,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 多账号页的 serve 版取数与写操作：给 `:web` 用（契约 §5.10 / §5.19）。 */
+/** 多账号页的 serve 版取数与写操作：给 `:web` 用。 */
 class CampusAccountsApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份只认 serve 契约（§5.10 / §5.19）。 */
+    /** 见 [ApiMode]：这一份只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) {
 
@@ -120,7 +120,7 @@ class CampusAccountsApi(
 /** 把 `GET /api/accounts` 的 `data`（或写端点里的 `snapshot`）解成 [ServeAccounts]。 */
 internal fun JsonObject.toServeAccounts(): ServeAccounts = ServeAccounts(
     authenticated = this["authenticated"].safeBoolean(),
-    // 缺这一格按「不可写」处理：能力开关的默认值必须是保守的那一侧（§4）。
+    // 缺这一格按「不可写」处理：能力开关的默认值必须是保守的那一侧。
     readOnly = this["readOnly"].safeBoolean(default = true),
     accounts = this.arr(ACCOUNTS_KEY).orEmpty().mapNotNull { element ->
         val row = element as? JsonObject ?: return@mapNotNull null
@@ -130,7 +130,7 @@ internal fun JsonObject.toServeAccounts(): ServeAccounts = ServeAccounts(
         ServeAccount(
             id = id,
             accountType = AccountType.fromKey(row["accountType"].safeString().trim()),
-            // §4：`null` = 服务端明确说没有，不编一个时刻。
+            // `null` = 服务端明确说没有，不编一个时刻。
             lastUsedAt = row["lastUsedAt"].safeStringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
                 ?.let { runCatching { Instant.parse(it).toEpochMilliseconds() }.getOrNull() },
             active = row["active"].safeBoolean(),
@@ -138,7 +138,7 @@ internal fun JsonObject.toServeAccounts(): ServeAccounts = ServeAccounts(
     },
 )
 
-/** `GET /api/accounts` 的 `data`（§5.10）。 */
+/** `GET /api/accounts` 的 `data`。 */
 data class ServeAccounts(
     val authenticated: Boolean,
     val readOnly: Boolean,
@@ -154,7 +154,7 @@ data class ServeAccount(
 )
 
 /**
- * 四条写端点的结果（§5.10）。
+ * 四条写端点的结果。
  *
  * 失败时 [snapshot] 为 null；此对象不含密码，[toString] 也不会带上请求里的密码。
  */
@@ -167,7 +167,7 @@ data class ServeAccountsWrite(
     val code: Int = 0,
 )
 
-/** 对外路径（契约 §5.10）。 */
+/** 对外路径。 */
 private const val ACCOUNTS_PATH = "/api/accounts"
 private const val SWITCH_PATH = "$ACCOUNTS_PATH/switch"
 private const val ADD_PATH = "$ACCOUNTS_PATH/add"

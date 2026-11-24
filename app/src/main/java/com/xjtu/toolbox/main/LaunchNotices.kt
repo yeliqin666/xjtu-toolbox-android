@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.bulletin.Bulletin
@@ -22,6 +23,7 @@ import com.xjtu.toolbox.bulletin.BulletinLaunchDialog
 import com.xjtu.toolbox.bulletin.BulletinLevel
 import com.xjtu.toolbox.bulletin.BulletinRules
 import com.xjtu.toolbox.bulletin.BulletinStore
+import com.xjtu.toolbox.bulletin.inboxId
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.feedback.FeedbackApi
 import com.xjtu.toolbox.feedback.FeedbackStore
@@ -143,7 +145,13 @@ class LaunchNotices(
 
     internal fun confirmBulletinDialog(bulletin: Bulletin) {
         closeBulletinDialog()
-        if (bulletin.level == BulletinLevel.FORCE_UPDATE) openPendingUpdate(bulletin.url)
+        if (bulletin.level == BulletinLevel.FORCE_UPDATE) {
+            openPendingUpdate(bulletin.url)
+        } else {
+            InboxStore.markRead(listOf(OwnInbox.bulletin(bulletin).id))
+            BulletinFeed.confirmDialog(bulletinStore, bulletin)
+            refreshHero()
+        }
     }
 
     /** 投票：本地先标记已答，提交失败静默丢弃，免得反复重弹。 */
@@ -159,7 +167,7 @@ class LaunchNotices(
                 )
             }
         }
-        bulletinStore.ack(bulletin.id)
+        bulletinStore.recordVote(bulletin.id, selected)
         refreshHero()
         closeBulletinDialog()
     }
@@ -180,13 +188,31 @@ class LaunchNotices(
         launchDialogBulletin = null
     }
 
-    /** 收纳里的「工具箱公告」：当前版本、当前时间有效的全部公告，投票留给首页和弹框处理。首页关过的算已读。 */
+    /**
+     * 收纳里的「工具箱公告」：当前版本、当前时间有效的全部公告，投票留给首页和弹框处理。
+     * 三处对账：首页关过的算已读；收纳里清除过的按首页 ✕ 记账（首页、弹窗不再出现）；
+     * 「必须升级」划掉也只推迟，冷启动放回收纳。
+     */
     private fun syncInbox(remote: List<Bulletin>) {
-        val now = Clock.System.now()
-        val active = remote.filter { !it.isPoll && BulletinRules.isActive(it, now, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) }
+        val active = activeForInbox(remote)
         InboxStore.replace(InboxCategories.BULLETIN, active.map(OwnInbox::bulletin))
+        BulletinFeed.restoreForcedInInbox(active)
+        BulletinFeed.absorbInboxClears(bulletinStore, active, includeForced = false)
         val seen = bulletinStore.dismissedIds + bulletinStore.ackedIds
-        InboxStore.markRead(active.filter { it.id in seen }.map { OwnInbox.bulletin(it).id })
+        InboxStore.markRead(active.filter { it.id in seen }.map { it.inboxId })
+    }
+
+    private fun activeForInbox(remote: List<Bulletin>): List<Bulletin> {
+        val now = Clock.System.now()
+        return remote
+            .filter { !it.isPoll && BulletinRules.isActive(it, now, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) }
+            .map { BulletinRules.resolveForVersion(it, BuildConfig.VERSION_NAME) }
+    }
+
+    /** 收纳有变动（可能刚清除了公告）：同步记账，首页公告条跟着更新。 */
+    internal fun onInboxChanged() {
+        val active = activeForInbox(bulletinStore.peekCached())
+        if (BulletinFeed.absorbInboxClears(bulletinStore, active, includeForced = true)) refreshHero()
     }
 
     private fun refreshHero() = applyHero(bulletinStore.peekCached(), pendingUpdate)
@@ -238,7 +264,11 @@ fun rememberLaunchNotices(credentialStore: CredentialStore): LaunchNotices {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     val notices = remember { LaunchNotices(context, credentialStore, scope) }
-    LaunchedEffect(notices) { notices.check() }
+    LaunchedEffect(notices) {
+        notices.check()
+        // 冷启动对完账之后才开始跟：收纳里清除一条公告，首页公告条立刻撤下
+        snapshotFlow { InboxStore.version }.collect { notices.onInboxChanged() }
+    }
     return notices
 }
 

@@ -259,6 +259,12 @@ internal class EmptyRoomViewModel(
         val direct = sourceKind == RoomSource.DIRECT
         val sourceKey = if (direct) "direct" else "cdn"
         val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
+        // 学期总结用的本机计数：手动刷新不算，同一次查询（防抖之后）每栋记一次
+        if (!force && latest() && active.isNotEmpty()) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                active.forEach { runCatching { com.xjtu.toolbox.util.RoomQueries.add(it) } }
+            }
+        }
         if (active.isEmpty()) {
             rooms = emptyList()
             isLoading = false

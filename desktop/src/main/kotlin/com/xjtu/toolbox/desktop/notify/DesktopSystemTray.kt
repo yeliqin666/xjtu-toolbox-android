@@ -80,7 +80,7 @@ internal object DesktopSystemTray {
         if (GraphicsEnvironment.isHeadless()) return degrade("没有桌面环境（headless / DISPLAY 为空）", null)
         return try {
             if (!SystemTray.isSupported()) return degrade("这个桌面环境不支持系统托盘", null)
-            val trayIcon = TrayIcon(appIcon(), "西交工具箱")
+            val trayIcon = TrayIcon(appIcon(), "岱宗盒子")
             trayIcon.isImageAutoSize = true
             SystemTray.getSystemTray().add(trayIcon)
             icon = trayIcon

@@ -41,12 +41,15 @@ class AgentSessionStore(
         return session
     }
 
-    /** @param lock 是否锁定标题（用户改名或 AI 总结时为 true）。 */
-    override fun rename(id: String, title: String, lock: Boolean): Unit = synchronized(storeLock) {
+    override fun rename(id: String, title: String, lock: Boolean, ai: Boolean): Unit = synchronized(storeLock) {
         val now = System.currentTimeMillis()
         writeIndex(readIndex().map {
-            if (it.id == id) it.copy(title = sanitizeAgentTitle(title, DEFAULT_TITLE), updatedAt = now, locked = lock) else it
+            if (it.id == id) it.copy(title = sanitizeAgentTitle(title, DEFAULT_TITLE), updatedAt = now, locked = lock, aiTitled = ai) else it
         })
+    }
+
+    override fun canAiRetitle(id: String): Boolean = synchronized(storeLock) {
+        readIndex().firstOrNull { it.id == id }?.let { !it.locked || it.aiTitled } ?: false
     }
 
     override fun delete(id: String): Unit = synchronized(storeLock) {

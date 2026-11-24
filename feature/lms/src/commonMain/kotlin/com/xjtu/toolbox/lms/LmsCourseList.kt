@@ -176,7 +176,10 @@ internal fun CourseListPage(
                                 course,
                                 pending = pendingByCourse[course.id].orEmpty(),
                                 showSemester = semester == ALL_SEMESTERS,
-                                modifier = Modifier.enterOnce(1 + index.coerceAtMost(6)),
+                                // 扫完作业重排时滑到新位置，不原地跳；入场先后按屏幕位置（见 enterOnce）
+                                modifier = Modifier
+                                    .animateItem(fadeInSpec = null, fadeOutSpec = null)
+                                    .enterOnce(1 + index),
                             ) { onCourseSelected(course) }
                         }
                     }

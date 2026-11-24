@@ -50,13 +50,13 @@ jobs:
           set -eux
           deb=$(ls desktop/build/compose/binaries/main/deb/*.deb)
           dpkg-deb -I "$deb"
-          packed=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO ./opt/xjtu-toolbox/lib/xjtu-toolbox.png | md5sum | cut -d' ' -f1)
+          packed=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO ./opt/xjtu-dzhz/lib/xjtu-dzhz.png | md5sum | cut -d' ' -f1)
           ours=$(md5sum desktop/icons/linux.png | cut -d' ' -f1)
           [ "$packed" = "$ours" ]
 
       - uses: actions/upload-artifact@v4
         with:
-          name: xjtu-toolbox-linux
+          name: xjtu-dzhz-linux
           path: |
             desktop/build/compose/binaries/main/deb/*.deb
             desktop/build/compose/binaries/main/tar/*.tar.gz

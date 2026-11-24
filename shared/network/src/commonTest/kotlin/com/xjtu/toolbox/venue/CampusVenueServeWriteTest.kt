@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** `CampusVenueApi` 的 serve 模式（`ApiMode.SERVE`，契约 §5.3.2）写路径测试。 */
+/** `CampusVenueApi` 的 serve 模式（`ApiMode.SERVE`）写路径测试。 */
 class CampusVenueServeWriteTest {
 
     /** 一个把「打出去的请求体」记下来的假 serve 后端。 */
@@ -74,7 +74,7 @@ class CampusVenueServeWriteTest {
         assertTrue(captcha.backgroundImage.startsWith("data:image/jpeg;base64,"), "图是 data URI 原文")
         assertTrue(captcha.sliderImage.startsWith("data:image/png;base64,"))
 
-        // 支付那一跳是 serve 自己的代跳地址（§5.3.2 第 6 条）；这里只钉地址形状。
+        // 支付那一跳是 serve 自己的代跳地址；这里只钉地址形状。
         assertEquals("/api/venue/pay?orderId=VT20261013001", api.paymentUrl("VT20261013001"))
         // 订单号原样进 query（与 `:data` 拼支付页同一套 `java.net.URLEncoder` 编码：`/`→`%2F`、`+`→`%2B`）
         assertEquals("/api/venue/pay?orderId=A%2F1%2B2", api.paymentUrl("A/1+2"))
@@ -118,7 +118,7 @@ class CampusVenueServeWriteTest {
         assertEquals(
             setOf("stockId", "areaDetailId"),
             rows[0].jsonObject.keys,
-            "上行只带写路径用得到的两个数（契约 §5.3.2）",
+            "上行只带写路径用得到的两个数",
         )
         assertEquals("9101", rows[0].jsonObject["stockId"]!!.jsonPrimitive.content)
         assertEquals("5101", rows[0].jsonObject["areaDetailId"]!!.jsonPrimitive.content)

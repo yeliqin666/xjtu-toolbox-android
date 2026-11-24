@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.archive
 
-/** 端内名 ↔ 档案路径的唯一映射规则（§2.0）。 */
+/** 端内名 ↔ 档案路径的唯一映射规则（docs/archive-format.md）。 */
 object ArchivePaths {
 
     /** 端内 base + suffix → 档案里 `stores/` 下的相对路径。 */
@@ -8,15 +8,15 @@ object ArchivePaths {
         if (suffix.isEmpty()) "global/stores/$base.json"
         else "accounts/$suffix/stores/$base.json"
 
-    /** 档案路径的反向：base + suffix = 端内 store 名（§2.0）。 */
+    /** 档案路径的反向：base + suffix = 端内 store 名。 */
     fun rawStoreName(base: String, suffix: String): String = base + suffix
 
-    /** `files/` 的相对路径 → 档案里的完整相对路径（§2.0 / §2.3）。 */
+    /** `files/` 的相对路径 → 档案里的完整相对路径。 */
     fun filePath(suffix: String, relPath: String): String =
         if (suffix.isEmpty()) "global/files/$relPath"
         else "accounts/$suffix/files/$relPath"
 
-    /** 档案路径 → `(base, suffix)`（[storePath] 的反向，§2.0）；不是 `stores/` 那一层 ⇒ `null`。 */
+    /** 档案路径 → `(base, suffix)`（[storePath] 的反向）；不是 `stores/` 那一层 ⇒ `null`。 */
     fun parseStorePath(path: String): Pair<String, String>? {
         val segments = path.split('/').filter { it.isNotEmpty() }
         val suffix = when {
@@ -31,7 +31,7 @@ object ArchivePaths {
         return base to suffix
     }
 
-    /** 档案路径 → `(files/ 之下的相对路径, suffix)`（[filePath] 的反向，§2.0）；不是 `files/` 那层 ⇒ `null`。 */
+    /** 档案路径 → `(files/ 之下的相对路径, suffix)`（[filePath] 的反向）；不是 `files/` 那层 ⇒ `null`。 */
     fun parseFilePath(path: String): Pair<String, String>? {
         val segments = path.split('/').filter { it.isNotEmpty() }
         val suffix: String

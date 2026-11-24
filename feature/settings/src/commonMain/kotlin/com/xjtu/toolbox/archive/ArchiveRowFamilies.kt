@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * 三族行数组（自建日程、下载队列、教材书架）在端内 JSON 与档案 `files/` 之间的转换与合并（storage-layout §2.3 / §6.4）。
+ * 三族行数组（自建日程、下载队列、教材书架）在端内 JSON 与档案 `files/` 之间的转换与合并（docs/archive-format.md 的 files 与「导入」两节）。
  * 不碰 I/O，键值店读写在各端（`DesktopArchiveRows`、`WebArchiveRows`）；Android 走 Room，不经这里。
  */
 object ArchiveRowFamilies {

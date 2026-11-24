@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.xjtu.toolbox.ui.glass.coui.CouiBackdrop
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.glass.coui.CouiCapsuleShape
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -89,15 +90,16 @@ class CouiFloatingRenderer private constructor(internal val surfaceCount: Int) {
     constructor() : this(3)
 
     internal val standalone = surfaceCount == 1
+    // 每次用前全部 uniform 都会重设并当场建 RenderEffect，可以全进程共用（见 CouiShaderCache）
     internal val shaders by lazy {
-        if (standalone) listOf(RuntimeShader(couiFloatingStandaloneShader()))
-        else listOf(RuntimeShader(couiFloatingShader(1)), RuntimeShader(couiFloatingShader(2)))
+        if (standalone) listOf(CouiShaderCache.get(couiFloatingStandaloneShader()))
+        else listOf(CouiShaderCache.get(couiFloatingShader(1)), CouiShaderCache.get(couiFloatingShader(2)))
     }
-    internal val causticShaders by lazy { List(surfaceCount) { RuntimeShader(CouiCausticShader) } }
+    internal val causticShaders by lazy { List(surfaceCount) { CouiShaderCache.get(CouiCausticShader) } }
     internal val shadowRenderer = CouiShadowRenderer(surfaceCount)
     internal val destinationEffect by lazy {
         RenderEffect.createRuntimeShaderEffect(
-            RuntimeShader("uniform shader image; half4 main(float2 p) { return image.eval(p); }"), "image",
+            CouiShaderCache.get("uniform shader image; half4 main(float2 p) { return image.eval(p); }"), "image",
         )
     }
 
@@ -215,8 +217,12 @@ private fun Modifier.floatingSurfaces(
 ): Modifier {
     val recordingDensity = LocalDensity.current
     val density = recordingDensity.density
+    // 简化光效：材质与模糊照旧，光晕、焦散、投影不画
+    val reduced = com.xjtu.toolbox.ui.components.LocalReducedEffects.current
+    val glowOn = contourGlowEnabled && !reduced
     val view = LocalView.current
-    val fallbackColor = if (LocalCouiDarkTheme.current == true) Color(0xFF2B2B2B) else Color(0xFFF5F5F5)
+    // 低版本底色。多数页面不提供 LocalCouiDarkTheme，要退回 App 的深浅色，否则夜间模式下也是浅底
+    val fallbackColor = if (LocalCouiDarkTheme.current ?: LocalIsDarkTheme.current) Color(0xFF2B2B2B) else Color(0xFFF5F5F5)
     val shadowLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val causticLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val materialLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
@@ -313,7 +319,7 @@ private fun Modifier.floatingSurfaces(
                 contentLayers[index].clip = true
             }
             if (!couiEffectsSupported) {
-                // 低版本：主体画成纯色形状，不采样、不画光效与投影。
+                // 低版本：不采样、不画光效与投影；主体是底色叠上材质的着色（课格的课程色、有色面板就靠它）
                 return@drawWithCache onDrawWithContent {
                     drawContent()
                     nodes.indices.sortedBy { drawOrder?.indexOf(it) ?: it }.forEach { index ->
@@ -322,7 +328,14 @@ private fun Modifier.floatingSurfaces(
                         withTransform({
                             translate(node.bounds.left, node.bounds.top)
                             scale(node.scaleX, node.scaleY, Offset(node.bounds.width / 2f, node.bounds.height / 2f))
-                        }) { drawOutline(outlines[index], fallbackColor, alpha = node.alpha) }
+                        }) {
+                            drawOutline(outlines[index], fallbackColor, alpha = node.alpha)
+                            // 只叠普通覆盖的着色；中性玻璃的 COLOR_DODGE / OVERLAY 着色按覆盖画会把整块压暗
+                            val material = materials[index]
+                            if (material.firstBlendMode == android.graphics.BlendMode.SRC_OVER) {
+                                drawOutline(outlines[index], material.firstColor, alpha = node.alpha)
+                            }
+                        }
                         beforeContent?.invoke(this, index, beforeClips[index])
                         drawLayer(contentLayers[index])
                     }
@@ -334,10 +347,10 @@ private fun Modifier.floatingSurfaces(
                 val drawn = indices.filter { nodes[it].visible && nodes[it].alpha > InvisibleAlpha }
                 val group = if (drawOrder == null) drawn else drawn.sortedBy { drawOrder.indexOf(it) }
                 group.forEach { index ->
-                    commands.add(shadowLayers[index])
+                    if (!reduced) commands.add(shadowLayers[index])
                     // 前景模式下, 原 Shader 在此阈值内严格输出透明, 无需录制背景或创建光晕图层。
                     // 完整 destination 模式仍需回填, 不能套用这一短路。
-                    if (contourGlowEnabled && (!foregroundComposition ||
+                    if (glowOn && (!foregroundComposition ||
                             shadows[index].causticColor.alpha * nodes[index].alpha > 0.001f)) {
                         val node = nodes[index]
                         val shadow = shadows[index]
@@ -394,8 +407,8 @@ private fun Modifier.floatingSurfaces(
                             shader.setFloatUniform("u_preCmpArray23", floatingPair(balls[1], balls[2], 4f * density))
                         }
                         val edge = floatingEdge(ball, material.edgeWidthDp * density,
-                            if (contourGlowEnabled) material.edgeAlpha else 0f, material.strokeType)
-                        val glow = floatingInnerGlow(ball, if (contourGlowEnabled) material.innerGlowAlpha else 0f,
+                            if (glowOn) material.edgeAlpha else 0f, material.strokeType)
+                        val glow = floatingInnerGlow(ball, if (glowOn) material.innerGlowAlpha else 0f,
                             material.strokeType, material.innerGlowScale)
                         for (parameters in listOf(edge, glow)) {
                             parameters[0] = material.lightColor.red
@@ -422,7 +435,7 @@ private fun Modifier.floatingSurfaces(
             onDrawWithContent {
                 // 子项只录制透明前景; 真实输出遵守 shadow/caustic -> material/content 的 Z 分组顺序。
                 drawContent()
-                shadowLayers.forEachIndexed { index, layer ->
+                if (!reduced) shadowLayers.forEachIndexed { index, layer ->
                     if (!nodes[index].visible || nodes[index].alpha <= InvisibleAlpha) return@forEachIndexed
                     val bounds = nodes[index].bounds
                     val node = nodes[index]

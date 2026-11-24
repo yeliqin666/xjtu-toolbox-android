@@ -6,7 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/** 桌面（jvm）`files` 层投影的验收（§2.3）。 */
+/** 桌面（jvm）`files` 层投影的验收。 */
 class ArchiveFileBackendJvmTest {
 
     private fun withRoot(block: (File) -> Unit) {

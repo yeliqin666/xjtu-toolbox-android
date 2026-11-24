@@ -371,8 +371,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     val sessionManager = com.xjtu.toolbox.auth.SessionManager()
 
     init {
-        sessionManager.onAccountSwitched = { CampusProbe.ywtbToken = null }
-        sessionManager.onYwtbToken = { CampusProbe.ywtbToken = it }
+        CampusProbe.attach(sessionManager)
     }
 
     /** 多账号编排器。 */
@@ -404,6 +403,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.GmisSession())
             register(com.xjtu.toolbox.auth.JsSession())
             register(com.xjtu.toolbox.auth.QmsSession())
+            register(com.xjtu.toolbox.auth.SsSession())
             // 冷启动还不知道在校内还是校外：跟随全局模式的站点等首次判定，直连站点不等
             unsettleAccessMode()
         }

@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
+import com.xjtu.toolbox.tips.HomeTipPanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
@@ -260,6 +261,8 @@ fun HomeClassicScreen(
                         onDismiss = host::onBulletinDismiss,
                     )
                     Spacer(Modifier.height(SECTION_GAP))
+                } else if (HomeCard.TIPS in honored) {
+                    HomeTipPanel(onRoute = host::onRoute, bottomGap = SECTION_GAP)
                 }
                 EditorialFrontPage(
                     modifier = Modifier.enterOnce(0),
@@ -417,7 +420,9 @@ private fun EditorialFrontPage(
     val appearance = remember(HeroAppearanceRevision.current, dark) { HeroAppearance.read(appearanceStore, dark) }
     var showAppearance by remember { mutableStateOf(false) }
     val configure = { showAppearance = true }
-    val ink = appearance.contentColor
+    // 纯色模式没挑过色时铺的就是主题色，所以字色也得按「实际那个底」算
+    val heroPrimary = MiuixTheme.colorScheme.primary
+    val ink = appearance.contentColorOn(heroPrimary)
     val muted = ink.copy(alpha = 0.78f)
     val accent = if (ink == Color.White) LiquidCardAccent else ink.copy(alpha = 0.8f)
     val rule = ink.copy(alpha = 0.18f)
@@ -485,6 +490,15 @@ private fun EditorialFrontPage(
                 it.save(appearanceStore, dark)
                 showAppearance = false
             },
+            // 经典布局没有长按进主页设置的入口，从这里转过去（#434）：这边立刻关，那边立刻开
+            onOpenHomeSettings = if (host.hasHomeSettings) {
+                {
+                    showAppearance = false
+                    host.onOpenHomeSettings()
+                }
+            } else {
+                null
+            },
         )
     }
 }
@@ -499,7 +513,7 @@ internal fun HeroWallpaper(
 ) {
     Box(modifier) {
         when (appearance.background) {
-            "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColor))
+            "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColorOn(MiuixTheme.colorScheme.primary)))
             "forest" -> {
                 HeroForestBackground(Modifier.matchParentSize())
                 Box(Modifier.matchParentSize().background(HeroForestScrim))
@@ -916,7 +930,7 @@ private fun Modifier.opensRow(
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
     val press = remember { MutableInteractionSource() }
-    val openAfterPress = rememberOpenAfterPress(press)
+    val openWhilePressed = rememberOpenWhilePressed(press)
     return this
         .expandOriginSource(origin)
         .clip(RoundedCornerShape(radius))
@@ -925,7 +939,7 @@ private fun Modifier.opensRow(
             interactionSource = press,
             indication = SinkFeedback(),
             onClick = {
-                openAfterPress {
+                openWhilePressed {
                     // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                     origin.arm(row.key, radius, density, snapshot)
                     val seamless = row.onSeamlessClick

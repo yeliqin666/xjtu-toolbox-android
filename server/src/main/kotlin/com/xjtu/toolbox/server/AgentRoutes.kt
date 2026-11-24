@@ -18,7 +18,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 
-/** `/api/agent/…` —— 屁岱（Agent）在浏览器上那一族十四个端点（`docs/api-contract.md` §5.11）。 */
+/** `/api/agent/…` —— 屁岱（Agent）在浏览器上那一族十四个端点（`docs/api-contract.md`）。 */
 internal fun Route.agentRoutes(agent: ServeAgent) {
     route(AGENT_SEGMENT) {
 
@@ -140,7 +140,7 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
             call.respond(ApiEnvelope.ok(AgentSessionData(session.dto())))
         }
 
-        // ── 6. 单条会话的内容（**不在这条会话**答 200 + null，见契约 §5.11）────
+        // ── 6. 单条会话的内容（**不在这条会话**答 200 + null）────
         get("$AGENT_SESSIONS/{id}") {
             val id = call.parameters["id"].orEmpty()
             if (id.isBlank()) return@get call.respondBadRequestMessage("id 必填（会话 id，取自 /api/agent/sessions）")

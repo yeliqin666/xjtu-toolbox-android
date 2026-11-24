@@ -15,7 +15,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/** serve 模式的解析（[ApiMode.SERVE]）—— 契约 `docs/api-contract.md` §4/§5 的客户端那一侧。 */
+/** serve 模式的解析（[ApiMode.SERVE]）—— 契约 `docs/api-contract.md` 的客户端那一侧。 */
 class ServeModeApiTest {
 
     /** 一个只按路径答夹具的 MockEngine（与既有测试同一套写法）。 */
@@ -32,7 +32,7 @@ class ServeModeApiTest {
         }
     }
 
-    /** 契约 §4 最要紧的一条：失败时 `code` 就是 HTTP 状态码（这里是 401），`message` 是能直接给用户看的中文短句。 */
+    /** 契约最要紧的一条：失败时 `code` 就是 HTTP 状态码（这里是 401），`message` 是能直接给用户看的中文短句。 */
     @Test
     fun serveErrorEnvelopeCodeIsHttpStatusAndMessageIsShown() = runTest {
         val engine = engineFor(
@@ -49,7 +49,7 @@ class ServeModeApiTest {
         )
     }
 
-    /** 契约 §5.2 例外①：`fitness/score` 是本人的数据，姓名/学号可投影。 */
+    /** 隐私红线的例外：`fitness/score` 是本人的数据，姓名/学号可投影。 */
     @Test
     fun serveFitnessScoreCarriesStudentNameAndNumber() = runTest {
         val body = """
@@ -67,7 +67,7 @@ class ServeModeApiTest {
         assertEquals("身高 / 体重", score.items.single().name)
     }
 
-    /** 契约 §5「要改」的 school-courses：人数/学时、`YPSJDD`（[SchoolCourse.scheduleLocation]）补齐。 */
+    /** serve 版 school-courses：人数/学时、`YPSJDD`（[SchoolCourse.scheduleLocation]）补齐。 */
     @Test
     fun serveSchoolCourseReadsNewFieldsAndSwitches() = runTest {
         val body = """
@@ -98,7 +98,7 @@ class ServeModeApiTest {
         assertEquals(false, api.supportsElectiveFilter)
     }
 
-    /** 契约 §5「要改」的 emptyroom。 */
+    /** serve 版 emptyroom。 */
     @Test
     fun serveEmptyRoomReadsAvailableSourcesAndRooms() = runTest {
         val body = """
@@ -120,7 +120,7 @@ class ServeModeApiTest {
         assertEquals(96, rooms.single().size)
     }
 
-    /** 契约 §5.2：校历一次给全部学期（不再是 campus-api 那种「一学期一拉再拼」），事件照读。 */
+    /** 校历一次给全部学期（不再是 campus-api 那种「一学期一拉再拼」），事件照读。 */
     @Test
     fun serveCalendarIsOneShotFullList() = runTest {
         val body = """
@@ -140,7 +140,7 @@ class ServeModeApiTest {
         assertEquals("国庆节", term.events.single().name)
     }
 
-    /** 契约 §5.3 的两个课表端点（2026-10-11 落地） */
+    /** 两个课表端点 */
     @Test
     fun serveScheduleAndTermStart() = runTest {
         val scheduleBody = """

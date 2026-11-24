@@ -64,7 +64,7 @@ import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -131,7 +131,7 @@ fun AttendanceScreen(
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             GlassTopAppBar(
                 title = "考勤",
@@ -225,6 +225,7 @@ fun AttendanceScreen(
                             2 -> StatList(state.stats, source.capabilities.stats, glassTop)
                             else -> LeaveList(
                                 leaves = state.leaves,
+                                error = state.leaveError,
                                 supported = source.capabilities.leave,
                                 onOpen = { detail = it },
                                 onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
@@ -509,6 +510,7 @@ private fun StatList(
 @Composable
 private fun LeaveList(
     leaves: List<LeaveRecord>,
+    error: String?,
     /** 本端这一份取数真拿得到请假记录吗（见 [AttendanceCapabilities.leave]）。 */
     supported: Boolean,
     onOpen: (LeaveRecord) -> Unit,
@@ -520,11 +522,15 @@ private fun LeaveList(
         isEmpty = leaves.isEmpty(),
         empty = {
             EmptyState(
-                title = if (supported) "还没请过假" else "本端拿不到请假记录",
-                subtitle = if (supported) {
-                    "点右上角加号提交病假或私事假申请"
-                } else {
-                    "当前版本暂不支持请假和销假，请使用 App 或桌面版。"
+                title = when {
+                    error != null -> "请假记录暂时拿不到"
+                    supported -> "还没请过假"
+                    else -> "本端拿不到请假记录"
+                },
+                subtitle = when {
+                    error != null -> error
+                    supported -> "点右上角加号提交病假或私事假申请"
+                    else -> "当前版本暂不支持请假和销假，请使用 App 或桌面版。"
                 },
                 modifier = it,
             )

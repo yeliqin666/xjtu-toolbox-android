@@ -3,7 +3,7 @@ package com.xjtu.toolbox.archive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** 账号后缀纯函数的验收（§4）。 */
+/** 账号后缀纯函数的验收。 */
 class ArchiveNamesTest {
 
     @Test

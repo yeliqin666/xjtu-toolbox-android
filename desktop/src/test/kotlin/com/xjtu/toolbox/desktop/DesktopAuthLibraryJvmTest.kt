@@ -134,7 +134,7 @@ class DesktopAuthLibraryJvmTest {
     private fun login(auth: DesktopAuth): Boolean {
         auth.username = LibraryFakeUpstream.USERNAME
         auth.password = LibraryFakeUpstream.PASSWORD
-        return runBlocking { auth.login() }
+        return runBlocking { auth.login().also { auth.awaitPrewarm() } }
     }
 
     // ══════ 真登录 ══════
@@ -1012,7 +1012,7 @@ class DesktopAuthLibraryJvmTest {
         assertTrue(login(auth), "体测挂了不该让登录失败：${auth.loginState}")
         assertTrue(auth.loggedIn, "登录态应当照常建立")
 
-        // 主站（图书馆）硬要求，所以它必须真能用
+        // 图书馆由登录后的预热建好会话，照常能用
         val seats = assertIs<SeatResult.Success>(runBlocking { auth.librarySource.seats("north2east") })
         assertEquals(listOf("A01", "A02", "A10"), seats.seats.map { it.seatId })
 

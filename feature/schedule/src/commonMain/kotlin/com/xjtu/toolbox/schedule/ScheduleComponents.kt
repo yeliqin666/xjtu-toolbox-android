@@ -80,6 +80,8 @@ fun ScheduleGrid(
     isCurrentWeek: Boolean = false,  // 是否显示当前时间线
     weekDates: List<LocalDate>? = null,
     holidayNames: Map<LocalDate, String> = emptyMap(),
+    /** 系统日历的全天日程：标在那一天的列头日期下面。 */
+    allDayEvents: Map<LocalDate, List<String>> = emptyMap(),
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 顶部留白，放在纵向滚动里面：顶栏是玻璃时，星期头和网格要能从它下面滚过去。 */
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
@@ -222,6 +224,7 @@ fun ScheduleGrid(
                 }
             }
         }
+        if (weekDates != null) AllDayStrip(weekDates, allDayEvents, leftColWidth)
 
         // ── 网格主体：BoxWithConstraints 精确定位 ──
         BoxWithConstraints(
@@ -602,6 +605,81 @@ fun CourseCell(
                         .background(dot, CircleShape)
                 )
             }
+        }
+    }
+}
+
+/** 全天日程在周里的一根横条：[start]..[end] 是周内列号（含两端），[lane] 是第几行。 */
+internal data class AllDayBar(val title: String, val start: Int, val end: Int, val lane: Int)
+
+/** 同名事件连续几天并成一根横条，再按起始列贪心排行（不重叠的共用一行）。 */
+internal fun allDayBars(weekDates: List<LocalDate>, events: Map<LocalDate, List<String>>): List<AllDayBar> {
+    val spans = mutableListOf<Triple<String, Int, Int>>()
+    weekDates.forEachIndexed { i, date ->
+        for (title in events[date].orEmpty().distinct()) {
+            val prev = weekDates.getOrNull(i - 1)
+            if (prev != null && title in events[prev].orEmpty()) continue
+            var end = i
+            while (end + 1 < weekDates.size && title in events[weekDates[end + 1]].orEmpty()) end++
+            spans += Triple(title, i, end)
+        }
+    }
+    val laneEnds = mutableListOf<Int>()
+    return spans.sortedWith(compareBy({ it.second }, { -it.third })).map { (title, start, end) ->
+        val lane = laneEnds.indexOfFirst { it < start }.takeIf { it >= 0 } ?: laneEnds.size.also { laneEnds += -1 }
+        laneEnds[lane] = end
+        AllDayBar(title, start, end, lane)
+    }
+}
+
+private const val ALL_DAY_MAX_LANES = 2
+private val ALL_DAY_BAR_HEIGHT = 18.dp
+
+/** 星期头下面的「全天」一栏；这周没有全天日程就不占地方。超出两行的折成「+n」。 */
+@Composable
+private fun AllDayStrip(weekDates: List<LocalDate>, events: Map<LocalDate, List<String>>, leftColWidth: Dp) {
+    val bars = remember(weekDates, events) { allDayBars(weekDates, events) }
+    if (bars.isEmpty()) return
+    val shown = bars.filter { it.lane < ALL_DAY_MAX_LANES }
+    val hidden = (0 until weekDates.size).associateWith { col -> bars.count { it.lane >= ALL_DAY_MAX_LANES && col in it.start..it.end } }
+        .filterValues { it > 0 }
+    val lanes = (shown.maxOf { it.lane } + 1) + (if (hidden.isNotEmpty()) 1 else 0)
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(bottom = 4.dp).height(ALL_DAY_BAR_HEIGHT * lanes + 2.dp * (lanes - 1))) {
+        val dayWidth = (maxWidth - leftColWidth) / weekDates.size
+        Text(
+            "全天", fontSize = 9.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(leftColWidth).height(ALL_DAY_BAR_HEIGHT).wrapContentHeight(),
+        )
+        for (bar in shown) {
+            Box(
+                Modifier
+                    .offset(x = leftColWidth + dayWidth * bar.start, y = (ALL_DAY_BAR_HEIGHT + 2.dp) * bar.lane)
+                    .width(dayWidth * (bar.end - bar.start + 1))
+                    .height(ALL_DAY_BAR_HEIGHT)
+                    .padding(horizontal = 1.5.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(SystemCalendarAccent.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    bar.title, fontSize = 10.sp, fontWeight = FontWeight.Medium,
+                    color = SystemCalendarAccent,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        }
+        for ((col, n) in hidden) {
+            Text(
+                "+$n", fontSize = 9.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .offset(x = leftColWidth + dayWidth * col, y = (ALL_DAY_BAR_HEIGHT + 2.dp) * ALL_DAY_MAX_LANES)
+                    .width(dayWidth).height(ALL_DAY_BAR_HEIGHT).wrapContentHeight(),
+            )
         }
     }
 }

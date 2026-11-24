@@ -40,10 +40,10 @@ class FeedbackStoreJvmTest {
 
     @Test
     fun `回复缓存：键值对往返（节流命中时屏直接拿它渲染）`() {
-        FeedbackStore.cacheReplies(mapOf("TA" to ("示例回复" to "2026-10-01 12:00")))
+        FeedbackStore.cacheReplies(mapOf("TA" to FeedbackReply("示例回复", "2026-10-01 12:00", "yeliqin666")))
         val cached = FeedbackStore.cachedReplies()
         assertEquals(setOf("TA"), cached.keys)
-        assertEquals("示例回复" to "2026-10-01 12:00", cached.getValue("TA"))
+        assertEquals(FeedbackReply("示例回复", "2026-10-01 12:00", "yeliqin666"), cached.getValue("TA"))
     }
 
     @Test
@@ -62,23 +62,31 @@ class FeedbackStoreJvmTest {
     }
 
     @Test
-    fun `拉取回复的节流：force 直接放行，拉过一次之后就不再放行`() {
-        assertTrue(FeedbackStore.shouldFetchReplies(hasPending = true), "从没拉过 ⇒ 该拉")
+    fun `拉取回复的节流：有待回的每天一次，没有就只靠下拉，下拉也防连点`() {
+        assertTrue(FeedbackStore.shouldFetchReplies(hasPending = true), "从没拉过、有待回 ⇒ 该拉")
+        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = false), "没有待回 ⇒ 进页面不自动拉")
+        assertTrue(FeedbackStore.shouldFetchReplies(hasPending = false, manual = true), "下拉 ⇒ 该拉")
         FeedbackStore.markRepliesFetched()
-        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = true), "刚拉过（10 分钟档）⇒ 不该再拉")
-        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = false), "刚拉过（6 小时档）⇒ 不该再拉")
-        assertTrue(FeedbackStore.shouldFetchReplies(hasPending = false, force = true), "下拉刷新绕过节流")
+        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = true), "刚拉过 ⇒ 当天不再自动拉")
+        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = false, manual = true), "刚拉过 ⇒ 下拉也先不查")
     }
 
     @Test
     fun `公开问答的节流：拉过一次之后就不再放行`() {
-        assertTrue(FeedbackStore.shouldFetchPublicQa(), "从没拉过 ⇒ 该拉")
+        assertTrue(FeedbackStore.shouldFetchPublicQa(manual = false), "从没拉过 ⇒ 该拉")
         FeedbackStore.cachePublicQa(listOf(FeedbackPublicQa("示例提问", "示例回答")))
-        assertFalse(FeedbackStore.shouldFetchPublicQa(), "刚拉过 ⇒ 不该再拉")
+        assertFalse(FeedbackStore.shouldFetchPublicQa(manual = false), "刚拉过 ⇒ 不该再拉")
+        assertTrue(FeedbackStore.shouldFetchPublicQa(manual = true), "下拉刷新照拉")
     }
 
     @Test
-    fun `弹问卷的三重闸门：没配后端不弹、用得太少不弹、记过账就不再弹`() {
+    fun `弹问卷的闸门：没配后端不弹、新版本刚装不弹、用得太少不弹、记过账就不再弹`() {
+        assertFalse(
+            FeedbackStore.shouldPrompt(versionCode = 90, usageCount = 100, isConfigured = true),
+            "新版本第一次见到 ⇒ 只记下装上的时间，满 3 天才问",
+        )
+        // 89 版很早以前就装上了
+        raw.putString("prompt_version_seen", "89:0")
         assertFalse(
             FeedbackStore.shouldPrompt(versionCode = 89, usageCount = 100, isConfigured = false),
             "后端没配 ⇒ 从不弹（搬迁前读的是 FeedbackApi.isConfigured）",

@@ -16,7 +16,7 @@ data class HomeTile(
     val w: Float,
     val h: Float,
 ) {
-    /** 纯图标模式：缩到这个尺寸以下就不摆文字（需求 §3.3 的极值形态）。 */
+    /** 纯图标模式：缩到这个尺寸以下就不摆文字。 */
     val iconOnly: Boolean get() = w < 1.2f || h < 1.2f
 
     val area: Float get() = w * h
@@ -27,7 +27,7 @@ data class HomeTile(
  *
  * [id] 稳定不变（默认组用分类名，自建组是 `custom-<时间戳式的短串>`）；[title] 是用户能改的组名
  * ——默认填分类名（「常用功能」「教务」…），编辑态点组头可以重命名（存进快照、跟着导出 / 导入走）；
- * 空串 = 常规态整行不画、编辑态显示「未命名分组」占位（需求 §2.3）；[colorHex] 是标题颜色，
+ * 空串 = 常规态整行不画、编辑态显示「未命名分组」占位；[colorHex] 是标题颜色，
  * 空串 = 跟随主题。
  */
 data class HomeGroup(
@@ -131,7 +131,7 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     }
 
     /**
-     * 一次落位的收尾：网格模式下把这一组的**全空行**收掉，下面的块整体上移补位（§A1）。
+     * 一次落位的收尾：网格模式下把这一组的**全空行**收掉，下面的块整体上移补位。
      *
      * 拖动中也收（以前只在松手那一次收——那样预览留着空行、松手一压缩，落点就和看到的不一样，
      * 于是 16278fd7 那轮反过来取消了松手压缩，空行就永远留着了）。现在两边都收，预览与落盘
@@ -145,10 +145,10 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
      * 往 [groupId] 组里加一个功能。**同一组里允许出现同一个功能的多块**（2026-11 按需求改）：
      * 「常用功能」本来就是同一路由的第二块，组内再来一块也是用户的明确意图，没有理由拦。
      */
-    fun addTile(groupId: String, routeId: String, tileId: String): HomeLayout {
+    fun addTile(groupId: String, routeId: String, tileId: String, w: Float = 2f, h: Float = 1f): HomeLayout {
         val group = group(groupId) ?: return this
-        // 新块按 2×1 进组：和默认布局一档，放不下就落到最下面
-        val size = 2f to 1f
+        // 新块默认 2×1 进组：和默认布局一档，放不下就落到最下面
+        val size = w to h
         val slot = HomeGridMath.firstFreeSlot(group.tiles, size.first, size.second)
         val tile = if (slot != null) {
             HomeTile(tileId, routeId, slot.first, slot.second, size.first, size.second)

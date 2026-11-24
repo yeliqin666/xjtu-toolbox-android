@@ -12,7 +12,7 @@ import kotlinx.serialization.json.JsonObject
 class CampusIclassfaceApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：这一份取数只认 serve 契约（§5.6）。 */
+    /** 见 [ApiMode]：这一份取数只认 serve 契约。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : IclassfaceSource {
 
@@ -42,7 +42,7 @@ class CampusIclassfaceApi(
     }
 }
 
-/** 某一天的签到流水（契约 §5.6 的那个 iclassface 端点）。 */
+/** 某一天的签到流水（`/api/iclassface/records`）。 */
 private const val RECORDS_PATH = "/api/iclassface/records"
 
 private const val DATE_PARAM = "date"

@@ -3,6 +3,7 @@ package com.xjtu.toolbox.agent
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
+import kotlinx.serialization.json.JsonObject
 
 /** 屁岱记住的用户偏好。 */
 class AgentMemory(
@@ -69,6 +70,44 @@ class AgentMemory(
 
     fun clear() {
         prefs().clear()
+    }
+
+    /**
+     * `preference` 工具的入口（各端共用）：action=list 列出；不给 value 删除；否则写入。
+     * 模型改偏好时常换个说法（「所在校区」改「校区」），所以写入前把旧键（old_key 或与 key 互相包含的那条）
+     * 一并收掉，避免改不动、反而多出一条；每次都回带当前清单，让模型在本轮对话里就看得到改后的样子。
+     */
+    fun handleTool(args: JsonObject): String {
+        val key = args.argStr("key").orEmpty().trim()
+        val value = args.argStr("value").orEmpty()
+        val reply = when {
+            args.argStr("action")?.trim() == "list" -> return listText()
+            value.isBlank() -> forget(resolve(key) ?: key)
+            else -> {
+                val k = key.take(40)
+                val replaced = listOfNotNull(args.argStr("old_key")?.let(::resolve), resolve(k)).distinct() - k
+                replaced.forEach { forget(it) }
+                val written = remember(k, value)
+                if (replaced.isEmpty()) written else "$written（替换了「${replaced.joinToString("、")}」）"
+            }
+        }
+        return "$reply\n${listText()}"
+    }
+
+    private fun listText(): String {
+        val items = all()
+        return if (items.isEmpty()) "当前没有记住的偏好。"
+        else "当前偏好：" + items.joinToString("；") { (k, v) -> "$k = $v" }
+    }
+
+    /** 找已存的同一条：先精确匹配，否则取唯一一条与之互相包含的键（两字以上才算）。 */
+    private fun resolve(key: String): String? {
+        val k = key.trim()
+        if (k.isEmpty()) return null
+        val keys = all().map { it.first }
+        if (k in keys) return k
+        if (k.length < 2) return null
+        return keys.filter { it.length >= 2 && (it in k || k in it) }.singleOrNull()
     }
 
     /** 拼进系统提示的那一段。没有偏好时返回空串，不留空标题。 */

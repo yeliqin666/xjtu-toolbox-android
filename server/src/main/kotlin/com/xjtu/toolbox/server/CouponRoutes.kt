@@ -12,7 +12,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
-/** `/api/coupon*` —— 加餐券的三个端点（`docs/api-contract.md` §5.5）：列表 + 详情两个只读，加上领券（写）。 */
+/** `/api/coupon*` —— 加餐券的三个端点（`docs/api-contract.md`）：列表 + 详情两个只读，加上领券（写）。 */
 internal fun Route.couponRoutes(session: ServeSession) {
     route(COUPON_SEGMENT) {
 
@@ -89,7 +89,7 @@ internal fun Route.couponRoutes(session: ServeSession) {
 
 // ── 数据模型（客户端形状）──────────────────────────────────────────
 
-/** `GET /api/coupon/list` 的 `data`：分页形状（§4）+ 所用的档。 */
+/** `GET /api/coupon/list` 的 `data`：分页形状 + 所用的档。 */
 @Serializable
 internal data class CouponListData(
     /** 所用的档（见 [CouponFilter.code]），请求没给就是 `usable`。 */
@@ -197,7 +197,7 @@ private const val COUPON_FILTER_SHAPE_MESSAGE =
 @Serializable
 internal data class CouponActivateRequest(val showCardId: String = "")
 
-/** `POST /api/coupon/activate` 的 `data`（与 §5.3.1 / §5.3.2 两个写端点同一个 `{ok, message}` 形状）。 */
+/** `POST /api/coupon/activate` 的 `data`（与图书馆、场馆的写端点同一个 `{ok, message}` 形状）。 */
 @Serializable
 internal data class CouponActionResult(val ok: Boolean, val message: String)
 

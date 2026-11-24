@@ -801,7 +801,7 @@ private fun CommunityEditor(
                     text = "放弃",
                     onClick = { confirmDiscard = false; onClose() },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                 )
             }
         }

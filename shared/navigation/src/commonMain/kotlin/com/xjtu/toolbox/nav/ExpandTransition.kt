@@ -189,8 +189,10 @@ object ExpandOrigins {
      * 返回时页面一开始缩就换回卡片，看到的是卡片飞回去。
      */
     fun pageContentAlpha(progress: Float, popping: Boolean = false): Float {
-        val t = if (popping) ((progress - 0.40f) / 0.40f).coerceIn(0f, 1f)
-        else ((progress - 0.18f) / 0.32f).coerceIn(0f, 1f)
+        // 按窗口长到几成定时（见 ButtonZoom.grown），换放大曲线也不会错位
+        val g = ButtonZoom.grown(progress)
+        val t = if (popping) ((g - 0.42f) / 0.48f).coerceIn(0f, 1f)
+        else ((g - 0.14f) / 0.41f).coerceIn(0f, 1f)
         return t * t * (3f - 2f * t)
     }
 
@@ -285,9 +287,9 @@ object ButtonZoom {
         // 起步就有速度（减速曲线）：松手那一刻卡片就开始飞，不先停在原地等按压回弹，
         // 按下时的缩小和打开是同时发生的，而不是先缩、再开
         val flight = easeOut(p / FLIGHT_END)
-        // 飞行时就开始长，铺满的大头在飞行后半段和之后
-        val growW = 0.18f * flight + 0.82f * smoothStep((p - GROW_START) / (1f - GROW_START))
-        val growH = 0.14f * flight + 0.86f * smoothStep((p - GROW_START_H) / (1f - GROW_START_H))
+        // 飞行时就开始长，放大速度峰值在前四分之一，之后减速铺满
+        val growW = grown(p)
+        val growH = 0.14f * flight + 0.86f * frontGrow((p - GROW_START_H) / (1f - GROW_START_H))
         val cx = lerp(from.center.x, full.width / 2f, flight)
         // 底栏盖在页面上层：先升到它上方、屏幕偏下处，看得见离开了底栏，再放大回到全屏中心
         val cy = if (risesFromBottom) {
@@ -308,13 +310,19 @@ object ButtonZoom {
      * 圆钮变成页面时，页面内容的透明度：先是按钮长成的面板，长到一定大小后内容才在面板下浮出来。
      * 进度 5% 就整页显出来的话，一按下去按钮就成了「装着整页缩略图的圆」。
      */
-    fun contentAlpha(u: Float): Float = smoothStep((u - 0.12f) / 0.25f)
+    fun contentAlpha(u: Float): Float = smoothStep((grown(u) - 0.09f) / 0.29f)
 
     /** 盖在页面上的那块按钮面板（底色 + 原大图标）的透明度，和 [contentAlpha] 交叉。 */
-    fun coverAlpha(u: Float): Float = 1f - smoothStep((u - 0.18f) / 0.25f)
+    fun coverAlpha(u: Float): Float = 1f - smoothStep((grown(u) - 0.14f) / 0.32f)
 
     /** 面板底色从按钮那种半透明长成实底，起步时看起来还是那颗按钮。 */
-    fun coverFill(u: Float): Float = 0.55f + 0.45f * smoothStep(u / 0.12f)
+    fun coverFill(u: Float): Float = 0.55f + 0.45f * smoothStep(grown(u) / 0.09f)
+
+    /** 窗口宽度长到了几成（0 = 按钮，1 = 全屏）：交叉淡化按它定时，换放大曲线也不会错位。 */
+    internal fun grown(u: Float): Float {
+        val p = u.coerceIn(0f, 1f)
+        return 0.18f * easeOut(p / FLIGHT_END) + 0.82f * frontGrow((p - GROW_START) / (1f - GROW_START))
+    }
 
     /** 飞行段在总进度的这个位置结束（中心到屏幕中央）。 */
     internal const val FLIGHT_END = 0.5f
@@ -329,6 +337,13 @@ object ButtonZoom {
     private fun smoothStep(x: Float): Float {
         val t = x.coerceIn(0f, 1f)
         return t * t * (3f - 2f * t)
+    }
+
+    /** 首尾速度为 0、速度峰值在 25% 处的放大曲线：1 − (1−x)⁴(1+4x)。 */
+    private fun frontGrow(x: Float): Float {
+        val t = x.coerceIn(0f, 1f)
+        val r = (1f - t) * (1f - t)
+        return 1f - r * r * (1f + 4f * t)
     }
 
     /** 起步最快、到终点速度归零的减速曲线。 */
@@ -381,6 +396,12 @@ class ExpandOriginSource internal constructor(private val layer: GraphicsLayer) 
         }
     }
 
+    /**
+     * 这一次转场的叠加层画的是调用方自绘的卡面（[arm] 传了自己的 snapshot），不是这份图层：
+     * 转场里原位就不必每帧重录，录了也没人画。
+     */
+    internal var ownSnapshot = false
+
     /** 转场里：只把此刻的画面录进图层（叠加层画它），原位不画。 */
     internal fun recordLive(draw: androidx.compose.ui.graphics.drawscope.ContentDrawScope) = record(draw)
 
@@ -428,6 +449,7 @@ class ExpandOriginSource internal constructor(private val layer: GraphicsLayer) 
         val bounds = c.boundsInRoot()
         if (bounds.isEmpty) return
         if (snapshot == null) captureRequested = true
+        ownSnapshot = snapshot != null && snapshot !== capturedContent
         ExpandOrigins.arm(
             routeId,
             ExpandOrigins.Origin(
@@ -461,6 +483,8 @@ fun Modifier.expandOriginSource(source: ExpandOriginSource): Modifier =
         .drawWithContent {
             when {
                 source.captureRequested -> source.capture(this)
+                // 叠加层画的是自绘卡面：原位藏起来就行，不逐帧重录一份没人用的图层
+                ExpandOrigins.isHidden(source) && source.ownSnapshot -> Unit
                 ExpandOrigins.isHidden(source) -> {
                     // 在绘制阶段读一次进度：转场每走一帧都让这里重画、重录。不读的话这一页被盖着时没人
                     // 触发它重画，图层里一直是点击那一刻的画面（还带着按压反馈），落地时和真元素对不上
@@ -575,7 +599,7 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
                 (ExpandOrigins.pageContentAlpha(p, popping = true) * 2.5f).coerceIn(0f, 1f)
             } else {
                 // 打开：卡片起步时是透明玻璃，页面先不出现；卡面底色铺满后（0.2，见叠加层）、开始交接前页面才垫上来
-                val t = ((p - 0.12f) / 0.06f).coerceIn(0f, 1f)
+                val t = ((ButtonZoom.grown(p) - 0.086f) / 0.057f).coerceIn(0f, 1f)
                 t * t * (3f - 2f * t)
             }
         } else if (isPop) {

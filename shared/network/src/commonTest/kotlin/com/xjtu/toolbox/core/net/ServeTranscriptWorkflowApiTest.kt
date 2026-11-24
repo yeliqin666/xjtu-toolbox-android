@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 /**
- * serve 契约 §5.12 的**两段式成绩单**在客户端那一侧的核（`CampusTranscriptApi`）。
+ * serve 契约的**两段式成绩单**在客户端那一侧的核（`CampusTranscriptApi`）。
  *
  * 屏上那七步在这一端有几步是「同一发 HTTP」或「空壳」，这里逐条把它们钉住（口径写在那份 API 的 KDoc 表格里）。
  */
@@ -93,7 +93,7 @@ class ServeTranscriptWorkflowApiTest {
             ),
         )
 
-        assertTrue(api.canRunWorkflow, "serve 形态下整条链走得通（契约 §5.12）")
+        assertTrue(api.canRunWorkflow, "serve 形态下整条链走得通")
         val form = api.loadCreateForm(29)
         assertEquals(29, form.workflowId)
         assertEquals(1, form.typeOptions.size)

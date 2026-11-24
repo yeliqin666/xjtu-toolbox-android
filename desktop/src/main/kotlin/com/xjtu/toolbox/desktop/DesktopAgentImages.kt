@@ -24,7 +24,7 @@ import java.util.Base64
  *    桌面这一端的图来自文件对话框 —— 截图、网页存的图，本来就小，而 JVM 侧要重编码就得走
  *    skia 的表面/画布那一套。于是改成**按字节数设上限**（[MAX_BYTES]），超了就说一句、不收，
  *    而不是悄悄把几十兆塞进请求里。
- * 2. **目录在 `~/.cache/xjtu-toolbox/agent_images`**（而不是 App 的 `filesDir`）：桌面没有
+ * 2. **目录在 `~/.cache/xjtu-dzhz/agent_images`**（而不是 App 的 `filesDir`）：桌面没有
  *    "应用私有目录"这一说，缓存目录是这一端放可再生数据的地方（同 `jiaocai1CacheRoot`）。
  *    附件图跟着会话历史走，但真丢了也只是气泡里的缩略图变成"读不出来"，那条消息的**文字还在**。
  */
@@ -40,7 +40,7 @@ internal object DesktopAgentImages {
     fun dir(): File {
         val base = System.getenv("XDG_CACHE_HOME")?.takeIf { it.isNotBlank() }?.let(::File)
             ?: File(System.getProperty("user.home") ?: "/tmp", ".cache")
-        return File(File(base, "xjtu-toolbox"), "agent_images" + AccountContext.safeSuffix())
+        return File(File(base, "xjtu-dzhz"), "agent_images" + AccountContext.safeSuffix())
     }
 
     /**
@@ -66,7 +66,7 @@ internal object DesktopAgentImages {
             }.getOrNull()
         }
         if (tooBig > 0) {
-            showBriefMessage("有 $tooBig 张图超过 ${MAX_BYTES / 1024 / 1024}MB 没带上（桌面这一端不缩图）")
+            showBriefMessage("$tooBig 张图片超过 ${MAX_BYTES / 1024 / 1024}MB，未添加")
         }
         return saved
     }

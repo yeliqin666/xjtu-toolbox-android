@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.agent
 
 import com.xjtu.toolbox.ui.components.pressScale
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -179,7 +181,7 @@ internal fun AgentWelcome(
             SectionTitle("此刻")
             BriefCard(brief, onAsk)
             Spacer(Modifier.height(SECTION_GAP))
-            SectionTitle("一句话，办成一串事")
+            SectionTitle("一句话办成一串事")
             ChainShowcase(host.honored, onAsk)
             Spacer(Modifier.height(SECTION_GAP))
         }
@@ -189,7 +191,7 @@ internal fun AgentWelcome(
 }
 
 /** 首屏各板块之间的统一间距。 */
-private val SECTION_GAP = 24.dp
+private val SECTION_GAP = 22.dp
 
 /** 首屏卡片统一圆角。 */
 private val WELCOME_RADIUS = 22.dp
@@ -289,7 +291,9 @@ private fun ChainShowcase(honored: Set<AgentCapability>, onAsk: (String) -> Unit
     Row(
         Modifier
             .fillMaxWidth()
-            .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+            .horizontalScroll(androidx.compose.foundation.rememberScrollState())
+            // 一排卡片齐高：取最高那张，矮的拉齐
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Max),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         chains.forEachIndexed { i, c ->
@@ -302,7 +306,8 @@ private fun ChainShowcase(honored: Set<AgentCapability>, onAsk: (String) -> Unit
                         translationY = (1f - enter.value) * 12.dp.toPx()
                     }
                     .pressScale(source, pressed = 0.96f)
-                    .width(168.dp)
+                    .width(176.dp)
+                    .fillMaxHeight()
                     .clip(RoundedCornerShape(WELCOME_RADIUS))
                     .background(com.xjtu.toolbox.ui.components.AppCardColor)
                     // 右上角一团很淡的同色光，每张卡有自己的颜色，又不抢字
@@ -310,27 +315,21 @@ private fun ChainShowcase(honored: Set<AgentCapability>, onAsk: (String) -> Unit
                         drawCircle(c.tint.copy(alpha = 0.08f), radius = 70.dp.toPx(), center = Offset(size.width, 0f))
                     }
                     .clickable(interactionSource = source, indication = null) { onAsk(c.question) }
-                    .padding(16.dp),
+                    .padding(14.dp),
             ) {
-                IconTile(c.icon, c.tint, 34.dp)
-                Spacer(Modifier.height(12.dp))
-                Text(c.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 2, minLines = 2, lineHeight = 20.sp)
-                Spacer(Modifier.height(12.dp))
-                c.steps.forEachIndexed { si, step ->
-                    if (si > 0) {
-                        Box(Modifier.padding(start = 7.5.dp).width(1.dp).height(6.dp).background(c.tint.copy(alpha = 0.3f)))
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(16.dp).clip(CircleShape).background(c.tint.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("${si + 1}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = c.tint)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text(step, fontSize = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
+                IconTile(c.icon, c.tint, 30.dp)
+                Spacer(Modifier.height(10.dp))
+                Text(c.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 2, lineHeight = 20.sp)
+                Spacer(Modifier.height(6.dp))
+                // 用到的几步收成一行小字，卡片不再被竖排的三步撑高
+                Text(
+                    c.steps.joinToString(" · "),
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = muted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -393,10 +392,13 @@ private fun buildBrief(f: WelcomeFacts, now: LocalDateTime): List<BriefLine> {
     f.chatter.nextHoliday?.let { (name, days) ->
         lines += BriefLine(Icons.Outlined.BeachAccess, "放假", "距$name $days 天", "最近的假期怎么放？要调休吗？")
     }
-    lines += if (now.hour in 10..13 || now.hour in 16..19) {
-        BriefLine(Icons.Outlined.Restaurant, "饭点", "附近哪个食堂开着", "现在去哪个食堂吃饭比较好？")
-    } else {
-        BriefLine(Icons.Outlined.MeetingRoom, "自习", "空教室和图书馆座位一起看", "现在想找个地方自习，去哪合适？")
+    // 「此刻」只放读得到的真数据；一条都没有时才给一句看时段的建议，免得整块空着
+    if (lines.isEmpty()) {
+        lines += if (now.hour in 10..13 || now.hour in 16..19) {
+            BriefLine(Icons.Outlined.Restaurant, "饭点", "附近哪个食堂开着", "现在去哪个食堂吃饭比较好？")
+        } else {
+            BriefLine(Icons.Outlined.MeetingRoom, "自习", "空教室和图书馆座位一起看", "现在想找个地方自习，去哪合适？")
+        }
     }
     return lines.sortedByDescending { it.warn }
 }
@@ -426,11 +428,11 @@ private fun BriefCard(lines: List<BriefLine>, onAsk: (String) -> Unit) {
                     .clickable(interactionSource = source, indication = top.yukonga.miuix.kmp.utils.SinkFeedback()) {
                         line.open?.invoke() ?: onAsk(line.question)
                     }
-                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(line.icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(16.dp))
+                Icon(line.icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
+                Spacer(Modifier.width(14.dp))
                 Text(line.label, fontSize = 13.sp, color = muted, maxLines = 1, modifier = Modifier.width(52.dp))
                 Text(
                     line.value,
@@ -504,12 +506,32 @@ private val ABILITIES = listOf(
     ),
 )
 
-/** 能力目录：每类一行标题（图标 + 名字），下面一排可点的名字，点了把示范问题填进输入框（不直接发）。 */
+/**
+ * 能力目录：默认每类只露前三个、平铺成一片（颜色区分类别），点「全部能力」再按类展开；
+ * 点名字把示范问题填进输入框（不直接发）。
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CapabilityIndex(honored: Set<AgentCapability>, onFill: (String) -> Unit) {
     val ink = MiuixTheme.colorScheme.onSurface
     val enter = rememberEnter(3)
+    var showAll by remember { mutableStateOf(false) }
+    val groups = ABILITIES.map { g -> g to g.items.filter { it.needs == null || it.needs in honored } }
+
+    @Composable
+    fun Chip(a: Ability, tint: Color) {
+        Text(
+            a.label,
+            fontSize = 13.sp,
+            color = ink,
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(tint.copy(alpha = 0.09f))
+                .clickable { onFill(a.example) }
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+        )
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -519,38 +541,47 @@ private fun CapabilityIndex(honored: Set<AgentCapability>, onFill: (String) -> U
             }
             .clip(RoundedCornerShape(WELCOME_RADIUS))
             .background(com.xjtu.toolbox.ui.components.AppCardColor)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+            .padding(16.dp)
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ABILITIES.forEach { group ->
-            val items = group.items.filter { it.needs == null || it.needs in honored }
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconTile(group.icon, group.tint, 26.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text(group.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink)
-                }
-                Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items.forEach { a ->
-                        Text(
-                            a.label,
-                            fontSize = 13.sp,
-                            color = ink,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(group.tint.copy(alpha = 0.08f))
-                                .clickable { onFill(a.example) }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                        )
+        if (!showAll) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                groups.forEach { (g, items) -> items.take(3).forEach { Chip(it, g.tint) } }
+            }
+        } else {
+            groups.forEach { (group, items) ->
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconTile(group.icon, group.tint, 22.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(group.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items.forEach { Chip(it, group.tint) }
                     }
                 }
             }
         }
+        Text(
+            if (showAll) "收起" else "全部能力",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { showAll = !showAll }
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+        )
     }
 }
 
@@ -590,15 +621,16 @@ private fun plainHeroLine(facts: WelcomeFacts, now: LocalDateTime): String =
         ?.text
         ?: "课表、考试、空教室、饭卡，直接问我就行"
 
-/** 板块标题：正文色、一个字号，各板块同一个样子，读起来是一页而不是几块拼起来的。 */
+/** 板块标题：次要色小字，只作分隔，不和卡片里的内容抢。 */
 @Composable
 private fun SectionTitle(text: String) {
     Text(
         text,
-        fontSize = 16.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = MiuixTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 1.sp,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
     )
 }
 

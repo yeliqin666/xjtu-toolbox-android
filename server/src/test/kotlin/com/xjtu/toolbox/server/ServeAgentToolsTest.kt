@@ -21,10 +21,10 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** serve 侧白名单工具层的逐档验收（`docs/agent-web-spec.md` §6）。 */
+/** serve 侧白名单工具层的逐档验收。 */
 class ServeAgentToolsTest {
 
-    /** 白名单九件，逐条与 `/api/agent/config` 的 `toolAllowlist` 同一份定义。 */
+    /** 白名单十件，逐条与 `/api/agent/config` 的 `toolAllowlist` 同一份定义。 */
     private val expectedNames = listOf(
         "get_calendar",
         "get_schedule",
@@ -34,6 +34,7 @@ class ServeAgentToolsTest {
         "preference",
         "find_faculty",
         "app_guide",
+        "search_campus_guide",
         "calculate",
     )
 
@@ -83,14 +84,14 @@ class ServeAgentToolsTest {
             assertEquals("2*3+4 = 10", tools.execute("calculate", """{"expression":"2*3+4"}"""))
             assertEquals("error: missing_param; param: expression", tools.execute("calculate", "{}"))
 
-            val campus = tools.execute("app_guide", """{"topic":"campus"}""")
-            assertTrue(campus.contains("兴庆校区"), "campus 话题没给校区那段：$campus")
-            assertTrue(!campus.contains("App 功能与入口"), "campus 话题不该带 App 功能那段")
+            assertTrue(tools.execute("app_guide", "{}").contains("App 功能与入口"))
+            val canteen = tools.execute("search_campus_guide", """{"query":"兴庆食堂"}""")
+            assertTrue(canteen.contains("梧桐苑"), "校园指南没查到兴庆食堂：$canteen")
 
             // preference：给 value 是记下，不给是删掉（与 :app 同一条判据）
-            assertEquals("记住了：常在 = 兴庆", tools.execute("preference", """{"key":"常在","value":"兴庆"}"""))
+            assertEquals("记住了：常在 = 兴庆\n当前偏好：常在 = 兴庆", tools.execute("preference", """{"key":"常在","value":"兴庆"}"""))
             assertTrue(tools.memoryBlock().contains("- 常在：兴庆"), "偏好没进系统提示：${tools.memoryBlock()}")
-            assertEquals("忘掉了「常在」。", tools.execute("preference", """{"key":"常在"}"""))
+            assertEquals("忘掉了「常在」。\n当前没有记住的偏好。", tools.execute("preference", """{"key":"常在"}"""))
             assertTrue(tools.memoryBlock().isEmpty(), "删掉之后不该还在：${tools.memoryBlock()}")
         }
 
@@ -220,7 +221,7 @@ class ServeAgentToolsTest {
         assertEquals(12, fake.jwxt.emptyRoomQueryCalls.get())
     }
 
-    /** 这条是设计稿 §6.2 那把尺子的落点：没开放的档一个字都不画（画了就得能用）。 */
+    /** 没开放的档一个字都不画（画了就得能用）。 */
     @Test
     fun `白名单之外的工具不会被下发，调过来也只会回 not_found`() = withFakeProxy(casEnabled = false) { _ ->
         wipeToolStores()
@@ -228,7 +229,7 @@ class ServeAgentToolsTest {
 
         val names = (AppJson.parseToJsonElement(tools.toolDefinitions) as JsonArray)
             .map { it.jsonObject.getValue("function").jsonObject.getValue("name").jsonPrimitive.content }
-        assertEquals(expectedNames, names, "工具表与白名单那九件对不上（顺序也该与 :core 那份目录一致）")
+        assertEquals(expectedNames, names, "工具表与白名单那十件对不上（顺序也该与 :core 那份目录一致）")
 
         for (missing in listOf(
             // 端能力那三档（honored 空集：浏览器与 serve 都没有那些端上资源）

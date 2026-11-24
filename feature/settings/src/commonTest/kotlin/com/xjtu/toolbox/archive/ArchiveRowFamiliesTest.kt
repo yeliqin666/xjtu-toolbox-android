@@ -15,12 +15,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 三族行数组这一层（[ArchiveRowFamilies]，§2.3 / §6.3 / §6.4）的两件纯事：搬运与合并。
+ * 三族行数组这一层（[ArchiveRowFamilies]）的两件纯事：搬运与合并。
  *
  * 钉住的口径：
  *  - **导出形状与 Android 同形**：列名逐字（每个夹具都按 Room 实体的列名与插入序自己写一遍）、
  *    值一个字不改、`id` 保持原值、排序只调 [ArchiveFileRows] 那三条口径；
- *  - **导入合并 = 本端已有的主键整行保留、只追加新主键**（§6.4 的「本端胜」在行这一级）。
+ *  - **导入合并 = 本端已有的主键整行保留、只追加新主键**（「本端胜」在行这一级）。
  *
  * 夹具值全是编造的（没有真实站点、没有网络）。
  */
@@ -30,7 +30,7 @@ class ArchiveRowFamiliesTest {
 
     @Test
     fun `导出 custom_courses 列名逐字原样搬运 只按六键升序重排`() {
-        // 七行故意乱序给出，期望顺序逐条对着 §2.3 的 (accountId, termCode, dayOfWeek,
+        // 七行故意乱序给出，期望顺序逐条对着 (accountId, termCode, dayOfWeek,
         // startSection, startMinuteOfDay, id) 升序：
         //  1) 别的账号在前（accountId 是第一个键，压过 termCode / dayOfWeek）；
         //  2) 同学号里更早的学期在前（压过 dayOfWeek：2025-2026-2 那条 dayOfWeek=7 仍排在 dayOfWeek=1 前）；

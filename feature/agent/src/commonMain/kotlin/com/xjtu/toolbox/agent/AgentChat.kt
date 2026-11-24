@@ -59,11 +59,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.markdown.MarkdownText
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -96,7 +100,7 @@ internal fun ChatPanel(
 ) {
     var input by rememberSaveable { mutableStateOf("") }
     val sharedMaterials = remember(host.accountId) { host.sharedMaterials() }
-    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current.value
     var showSharedMaterials by remember(host.accountId) { mutableStateOf(false) }
     LaunchedEffect(host.accountId, AgentShareInbox.generation, pageVisible) {
         if (pageVisible && sharedMaterials != null && AgentShareInbox.pendingOpen) {
@@ -163,8 +167,12 @@ internal fun ChatPanel(
         vm.sendMessage(text, config)
     }
 
-    // 卡片按钮（加入日程、待办）走和模型同一套工具，校验与冲突检测一致
-    val widgetTools = remember(config) { host.interactiveTools(config) }
+    // 卡片按钮（加入日程、待办）走和模型同一套工具，校验与冲突检测一致。
+    // 工具装配要开加密存储（keystore 跨进程调用）：第一次点按钮时才在 IO 线程上建，不占切页那一帧
+    val toolScope = rememberCoroutineScope()
+    val widgetTools = remember(config) {
+        toolScope.async(host.io, start = CoroutineStart.LAZY) { host.interactiveTools(config) }
+    }
     val glass = LocalGlassStyle.current
     if (showSharedMaterials && pageVisible && sharedMaterials != null) AgentShareSheet(
         store = sharedMaterials, host = host, canSend = config.isConfigured && !vm.isLoading,
@@ -200,10 +208,12 @@ internal fun ChatPanel(
             .background(MiuixTheme.colorScheme.surface)
     ) {
         // 内容层只录聊天列表和气泡；输入栏玻璃采样这一层，不能把自己也录进去。
+        // 采样层自己垫页面底色：不垫的话没底的回答文字录下来四周透明，玻璃盖不住，下面的字清清楚楚透上来
         Box(
             Modifier
                 .fillMaxSize()
                 .then(if (glass) couiChatBackdrop?.recordInto(Modifier) ?: Modifier else Modifier)
+                .background(MiuixTheme.colorScheme.surface)
         ) {
             Box(Modifier.fillMaxSize().clipToBounds()) {
             // 切会话（含首屏「接着聊」）：旧会话淡出、新会话略微上浮淡入
@@ -254,7 +264,8 @@ internal fun ChatPanel(
                         .fillMaxSize()
                         .overScrollVertical()
                         .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier),
-                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
+                    // 页边距照 Material 紧凑窗口 16dp；助手正文再内收 2dp，总约 18dp（原来 24 + 8 = 32dp，一行少四五个字）
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
             // 这一端的屁岱缺什么，放在对话最前面
@@ -302,7 +313,7 @@ internal fun ChatPanel(
                             streaming = loading && row === chatRows.last() && row.msg.content.isBlank() &&
                                 messages.lastOrNull()?.role?.let(::isToolRole) != true,
                             onAskFromWidget = ::askFromWidget,
-                            onWidgetTool = { name, args -> widgetTools.execute(name, args) },
+                            onWidgetTool = { name, args -> widgetTools.await().execute(name, args) },
                             onPushPreferences = onPushPreferences.takeIf { sessionId == AgentPushFocus.SESSION_ID },
                         )
                     }
@@ -606,14 +617,23 @@ private fun ReasoningBar(
     )
 }
 private fun toolLabel(msg: ChatMessage) = msg.content.removeSuffix("…").trim()
+
+/** 同一个工具的不同状态文案（「整理结果卡片」/「已整理结果卡片」）归到一起。 */
+private fun toolKey(msg: ChatMessage) = toolLabel(msg).removePrefix("已").substringBefore(" · ").trim()
 /** 一轮里调用过的工具，收成一张小卡；多个或出错时可展开看每一次。 */
 @Composable
 private fun ToolCallNote(events: List<ChatMessage>, modifier: Modifier = Modifier) {
     if (events.isEmpty()) return
     val running = events.any { it.isToolCall }
-    val hasError = events.any { it.toolError != null }
+    // 失败后同一工具又调成功了（模型自己改参数重试）：那次失败只是过程，不标红、不进摘要
+    val recovered = events.indices.filter { i ->
+        events[i].toolError != null && events.drop(i + 1).any { later ->
+            later.toolError == null && !later.isToolCall && toolKey(later) == toolKey(events[i])
+        }
+    }.toSet()
+    val hasError = events.indices.any { events[it].toolError != null && it !in recovered }
     var expanded by remember(events.first().timestamp) { mutableStateOf(false) }
-    val labels = events.map { toolLabel(it) }.filter { it.isNotBlank() }
+    val labels = events.filterIndexed { i, _ -> i !in recovered }.map { toolLabel(it) }.filter { it.isNotBlank() }
     val summary = when {
         running -> labels.lastOrNull().orEmpty()
         hasError -> labels.joinToString(" · ").ifBlank { "调用失败" }
@@ -638,12 +658,16 @@ private fun ToolCallNote(events: List<ChatMessage>, modifier: Modifier = Modifie
         },
         details = {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                events.forEach { event ->
+                events.forEachIndexed { i, event ->
                     val err = event.toolError
                     Text(
-                        if (err != null) "${toolLabel(event)} · $err" else toolLabel(event),
+                        when {
+                            err == null -> toolLabel(event)
+                            i in recovered -> "${toolLabel(event)} · 参数有误，已自动重试"
+                            else -> "${toolLabel(event)} · $err"
+                        },
                         style = MiuixTheme.textStyles.footnote2,
-                        color = if (err != null) MiuixTheme.colorScheme.error else muted,
+                        color = if (err != null && i !in recovered) MiuixTheme.colorScheme.error else muted,
                     )
                 }
             }
@@ -728,44 +752,64 @@ private fun MessageBubble(
         }
         else -> {
             Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp),
+                Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.Start
             ) {
-                if (showReasoning && msg.reasoningContent.isNotBlank() || streaming && msg.content.isBlank()) {
-                    ReasoningBar(
-                        text = if (showReasoning) msg.reasoningContent else "",
-                        streaming = streaming,
-                        onNavigate = onNavigate,
-                        images = host.images,
-                    )
-                    if (msg.content.isNotBlank() && toolEvents.isEmpty()) Spacer(Modifier.height(6.dp))
-                }
-                if (toolEvents.isNotEmpty()) {
-                    ToolCallNote(toolEvents, Modifier.padding(top = 6.dp, bottom = if (msg.content.isNotBlank()) 8.dp else 0.dp))
-                }
-                if (msg.content.isNotBlank()) {
-                    MarkdownText(
-                        text = msg.content,
-                        color = MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier
+                val showThinking = showReasoning && msg.reasoningContent.isNotBlank() || streaming && msg.content.isBlank()
+                // 思考、工具、正文收进一个满宽的白底气泡（不像用户那条限宽），卡片和跳转按钮放在气泡外
+                if (showThinking || toolEvents.isNotEmpty() || msg.content.isNotBlank() || onPushPreferences != null) {
+                    Column(
+                        Modifier
                             .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = {},
-                                onLongClick = { copyText(msg.content) },
-                            ),
-                        images = host.images,
-                        onLink = { url ->
-                            onNavigate(AppRoute.Browser(url))
+                            .clip(RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp))
+                            // 浅色模式纯白，跟浅灰页底拉开；深色模式用卡片底色
+                            .background(
+                                if (com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current) MiuixTheme.colorScheme.surfaceVariant
+                                else androidx.compose.ui.graphics.Color.White
+                            )
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        if (showThinking) {
+                            ReasoningBar(
+                                text = if (showReasoning) msg.reasoningContent else "",
+                                streaming = streaming,
+                                onNavigate = onNavigate,
+                                images = host.images,
+                            )
+                            if (msg.content.isNotBlank() && toolEvents.isEmpty()) Spacer(Modifier.height(10.dp))
                         }
-                    )
-                }
-                onPushPreferences?.let { open ->
-                    Text("减少此类推送…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp))
-                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = open)
-                            .padding(horizontal = 4.dp, vertical = 6.dp))
+                        if (toolEvents.isNotEmpty()) {
+                            ToolCallNote(
+                                toolEvents,
+                                Modifier.padding(
+                                    top = if (showThinking) 6.dp else 0.dp,
+                                    bottom = if (msg.content.isNotBlank()) 10.dp else 0.dp,
+                                ),
+                            )
+                        }
+                        if (msg.content.isNotBlank()) {
+                            MarkdownText(
+                                text = msg.content,
+                                color = MiuixTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {},
+                                        onLongClick = { copyText(msg.content) },
+                                    ),
+                                images = host.images,
+                                onLink = { url ->
+                                    onNavigate(AppRoute.Browser(url))
+                                }
+                            )
+                        }
+                        onPushPreferences?.let { open ->
+                            Text("减少此类推送…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp))
+                                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = open)
+                                    .padding(horizontal = 4.dp, vertical = 6.dp))
+                        }
+                    }
                 }
                 msg.widgets.forEach { widget ->
                     AgentWidgetView(

@@ -52,7 +52,7 @@ import io.ktor.server.routing.route
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
-/** P0 取数端点组一（免登录 / 轻登录六域） —— `docs/api-contract.md` §5 那批 P0 端点的实现。 */
+/** P0 取数端点组一（免登录 / 轻登录六域） —— `docs/api-contract.md` 端点表里这几族的实现。 */
 internal fun Route.serveEndpointRoutes(
     session: ServeSession,
     calendar: SchoolCalendarSource = SchoolCalendarApi(),
@@ -83,13 +83,29 @@ internal fun Route.calendarRoutes(source: SchoolCalendarSource = SchoolCalendarA
         }
         call.respond(ApiEnvelope.ok(CalendarPayload(terms.map { it.toDto() })))
     }
+
+    /** 全国节假日与调休（网页日程标假期用；浏览器直连那两个公开源会被 CORS 拦）。 */
+    get(CALENDAR_HOLIDAYS_SEGMENT) {
+        val holidays = try {
+            com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@get call.respondFetchError(e, "加载节假日")
+        }
+        call.respond(ApiEnvelope.ok(HolidaysPayload(holidays.mapKeys { it.key.toString() })))
+    }
 }
+
+/** `GET /api/calendar/holidays` 的 `data`：ISO 日期 → 节日名。 */
+@Serializable
+internal data class HolidaysPayload(val holidays: Map<String, String>)
 
 /** `GET /api/calendar/school` 的 `data`（校历模型在 `:core`，这里只投影）。 */
 @Serializable
 internal data class CalendarPayload(val terms: List<SchoolTermDto>)
 
-/** [SchoolTerm] 的线上形状。日期是 ISO-8601 日期字符串（契约 §4：时间一律 ISO 带时区）。 */
+/** [SchoolTerm] 的线上形状。日期是 ISO-8601 日期字符串（契约：时间一律 ISO 带时区）。 */
 @Serializable
 internal data class SchoolTermDto(
     val id: String,
@@ -398,6 +414,41 @@ internal fun Route.notificationRoutes(source: NoticeSource = AppNoticeSource()) 
                 ),
             )
         }
+
+        /** 站内检索：`sources` 同列表，`keyword` 必填；形状与列表相同（一次给全，`hasMore` 恒 false）。 */
+        get(NOTIFICATION_SEARCH_SEGMENT) {
+            val keyword = call.request.queryParameters["keyword"]?.trim().orEmpty()
+            if (keyword.isEmpty()) return@get call.respondBadRequest("缺少搜索关键词")
+            val codes = call.request.queryParameters["sources"]
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty()
+                .ifEmpty { listOf(DEFAULT_NOTIFICATION_SOURCE) }
+            val sources = codes.map { code ->
+                NotificationSource.entries.firstOrNull { it.name == code.uppercase() }
+                    ?: return@get call.respondBadRequest("未知的通知来源：$code")
+            }
+            val result = try {
+                source.search(sources, keyword)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@get call.respondFetchError(e, "站内搜索")
+            }
+            call.respond(
+                ApiEnvelope.ok(
+                    NotificationListPayload(
+                        page = 1,
+                        size = result.items.size,
+                        total = result.items.size,
+                        items = result.items.map { it.toDto() },
+                        skipped = result.skipped.map { it.name },
+                        hasMore = false,
+                    ),
+                ),
+            )
+        }
     }
 }
 
@@ -412,7 +463,7 @@ internal data class NotificationSourcesPayload(
 @Serializable
 internal data class NotificationSourceDto(val code: String, val displayName: String, val category: String)
 
-/** `GET /api/notification/list` 的 `data`（分页形状照契约 §4，见 [NotificationListPayload] KDoc）。 */
+/** `GET /api/notification/list` 的 `data`（分页形状见 [NotificationListPayload] KDoc）。 */
 @Serializable
 internal data class NotificationListPayload(
     val page: Int,
@@ -423,7 +474,7 @@ internal data class NotificationListPayload(
     val hasMore: Boolean,
 )
 
-/** [Notification] 的线上形状；`date` 是 ISO 日期（契约 §4），`source` 是枚举名。 */
+/** [Notification] 的线上形状；`date` 是 ISO 日期，`source` 是枚举名。 */
 @Serializable
 internal data class NotificationDto(
     val title: String,
@@ -776,7 +827,7 @@ private fun queriedBuildings(campus: String, raw: String?): List<String> {
 // 小工具：失败码 / ISO 时间
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 取数失败 → 信封（契约 §4）：`401` = 需要先登录 / 登录态失效（重发没意义），`502` = 上游或网络的故障（稍后重试可能就成）。 */
+/** 取数失败 → 信封：`401` = 需要先登录 / 登录态失效（重发没意义），`502` = 上游或网络的故障（稍后重试可能就成）。 */
 private suspend fun ApplicationCall.respondFetchError(e: Throwable, action: String) {
     if (e is CancellationException) throw e
     val message = FriendlyError.of(e, action)
@@ -794,6 +845,7 @@ private suspend fun ApplicationCall.respondBadRequest(message: String) =
 // ── 路径段（相对 route("/api")；对外路径 = API_PREFIX + "/" + 段）────────────────
 
 internal const val CALENDAR_SCHOOL_SEGMENT = "calendar/school"
+internal const val CALENDAR_HOLIDAYS_SEGMENT = "calendar/holidays"
 internal const val INFO_SEGMENT = "info"
 internal const val INFO_YELLOWPAGE_SEGMENT = "yellowpage"
 internal const val INFO_FACULTY_SEGMENT = "faculty"
@@ -802,6 +854,7 @@ internal const val FITNESS_SCORE_SEGMENT = "fitness/score"
 internal const val NOTIFICATION_SEGMENT = "notification"
 internal const val NOTIFICATION_SOURCES_SEGMENT = "sources"
 internal const val NOTIFICATION_LIST_SEGMENT = "list"
+internal const val NOTIFICATION_SEARCH_SEGMENT = "search"
 internal const val INBOX_SEGMENT = "inbox"
 internal const val EMPTY_ROOM_CDN_SEGMENT = "emptyroom/cdn"
 internal const val EMPTY_ROOM_ROOMS_SEGMENT = "emptyroom/rooms"

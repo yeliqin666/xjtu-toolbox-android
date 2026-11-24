@@ -9,7 +9,7 @@ data class AttendanceCapabilities(
     val stats: Boolean = true,
     /** 打卡原始流水那一栏（`getStreams`）。 */
     val streams: Boolean = true,
-    /** 请假那一栏（`getLeavePage` 等 —— 请假 / 销假是写路径，契约 §5.5 一律不端）。 */
+    /** 请假那一栏（`getLeavePage` 等，含请假 / 销假写路径）。 */
     val leave: Boolean = true,
 )
 

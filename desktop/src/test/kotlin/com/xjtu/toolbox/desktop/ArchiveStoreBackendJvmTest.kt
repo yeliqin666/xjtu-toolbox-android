@@ -15,7 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** 桌面（jvm）store 投影的验收（§7）。 */
+/** 桌面（jvm）store 投影的验收。 */
 class ArchiveStoreBackendJvmTest {
 
     private fun withRoot(block: (File) -> Unit) {

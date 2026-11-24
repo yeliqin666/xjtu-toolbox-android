@@ -23,6 +23,7 @@ class AppearanceSettings private constructor(context: Context) {
     val customDarkColorHex: StateFlow<String> = _customDarkColorHex.asStateFlow()
     private val _dynamicColor = MutableStateFlow(store.dynamicColor)
     private val _navBarStyle = MutableStateFlow(store.navBarStyle)
+    private val _reducedEffects = MutableStateFlow(store.reducedEffects)
     private val _showQuickActions = MutableStateFlow(store.showQuickActions)
     private val _bottomTabs = MutableStateFlow(store.bottomTabs)
 
@@ -32,6 +33,9 @@ class AppearanceSettings private constructor(context: Context) {
 
     /** [CredentialStore.NAV_STYLE_FLOATING]（玻璃）或 [CredentialStore.NAV_STYLE_CLASSIC]。 */
     val navBarStyle: StateFlow<String> = _navBarStyle.asStateFlow()
+
+    /** 简化光效，见 [CredentialStore.reducedEffects]。 */
+    val reducedEffects: StateFlow<Boolean> = _reducedEffects.asStateFlow()
     val showQuickActions: StateFlow<Boolean> = _showQuickActions.asStateFlow()
 
     /** 底栏从左到右的格子 id，见 [CredentialStore.bottomTabs]。 */
@@ -45,6 +49,7 @@ class AppearanceSettings private constructor(context: Context) {
         _customColorHex.value = store.customColorHex
         _customDarkColorHex.value = store.customDarkColorHex
         _navBarStyle.value = store.navBarStyle
+        _reducedEffects.value = store.reducedEffects
         _showQuickActions.value = store.showQuickActions
         _bottomTabs.value = store.bottomTabs
     }

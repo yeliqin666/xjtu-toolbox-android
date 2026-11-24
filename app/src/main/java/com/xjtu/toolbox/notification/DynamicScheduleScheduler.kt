@@ -6,6 +6,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import com.xjtu.toolbox.XjtuApp
 import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.account.AccountContext
@@ -21,11 +26,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.ZonedDateTime
+import java.util.concurrent.TimeUnit
 
 /** 一条持续更新的通知 + 一个下一边界闹钟；不跑每分钟 Worker，不启动前台服务。 */
 internal object DynamicScheduleScheduler {
     private const val PREFS = "dynamic_schedule_notification"
     internal const val ACTION_REFRESH = "com.xjtu.toolbox.DYNAMIC_SCHEDULE_REFRESH"
+    /** 本轮刷新出错时，隔多久再试一次；不能直接撤掉闹钟，否则不打开 App 就再也醒不过来。 */
+    private const val RETRY_MS = 15 * 60_000L
     private val lock = Mutex()
 
     fun isEnabled(context: Context): Boolean =
@@ -62,6 +70,7 @@ internal object DynamicScheduleScheduler {
             if (!notifyOn && !dndOn) {
                 cancel(context)
                 AutoDndScheduler.restore(context)
+                DynamicScheduleWatchdog.cancel(context)
                 return@withLock
             }
             val accounts = AccountStore()
@@ -69,8 +78,10 @@ internal object DynamicScheduleScheduler {
             if (account == null) {
                 cancel(context)
                 AutoDndScheduler.restore(context)
+                DynamicScheduleWatchdog.cancel(context)
                 return@withLock
             }
+            DynamicScheduleWatchdog.ensure(context)
             val cache = DataCache(context, account)
             val term = ScheduleCache.readCurrentTerm(cache)
             // readCourses 会把课名写入当前全局账号的色表；后台仅做无副作用的显式账号读取。
@@ -113,7 +124,10 @@ internal object DynamicScheduleScheduler {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            cancel(context)
+            // 只收起通知，闹钟改排到一刻钟后重试：以前这里连闹钟一起撤掉，偶发一次读缓存失败，
+            // 自动勿扰和动态通知就一直停着，直到下次打开 App 才恢复。
+            DynamicScheduleNotifier.cancel(context)
+            runCatching { schedule(context, System.currentTimeMillis() + RETRY_MS) }
             Log.w("DynamicSchedule", "本地日程通知刷新失败", e)
         }
     }
@@ -141,6 +155,42 @@ internal object DynamicScheduleScheduler {
     internal fun cancel(context: Context) {
         context.getSystemService(AlarmManager::class.java)?.cancel(alarmIntent(context))
         DynamicScheduleNotifier.cancel(context)
+    }
+}
+
+/**
+ * 闹钟链的兜底：每 30 分钟用 WorkManager 重排一次。
+ *
+ * 平时全靠 [DynamicScheduleScheduler.schedule] 那一个闹钟一环扣一环地往下排，一旦被系统吞掉
+ * （部分国产系统清后台会连带清闹钟，没给精确闹钟时还可能被推迟很久），后面就全断了，
+ * 用户看到的就是「不打开 App 就不切勿扰」。WorkManager 的任务由系统 JobScheduler 托管，
+ * 进程没了也会被重新拉起；这里只读本机缓存、不联网，跑一次很便宜，所以不加网络或电量约束。
+ * 动态通知和自动勿扰都关掉、或没有账号时随 [DynamicScheduleScheduler.refresh] 一起撤掉。
+ */
+internal object DynamicScheduleWatchdog {
+    private const val UNIQUE = "dynamic_schedule_watchdog"
+
+    fun ensure(context: Context) {
+        runCatching {
+            val request = PeriodicWorkRequestBuilder<DynamicScheduleWatchdogWorker>(30, TimeUnit.MINUTES).build()
+            // KEEP：每到一个边界都会走到这里，不能每次都把周期重置掉。
+            WorkManager.getInstance(context.applicationContext)
+                .enqueueUniquePeriodicWork(UNIQUE, ExistingPeriodicWorkPolicy.KEEP, request)
+        }.onFailure { Log.w("DynamicSchedule", "兜底任务排程失败", it) }
+    }
+
+    fun cancel(context: Context) {
+        runCatching { WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE) }
+    }
+}
+
+class DynamicScheduleWatchdogWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        DynamicScheduleScheduler.refresh(applicationContext)
+        return Result.success()
     }
 }
 

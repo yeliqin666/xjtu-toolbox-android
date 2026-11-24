@@ -71,6 +71,7 @@ internal class AndroidAgentHost(
                 com.xjtu.toolbox.inbox.SelfTodoAgentTools,
                 com.xjtu.toolbox.campusmap.CampusMapAgentTools(locate = { AgentLocation.current(context) }),
                 PidaiTaskAgentTools,
+                CommunityPostAgentTools,
                 com.xjtu.toolbox.bus.BusAgentTools(com.xjtu.toolbox.bus.appBusApi),
                 loginState.sessionManager?.let { com.xjtu.toolbox.degree.DegreeAgentTools(com.xjtu.toolbox.degree.appDegreeSource(context, it)) },
                 config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it, localFetch = wechat::readArticle) },
@@ -249,6 +250,8 @@ internal class AndroidAgentHost(
 
     override suspend fun generateTitle(config: AgentConfig, userMsg: String, assistantMsg: String): String? =
         AgentTitleGen.generate(config, userMsg, assistantMsg)
+
+    override fun personaPrompt(): String = PidaiAppearanceHost.persona(context)
 
     // ── 首屏快照 ──────────────────────────────────────────────────────────────
 

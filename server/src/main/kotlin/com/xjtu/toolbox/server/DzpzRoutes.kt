@@ -23,10 +23,10 @@ import kotlinx.serialization.Serializable
 /**
  * `/api/dzpz*` —— 电子凭证（成绩单）。
  *
- * 读一半（`GET transcript`：类型选项/默认日期）来自契约 §5.5；写一半（`submit` → `preview` →
- * `download`）来自契约 §5.2 的第一条例外（①）：成绩单只能"先建申请单、再出 PDF"两段走，
+ * 读一半是 `GET transcript`（类型选项/默认日期）；写一半是 `submit` → `preview` → `download`：
+ * 成绩单只能"先建申请单、再出 PDF"两段走，
  * 且 PDF 不能回 JSON —— 所以第二段交回一张**一次性本机票据**，第三段用票据取
- * `application/pdf`（契约已登记成第三个 envelope 例外）。上游的签章下载链全程留在服务端。
+ * `application/pdf`（契约里不走信封的例外之一）。上游的签章下载链全程留在服务端。
  */
 internal fun Route.dzpzRoutes(session: ServeSession) {
     route(DZPZ_SEGMENT) {
@@ -148,7 +148,7 @@ internal fun Route.dzpzRoutes(session: ServeSession) {
 }
 // ── 数据模型（客户端形状）──────────────────────────────────────────
 
-/** `GET /api/dzpz/transcript` 的 `data`（契约 §5.5）。 */
+/** `GET /api/dzpz/transcript` 的 `data`。 */
 @Serializable
 internal data class DzpzTranscriptData(
     val workflowId: Int,

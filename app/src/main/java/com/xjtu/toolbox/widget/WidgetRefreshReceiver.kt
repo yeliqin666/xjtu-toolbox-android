@@ -50,6 +50,8 @@ class WidgetRefreshReceiver : BroadcastReceiver() {
                 CampusCardWidgetUpdater.requestUpdate(context)
                 NoticeWidgetUpdater.requestUpdate(context)
                 TodoWidgetUpdater.requestUpdate(context)
+                // 智能卡片按「此刻」判场景，换包 / 改时区 / 改系统时间之后必须重算一遍
+                SmartWidgetUpdater.requestUpdate(context)
             }
         }
     }

@@ -19,8 +19,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.jsonObject
 
 /**
- * `/api/accounts` 四条**写**端点的契约验收（`docs/api-contract.md` §5.10，
- * `docs/parity-ledger.md` §6.1 会议 #10 = 丙）。
+ * `/api/accounts` 四条**写**端点的契约验收（`docs/api-contract.md`）。
  *
  * 两组前置：HTTPS 打开（四条写端点要求它）与 HTTPS 关掉（一律 403）。
  * 全程只碰临时数据根里的账号表与凭据（`dataRootOverride`），**不打真站点、不动宿主凭据**。

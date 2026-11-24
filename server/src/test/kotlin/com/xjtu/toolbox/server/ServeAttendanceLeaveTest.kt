@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 
-/** `/api/attendance/leave*` 的契约测试（`docs/api-contract.md` §5.5.1）。 */
+/** `/api/attendance/leave*` 的契约测试（`docs/api-contract.md`）。 */
 class ServeAttendanceLeaveTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -120,7 +120,7 @@ class ServeAttendanceLeaveTest {
         assertEquals(
             AttendanceFakeUpstream.LEAVE_APPROVER_NAME,
             approver.optString("name"),
-            "审批人姓名在 §5.2 例外 ④ 里 ⇒ 真投影（屏上那个下拉框画的就是它）",
+            "审批人姓名在隐私红线的例外里 ⇒ 真投影（屏上那个下拉框画的就是它）",
         )
         val node = previewData.getValue("nodes").jsonArray.single() as JsonObject
         assertEquals(setOf("nodeNo", "nodeRole", "nodeName", "configured", "approvers"), node.keys)
@@ -131,7 +131,7 @@ class ServeAttendanceLeaveTest {
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(records))
         assertNoIdentity(records.body(), "GET $RECORDS_PATH", IDENTITY)
         val page = envelopeData(records)
-        assertEquals(setOf("page", "size", "total", "records"), page.keys, "分页形状（§4）")
+        assertEquals(setOf("page", "size", "total", "records"), page.keys, "分页形状")
         assertEquals(1, page.optInt("page"), "请求没给页码就是 1")
         assertEquals(20, page.optInt("size"), "= `:core` 那一个默认页大小")
         assertEquals(1, page.optInt("total"))
@@ -152,7 +152,7 @@ class ServeAttendanceLeaveTest {
         assertEquals(
             AttendanceFakeUpstream.LEAVE_COURSE_TEACHER,
             course.optString("teacherNames"),
-            "任课教师姓名在 §5.2 例外 ④ 里 ⇒ 真投影（例外的根据是「我自己的课」）",
+            "任课教师姓名在隐私红线的例外里 ⇒ 真投影（例外的根据是「我自己的课」）",
         )
 
         // 三读都真打了上游（`/leaves/page` 那一发是 POST）
@@ -160,7 +160,7 @@ class ServeAttendanceLeaveTest {
         assertTrue(fake.attendance.lastBusinessToken != null, "业务请求带上了 `:data` 那一层注入的令牌")
     }
 
-    /** 红线（§5.2 例外 ④）：请假响应里只允许这两类真人姓名。 */
+    /** 隐私红线的例外：请假响应里只允许这两类真人姓名。 */
     @Test
     fun `请假红线：只允许这两类姓名，别的一律不许`() = withFakeProxy { fake ->
         val token = AccessToken.newToken()
@@ -260,7 +260,7 @@ class ServeAttendanceLeaveTest {
         assertEquals(200, withdrawn.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(withdrawn))
         assertNoIdentity(withdrawn.body(), "POST $WITHDRAW_PATH", IDENTITY)
-        assertEquals(setOf("ok", "message"), envelopeData(withdrawn).keys, "写端点的形状与 §5.3.1 那两个一致")
+        assertEquals(setOf("ok", "message"), envelopeData(withdrawn).keys, "写端点的形状与图书馆、场馆的一致")
 
         val cancelled = http.postJson(CANCEL_PATH, """{"leaveId":"${AttendanceFakeUpstream.LEAVE_ID}","requestId":"R3"}""")
         assertEquals(200, cancelled.statusCode())
@@ -315,7 +315,7 @@ class ServeAttendanceLeaveTest {
         val LOGIN_BODY =
             """{"username":"${LibraryFakeUpstream.USERNAME}","password":"${LibraryFakeUpstream.PASSWORD}"}"""
 
-        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人） */
+        /** 隐私红线的钉子组（全是夹具里的编造值，不是真人） */
         val IDENTITY = listOf(
             "studentId",
             "学号",

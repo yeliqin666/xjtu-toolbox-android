@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 
-/** serve 契约 §5.6（思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到）的客户端那一侧。 */
+/** serve 契约（思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到）的客户端那一侧。 */
 
 /** 一发请求的快照：`路径 to 参数表`（与 `ServeReadonlyFourDomainsApiTest` 同一套读法）。 */
 private typealias Call = Pair<String, Map<String, String>>
@@ -183,7 +183,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         )
     }
 
-    /** 错误信封：`code` 是 HTTP 状态码，失败文案只有 `message` 一处（§4）。 */
+    /** 错误信封：`code` 是 HTTP 状态码，失败文案只有 `message` 一处。 */
     @Test
     fun serveLmsFailureReadsMessage() = runTest {
         val api = CampusLmsApi(
@@ -199,7 +199,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertTrue(e.message?.contains("学堂暂时连不上") == true, "实际：${e.message}")
     }
 
-    /** 教材检索：九格照§5.6（`fields` 是上游原文的键值对，键名不翻译），`ssno` 在检索里恒 `null`、要它得对那本书再打一枪（三格参数全部带出去）；没有 `id` 的行不列（打不通详情页）。 */
+    /** 教材检索：九格（`fields` 是上游原文的键值对，键名不翻译），`ssno` 在检索里恒 `null`、要它得对那本书再打一枪（三格参数全部带出去）；没有 `id` 的行不列（打不通详情页）。 */
     @Test
     fun serveJiaocaiSearchKeepsUpstreamFieldsAndSsnoNeedsASecondCall() = runTest {
         val searchBody = """
@@ -334,11 +334,11 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertNull(noSubItems.pscj, "服务端归一过的哨兵值 ⇒ null")
         assertNull(noSubItems.qmcj)
 
-        // 分项成绩已于 2026-10-14 端出（§5.8）：serve 形态下这个开关报 true，屏上那一格能展开，
+        // serve 形态有分项成绩端点，这个开关报 true，屏上那一格能展开，
         // 取数（含「detail:null ⇒ 空明细」那一支）钉在 ServeJwappScoreDetailApiTest 里
-        assertTrue(api.canFetchScoreDetail, "§5.8 端了分项成绩 ⇒ serve 形态下屏上那一格能展开")
+        assertTrue(api.canFetchScoreDetail, "有分项成绩端点 ⇒ serve 形态下屏上那一格能展开")
 
-        // 成绩报表走教务那一站的 `/api/jwxt/grades`：不带学号，服务端按当前账号取（§5.2）
+        // 成绩报表走教务那一站的 `/api/jwxt/grades`：不带学号，服务端按当前账号取
         val reported = api.reportedGrades().single()
         assertEquals("/api/jwxt/grades", calls.last().first)
         assertTrue(calls.last().second.isEmpty(), "报表那一发不带学号")

@@ -57,7 +57,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
-import top.yukonga.miuix.kmp.basic.SnackbarHost
+import com.xjtu.toolbox.ui.components.AppSnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -126,7 +126,7 @@ fun JwappScoreScreen(
     var selectedCourseIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     // 选择态下返回只退出选择，和顶栏的关闭按钮一样，不离开页面
     // 成绩页可以放在底栏：切到别的 tab 时不拦
-    com.xjtu.toolbox.platform.BackHandler(enabled = gpaSelectMode && com.xjtu.toolbox.ui.components.LocalPageVisible.current) {
+    com.xjtu.toolbox.platform.BackHandler(enabled = gpaSelectMode && com.xjtu.toolbox.ui.components.LocalPageVisible.current.value) {
         gpaSelectMode = false
         selectedCourseIds = emptySet()
     }
@@ -210,7 +210,7 @@ fun JwappScoreScreen(
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState, modifier = Modifier.tabContentBottomPadding()) },
         topBar = {
             CouiPageTopAppBar(
                 title = if (gpaSelectMode) "选课算 GPA" else "成绩查询",

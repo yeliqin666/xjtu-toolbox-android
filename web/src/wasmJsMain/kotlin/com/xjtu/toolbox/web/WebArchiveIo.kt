@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Web 这一端档案的传输那一半。 */
 internal object WebArchiveIo {
 
-    /** 与 `:app` 的 `AppArchiveUx.ARCHIVE_MIME` 一致（§2.0）。 */
+    /** 与 `:app` 的 `AppArchiveUx.ARCHIVE_MIME` 一致。 */
     const val ARCHIVE_MIME = "application/zip"
 
     /** 下载的文件名（与 `:app` 一致）。 */

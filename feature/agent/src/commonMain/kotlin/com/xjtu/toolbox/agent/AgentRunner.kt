@@ -144,7 +144,9 @@ class AgentRunner(
         onToolResult: (name: String, success: Boolean, errorMessage: String?) -> Unit = { _, _, _ -> },
         onDelta: suspend (String) -> Unit = {},
         onReasoningDelta: suspend (String) -> Unit = {},
-        onUsage: (Long) -> Unit = {}
+        onUsage: (Long) -> Unit = {},
+        /** 非 null 时给模型 [AgentRetitle] 工具：传入新标题和是否用户要求，返回给模型的结果。 */
+        retitle: ((title: String, byUser: Boolean) -> String)? = null,
     ): String {
         val baseToolDefs = AppJson.parseToJsonElement(tools.toolDefinitions).jsonArray
             .map { AgentWidgetPresentation.queryDefinition(it.jsonObject) }
@@ -153,6 +155,7 @@ class AgentRunner(
                 val canWrite = defs.any { it["function"]?.jsonObject?.get("name")?.jsonPrimitive?.content == "add_schedule_event" }
                 if (canWrite) defs + AgentPlanCard.definition() else defs
             }
+            .let { if (retitle != null) it + AgentRetitle.definition() else it }
         data class Snapshot(val tool: String, val widgets: List<AgentWidget>)
         val snapshots = linkedMapOf<String, Snapshot>()
         val displayedSnapshots = mutableMapOf<String, List<AgentWidget>>()
@@ -171,7 +174,10 @@ class AgentRunner(
                 listOf(AgentWidgetPresentation.toolDefinition(snapshots.mapValues { it.value.tool })))
             // 保险丝烧了，这一轮不带 tools，逼模型直接作答
             val allowTools = toolCallCount < TOOL_CALL_FUSE && toolDefs.isNotEmpty()
-            val reqBody = buildJsonObject {
+            val reqBody = if (config.effectiveApiFormat == AgentConfig.API_RESPONSES) {
+                // Responses API（#427）：历史换算成 input、工具定义拍平、思考走 reasoning.effort / summary
+                AgentResponsesFormat.request(config, messages, if (allowTools) toolDefs else null)
+            } else buildJsonObject {
                 put("model", config.effectiveModel)
                 put("messages", messagesForProvider(messages, config))
                 put("stream", true)
@@ -186,6 +192,10 @@ class AgentRunner(
                         !config.thinkingEnabled -> put("reasoning_effort", "none")
                         config.reasoningEffort != AgentConfig.REASONING_AUTO -> put("reasoning_effort", config.reasoningEffort)
                     }
+                } else if (!config.thinkingEnabled) {
+                    // OpenAI 官方关思考：按能力表发最低档，不盲发 none（GPT-6.2 Sol / Astra 收到 none 直接 400）。
+                    // 自定义端点和未知型号什么都不发，跟以前一样（中转多半不认这个字段）。
+                    OpenAiReasoningCaps.thinkingOffFloorOf(config)?.wire?.let { put("reasoning_effort", it) }
                 }
                 if (allowTools) {
                     put("tools", toolDefs)
@@ -301,10 +311,19 @@ class AgentRunner(
                         val card = AgentPlanCard.parse(tc.arguments)
                         present(tc.id, listOf(card))
                         AgentPlanCard.receipt(card)
+                    } else if (tc.name == AgentPostCard.TOOL) {
+                        // 只出预览卡；真正发帖要用户在卡上点「发布」
+                        val card = AgentPostCard.parse(tc.arguments)
+                        present(tc.id, listOf(card))
+                        AgentPostCard.receipt(card)
+                    } else if (tc.name == AgentRetitle.TOOL && retitle != null) {
+                        val args = AppJson.parseToJsonElement(tc.arguments).jsonObject
+                        val title = args.argStr("title")
+                        if (title.isNullOrBlank()) ToolReply.missing("title") else retitle(title, args.argBool("requested_by_user") == true)
                     } else interruptible { tools.execute(tc.name, tc.arguments) }
                 }
                 // 查询保留快照，展示在拿到结果后单独决定。
-                val made = if (tc.name == AgentWidgetPresentation.TOOL || tc.name == AgentPlanCard.TOOL) emptyList() else tools.drainWidgets()
+                val made = if (tc.name == AgentWidgetPresentation.TOOL || tc.name == AgentPlanCard.TOOL || tc.name == AgentPostCard.TOOL) emptyList() else tools.drainWidgets()
                 var result: String
                 val toolErrorMsg: String?
                 if (toolResult.isSuccess) {

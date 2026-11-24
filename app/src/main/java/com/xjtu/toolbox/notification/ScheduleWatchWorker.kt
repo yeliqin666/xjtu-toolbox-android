@@ -78,6 +78,8 @@ class ScheduleWatchWorker(
         if (!ReminderNotifier.notifyScheduleChange(context, summary)) {
             ScheduleDiff.setPending(scheduleDiffStore(), summary)
         }
+        // 停课 / 换教室是「白跑一趟」那一类：桌面卡片上「课表有变」那一档读的就是 pending，得立刻重画
+        com.xjtu.toolbox.widget.SmartWidgetUpdater.requestUpdate(context)
     }
 
     /**

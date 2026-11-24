@@ -26,8 +26,8 @@ android {
         // Android 12 起可装；低于 Android 15 时玻璃特效统一退回朴素外观（见 GlassSupport），PDF 取文字不可用
         minSdk = 31
         targetSdk = 36
-        versionCode = 96
-        versionName = "6.0.2"
+        versionCode = 98
+        versionName = "6.2.0"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -38,8 +38,8 @@ android {
         // FEEDBACK_TABLE_SUBMIT / FEEDBACK_TABLE_REPLY。
         // 也认旧写法 FEEDBACK_APPID（camelCase 键直接大写、没有下划线）。
         //
-        // app_secret 终究是打进 APK 的，无法真正保密。安全性靠"这对凭据能干什么"来兜：
-        // 应用只被授权写反馈表 + 读回复表，回复表里不含用户原文。详见 FeedbackApi 注释。
+        // app_secret 终究是打进 APK 的，无法真正保密：这对凭据只有记录的检索与新增权限（没有删除），
+        // 拿到的人能读到两张表全部内容。反馈本来就会公开到 GitHub 日报，所以不再放联系方式。
         run {
             val fp = rootProject.file("feedback.properties")
             val props = Properties().apply { if (fp.exists()) fp.inputStream().use { load(it) } }
@@ -70,7 +70,7 @@ android {
             val lbProps = Properties().apply { if (lbFile.exists()) lbFile.inputStream().use { load(it) } }
             val lbUrl = System.getenv("LEADERBOARD_BASE_URL")?.trim()?.takeIf { it.isNotEmpty() }
                 ?: lbProps.getProperty("baseUrl")?.trim()?.takeIf { it.isNotEmpty() }
-                ?: "https://zyxf.top/games"
+                ?: "https://dzhz.zyxf.top/games"
             buildConfigField("String", "LEADERBOARD_BASE_URL", "\"$lbUrl\"")
         }
     }
@@ -257,6 +257,7 @@ dependencies {
     implementation(libs.markdown.renderer.coil3)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.svg)
     implementation(libs.okhttp)
     implementation(libs.okhttp.brotli)
     implementation(libs.okhttp.java.net.cookiejar)
@@ -306,4 +307,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
     debugImplementation(libs.androidx.ui.tooling)
+    // 组合追踪：广播 androidx.tracing.perfetto.action.ENABLE_TRACING 后，Perfetto 的 track_event 里有每个重组的组件名
+    debugImplementation(libs.androidx.compose.runtime.tracing)
+    debugImplementation(libs.androidx.tracing.perfetto)
+    debugImplementation(libs.androidx.tracing.perfetto.binary)
 }

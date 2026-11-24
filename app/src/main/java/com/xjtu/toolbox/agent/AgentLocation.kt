@@ -25,21 +25,36 @@ import kotlin.coroutines.resume
  */
 object AgentLocation {
 
-    private var launcher: ActivityResultLauncher<Array<String>>? = null
+    private class Host(val permission: ActivityResultLauncher<Array<String>>, val settings: ActivityResultLauncher<Intent>)
+
+    /** 每个登记过的 Activity 一份，用最上层那个（「一镜到底」的独立页盖在主界面上时用它自己的）。 */
+    private val hosts = ArrayDeque<Host>()
+    private val launcher get() = hosts.lastOrNull()?.permission
+    private val settingsLauncher get() = hosts.lastOrNull()?.settings
     private var pending: CompletableDeferred<Boolean>? = null
-    private var settingsLauncher: ActivityResultLauncher<Intent>? = null
     private var settingsPending: CompletableDeferred<Unit>? = null
 
-    /** 在 Activity.onCreate 里登记权限弹窗和定位设置页（必须在 STARTED 之前）。 */
+    /** 在 Activity.onCreate 里登记权限弹窗和定位设置页（必须在 STARTED 之前），Activity 销毁时自动注销。 */
     fun register(activity: ComponentActivity) {
-        launcher = activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-            pending?.complete(result.values.any { it })
-            pending = null
-        }
-        settingsLauncher = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            settingsPending?.complete(Unit)
-            settingsPending = null
-        }
+        val host = Host(
+            activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+                pending?.complete(result.values.any { it })
+                pending = null
+            },
+            activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+                settingsPending?.complete(Unit)
+                settingsPending = null
+            },
+        )
+        hosts.addLast(host)
+        activity.lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onDestroy(owner: androidx.lifecycle.LifecycleOwner) {
+                hosts.remove(host)
+                // 正在等的那一次可能就是它发起的，不会再有回音了：当没授权 / 没打开处理，别让调用方一直挂着
+                pending?.complete(false).also { pending = null }
+                settingsPending?.complete(Unit).also { settingsPending = null }
+            }
+        })
     }
 
     private fun enabledProviders(lm: LocationManager) =

@@ -132,10 +132,18 @@ class InsightState internal constructor(
 @Composable
 fun rememberInsight(spec: InsightSpec, input: String?, auto: Boolean = true): InsightState {
     val scope = rememberCoroutineScope()
-    val state = remember(spec.id) { InsightState(spec, scope) }
-    state.spec = spec
     val off by PidaiCards.off.collectAsState()
     val enabled = spec.card !in off
+    // 缓存在第一帧就画上：等副作用再读的话卡片先画一帧空壳、下一帧才撑开，把下面已经显示的内容整体顶下去
+    val state = remember(spec.id) {
+        InsightState(spec, scope).also {
+            if (input != null && enabled) {
+                it.input = input
+                it.outcome = AgentInsightHub.insights.cached(spec, input)
+            }
+        }
+    }
+    state.spec = spec
     LaunchedEffect(spec.id, input, enabled) {
         state.input = input
         // 设置里关掉的卡：不读缓存也不调模型，页面上借用它结果的地方（图书馆平面图标座）一并清空

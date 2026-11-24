@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.archive
 
 /**
- * 导入档位（docs/storage-layout.md §6.4「显式镜像档」）。
+ * 导入档位（docs/archive-format.md「导入」）。
  *
  * 用户在**导入那一刻显式选一次**；不选就还是默认档，口径与以前逐字相同。
  */

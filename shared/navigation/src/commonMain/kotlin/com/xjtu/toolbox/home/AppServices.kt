@@ -25,7 +25,7 @@ enum class ServiceCategory(val title: String, val subtitle: String) {
      * 而底栏已经是 5 个 tab（miuix 的上限就是 5），加不了 tab，
      * 所以走首页分类卡这一层。
      */
-    PLAY("课余", "小游戏与匹配"),
+    PLAY("课余", "活动、小游戏与匹配"),
 }
 
 data class AppService(
@@ -101,13 +101,27 @@ object AppServices {
         AppService(AppRoute.WebVpnConverter, "WebVPN", "非校园网访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
         AppService(AppRoute.Agent, "小岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问小岱", "屁岱", "ai", "助手")),
         AppService(AppRoute.Community, "社区", "提建议、报问题", ServiceCategory.TOOL, listOf("社区讨论", "讨论", "论坛", "交流", "建议", "github")),
+        AppService(AppRoute.Feedback, "反馈与投票", "报问题、提建议、参与投票", ServiceCategory.TOOL, listOf("反馈", "建议", "投票", "bug", "issue", "闪退"), showOnHome = false),
 
         AppService(AppRoute.Games, "小游戏", "合成方块与棋类", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "方块", "俄罗斯方块", "跳一跳", "摸鱼")),
         AppService(AppRoute.Match, "匹配交友", "课表匹配找同伴", ServiceCategory.PLAY, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),
+        AppService(AppRoute.SsActivity, "活动报名", "智慧社区讲座与活动", ServiceCategory.PLAY,
+            listOf("智慧社区", "活动", "讲座", "报名", "签到", "签退", "第二课堂", "课外学分", "集体活动", "集体活动证明", "活动证明"),
+            features = listOf(
+                "集体活动：一键找讲座、报告、分享会这类常能开集体活动证明的活动",
+                "课外学分参考：活动的课程性质、素养能力与积分构成",
+                "一键报名与取消：附件或团体报名跳网页", "现场签到签退：输入现场 6 位验证码", "我的报名：报名状态与审核结果", "小岱找活动：按主题查活动并帮你报名")),
+        AppService(AppRoute.TermReport, "学期总结", "这学期的数据回顾", ServiceCategory.PLAY,
+            listOf("学期总结", "学期报告", "学期回顾", "年终总结", "年度报告", "总结", "回顾"),
+            features = listOf(
+                "全屏竖滑回顾：课程与早八、考勤与全勤、GPA 与分数段、待办完成率、校园卡支出与干饭、体测、小游戏、和小岱聊了多少、最常用的功能",
+                "称号与学期之最：四十来个称号挑最贴切的一个，外加副标签、彩蛋和写给下学期的话，可截图分享",
+                "生成与存档：学期所有周结束后才生成，只在本机计算；最近一学期每次打开按最新数据刷新，往期存档随时回顾")),
 
         AppService(AppRoute.DownloadManager, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(AppRoute.Settings, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
         AppService(AppRoute.Accounts, "账号管理", "管理校园账号", ServiceCategory.TOOL, listOf("切换账号", "多账号"), showOnHome = false),
+        AppService(AppRoute.Tips, "小贴士", "冷门功能与常见问题", ServiceCategory.TOOL, listOf("tips", "技巧", "常见问题", "帮助", "新手", "彩蛋"), showOnHome = false),
     )
 
     val home: List<AppService> = all.filter { it.showOnHome }

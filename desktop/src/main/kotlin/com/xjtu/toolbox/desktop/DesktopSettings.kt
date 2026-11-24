@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.desktop
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -63,7 +64,12 @@ internal val desktopSettings: SettingsStore by lazy {
 }
 
 /** 桌面端的设置页宿主（见 [SettingsHost] 与 [SettingsRow]）。 */
-internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Unit) : SettingsHost {
+internal class DesktopSettingsHost(
+    private val notifyAppearanceChanged: () -> Unit,
+    /** 账号管理与退出当前账号：dock 没有「全部」那一格，入口放在设置里。 */
+    private val onOpenAccounts: () -> Unit = {},
+    private val onLogout: () -> Unit = {},
+) : SettingsHost {
 
     /** 版本号显示。 */
     override val versionText: String = "v${DesktopBuildConfig.VERSION_NAME} (desktop)"
@@ -80,13 +86,8 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
     )
 
     /** 桌面端暂不支持的设置说明。 */
-    override val gapNote: String =
-        "桌面版没有这些设置（要调请用 App）：常用功能、连接模式" +
-            "——常用功能是手机首页上的快捷入口，桌面外壳照桌面习惯另做了一套。" +
-            "课表来源只有教务一个：桌面没有另做取数来源。" +
-            "「通知与提醒」只有一档：课表有变动时弹一条系统托盘气泡（`notify/`），没有可调的开关——" +
-            "其余几类提醒的评测在 `:app` 的 WorkManager 里，桌面没有排程载体（见 `docs/desktop-port-plan.md` 的 D6）；" +
-            "「更新」整组也没有：安装包自带版本，不走单独的更新通道。"
+    // 提醒只有课表变动的托盘气泡（`notify/`）；其余提醒在 `:app` 的 WorkManager 里，桌面没有排程载体
+    override val gapNote: String = "常用功能、连接模式、课表来源和提醒设置请在手机上调整。"
 
     override val changelog: List<ChangelogEntry> = emptyList()
 
@@ -94,9 +95,12 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
 
     override val noticeSection: (@Composable () -> Unit)? = null
 
-    override val dataPrivacySection: (@Composable () -> Unit)? = { DesktopDataPrivacySection() }
+    override val dataPrivacySection: (@Composable () -> Unit)? = {
+        DesktopAccountSection(onOpenAccounts, onLogout)
+        DesktopDataPrivacySection()
+    }
 
-    override val updateSection: (@Composable () -> Unit)? = null
+    override val updateSection: (@Composable () -> Unit)? = { DesktopUpdateSection() }
 
     override val onNetworkModeChanged: (() -> Unit)? = null
 
@@ -106,6 +110,77 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
     override val onOpenUrl: (String) -> Unit = { openInBrowser(it) }
 }
 
+/** 「账号」组：账号管理 + 退出当前账号（退出前确认，因为会删掉这个账号存的密码与会话）。 */
+@Composable
+private fun DesktopAccountSection(onOpenAccounts: () -> Unit, onLogout: () -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+    SmallTitle("账号")
+    SettingsCard {
+        ArrowPreference(title = "账号管理", summary = "切换、添加或删除校园账号", onClick = onOpenAccounts)
+        ArrowPreference(
+            title = "退出当前账号",
+            summary = "删除这个账号在本机保存的密码和登录状态",
+            onClick = { confirming = true },
+        )
+    }
+    if (confirming) {
+        OverlayDialog(
+            show = true,
+            title = "退出当前账号？",
+            summary = "本机保存的密码和登录状态会被删除；还有其他账号时会自动切换过去。",
+            onDismissRequest = { confirming = false },
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(text = "取消", onClick = { confirming = false }, modifier = Modifier.weight(1f))
+                TextButton(
+                    text = "退出",
+                    onClick = {
+                        confirming = false
+                        onLogout()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
+}
+
+/** 「更新」组：查 GitHub 发布页，有新版就打开发布页（桌面没有自动安装通道）。 */
+@Composable
+private fun DesktopUpdateSection() {
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<DesktopUpdate.CheckResult?>(null) }
+    SmallTitle("更新")
+    SettingsCard {
+        val available = result as? DesktopUpdate.CheckResult.Available
+        ArrowPreference(
+            title = if (available != null) "下载新版 v${available.release.version}" else "检查更新",
+            summary = when (val r = result) {
+                null -> if (checking) "正在检查…" else "当前 v${DesktopBuildConfig.VERSION_NAME}"
+                is DesktopUpdate.CheckResult.Available -> "在浏览器打开发布页下载安装包"
+                DesktopUpdate.CheckResult.UpToDate -> "已是最新版本（v${DesktopBuildConfig.VERSION_NAME}）"
+                is DesktopUpdate.CheckResult.Failed -> r.reason
+            },
+            onClick = {
+                when {
+                    available != null -> openInBrowser(available.release.releaseUrl)
+                    checking -> Unit
+                    else -> {
+                        checking = true
+                        result = null
+                        scope.launch {
+                            result = withContext(Dispatchers.IO) { DesktopUpdate.check() }
+                            checking = false
+                        }
+                    }
+                }
+            },
+        )
+    }
+}
+
 /** 「数据与隐私」组（接上）：两行归档动作 + 一行结果文本。 */
 @Composable
 private fun DesktopDataPrivacySection() {
@@ -113,7 +188,7 @@ private fun DesktopDataPrivacySection() {
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
-    // §6.4 显式镜像档：先算差异、弹窗选档（默认恒为 MERGE），确认后才落地。
+    // 显式镜像档：先算差异、弹窗选档（默认恒为 MERGE），确认后才落地。
     var pendingPlan by remember { mutableStateOf<PendingArchivePlan?>(null) }
     var importMode by remember { mutableStateOf(ArchiveImportMode.MERGE) }
 
@@ -161,7 +236,7 @@ private fun DesktopDataPrivacySection() {
     SettingsCard {
         ArrowPreference(
             title = "导出数据存档",
-            summary = "写到数据根下的 ${DesktopArchiveHost.ARCHIVE_DIR}/ 目录与 ${DesktopArchiveHost.ARCHIVE_ZIP_NAME}（不含密码等凭据）",
+            summary = "不含密码",
             startAction = { SettingsIcon(Icons.Default.Upload, SettingsColors.Teal) },
             onClick = {
                 if (busy) return@ArrowPreference
@@ -171,7 +246,7 @@ private fun DesktopDataPrivacySection() {
                     status = withContext(Dispatchers.IO) {
                         runCatching { DesktopArchiveHost.exportToDataRoot() }.fold(
                             onSuccess = {
-                                "已导出 ${it.entries} 个条目到 ${it.directory.absolutePath}，另有 ${it.zip.name}"
+                                "已导出到 ${it.zip.absolutePath}"
                             },
                             onFailure = { "导出失败：${it.message ?: it::class.simpleName}" },
                         )
@@ -182,7 +257,7 @@ private fun DesktopDataPrivacySection() {
         )
         ArrowPreference(
             title = "导入数据存档",
-            summary = "扫数据根下的 ${DesktopArchiveHost.ARCHIVE_DIR}/ 目录与 *.zip，先自校验再合并",
+            summary = "与现有数据合并",
             startAction = { SettingsIcon(Icons.Default.Download, SettingsColors.Blue) },
             onClick = { planImport(ArchiveImportMode.MERGE) },
         )
@@ -248,7 +323,7 @@ private fun DesktopDataPrivacySection() {
                                         runCatching { DesktopArchiveHost.confirmImport(planned) }.fold(
                                             onSuccess = { importOutcomeText(shown.path, it) },
                                             onFailure = {
-                                                "导入失败：${it.message ?: it::class.simpleName}（端内零变化）"
+                                                "导入失败，数据未改动：${it.message ?: it::class.simpleName}"
                                             },
                                         )
                                     }
@@ -269,32 +344,30 @@ private fun DesktopDataPrivacySection() {
 /** 导入那一行的结果文本：没有档案、导入了、已经导过、档案不可用。 */
 internal fun importStatusText(): String {
     val pending = DesktopArchiveHost.maybeImportPendingArchive()
-        ?: return "数据根下没有待导入的档案"
+        ?: return "没有待导入的存档"
     return importOutcomeText(pending.path, pending.outcome)
 }
 
-/** 一次导入的文案（前缀就是「发现待导入档案 X」那一句，与 [importStatusText] 逐字一致）。 */
+/** 一次导入的文案（前缀与 [importStatusText] 一致）。 */
 internal fun importOutcomeText(path: File, outcome: DesktopImportOutcome): String {
-    val prefix = "发现待导入档案 ${path.name}"
+    val prefix = "存档 ${path.name}"
     return when (outcome) {
         is DesktopImportOutcome.Imported ->
-            "$prefix：已交给 :core 的 StoreArchive.import 按 §6.4 合并 —— " +
-                "写入 ${outcome.result.keysWritten} 个键 / 保持 ${outcome.result.keysKept} 个 / " +
-                "写回 ${outcome.result.filesWritten} 个文件" +
-                // 未落地计数（B-9）：以前这一层对桌面没有落点的族是静默丢的，现在如实报出来。
-                if (outcome.result.filesSkipped > 0) " / ${outcome.result.filesSkipped} 条未落地（这一端没有那一族的落点）" else ""
-        is DesktopImportOutcome.AlreadyImported -> "$prefix：这份档案已经导过（标记与它一致），本次未改动任何数据"
-        is DesktopImportOutcome.Failed -> "$prefix 不可用：${outcome.reason}（端内零变化）"
+            "$prefix 已导入" +
+                // 桌面没有落点的那几类数据不静默丢，报个数
+                if (outcome.result.filesSkipped > 0) "，${outcome.result.filesSkipped} 项桌面版不支持" else ""
+        is DesktopImportOutcome.AlreadyImported -> "$prefix 已经导入过，未作改动"
+        is DesktopImportOutcome.Failed -> "$prefix 无法导入，数据未改动：${outcome.reason}"
     }
 }
 
 /** 只算了差异、还没落地时的文案（弹窗标题旁那一行 / 算不出来时的理由）。 */
 internal fun planOutcomeText(path: File, plan: DesktopArchivePlanOutcome): String {
-    val prefix = "发现待导入档案 ${path.name}"
+    val prefix = "存档 ${path.name}"
     return when (plan) {
         is DesktopArchivePlanOutcome.Planned -> "$prefix：${plan.plan.summary}"
-        is DesktopArchivePlanOutcome.AlreadyImported -> "$prefix：这份档案已经导过（标记与它一致），本次未改动任何数据"
-        is DesktopArchivePlanOutcome.Failed -> "$prefix 不可用：${plan.reason}（端内零变化）"
+        is DesktopArchivePlanOutcome.AlreadyImported -> "$prefix 已经导入过，未作改动"
+        is DesktopArchivePlanOutcome.Failed -> "$prefix 无法导入，数据未改动：${plan.reason}"
     }
 }
 

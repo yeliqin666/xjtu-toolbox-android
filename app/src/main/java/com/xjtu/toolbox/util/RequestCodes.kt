@@ -38,6 +38,8 @@ object RequestCodes {
     const val DYNAMIC_SCHEDULE = 2109
     /** 小岱生成中的前台通知，点开回小岱。 */
     const val AGENT_GENERATION = 2110
+    /** 新成绩提醒，点开去成绩页。 */
+    const val REMINDER_GRADE = 2111
 
     // 5xxx 发给小组件自己的广播
     /** + WidgetSize.ordinal。沿用旧值：AlarmManager 里排着的闹钟要靠同一个码才取消得掉。 */
@@ -46,4 +48,7 @@ object RequestCodes {
     const val SCHEDULE_DAY_NEXT = 5011
     const val DYNAMIC_SCHEDULE_ALARM = 5020
     const val SMART_WIDGET_REFRESH = 5040
+
+    /** 卡片上那颗「刷新」：用户主动要立刻查一次，与定时自查分开一个码。 */
+    const val SMART_WIDGET_REFRESH_NOW = 5041
 }

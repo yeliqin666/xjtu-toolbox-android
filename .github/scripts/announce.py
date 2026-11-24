@@ -44,6 +44,8 @@ MARK_RESULT = "<!-- poll-result:{} -->"
 MARK_FINAL = "<!-- poll-final:{} -->"
 DATA_RE = re.compile(r"<!-- poll-data:(\{.*?\}) -->", re.S)
 NO_RESPONSE = {"_No response_", "None", "无"}
+FORM_LABELS = {"等级", "正文", "链接", "开始时间", "截止时间", "最低版本", "最高版本", "低于此版本强制更新", "投票选项", "设置"}
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
 # ---------------------------------------------------------------- 文件
@@ -93,9 +95,20 @@ def sections(body: str) -> Optional[dict[str, str]]:
     out: dict[str, str] = {}
     cur: Optional[str] = None
     buf: list[str] = []
+    fence = ""
     for line in body.splitlines():
+        marker = FENCE_RE.match(line)
+        if fence:
+            buf.append(line)
+            if marker and marker[1].startswith(fence) and not marker[2].strip():
+                fence = ""
+            continue
+        if marker and cur is not None:
+            fence = marker[1]
+            buf.append(line)
+            continue
         m = re.match(r"^###\s+(.+?)\s*$", line)
-        if m:
+        if m and m[1] in FORM_LABELS:
             if cur is not None:
                 out[cur] = "\n".join(buf).strip()
             cur, buf = m.group(1), []

@@ -75,6 +75,12 @@ internal class InnerShadowNode(
 
     private var prevRadius = Float.NaN
 
+    /**
+     * [岱宗盒子 vendor 改动] 上一次录进 [shadowLayer] 时的全部输入，没变就只画旧层（见 ShadowModifier 同名注释）。
+     * 模糊半径走图层的 renderEffect，不进键。
+     */
+    private var recordedKey: InnerShadowRecordKey? = null
+
     override fun ContentDrawScope.draw() {
         drawContent()
 
@@ -113,15 +119,21 @@ internal class InnerShadowNode(
                     }
                 prevRadius = radius
             }
-            shadowLayer.record {
-                val canvas = drawContext.canvas
-                canvas.save()
-                canvas.clipOutline(outline, clipPath)
-                canvas.drawOutline(outline, paint)
-                canvas.translate(offsetX, offsetY)
-                canvas.drawOutline(outline, ShadowMaskPaint)
-                canvas.translate(-offsetX, -offsetY)
-                canvas.restore()
+            val key = InnerShadowRecordKey(
+                size, density.density, layoutDirection, shapeProvider.innerShape, shadow.offset, shadow.color,
+            )
+            if (key != recordedKey) {
+                shadowLayer.record {
+                    val canvas = drawContext.canvas
+                    canvas.save()
+                    canvas.clipOutline(outline, clipPath)
+                    canvas.drawOutline(outline, paint)
+                    canvas.translate(offsetX, offsetY)
+                    canvas.drawOutline(outline, ShadowMaskPaint)
+                    canvas.translate(-offsetX, -offsetY)
+                    canvas.restore()
+                }
+                recordedKey = key
             }
 
             val canvas = drawContext.canvas
@@ -146,12 +158,25 @@ internal class InnerShadowNode(
             graphicsContext.releaseGraphicsLayer(layer)
             shadowLayer = null
         }
+        // 新挂上时是一块新图层：模糊效果与内容都得重新设、重新录
+        prevRadius = Float.NaN
+        recordedKey = null
     }
 
     private fun DrawScope.configurePaint(shadow: InnerShadow) {
         paint.color = shadow.color
     }
 }
+
+/** 决定内阴影层内容的全部输入。 */
+private data class InnerShadowRecordKey(
+    val size: androidx.compose.ui.geometry.Size,
+    val density: Float,
+    val layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+    val shape: androidx.compose.ui.graphics.Shape,
+    val offset: androidx.compose.ui.unit.DpOffset,
+    val color: androidx.compose.ui.graphics.Color,
+)
 
 private val ShadowMaskPaint = Paint().apply {
     blendMode = BlendMode.Clear

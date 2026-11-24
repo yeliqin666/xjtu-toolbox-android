@@ -9,7 +9,7 @@ import kotlinx.datetime.toInstant
 import com.xjtu.toolbox.util.CampusTimeZone
 
 /**
- * 「接下来」构建函数的契约单测（plan2 §5.4）：过滤已提交、过滤过期/超窗、
+ * 「接下来」构建函数的契约单测：过滤已提交、过滤过期/超窗、
  * 考试只取 SOON（1-3 天），今天截止的作业不重复出现（已经在时间轴本体里），按时间排序。
  */
 class UpcomingTest {

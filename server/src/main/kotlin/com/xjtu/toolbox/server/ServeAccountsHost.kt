@@ -9,8 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * `/api/accounts` 四条**写**端点的动作本体（`docs/api-contract.md` §5.10，
- * `docs/parity-ledger.md` §6.1 #10 = 丙）。
+ * `/api/accounts` 四条**写**端点的动作本体（`docs/api-contract.md`）。
  *
  * 为什么单独一个类：路由只该管「HTTP 形状 + 拒绝条件」，账号表怎么动、当前会话要不要跟着换，
  * 全在这一层。四条动作共享一个 [Mutex]（并发进来会互相踩：新增/切换/删除都在动同一张表 + 当前会话）。
@@ -71,7 +70,7 @@ internal class ServeAccountsHost(
      * 新增账号。
      *
      * ⚠️ **本条不联网探活**：serve 这一侧的站点会话是懒的（第一次真取数时才 ensure），所以密码打错
-     * 不会在这一刻被拦下，而会在下一次取数时报 401/502。取舍见 `docs/api-contract.md` §5.10 的说明：
+     * 不会在这一刻被拦下，而会在下一次取数时报 401/502。取舍：
      * 写端点要能在没有副作用的情况下被重复提交，而`探测一次登录`会顺带触发短信二验（150s 的挂起请求）。
      *
      * [activate] 为真时顺手认成当前账号（与 `:desktop` 的 `addAccount` 同一条路径）；默认不动当前会话。
@@ -101,7 +100,7 @@ internal class ServeAccountsHost(
         }
 
         val account = Account(accountId = id, password = password, accountType = accountType, lastUsedAt = now())
-        // setActive = false：激活指针（active_account）是桌面端的主键，serve 不写（契约 §5.10）
+        // setActive = false：激活指针（active_account）是桌面端的主键，serve 不写
         store.upsert(account, setActive = false)
         if (activate) session.adoptAccount(account)
         AccountsWriteOutcome.Done(

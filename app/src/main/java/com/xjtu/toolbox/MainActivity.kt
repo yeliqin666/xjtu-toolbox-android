@@ -82,6 +82,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 底栏小岱图标第一次采样前，先在后台把它的静态表算好（见 warmUpBotEngine）；越早开始越不和首帧抢
+        lifecycleScope.launch(Dispatchers.Default) { runCatching { com.xjtu.toolbox.agent.bot.warmUpBotEngine() } }
+        // 首页统计快照先读进内存：首页（可能在后台预组合）组合时就不同步读盘
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { com.xjtu.toolbox.home.HomeStats.preloadSnapshot(applicationContext) }
+            runCatching { com.xjtu.toolbox.hello.HelloProfileStore.preload(applicationContext) }
+        }
         // 系统启动屏挡到首帧就绪：之前的帧不画，启动屏就一直留着
         val content = findViewById<android.view.View>(android.R.id.content)
         content.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
@@ -132,6 +139,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         SessionKeepAlive.start()
+        lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.termreport.recordAppLaunch() }
         lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.shortcuts.LauncherShortcuts.sync(this@MainActivity) }
         // 后台预热金标联盟一镜到底的能力探测：首次点击公告卡不再付反射探测的钱。
         lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.sharedview.KitOneTake.prewarm() }

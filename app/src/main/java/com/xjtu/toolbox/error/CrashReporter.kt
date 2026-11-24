@@ -29,6 +29,8 @@ object CrashReporter {
     private const val DIR = "crash_pending"
     private const val PREFS = "crash_reporter"
     private const val KEY_ENABLED = "enabled"
+    /** 已上报的最近一条崩溃留一份，反馈时附上。 */
+    private const val LAST = "crash_last.txt"
     /** 同一个崩溃循环一次启动最多报几条，别把反馈表刷屏。 */
     private const val MAX_UPLOAD_PER_LAUNCH = 3
     /** 待报文件最多留几个，崩溃循环时最旧的丢掉。 */
@@ -40,10 +42,11 @@ object CrashReporter {
 
     fun setEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
-        if (!enabled) runCatching { dir(context).deleteRecursively() }
+        if (!enabled) runCatching { dir(context).deleteRecursively(); last(context).delete() }
     }
 
     private fun dir(context: Context) = File(context.applicationContext.filesDir, DIR)
+    private fun last(context: Context) = File(context.applicationContext.filesDir, LAST)
 
     /** [com.xjtu.toolbox.XjtuApp.onCreate] 里尽早调用。 */
     fun install(context: Context) {
@@ -67,7 +70,7 @@ object CrashReporter {
         val ts = formatOnCampus(System.currentTimeMillis(), "yyyy-MM-dd HH:mm:ss")
         val text = buildString {
             append("time=").append(ts).append('\n')
-            append("build=").append(BuildConfig.VERSION_NAME).append(" (").append(BuildConfig.VERSION_CODE).append(if (BuildConfig.IS_PREVIEW) " [preview]" else "").append(")\n")
+            append("build=").append(currentBuild()).append('\n')
             append("preview=").append(BuildConfig.IS_PREVIEW).append('\n')
             append("thread=").append(thread.name).append('\n')
             append(redact(sw.toString()))
@@ -75,16 +78,29 @@ object CrashReporter {
         File(d, "${System.currentTimeMillis()}.txt").writeText(text)
     }
 
-    /**
-     * 去掉异常 message 里可能的隐私。先走统一规则 [com.xjtu.toolbox.util.LogRedact]
-     * （凭据参数、JSON 敏感字段、CAS 隐藏表单、学号类长数字、token 类长串），
-     * 再把剩余的整段 URL 查询串折叠掉——崩溃报告会上传，宁可多删。
-     * 堆栈帧本身只有类名方法名行号，不受影响。
-     */
     /** 日志里 [write] 记下的崩溃时版本（`build=` 那一行）。 */
-    internal fun crashBuild(content: String): String? =
-        content.lineSequence().firstOrNull { it.startsWith("build=") }?.removePrefix("build=")?.trim()?.ifBlank { null }
+    internal fun crashBuild(content: String): String? = field(content, "build")
 
+    private fun field(content: String, key: String): String? =
+        content.lineSequence().firstOrNull { it.startsWith("$key=") }?.removePrefix("$key=")?.trim()?.ifBlank { null }
+
+    private fun currentBuild() =
+        "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}${if (BuildConfig.IS_PREVIEW) " [preview]" else ""})"
+
+    /**
+     * 反馈时附的最近一次崩溃日志（落盘时已脱敏）。待报的总比已报的新，先看待报。
+     * 只认当前版本——换过版本的旧崩溃对新问题没参考价值，返回 null 不显示。
+     */
+    fun latestCrash(context: Context): String? {
+        val file = dir(context).listFiles()?.maxByOrNull { it.name } ?: last(context).takeIf { it.exists() }
+        val text = file?.let { runCatching { it.readText() }.getOrNull() } ?: return null
+        return text.takeIf { crashBuild(it) == currentBuild() }
+    }
+
+    /**
+     * 去掉异常 message 里可能的隐私：先走统一规则 [com.xjtu.toolbox.util.LogRedact]，
+     * 再把剩余的整段 URL 查询串折叠掉——崩溃报告会上传，宁可多删。
+     */
     internal fun redact(s: String): String =
         com.xjtu.toolbox.util.LogRedact.redact(s)
             .replace(Regex("""\?[^\s"')]*"""), "?…")
@@ -111,6 +127,7 @@ object CrashReporter {
                     anonId = FeedbackStore.anonId(),
                     version = crashBuild(content),
                 )
+                runCatching { f.copyTo(last(context), overwrite = true) }
                 f.delete()
             } catch (e: Exception) {
                 Log.w(TAG, "upload ${f.name} failed: ${e.message}")

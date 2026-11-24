@@ -148,6 +148,7 @@ class SessionManager {
     /** 会话诊断：走 `:core` 的跨端日志门面（Android 仍落到 logcat 的 [TAG]，桌面落到标准输出）。 */
     fun recordDiagnostic(level: String, siteKey: String, message: String) {
         val line = "[$siteKey] ${message.take(240)}"
+        AuthTrace.write(level, line)
         when (level) {
             "ERROR" -> Log.e(TAG, line)
             "WARN" -> Log.w(TAG, line)

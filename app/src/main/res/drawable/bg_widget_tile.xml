@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 卡内深一档的块：两件事并列时靠它分开，代替分隔线。圆角用系统的内层圆角。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="@android:dimen/system_app_widget_inner_radius" />
+    <solid android:color="@color/widget_surface_variant" />
+</shape>

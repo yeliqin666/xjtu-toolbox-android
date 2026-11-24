@@ -20,6 +20,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Button
@@ -54,7 +55,7 @@ fun WebVpnConverterScreen(
  *              `:data` 的 `WebVpnUtil`：那个对象要用 `javax.crypto` 的 AES-128-CFB 加密域名，
  *              而这一屏在 `:core` 的 commonMain（三个目标，含 wasmJs）⇒ 实现按平台的能力缝由宿主
  *              注入：Android / 桌面传同步那份 `WebVpnUtil`（走上面那个同名的重载），`:web` 传
- *              `CampusWebVpnApi`（转换在服务端，`POST /api/webvpn/convert`，契约 §5.7）。
+ *              `CampusWebVpnApi`（转换在服务端，`POST /api/webvpn/convert`）。
  * @param onOpenWithWebVpn 用户点击访问按钮时调用，参数为最终要访问的（已转为 WebVPN 域的）URL。
  *                        `:app` 那侧外层没连上 WebVPN 时会用已存账号自动登录，再进入 BrowserScreen；
  *                        桌面端没有内置浏览器，直接把地址交给系统浏览器。
@@ -73,6 +74,36 @@ fun WebVpnConverterScreen(
     var convertedUrl by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var isReversed by remember { mutableStateOf(false) } // false=原始→VPN, true=VPN→原始
+
+    /** 转换输入框里的网址；[open] = 转好直接用 WebVPN 打开（常用站点那一排）。 */
+    fun convert(open: Boolean = false) {
+        val raw = inputUrl.trim()
+        if (raw.isBlank()) {
+            error = "请先输入网址"
+            return
+        }
+        val reversed = isReversed
+        val normalized = if (!reversed && !raw.startsWith("http://") && !raw.startsWith("https://")) "https://$raw" else raw
+        // 转换可能是一次 HTTP 往返（`:web` 走服务端），一律走协程；本端同步实现照样立刻拿到结果
+        scope.launch {
+            error = null
+            val result = runCatching {
+                if (!reversed) codec.toVpnUrl(normalized) else codec.fromVpnUrl(normalized)
+            }
+            val converted = result.getOrNull()
+            if (converted.isNullOrBlank()) {
+                convertedUrl = ""
+                // 实现自己抛的错（401 闸门 / 网络）用它那句话；from_vpn 解不出来是如实返回 null
+                error = result.exceptionOrNull()?.let { FriendlyError.of(it, "转换") }
+                    ?: if (reversed) "无法解析此 WebVPN 网址，请确认格式正确"
+                    else "转换失败，请稍后重试"
+            } else {
+                convertedUrl = converted
+                if (open && !reversed && converted.startsWith("http")) onOpenWithWebVpn(converted)
+            }
+            Log.d("WebVpnConverter", "convert reversed=$reversed input=$normalized output=${convertedUrl.redactUrl()}")
+        }
+    }
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -186,38 +217,7 @@ fun WebVpnConverterScreen(
                     }
                     Spacer(Modifier.height(12.dp))
                     Button(
-                        onClick = {
-                            val raw = inputUrl.trim()
-                            if (raw.isBlank()) {
-                                error = "请先输入网址"
-                                return@Button
-                            }
-                            val normalized = if (!isReversed && !raw.startsWith("http://") && !raw.startsWith("https://")) {
-                                "https://$raw"
-                            } else raw
-                            // 转换可能是一次 **HTTP 往返**（`:web` 的取数就是那一发）⇒ 一律走协程。
-                            // Android / 桌面那份实现是同步的，照样立刻拿到结果（不多一次延迟）。
-                            scope.launch {
-                                val reversed = isReversed
-                                error = null
-                                val result = runCatching {
-                                    if (!reversed) codec.toVpnUrl(normalized) else codec.fromVpnUrl(normalized)
-                                }
-                                val converted = result.getOrNull()
-                                if (converted.isNullOrBlank()) {
-                                    convertedUrl = ""
-                                    // 两种“没拿到”分开说：实现自己抛的错（401 闸门 / 网络那类）用它那句话，
-                                    // 而 from_vpn 解不出来那一档是取数实现**如实返回 null**（契约 §5.7 的 400），
-                                    // 屏上那句话正好说的是这件事。
-                                    error = result.exceptionOrNull()?.let { FriendlyError.of(it, "转换") }
-                                        ?: if (reversed) "无法解析此 WebVPN 网址，请确认格式正确"
-                                        else "转换失败，请稍后重试"
-                                } else {
-                                    convertedUrl = converted
-                                }
-                                Log.d("WebVpnConverter", "convert reversed=$reversed input=$normalized output=${convertedUrl.redactUrl()}")
-                            }
-                        },
+                        onClick = { convert() },
                         colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("转换", color = MiuixTheme.colorScheme.onPrimary) }
@@ -252,8 +252,34 @@ fun WebVpnConverterScreen(
             }
 
                 },
-                second = { introCard() },
+                second = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SitesCard { site ->
+                            isReversed = false
+                            inputUrl = site.url
+                            convert(open = true)
+                        }
+                        introCard()
+                    }
+                },
             )
+        }
+    }
+}
+
+/** 常用站点：校内站 + 图书馆按 IP 授权的数据库，点一下直接走 WebVPN 打开。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SitesCard(onOpen: (WebVpnSite) -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("常用站点", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+            listOf("校内" to WebVpnSites.campus, "学术数据库" to WebVpnSites.academic).forEach { (title, sites) ->
+                Text(title, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    sites.forEach { site -> AppSuggestionChip(onClick = { onOpen(site) }, label = site.name) }
+                }
+            }
         }
     }
 }

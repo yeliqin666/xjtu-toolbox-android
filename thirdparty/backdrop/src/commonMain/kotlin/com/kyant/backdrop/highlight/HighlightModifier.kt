@@ -19,7 +19,11 @@ import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.util.fastCoerceAtMost
-import com.kyant.backdrop.RuntimeShaderCacheImpl
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import com.kyant.backdrop.SharedRuntimeShaders
 import com.kyant.backdrop.internal.ShapeProvider
 import com.kyant.backdrop.internal.blur
 import com.kyant.backdrop.internal.clipOutline
@@ -65,6 +69,17 @@ internal class HighlightElement(
     }
 }
 
+/** 决定高光层内容的全部输入（见 [HighlightNode.recordedKey]）。 */
+private data class HighlightRecordKey(
+    val size: Size,
+    val density: Float,
+    val layoutDirection: LayoutDirection,
+    val shape: Shape,
+    val width: Dp,
+    val blurRadius: Dp,
+    val style: HighlightStyle,
+)
+
 internal class HighlightNode(
     var shapeProvider: ShapeProvider,
     var highlight: () -> Highlight?
@@ -80,9 +95,14 @@ internal class HighlightNode(
         }
     private var clipPath: Path? = null
 
-    private val runtimeShaderCache = RuntimeShaderCacheImpl()
-
     private var prevStyle: HighlightStyle? = null
+
+    /**
+     * [岱宗盒子 vendor 改动] 上一次录进 [highlightLayer] 时的全部输入。没变就只把旧层画上去：
+     * 玻璃一滚动、一被采样就整块重画，上游每次都要重录这一圈带模糊的描边（Kyant #126 第 1 条）。
+     * 透明度与混合模式是图层属性，不进键。
+     */
+    private var recordedKey: HighlightRecordKey? = null
 
     /**
      * 上一次设进 [paint] 的模糊半径。[Paint.blur] 每次都会 new 一个 `BlurMaskFilter`（原生对象，
@@ -104,34 +124,43 @@ internal class HighlightNode(
             val size = size
             val density: Density = this
             val layoutDirection = layoutDirection
+            val shape = shapeProvider.shape
+            // 键里放真正的形状：外层包装对象终身不变，圆角动画时换的是里面这个
+            val key = HighlightRecordKey(
+                size, density.density, layoutDirection, shapeProvider.innerShape,
+                highlight.width, highlight.blurRadius, highlight.style,
+            )
 
-            val safeSize =
-                IntSize(
-                    ceil(size.width).toInt() + 2,
-                    ceil(size.height).toInt() + 2
-                )
+            if (key != recordedKey) {
+                val safeSize =
+                    IntSize(
+                        ceil(size.width).toInt() + 2,
+                        ceil(size.height).toInt() + 2
+                    )
 
-            val outline = shapeProvider.shape.createOutline(size, layoutDirection, density)
-            val clipPath =
-                if (outline is Outline.Rounded) {
-                    clipPath ?: Path().also { clipPath = it }
-                } else {
-                    null
+                val outline = shape.createOutline(size, layoutDirection, density)
+                val clipPath =
+                    if (outline is Outline.Rounded) {
+                        clipPath ?: Path().also { clipPath = it }
+                    } else {
+                        null
+                    }
+
+                configurePaint(highlight)
+
+                highlightLayer.record(safeSize) {
+                    translate(1f, 1f) {
+                        val canvas = drawContext.canvas
+                        canvas.save()
+                        canvas.clipOutline(outline, clipPath)
+                        canvas.drawOutline(outline, paint)
+                        canvas.restore()
+                    }
                 }
-
-            configurePaint(highlight)
-
+                recordedKey = key
+            }
             highlightLayer.alpha = highlight.alpha
             highlightLayer.blendMode = highlight.style.blendMode
-            highlightLayer.record(safeSize) {
-                translate(1f, 1f) {
-                    val canvas = drawContext.canvas
-                    canvas.save()
-                    canvas.clipOutline(outline, clipPath)
-                    canvas.drawOutline(outline, paint)
-                    canvas.restore()
-                }
-            }
 
             translate(-1f, -1f) {
                 drawLayer(highlightLayer)
@@ -151,7 +180,7 @@ internal class HighlightNode(
             highlightLayer = null
         }
         clipPath = null
-        runtimeShaderCache.clear()
+        recordedKey = null
         prevStyle = null
     }
 
@@ -168,7 +197,7 @@ internal class HighlightNode(
                 with(highlight.style) {
                     createShader(
                         shape = shapeProvider.shape,
-                        runtimeShaderCache = runtimeShaderCache
+                        runtimeShaderCache = SharedRuntimeShaders
                     )
                 }
             paint.setRuntimeShader(shader)

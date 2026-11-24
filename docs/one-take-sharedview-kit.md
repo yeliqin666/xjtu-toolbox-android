@@ -1,6 +1,6 @@
 # 首页卡片「一镜到底」：金标联盟 SharedViewKit + Compose 转场回落
 
-本文记录 `feat/one-take-seamless` 分支上「首页卡片 → 功能页」的无缝转场实现与真机验证方法。
+「首页卡片 → 功能页」的无缝转场：支持的 ROM 走系统级 SharedViewKit，其余回落到 Compose 放大转场。
 
 覆盖的入口：
 
@@ -91,7 +91,7 @@ adb logcat -c && adb logcat -s KitOneTake SharedViewKit
 # （只有一个凭据都没有 / 页面要联网但没网 / 维护中 才走原提示）
 ```
 
-回归关注点：起点位置/圆角是否对齐卡片、返回落点、快速连点、页面内二级跳转、深色/动态取色、旋转/分屏、登录过期后的重登、release 包（preview 包不混淆，问题只会在 release 暴露）。
+回归关注点：起点位置/圆角是否对齐卡片、返回落点、快速连点、页面内二级跳转、深色/动态取色、旋转/分屏、登录过期后的重登、混淆后的 preview / release 包。
 
 ## 6. 已知限制 / 风险
 
@@ -100,8 +100,4 @@ adb logcat -c && adb logcat -s KitOneTake SharedViewKit
 3. **半遮挡卡片**：卡片被列表视口裁切时 `PixelCopy` 可能失败 → 自动回落；尚未做 demo 里「返回前滚动入视」的兜底。
 4. **通用宿主仍是第二套 Compose 根**：页面里「回到首页」这类路由（`AppRoute.Main`）不会关闭宿主（极少见）；页面内二级跳转都在宿主自己的返回栈里，不回到主界面栈。
 5. **依赖与许可**：`gsai.sdk:sharedview-kit` 来自联盟内测 Nexus（HTTP、`allowInsecureProtocol`），版本已钉死 `1.0.0.5`；闭源 AAR + GPL-3.0 发行需维护者/法务确认，CI 需能访问该仓库。
-6. **回滚**：整个能力集中在 `KitOneTake` / `SeamlessPageActivity` / `SeamlessPageSkeleton` / `ProcessLoginState` / 首页 `onRouteSeamless` 钩子，`git revert` 对应提交即可退回；不支持 ROM 的设备本来就走原路径。
-
-## 7. 顺带改掉的进程级状态
-
-`AppLoginStateViewModel` 从 Activity 级 `viewModel()` 改成进程级 `ProcessLoginState.get(context)`，主界面与一镜到底宿主共用同一份会话。它继承 `AndroidViewModel`、没有 `onCleared` 逻辑，进程存活期内始终有效；进程被杀后按现有登录恢复流程重建。
+6. **进程级会话**：主界面与宿主共用 `ProcessLoginState.get(context)`（`AndroidViewModel`，进程存活期内有效，进程被杀后按登录恢复流程重建），不要再用 Activity 级 `viewModel()` 建第二份。

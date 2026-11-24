@@ -13,7 +13,7 @@ package com.xjtu.toolbox.desktop.notify
  * | 通知公告有新的一条 | `:app` 的 `NoticeWatchWorker`：`ReminderStore`（`reminder_watch` 那份 SharedPreferences）存开关与游标，WorkManager 4h 排程 | 没有 |
  * | 作业截止（48h 内） | `:app` 的 `LmsDeadlineWorker`（采集用 `:data` 的 `LmsDueCollector`），同样挂 WorkManager | 没有 |
  * | 图书馆座位 / 考试临近 | `:app` 的 `LibraryReminderWorker` / `ScheduleWatchWorker`（`ExamCountdown`，提前 3 天） | 没有 |
- * | 后台排程载体本身 | Android 的 `WorkManager` | 没有（见 `docs/desktop-port-plan.md` 的 D6：后台能力只放 serve 模式） |
+ * | 后台排程载体本身 | Android 的 `WorkManager` | 没有（后台能力只放 serve 模式） |
  *
  * 所以这一轮只接**课程变更**这一类 —— 它是唯一「评测结果在桌面上真的算得出来」的那一类。
  * 其余几类的评测代码属于 Android 源集（`ReminderStore` 是 Android 的 SharedPreferences），

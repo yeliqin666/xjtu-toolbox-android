@@ -20,7 +20,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** 校车（`/api/bus/runs`，契约 §5.18）的契约测试：假上游照 `BusApi` 的请求形状写。 */
+/** 校车（`/api/bus/runs`）的契约测试：假上游照 `BusApi` 的请求形状写。 */
 class ServeBusTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null

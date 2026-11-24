@@ -210,6 +210,7 @@ fun AppRoot(
 
     // 宽屏判断在根部算一次往下传，保证同一帧各处结论一致
     val navStyle by AppearanceSettings.get(context).navBarStyle.collectAsStateWithLifecycle()
+    val reducedEffects by AppearanceSettings.get(context).reducedEffects.collectAsStateWithLifecycle()
     // 全应用的「从这一块打开某页」：ROM 支持就走一镜到底，否则照常压路由（见 seamlessOpener）
     val seamlessOpen = remember(router, loginState) {
         com.xjtu.toolbox.sharedview.seamlessOpener(context, loginState, router::open)
@@ -222,6 +223,7 @@ fun AppRoot(
         },
         LocalIsWideLayout provides calculateIsWideLayout(),
         LocalGlassStyle provides (navStyle == CredentialStore.NAV_STYLE_FLOATING),
+        com.xjtu.toolbox.ui.components.LocalReducedEffects provides reducedEffects,
     ) {
         // 全应用唯一的 MFA 弹窗，放导航外层才能覆盖所有页面
         MfaDialogHost(loginState.sessionManager)

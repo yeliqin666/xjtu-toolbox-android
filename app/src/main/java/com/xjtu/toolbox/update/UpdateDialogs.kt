@@ -1,5 +1,15 @@
 package com.xjtu.toolbox.update
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,18 +67,14 @@ internal fun UpdateNoticeDialog(
 ) {
     if (entries.isEmpty()) return
     BackHandler(enabled = show.value) { onDismiss() }
-    val title = if (entries.size == 1) {
-        "岱宗盒子 v${entries.first().first}"
-    } else {
-        "岱宗盒子 v${entries.first().first}（含 ${entries.size} 次更新）"
-    }
+    val latest = entries.first().first
     // 用 WindowBottomSheet 而不是 OverlayBottomSheet：本弹窗由 AppNavigation 直接调用，
     // 那一层**没有任何 Scaffold**（NavHost 也在同层），而 Overlay* 要靠 Scaffold 提供的
     // LocalDialogStates 宿主才会被渲染 —— 否则注册进空列表，静默不显示。
     // 后果是「发现新版本」和「更新说明」用户根本看不到。改用自带独立 Window 的变体。
+    // 不设表头：版本号只在题记下的落款里出现一次
     WindowBottomSheet(
         show = show.value,
-        title = title,
         onDismissRequest = onDismiss
     ) {
         Column(
@@ -76,60 +82,175 @@ internal fun UpdateNoticeDialog(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
         ) {
-            if (!fromVersion.isNullOrBlank()) {
-                Text(
-                    "v$fromVersion → v${BuildConfig.VERSION_NAME} 的新内容：",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-                Spacer(Modifier.height(12.dp))
-            }
+            // 卷首：最新那一版的 🪶 引言单独放大，像一本书的题记
+            ChangelogEpigraph(
+                quote = entries.first().second.quote,
+                caption = buildString {
+                    append("岱宗盒子 v").append(latest)
+                    if (entries.size > 1) append(" · 含 ").append(entries.size).append(" 个版本")
+                },
+            )
             entries.forEachIndexed { index, (version, changelog) ->
-                if (index > 0) {
-                    Spacer(Modifier.height(14.dp))
-                    HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.25f))
-                    Spacer(Modifier.height(14.dp))
+                if (entries.size > 1) {
+                    // 叠了几个版本时每版一个小标题；旧版本的题记缩成一行小字跟在标题下
+                    ChangelogVersionHeader(version, quote = changelog.quote.takeIf { index > 0 }, first = index == 0)
                 }
-                Text(
-                    text = "v$version",
-                    style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(8.dp))
-                changelog.items.forEach { (emoji, text) ->
-                    Row(Modifier.padding(vertical = 3.dp)) {
-                        Text(emoji, style = MiuixTheme.textStyles.body1)
-                        Spacer(Modifier.width(8.dp))
-                        Text(text, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
-                    }
-                }
-                if (changelog.issues.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "已知问题",
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Bold,
-                        color = MiuixTheme.colorScheme.error
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    changelog.issues.forEach { issue ->
-                        Row(Modifier.padding(vertical = 2.dp)) {
-                            Text("•", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.outline)
-                            Spacer(Modifier.width(6.dp))
-                            Text(issue, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        }
-                    }
-                }
+                changelog.notes.forEach { (emoji, text) -> ChangelogLine(emoji, text) }
+                if (changelog.issues.isNotEmpty()) ChangelogIssues(changelog.issues)
             }
-            Spacer(Modifier.height(12.dp))
-            TextButton(
-                text = "知道了",
+            Spacer(Modifier.height(20.dp))
+            Button(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth(),
-                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColorsPrimary(),
-            )
+                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
+            ) {
+                Text("知道了", color = MiuixTheme.colorScheme.onPrimary)
+            }
             Spacer(Modifier.height(8.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
+    }
+}
+
+/** 每版第一条 🪶 是题记（一句引言），不算改动条目。 */
+private const val QUOTE_MARK = "🪶"
+
+private val VersionChangelog.quote: String? get() = items.firstOrNull { it.first == QUOTE_MARK }?.second
+
+private val VersionChangelog.notes: List<Pair<String, String>> get() = items.filterNot { it.first == QUOTE_MARK }
+
+/** 两句的引言在逗号处断成两行，像诗；断不匀（一边过长）就让它自然换行。 */
+private fun verse(quote: String): String {
+    val cut = quote.indexOfFirst { it == '，' || it == '；' }
+    if (cut <= 0 || cut == quote.lastIndex) return quote
+    val head = quote.substring(0, cut + 1)
+    val tail = quote.substring(cut + 1)
+    return if (head.length <= 14 && tail.length <= 14) "$head\n$tail" else quote
+}
+
+/** 卷首题记：大号衬线字、居中，进场时缓缓浮起。 */
+@Composable
+private fun ChangelogEpigraph(quote: String?, caption: String) {
+    val cs = MiuixTheme.colorScheme
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(900), label = "epigraph-alpha")
+    val rise by animateFloatAsState(if (shown) 0f else 14f, tween(900), label = "epigraph-rise")
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 24.dp)
+            .graphicsLayer {
+                this.alpha = alpha
+                translationY = rise * density
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (quote != null) {
+            Text(
+                "“",
+                fontFamily = FontFamily.Serif,
+                fontSize = 54.sp,
+                lineHeight = 54.sp,
+                color = cs.primary.copy(alpha = 0.32f),
+                modifier = Modifier.height(34.dp),
+            )
+            Text(
+                verse(quote),
+                fontFamily = FontFamily.Serif,
+                fontSize = 21.sp,
+                lineHeight = 36.sp,
+                letterSpacing = 2.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                color = cs.onSurface,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Spacer(Modifier.height(18.dp))
+        }
+        Box(
+            Modifier
+                .width(28.dp)
+                .height(1.5.dp)
+                .background(cs.primary.copy(alpha = 0.55f), RoundedCornerShape(1.dp)),
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            caption,
+            style = MiuixTheme.textStyles.footnote1,
+            letterSpacing = 1.sp,
+            color = cs.onSurfaceVariantSummary,
+        )
+    }
+}
+
+/** 多版本叠在一起时的版本小标题：版本号 + 一道细线。 */
+@Composable
+private fun ChangelogVersionHeader(version: String, quote: String?, first: Boolean) {
+    val cs = MiuixTheme.colorScheme
+    if (!first) Spacer(Modifier.height(18.dp))
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+        Text(
+            "v$version",
+            style = MiuixTheme.textStyles.subtitle,
+            fontWeight = FontWeight.Bold,
+            color = cs.primary,
+        )
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.weight(1f).height(1.dp).background(cs.outline.copy(alpha = 0.22f)))
+    }
+    if (quote != null) {
+        Text(
+            quote,
+            fontFamily = FontFamily.Serif,
+            style = MiuixTheme.textStyles.footnote1,
+            letterSpacing = 1.sp,
+            color = cs.onSurfaceVariantSummary,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+    }
+}
+
+/** 一条改动：emoji 落在浅色圆底里，正文留足行距。 */
+@Composable
+private fun ChangelogLine(emoji: String, text: String) {
+    val cs = MiuixTheme.colorScheme
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.Top) {
+        Box(
+            Modifier.size(32.dp).background(cs.primary.copy(alpha = 0.08f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(emoji, fontSize = 15.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text,
+            style = MiuixTheme.textStyles.body2,
+            lineHeight = 22.sp,
+            color = cs.onSurface,
+            modifier = Modifier.weight(1f).padding(top = 5.dp),
+        )
+    }
+}
+
+/** 已知问题：浅红底的一小块，与改动条目分开。 */
+@Composable
+private fun ChangelogIssues(issues: List<String>) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp)
+            .background(cs.error.copy(alpha = 0.07f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text("已知问题", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = cs.error)
+        issues.forEach { issue ->
+            Row(Modifier.padding(top = 6.dp)) {
+                Text("·", style = MiuixTheme.textStyles.body2, color = cs.error)
+                Spacer(Modifier.width(8.dp))
+                Text(issue, style = MiuixTheme.textStyles.body2, lineHeight = 21.sp, color = cs.onSurfaceVariantSummary)
+            }
         }
     }
 }

@@ -25,7 +25,7 @@ import kotlinx.serialization.json.jsonObject
 class CampusFitnessApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : FitnessSource {
 
@@ -90,7 +90,7 @@ class CampusFitnessApi(
         )
     }
 
-    /** serve 模式（契约 §5.2） */
+    /** serve 模式 */
     private suspend fun serveScore(yearNum: String): FitnessScore {
         val data = client.serveData("查询体测成绩", baseUrl, "/api/fitness/score", listOf("year" to yearNum))
         val items = data.arr("items").orEmpty().mapNotNull { element ->
@@ -117,7 +117,7 @@ class CampusFitnessApi(
 
     /** 拆 `{code,data}` 信封；`data` 缺失（含 `code!=0`）按校历/黄页那套报法显式失败。 */
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
-        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        // serve 契约的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
         if (mode == ApiMode.SERVE) return client.serveData("加载体测", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> parameter(k, v) }

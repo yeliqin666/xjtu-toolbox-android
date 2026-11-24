@@ -13,6 +13,7 @@ import com.xjtu.toolbox.agent.bot.botColorById
 import com.xjtu.toolbox.agent.bot.botShapeById
 import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import com.xjtu.toolbox.agent.bot.cast.castById
+import com.xjtu.toolbox.agent.bot.cast.defaultPersona
 import com.xjtu.toolbox.util.singletonState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.File
@@ -61,6 +62,19 @@ object PidaiAppearanceHost {
         PidaiAppearanceStore(context).save(characterId, shapeId, colorId, plain)
     }
 
+    /**
+     * 角色提示词（#423）：[characterId] 角色的说话口吻。用户改过的按角色另存，没改过用角色的默认口吻；
+     * 经典屁岱默认为空。存的是空串也算改过（用户就是不要口吻）。
+     */
+    fun persona(context: Context, character: String = characterId): String =
+        PidaiAppearanceStore(context).persona(character) ?: castById(character)?.defaultPersona.orEmpty()
+
+    fun setPersona(context: Context, character: String, text: String) =
+        PidaiAppearanceStore(context).savePersona(character, text.trim())
+
+    /** 恢复默认：删掉另存的，回到角色默认口吻。 */
+    fun resetPersona(context: Context, character: String) = PidaiAppearanceStore(context).savePersona(character, null)
+
     /** 「朴素图标」开关：角色仍然保留在存档里，只是暂时不画。 */
     fun setPlain(context: Context, value: Boolean) {
         plain = value
@@ -99,6 +113,15 @@ class PidaiAppearanceStore(context: Context) {
     fun save(character: String, shape: String, color: String, plain: Boolean) {
         prefs.edit().putString("character", character).putString("shape", shape).putString("color", color)
             .putBoolean("plain", plain).apply()
+    }
+
+    /** 用户改过的角色提示词；没改过为 null。 */
+    fun persona(character: String): String? =
+        prefs.takeIf { it.contains("persona_$character") }?.getString("persona_$character", "")
+
+    /** [text] 为 null 时删掉，回到默认。 */
+    fun savePersona(character: String, text: String?) {
+        prefs.edit().apply { if (text == null) remove("persona_$character") else putString("persona_$character", text) }.apply()
     }
 
     /** 清掉已下线功能的残留：外部导入的皮肤包与选中记录。 */

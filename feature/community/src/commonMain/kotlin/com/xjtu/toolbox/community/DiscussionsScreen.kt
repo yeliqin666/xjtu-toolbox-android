@@ -47,6 +47,7 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -66,6 +67,7 @@ fun DiscussionsScreen(
     /** 当前登录的 GitHub 用户名，「我发的」用。 */
     me: String,
     onAccount: () -> Unit,
+    onFeedback: (() -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     // 顶部的刷新圈只跟用户下拉触发的那一次走，滑到底翻页时不转
@@ -157,6 +159,7 @@ fun DiscussionsScreen(
                         bleed = 12.dp,
                     )
                 }
+                if (onFeedback != null) item(key = "feedback") { FeedbackEntry(onFeedback) }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {
                         LoadingState("正在加载帖子…", Modifier.fillMaxWidth().padding(vertical = 48.dp))
@@ -283,6 +286,22 @@ val COMMUNITY_GREEN = Color(0xFF2DA44E)
 val COMMUNITY_PURPLE = Color(0xFF8250DF)
 val COMMUNITY_ORANGE = Color(0xFFBC4C00)
 
+/** 宿主提供的诊断信息（App 版本、机型、系统）；null = 这一端不提供，发帖页不出现相关入口（#463）。 */
+val LocalCommunityDiagnostics = androidx.compose.runtime.staticCompositionLocalOf<(() -> String)?> { null }
+
+/** 发这两类帖子时提示附诊断信息。 */
+private val DIAGNOSTIC_CATEGORIES = setOf("功能建议", "求助与反馈")
+
+private const val DIAGNOSTICS_HEADER = "> ### 诊断信息"
+
+internal fun hasDiagnostics(body: String): Boolean = body.lines().any { it.trim() == DIAGNOSTICS_HEADER }
+
+/** 正文末尾换行后接上诊断引用块；[info] 是「键：值」的多行文本，可带折叠的日志块（空行保留，`<details>` 要靠它分段）。 */
+internal fun withDiagnostics(body: String, info: String): String {
+    val block = (listOf(DIAGNOSTICS_HEADER) + info.trim().lines().map { if (it.isBlank()) ">" else "> $it" }).joinToString("\n")
+    return if (body.isBlank()) block else body.trimEnd() + "\n\n" + block
+}
+
 /** 发帖页：选分类、写标题和正文，可切到预览看 Markdown 效果。 */
 @Composable
 fun DiscussionComposer(
@@ -307,6 +326,20 @@ fun DiscussionComposer(
     }
     val canSubmit = !state.submitting && postable.any { it.id == state.categoryId } &&
         state.title.isNotBlank() && state.body.isNotBlank()
+    // 反馈类分类可附诊断信息（#463）；宿主没提供（桌面 / 网页）就不出现
+    val diagnosticsSource = LocalCommunityDiagnostics.current
+    val diagnostics = diagnosticsSource?.takeIf {
+        postable.firstOrNull { c -> c.id == state.categoryId }?.name in DIAGNOSTIC_CATEGORIES
+    }
+    var askDiagnostics by remember { mutableStateOf(false) }
+    // 「确定」后先把诊断信息写进正文，等正文更新到 state 里再发，免得发出去的还是旧正文
+    var pendingSubmit by remember { mutableStateOf(false) }
+    LaunchedEffect(pendingSubmit, state.body) {
+        if (pendingSubmit && hasDiagnostics(state.body)) {
+            pendingSubmit = false
+            onSubmit()
+        }
+    }
     CommunityPage(
         title = "发帖",
         onBack = { if (!state.submitting) onBack() },
@@ -314,11 +347,34 @@ fun DiscussionComposer(
             // 顶栏文字动作：与右侧圆钮同一套 COUI 玻璃材质（原版 text 分支，40dp 高胶囊）
             CouiToolbarTextButton(
                 text = if (state.submitting) "发布中…" else "发布",
-                onClick = onSubmit,
+                onClick = { if (diagnostics != null && !hasDiagnostics(state.body)) askDiagnostics = true else onSubmit() },
                 enabled = canSubmit,
             )
         },
     ) { top ->
+        if (askDiagnostics && diagnostics != null) {
+            WindowDialog(
+                show = true,
+                title = "是否要附带诊断信息",
+                summary = "点击确定则会在发布前，于消息尾部插入诊断信息，以供开发者排错。我们只会收集你的app版本，设备型号以及系统版本，" +
+                    "你的账号等隐私信息不会上传；点击“取消”则会原样发送消息。你的诊断信息将会对我们排错有很大帮助！",
+                onDismissRequest = { askDiagnostics = false },
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(text = "取消", modifier = Modifier.weight(1f), onClick = { askDiagnostics = false; onSubmit() })
+                    TextButton(
+                        text = "确定",
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            askDiagnostics = false
+                            onEdit(state.title, withDiagnostics(state.body, diagnostics()), state.categoryId)
+                            pendingSubmit = true
+                        },
+                    )
+                }
+            }
+        }
         Column(
             Modifier
                 .fillMaxSize()
@@ -363,6 +419,7 @@ fun DiscussionComposer(
                     enabled = !state.submitting,
                     minLines = 10,
                     mentionCandidates = candidates,
+                    diagnostics = diagnostics,
                 )
             }
             if (postable.firstOrNull { it.id == state.categoryId }?.acceptsAnswers == true) {
@@ -457,6 +514,8 @@ fun MarkdownEditor(
     enabled: Boolean,
     minLines: Int,
     mentionCandidates: List<CommunityUser> = emptyList(),
+    /** 非 null 时显示「插入诊断信息」，返回要插的引用块。 */
+    diagnostics: (() -> String)? = null,
 ) {
     // 要知道光标位置才能判断「正在输 @」，所以内部用 TextFieldValue；外部仍只关心字符串
     var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
@@ -473,6 +532,24 @@ fun MarkdownEditor(
                 compact = true,
             )
             Spacer(Modifier.weight(1f))
+            // 反馈类分类：图片左边一个「插入诊断信息」，已插过就不再显示（#463）
+            if (diagnostics != null && !hasDiagnostics(value)) {
+                Text(
+                    "插入诊断信息",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = enabled) {
+                            val text = withDiagnostics(field.text, diagnostics())
+                            if (text.length <= 65536) {
+                                field = TextFieldValue(text, TextRange(text.length))
+                                onValueChange(text)
+                            }
+                        }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
             CommunityImageActions(enabled = enabled) { markdown ->
                 val start = field.selection.min
                 val end = field.selection.max

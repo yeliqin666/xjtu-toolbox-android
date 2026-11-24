@@ -9,6 +9,7 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.platform.showBriefMessage
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -83,6 +85,16 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     var isBooking by mutableStateOf(false); private set
     /** 扫桌面二维码进来要约的座位；校区一定下来就弹确认。 */
     var scanSeat by mutableStateOf<ScanSeatPrompt?>(null)
+
+    /**
+     * 手上这张预约是**在座位前扫码**约下来的：人此刻就坐在那儿，只是还没走入馆签到。
+     *
+     * 自动勿扰要用：学校显示的仍是「已预约」，而远程预约也是「已预约」，只有这个标记能区分。
+     * 进程内记着就够——关掉 App 后再开，人是不是还在座位上本来就不知道了，
+     * 那时以学校返回的「使用中」为准。
+     */
+    var bookedAtDesk by mutableStateOf(false); private set
+
     var myBooking by mutableStateOf<MyBookingInfo?>(null); private set
     /** 成功查到过「我的预约」；在此之前 [myBooking] 为 null 只代表还不知道，不能当成没有预约往外发。 */
     var myBookingKnown by mutableStateOf(false); private set
@@ -93,8 +105,63 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     /** 查询失败时保留上一次的结果。 */
     private suspend fun loadMyBooking() {
         runCatching { source.myBooking().getOrThrow() }
-            .onSuccess { myBooking = it; myBookingKnown = true; myBookingFailed = false }
+            .onSuccess { myBooking = it; myBookingKnown = true; myBookingFailed = false; rememberBookedSeat(it) }
             .onFailure { myBookingFailed = true }
+    }
+
+    /** 「还没有预约」下面的上次座位推荐（#461）；有预约或还不知道时为 null。 */
+    var lastSeatHint by mutableStateOf<SeatSuggestion?>(null); private set
+    private var lastSeatJob: Job? = null
+    /** 推荐里点的座位，等它的区域加载出来后由页面选中 / 滚到，然后清掉。 */
+    var pendingPick by mutableStateOf<LibraryFocus.Target?>(null)
+
+    /** 在自助机等别处约的座位也记成上次预约：区域名在本层对得上码才记。 */
+    private fun rememberBookedSeat(booking: MyBookingInfo?) {
+        val seat = booking?.seatId?.takeIf { it.isNotBlank() } ?: return
+        if (source.isForeignArea(booking.area)) return
+        val code = floorAreas.entries.firstOrNull { it.value == booking.area }?.key ?: return
+        LibraryLastSeat.save(LastSeat(campus.id, code, seat), account)
+    }
+
+    /** 没有预约时只读地查一次上次那个座位所在的区域；别的校区不查，也不切过去。 */
+    fun refreshLastSeat() {
+        lastSeatJob?.cancel()
+        val last = LibraryLastSeat.load(account)
+        if (last == null || !myBookingKnown || myBooking != null) { lastSeatHint = null; return }
+        val here = campus
+        val first = suggestSeat(last, here, null)
+        lastSeatHint = first
+        if (first is SeatSuggestion.OtherCampus) return
+        lastSeatJob = viewModelScope.launch {
+            val states = runCatching {
+                withContext(Dispatchers.Default) {
+                    if (source.hasSeatPlan) source.seatLayout(last.areaCode).seats.associate { it.seatId to SeatOccupancy.of(it) }
+                    else (source.seats(last.areaCode) as? SeatResult.Success)?.seats?.associate { it.seatId to SeatOccupancy.of(it) }
+                }
+            }.getOrNull()
+            if (isActive) lastSeatHint = suggestSeat(last, here, states)
+        }
+    }
+
+    /** 推荐里点了一个座位：切到它的区域等页面选中，预约仍要用户自己点；不切校区。 */
+    fun pickSeat(areaCode: String, seatId: String) {
+        pendingPick = LibraryFocus.Target(campus.id, areaCode, seatId, pick = true)
+        showBriefMessage("已选中 $seatId，请手动确认预约")
+        when {
+            areaCode == selectedAreaCode -> Unit
+            areaCode in floorAreas -> selectArea(areaCode)
+            else -> viewModelScope.launch {
+                val floor = runCatching { source.warmCampusAreas(campus); source.floorOfArea(areaCode) }.getOrNull()
+                    ?: LibraryQrArea.byCode(areaCode)?.floorCode?.takeIf { it in campus.floorCodes }
+                if (floor != null) {
+                    loadFloor(floor, preferArea = areaCode)
+                } else {
+                    pendingPick = null
+                    bookingResult = BookResult(false, "没找到 $seatId 所在的区域，请手动切换")
+                    if (floorAreas.isEmpty()) loadFloor(campus.floorCodes.first(), remember = false)
+                }
+            }
+        }
     }
     var isLoadingBooking by mutableStateOf(false); private set
 
@@ -217,6 +284,11 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
         null
     }
 
+    /** 页面重新进入时接别处放进信箱的定位；第一次进页由 [bootstrap] 自己取。 */
+    fun takeFocus() {
+        if (bootstrapped) LibraryFocus.take()?.let(::focusOn)
+    }
+
     /** 在图书馆页里扫到座位码：和从外面扫码进来一样定位并弹出这个座位。 */
     fun focusOn(target: LibraryFocus.Target) {
         viewModelScope.launch {
@@ -228,6 +300,13 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     /** 从屁岱的座位卡片或扫码进来：定位到那个区域，用平面图看。 */
     private suspend fun focus(focus: LibraryFocus.Target, actual: LibraryCampus?) {
         val target = LibraryCampus.byId(focus.campusId)
+        // 首页「上次预约」推荐点进来的：只选中座位，不替用户切校区
+        if (focus.pick) {
+            val seatId = focus.seatId
+            if (seatId != null && target == campus) pickSeat(focus.areaCode, seatId)
+            else loadFloor(campus.floorCodes.first(), remember = false)
+            return
+        }
         if (target != null && actual != null && target != actual) switchAway(target, homeCampus ?: actual)
         // 扫码：预约只认账号当前校区，校区到位就能约；座位空不空另查一次，查到前按钮照样能点
         focus.seatId?.let { seatId ->
@@ -537,12 +616,30 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
         source.bookSeat(seatId, area, autoSwap = true)
     }
 
+    /**
+     * 扫座位码约座：除了 [book] 那一套，还要记下「人就在这个座位前」。
+     *
+     * 自动勿扰靠这个标记区分两种「已预约」：坐在座位前扫的（人已入座，该开勿扰）
+     * 和在宿舍远程约的（人不在馆，不该开）。标记只对真约成的那一次生效，
+     * 约失败就作废——不然人还站在馆外，勿扰先挂上了。
+     */
+    fun bookAtDesk(seatId: String, areaOverride: String? = null) =
+        seatAction(seatId, areaOverride, "预约", atDesk = true) { area ->
+            source.bookSeat(seatId, area, autoSwap = true)
+        }
+
     /** 已有预约时直接换座（/updateseat/），不走 /seat/ 的检测。 */
     fun swap(seatId: String, areaOverride: String? = null) = seatAction(seatId, areaOverride, "换座") { area ->
         source.swapSeat(seatId, area)
     }
 
-    private fun seatAction(seatId: String, areaOverride: String?, label: String, call: suspend (String) -> BookResult) {
+    private fun seatAction(
+        seatId: String,
+        areaOverride: String?,
+        label: String,
+        atDesk: Boolean = false,
+        call: suspend (String) -> BookResult,
+    ) {
         val area = areaFor(seatId, areaOverride) ?: run { bookingResult = BookResult(false, "无法确定区域"); return }
         isBooking = true
         bookingResult = null
@@ -550,7 +647,11 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
             try {
                 val result = call(area)
                 bookingResult = result
+                if (result.success) LibraryLastSeat.save(LastSeat(campus.id, area, seatId), account)
                 adoptCampusIfBooked(result)
+                // 「人在座位前」只在这次真约成时成立；失败则作废。
+                // 换座（atDesk=false）但成功、且原来就是扫码约上的，人还在馆里，保留标记。
+                bookedAtDesk = result.success && (atDesk || bookedAtDesk)
                 // 结果一出来就放开按钮，刷新放后面
                 isBooking = false
                 if (result.success) delay(400)
@@ -558,6 +659,7 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                bookedAtDesk = false
                 bookingResult = BookResult(false, FriendlyError.of(e, label))
             }
             isBooking = false

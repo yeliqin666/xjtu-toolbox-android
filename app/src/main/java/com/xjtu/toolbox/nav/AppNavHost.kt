@@ -20,6 +20,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,7 @@ import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.ensureLmsWebSso
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.browser.BrowserScreen
 import com.xjtu.toolbox.bulletin.NoticeDetailScreen
@@ -69,6 +71,7 @@ import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.AppFeedbackSource
+import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -113,6 +116,8 @@ import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.settings.rememberAppSettingsHost
 import com.xjtu.toolbox.social.AppMatchScreen
+import com.xjtu.toolbox.termreport.TermReportScreen
+import com.xjtu.toolbox.termreport.TrackGamePlaytime
 import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.venue.VenueSlideCaptchaHost
@@ -123,8 +128,10 @@ import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import com.xjtu.toolbox.yellowpage.appYellowPageApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.nav.core.LocalNavTransitionScope
+import top.yukonga.miuix.kmp.nav.transition.NavTransitionScope
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavEntryBuilder
@@ -157,15 +164,16 @@ fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
 
 /** [appPageEntries] 里以 data object 形式注册过的页面（带参数的上面单独判断）。 */
 private val standaloneHostedRoutes: Set<AppRoute> = setOf(
-    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
+    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity, AppRoute.TermReport,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
     AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress,
     AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox, AppRoute.QrScan,
-    AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
+    AppRoute.Community, AppRoute.Feedback, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
     AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
     AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi,
     AppRoute.Match,
+    AppRoute.Tips,
 )
 
 /**
@@ -185,31 +193,66 @@ fun AppNavHost(
     val back: () -> Unit = deps.router::back
     Box(Modifier.fillMaxSize()) {
         NavDisplay(backStack = backStack, onBack = back) {
-            entry<AppRoute.Main> {
-                val navScope = LocalNavTransitionScope.current
-                // 上面的页缩回去时还算盖着，落定才恢复
-                val covered by remember(navScope) { derivedStateOf { navScope.relativeDepth > 0.001f } }
-                Box(Modifier.fillMaxSize()) {
-                    // 被上面的页盖住时算不可见：液态背景这些循环动画要停下，
-                    // 否则它每帧都让整页玻璃重画，正好和转场抢时间
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        com.xjtu.toolbox.ui.components.LocalPageVisible provides (backStack.size <= 1 && !covered),
-                    ) { mainContent() }
-                    // 压暗由这一页被盖住的深度现算：页面落定时深度必为 0，不会残留
-                    Box(
-                        Modifier.fillMaxSize().drawBehind {
-                            if (!ExpandOrigins.coveredFromOrigin.value) return@drawBehind
-                            // 跟飞回那一块的进度走（见 recedeDepth），落地时正好不压暗，不在结束那帧一下子变亮
-                            val dim = ButtonZoom.RECEDE_DIM * ButtonZoom.recedeDepth(navScope.relativeDepth).coerceIn(0f, 1f)
-                            if (dim > 0f) drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = dim))
-                        },
-                    )
-                }
-            }
+            entry<AppRoute.Main> { StableNavScope { MainEntry(backStack, mainContent) } }
             appPageEntries(deps, back) { type -> expandTransitions.getOrPut(type) { expandFromOrigin(type, screenCornerPx) } }
         }
         ExpandOriginPopOverlay(screenCornerPx)
     }
+}
+
+/** 栈底的主界面：被盖住时算不可见，并按盖住的深度压暗。 */
+@Composable
+private fun MainEntry(backStack: NavBackStack, mainContent: @Composable () -> Unit) {
+    val navScope = LocalNavTransitionScope.current
+    // 上面的页缩回去时还算盖着，落定才恢复
+    val covered by remember(navScope) { derivedStateOf { navScope.relativeDepth > 0.001f } }
+    // 被上面的页盖住时算不可见：液态背景这些循环动画要停下，
+    // 否则它每帧都让整页玻璃重画，正好和转场抢时间。信号对象不换，只换里面的值（见 PageSignal）
+    val visible = remember(navScope, backStack) {
+        com.xjtu.toolbox.ui.components.PageSignal { backStack.size <= 1 && !covered }
+    }
+    Box(Modifier.fillMaxSize()) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.xjtu.toolbox.ui.components.LocalPageVisible provides visible,
+        ) { mainContent() }
+        // 压暗由这一页被盖住的深度现算：页面落定时深度必为 0，不会残留
+        Box(
+            Modifier.fillMaxSize().drawBehind {
+                if (!ExpandOrigins.coveredFromOrigin.value) return@drawBehind
+                // 跟飞回那一块的进度走（见 recedeDepth），落地时正好不压暗，不在结束那帧一下子变亮
+                val dim = ButtonZoom.RECEDE_DIM * ButtonZoom.recedeDepth(navScope.relativeDepth).coerceIn(0f, 1f)
+                if (dim > 0f) drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = dim))
+            },
+        )
+    }
+}
+
+/**
+ * miuix-nav 每次重组都给每个条目新建一份 [NavTransitionScope]，经 [LocalNavTransitionScope] 往下传。
+ * Local 一换值，条目里所有子组合（页签插槽、懒列表的项、BoxWithConstraints）下一次重组都不能跳过——
+ * 入栈、出栈时连栈底常驻的几个页签一起整页重跑。这里换成每个条目一个、终身不变的转发对象：
+ * 读到的始终是库最新给的那份，往下传的 Local 值不再变。
+ */
+@Composable
+private fun StableNavScope(content: @Composable () -> Unit) {
+    val live = androidx.compose.runtime.rememberUpdatedState(LocalNavTransitionScope.current)
+    val stable = remember { ForwardingNavTransitionScope(live) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalNavTransitionScope provides stable, content = content)
+}
+
+@androidx.compose.runtime.Stable
+private class ForwardingNavTransitionScope(
+    private val live: androidx.compose.runtime.State<NavTransitionScope>,
+) : NavTransitionScope {
+    override val relativeDepth get() = live.value.relativeDepth
+    override val role get() = live.value.role
+    override val change get() = live.value.change
+    override val gesture get() = live.value.gesture
+    override val isRunning get() = live.value.isRunning
+    override val settle get() = live.value.settle
+    override val layoutSize get() = live.value.layoutSize
+    override val layoutDirection get() = live.value.layoutDirection
+    override val density get() = live.value.density
 }
 
 /**
@@ -223,6 +266,36 @@ fun AppPageAsTab(route: AppRoute, deps: AppPageDeps, onBack: () -> Unit) {
     NavDisplay(backStack = stack, onBack = onBack) {
         appPageEntries(deps, onBack) { expandFromOrigin(it, 0f) }
     }
+}
+
+/** 子页条目：转场期间（含放大、平移、返回）不播控件入场、停常驻循环，页面画面在转场里保持不动。 */
+private inline fun <reified T : AppRoute> NavEntryBuilder.page(
+    transition: NavTransition,
+    swipeDismiss: NavSwipeDirection? = null,
+    noinline content: @Composable (T) -> Unit,
+) = entry<T>(transition = transition, swipeDismiss = swipeDismiss) { key ->
+    // 性能探针：这一页的组合耗时（录 trace 时按页面类型归账）
+    androidx.compose.ui.util.trace("xjtu:compose:route:${T::class.simpleName}") {
+        StableNavScope { SettlingGate { content(key) } }
+    }
+}
+
+@Composable
+private fun SettlingGate(content: @Composable () -> Unit) {
+    val navScope = LocalNavTransitionScope.current
+    // relativeDepth < 0：这一页正在进场或退场；被上面的页盖住（> 0）不算
+    val settling by remember(navScope) { derivedStateOf { navScope.relativeDepth < -0.001f } }
+    // 转场开始、落定时只换信号里的值，不换 Local 的值：后者会让这一页所有子组合（插槽、列表项）整体重跑
+    val outerEnter = com.xjtu.toolbox.ui.components.LocalEnterAnimations.current
+    val enter = remember(navScope, outerEnter) {
+        com.xjtu.toolbox.ui.components.PageSignal { !settling && outerEnter.value }
+    }
+    val settlingSignal = remember(navScope) { com.xjtu.toolbox.ui.components.PageSignal { settling } }
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.xjtu.toolbox.ui.components.LocalEnterAnimations provides enter,
+        com.xjtu.toolbox.ui.components.LocalPageSettling provides settlingSignal,
+        content = content,
+    )
 }
 
 /** 返回栈里每种子页画什么；跳转一律交给 router。[back] 是页面要退回时调的。 */
@@ -246,17 +319,17 @@ fun NavEntryBuilder.appPageEntries(
 
     run {
         // 底栏那几格被用户移出底栏后，作为普通页压栈
-        entry<AppRoute.Schedule>(transition = expand(AppRoute.Schedule::class)) {
+        page<AppRoute.Schedule>(transition = expand(AppRoute.Schedule::class)) {
             ScheduleRoutePage(loginState, onNavigate = router::open, onBack = back)
         }
-        entry<AppRoute.Agent>(transition = expand(AppRoute.Agent::class)) {
+        page<AppRoute.Agent>(transition = expand(AppRoute.Agent::class)) {
             AgentRoutePage(loginState, onNavigate = router::open, onBack = back)
         }
-        entry<AppRoute.Zyxf>(transition = expand(AppRoute.Zyxf::class)) {
+        page<AppRoute.Zyxf>(transition = expand(AppRoute.Zyxf::class)) {
             ZyxfRoutePage(onBack = back)
         }
 
-        entry<AppRoute.EmptyRoom>(transition = expand(AppRoute.EmptyRoom::class)) {
+        page<AppRoute.EmptyRoom>(transition = expand(AppRoute.EmptyRoom::class)) {
             val context = LocalContext.current
             EmptyRoomScreen(
                 source = remember { AppEmptyRoomSource(loginState.sessionManager, EmptyRoomCache(context)) },
@@ -266,7 +339,7 @@ fun NavEntryBuilder.appPageEntries(
                 onCdnTipRead = { credentialStore.hasReadEmptyRoomCdnTip = true },
             )
         }
-        entry<AppRoute.Notification>(transition = expand(AppRoute.Notification::class)) {
+        page<AppRoute.Notification>(transition = expand(AppRoute.Notification::class)) {
             NotificationScreen(
                 source = remember { AppNoticeSource() },
                 onBack = back,
@@ -274,11 +347,18 @@ fun NavEntryBuilder.appPageEntries(
                 onAskAgent = { sendToPidai(it, router::open) },
             )
         }
-        entry<AppRoute.Attendance>(transition = expand(AppRoute.Attendance::class)) {
+        page<AppRoute.Attendance>(transition = expand(AppRoute.Attendance::class)) {
             val attendanceContext = LocalContext.current
             WithSite("new_attendance") { site ->
                 AttendanceScreen(
-                    source = remember(site) { AppAttendanceSource(site) },
+                    // 包一层：这一页每次现拉的流水要顺手落盘、并重画智能卡片。
+                    // 不包的话卡片只能等日程页的考勤角标去写缓存，页面对了卡片还错（见那个类的注释）。
+                    source = remember(site) {
+                        com.xjtu.toolbox.attendance.AppAttendanceRecordingSource(
+                            AppAttendanceSource(site),
+                            attendanceContext.applicationContext,
+                        )
+                    },
                     onBack = back,
                     onOpenIclassface = { router.open(AppRoute.Iclassface) },
                     savedState = { createSavedStateHandle() },
@@ -286,7 +366,7 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.JwappScore>(transition = expand(AppRoute.JwappScore::class)) {
+        page<AppRoute.JwappScore>(transition = expand(AppRoute.JwappScore::class)) {
             val scoreContext = LocalContext.current
             val scoreSource = remember(loginState.sessionManager) {
                 loginState.sessionManager?.let { AppJwappScoreSource(it) { loginState.activeUsername } }
@@ -302,23 +382,27 @@ fun NavEntryBuilder.appPageEntries(
                 },
             )
         }
-        entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
+        page<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
             WithSite("qms") { JudgeScreen(site = it, onBack = back) }
         }
-        entry<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
+        page<AppRoute.SsActivity>(transition = expand(AppRoute.SsActivity::class)) {
+            WithSite(com.xjtu.toolbox.auth.SsSession.SITE_KEY) {
+                com.xjtu.toolbox.ss.SsActivityScreen(site = it, onBack = back, onOpenWeb = { url -> router.open(AppRoute.Browser(url)) })
+            }
+        }
+        page<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
             val libraryContext = LocalContext.current
             WithSite("library") { site ->
                 val hintPrefs = remember(libraryContext) {
                     libraryContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE)
                 }
-                // 页内扫一扫：扫码层盖在图书馆页上，扫到座位码交回页面定位（null = 没在扫）
+                // 页内扫一扫，扫到座位码交回页面定位（null = 没在扫）
                 var onScannedSeat by remember { mutableStateOf<((com.xjtu.toolbox.library.LibraryFocus.Target) -> Unit)?>(null) }
-                Box(Modifier.fillMaxSize()) {
                 LibraryScreen(
                     onScan = { onSeat -> onScannedSeat = onSeat },
                     source = remember(site) { AppLibrarySource(site, libraryContext) },
                     onBack = back,
-                    onBookingChanged = { LibraryStatus.publish(libraryContext, it) },
+                    onBookingChanged = { booking, atDesk -> LibraryStatus.publish(libraryContext, booking, bookedAtDesk = atDesk) },
                     reAuthenticate = {
                         val creds = loginState.sessionManager?.credentials ?: error("未配置凭据")
                         withContext(Dispatchers.IO) {
@@ -340,26 +424,31 @@ fun NavEntryBuilder.appPageEntries(
                     showFirstUseHint = !hintPrefs.getBoolean("library_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("library_hint_shown", true).apply() },
                 )
+                // 单开一个全屏窗口：图书馆放进底栏时页面只占内容区，盖在页内会被底栏挡住
                 onScannedSeat?.let { onSeat ->
-                    com.xjtu.toolbox.qrlogin.QrLoginScreen(
-                        sessionManager = loginState.sessionManager,
-                        onBack = { onScannedSeat = null },
-                        onLibrarySeat = { qr ->
-                            onScannedSeat = null
-                            onSeat(
-                                com.xjtu.toolbox.library.LibraryFocus.Target(
-                                    campusId = com.xjtu.toolbox.library.LibraryQrArea.campusOf(qr.areaCode).id,
-                                    areaCode = qr.areaCode,
-                                    seatId = qr.seat,
-                                ),
-                            )
-                        },
-                    )
-                }
+                    androidx.compose.ui.window.Dialog(
+                        onDismissRequest = { onScannedSeat = null },
+                        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+                    ) {
+                        com.xjtu.toolbox.qrlogin.QrLoginScreen(
+                            sessionManager = loginState.sessionManager,
+                            onBack = { onScannedSeat = null },
+                            onLibrarySeat = { qr ->
+                                onScannedSeat = null
+                                onSeat(
+                                    com.xjtu.toolbox.library.LibraryFocus.Target(
+                                        campusId = com.xjtu.toolbox.library.LibraryQrArea.campusOf(qr.areaCode).id,
+                                        areaCode = qr.areaCode,
+                                        seatId = qr.seat,
+                                    ),
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
-        entry<AppRoute.CampusCard>(transition = expand(AppRoute.CampusCard::class)) {
+        page<AppRoute.CampusCard>(transition = expand(AppRoute.CampusCard::class)) {
             AwaitSite(loginState, "campus_card", onTimeout = back) { site ->
                 val cardContext = LocalContext.current
                 CampusCardScreen(
@@ -384,7 +473,7 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.Coupon>(transition = expand(AppRoute.Coupon::class)) {
+        page<AppRoute.Coupon>(transition = expand(AppRoute.Coupon::class)) {
             val couponContext = LocalContext.current
             WithSite("coupon") { site ->
                 CouponScreen(
@@ -398,7 +487,7 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.Transcript>(transition = expand(AppRoute.Transcript::class)) {
+        page<AppRoute.Transcript>(transition = expand(AppRoute.Transcript::class)) {
             val transcriptContext = LocalContext.current
             WithSite("dzpz") { site ->
                 TranscriptScreen(
@@ -408,7 +497,7 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
+        page<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
             val context = LocalContext.current
             val hintPrefs = remember(context) {
                 context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE)
@@ -424,15 +513,17 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {
+        page<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {
             AppDownloadManagerScreen(onBack = back)
         }
-        entry<AppRoute.Lms>(transition = expand(AppRoute.Lms::class)) { route ->
+        page<AppRoute.Lms>(transition = expand(AppRoute.Lms::class)) { route ->
             val manager = loginState.sessionManager
             if (manager == null) {
                 LaunchedEffect(Unit) { back() }
             } else {
                 val lmsContext = LocalContext.current
+                val lmsScope = rememberCoroutineScope()
+                var lmsWebOpen by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
                 val accountId = loginState.accountId
                 val hintPrefs = remember { lmsContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
                 LmsScreen(
@@ -451,10 +542,29 @@ fun NavEntryBuilder.appPageEntries(
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("lms_hint_shown", true).apply() },
                     videoPlayer = AndroidVideoPlayerHost,
                     onAskAgent = { sendToPidai(it, router::open) },
+                    // 「去提交作业」：只开官方 h5 提交页，提交本身在学堂网页里做。走 App 内置浏览器，
+                    // 它会先把 App 的登录态 cookie（含统一认证的 TGC）注进 WebView，UA 也与 OkHttp
+                    // 同一串（TGC 绑定 UA），到了 lms-h5 就是 SSO 直通。打开之前先把统一认证的登录态
+                    // 补新（学堂会话比它活得久，过期的 TGC 注进去网页照样要重新登录），见 ensureLmsWebSso。
+                    onOpenUrl = { url ->
+                        if (lmsWebOpen?.isActive != true) lmsWebOpen = lmsScope.launch {
+                            try {
+                                manager.ensureLmsWebSso()
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                // 补不上（没网、取消了短信验证）也照样打开：网页里还能自己登录
+                                android.util.Log.w("AppNavHost", "lms web SSO warm-up failed: ${e.message}")
+                            }
+                            router.open(AppRoute.Browser(url))
+                        }
+                    },
+                    // 附件「已经下过就不再重复下载、点一下打开」用的登记表 —— 与「我的-下载管理」同一份
+                    files = remember(lmsContext) { com.xjtu.toolbox.media.AppDownloadedFilesHost(lmsContext) },
                 )
             }
         }
-        entry<AppRoute.Jiaocai>(transition = expand(AppRoute.Jiaocai::class)) {
+        page<AppRoute.Jiaocai>(transition = expand(AppRoute.Jiaocai::class)) {
             WithSite("jiaocai") {
                 AppJiaocaiScreen(
                     site = it,
@@ -465,7 +575,7 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.Jiaocai1>(transition = expand(AppRoute.Jiaocai1::class)) {
+        page<AppRoute.Jiaocai1>(transition = expand(AppRoute.Jiaocai1::class)) {
             WithSite("jiaocai") {
                 AppJiaocaiScreen(
                     site = it,
@@ -477,7 +587,7 @@ fun NavEntryBuilder.appPageEntries(
             }
         }
         // 横向翻页，关掉页内侧滑返回
-        entry<AppRoute.Jiaocai1Reader>(
+        page<AppRoute.Jiaocai1Reader>(
             transition = expand(AppRoute.Jiaocai1Reader::class),
             swipeDismiss = NavSwipeDirection.None,
         ) { reader ->
@@ -493,7 +603,7 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.SchoolCourse>(transition = expand(AppRoute.SchoolCourse::class)) {
+        page<AppRoute.SchoolCourse>(transition = expand(AppRoute.SchoolCourse::class)) {
             // 没会话就直接退回。
             val jwxtSite = loginState.sessionManager?.getSiteOrNull("jwxt")
             if (jwxtSite == null) {
@@ -505,14 +615,14 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.SchoolCalendar>(transition = expand(AppRoute.SchoolCalendar::class)) {
+        page<AppRoute.SchoolCalendar>(transition = expand(AppRoute.SchoolCalendar::class)) {
             SchoolCalendarScreen(
                 source = remember { com.xjtu.toolbox.calendar.SchoolCalendarApi() },
                 onBack = back,
                 calendarImage = { year -> com.xjtu.toolbox.calendar.AppSchoolCalendarImage(year) },
             )
         }
-        entry<AppRoute.YellowPage>(transition = expand(AppRoute.YellowPage::class)) {
+        page<AppRoute.YellowPage>(transition = expand(AppRoute.YellowPage::class)) {
             val yellowPageContext = LocalContext.current
             val yellowPageApi = remember(loginState.accountId) {
                 appYellowPageApi(yellowPageContext, loginState.accountId.takeIf { it.isNotEmpty() })
@@ -523,7 +633,7 @@ fun NavEntryBuilder.appPageEntries(
                 errorText = { FriendlyError.of(it, "加载") },
             )
         }
-        entry<AppRoute.DegreeProgress>(transition = expand(AppRoute.DegreeProgress::class)) {
+        page<AppRoute.DegreeProgress>(transition = expand(AppRoute.DegreeProgress::class)) {
             val degreeContext = LocalContext.current
             val degreeSource = remember(loginState.sessionManager) {
                 loginState.sessionManager?.let { com.xjtu.toolbox.degree.appDegreeSource(degreeContext, it) }
@@ -536,10 +646,10 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.CampusBus>(transition = expand(AppRoute.CampusBus::class)) {
+        page<AppRoute.CampusBus>(transition = expand(AppRoute.CampusBus::class)) {
             com.xjtu.toolbox.bus.BusScreen(source = com.xjtu.toolbox.bus.appBusApi, onBack = back)
         }
-        entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
+        page<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
             val fitnessContext = LocalContext.current
             val account = loginState.accountId.takeIf { it.isNotEmpty() }
             WithSite("fitness") { site ->
@@ -555,7 +665,7 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        entry<AppRoute.Iclassface>(transition = expand(AppRoute.Iclassface::class)) {
+        page<AppRoute.Iclassface>(transition = expand(AppRoute.Iclassface::class)) {
             WithSite("iclassface") { site ->
                 IclassfaceScreen(
                     source = remember(site) { AppIclassfaceSource(site) },
@@ -564,7 +674,7 @@ fun NavEntryBuilder.appPageEntries(
             }
         }
         // WebView 常有横向滚动，关掉页内侧滑返回
-        entry<AppRoute.Browser>(
+        page<AppRoute.Browser>(
             transition = expand(AppRoute.Browser::class),
             swipeDismiss = NavSwipeDirection.None,
         ) { browser ->
@@ -586,7 +696,7 @@ fun NavEntryBuilder.appPageEntries(
                 onBack = back,
             )
         }
-        entry<AppRoute.Settings>(transition = expand(AppRoute.Settings::class)) {
+        page<AppRoute.Settings>(transition = expand(AppRoute.Settings::class)) {
             SettingsScreen(
                 store = remember { SettingsStore(keyValueStore(SettingsStore.APP_SETTINGS_FILE)) },
                 host = rememberAppSettingsHost(
@@ -606,7 +716,7 @@ fun NavEntryBuilder.appPageEntries(
                 onBack = back,
             )
         }
-        entry<AppRoute.Inbox>(transition = expand(AppRoute.Inbox::class)) {
+        page<AppRoute.Inbox>(transition = expand(AppRoute.Inbox::class)) {
             val inboxContext = androidx.compose.ui.platform.LocalContext.current
             val sessionManager = loginState.sessionManager
             com.xjtu.toolbox.inbox.InboxScreen(
@@ -638,7 +748,7 @@ fun NavEntryBuilder.appPageEntries(
         }
         // 扫一扫：顶栏圆钮的落点。ROM 支持金标联盟一镜到底时由 sharedview.SeamlessPageActivity
         // 承载这一屏；其余设备由主界面自己的整屏浮层承载（不压这条路由，见 MainScreen 的 onScan）。
-        entry<AppRoute.QrScan>(transition = expand(AppRoute.QrScan::class)) {
+        page<AppRoute.QrScan>(transition = expand(AppRoute.QrScan::class)) {
             com.xjtu.toolbox.qrlogin.QrLoginScreen(
                 sessionManager = loginState.sessionManager,
                 onBack = back,
@@ -654,36 +764,63 @@ fun NavEntryBuilder.appPageEntries(
                 },
             )
         }
+        // 小贴士与常见问题：首页小贴士的「更多」、我的页入口
+        page<AppRoute.Tips>(transition = expand(AppRoute.Tips::class)) {
+            com.xjtu.toolbox.tips.TipsScreen(onBack = back, onRoute = { router.open(it) })
+        }
         // 公告详情：首页公告条「查看详情」的落点。ROM 支持金标联盟一镜到底时由
         // sharedview.SeamlessPageActivity 承载同一个屏；其余设备压这条路由，从公告卡放大进来。
-        entry<AppRoute.NoticeDetail>(transition = expand(AppRoute.NoticeDetail::class)) { route ->
+        page<AppRoute.NoticeDetail>(transition = expand(AppRoute.NoticeDetail::class)) { route ->
             NoticeDetailScreen(
                 notice = route,
                 onBack = back,
                 onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
             )
         }
-        entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
-            CommunityScreen(
-                session = remember { SecureGithubSession.get() },
-                deviceAuth = remember {
-                    GithubOAuthDeviceAuthRepository(
-                        GithubNetwork.client,
-                        CommunityRepo.CLIENT_ID,
-                    )
+        page<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
+            val app = LocalContext.current.applicationContext
+            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides { communityDiagnostics(app) }) {
+                CommunityScreen(
+                    session = remember { SecureGithubSession.get() },
+                    deviceAuth = remember {
+                        GithubOAuthDeviceAuthRepository(
+                            GithubNetwork.client,
+                            CommunityRepo.CLIENT_ID,
+                        )
+                    },
+                    onBack = back,
+                    onOpenFeedback = { router.open(AppRoute.Feedback) },
+                )
+            }
+        }
+        page<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
+            val context = LocalContext.current
+            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides { communityDiagnostics(context.applicationContext) }) {
+            FeedbackScreen(
+                source = AppFeedbackSource,
+                onOpenUrl = { url ->
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
                 },
                 onBack = back,
+                onOpenCommunity = { router.open(AppRoute.Community) },
+                polls = com.xjtu.toolbox.feedback.AppFeedbackPolls,
             )
+            }
         }
-        entry<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->
-            CommunityScreen(
-                session = remember { SecureGithubSession.get() },
-                deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
-                onBack = back,
-                discussionNumber = route.number,
-            )
+        page<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->
+            val app = LocalContext.current.applicationContext
+            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides { communityDiagnostics(app) }) {
+                CommunityScreen(
+                    session = remember { SecureGithubSession.get() },
+                    deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
+                    onBack = back,
+                    discussionNumber = route.number,
+                )
+            }
         }
-        entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
+        page<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
             FacultyScreen(
                 source = remember { FacultyApiSource() },
                 onBack = back,
@@ -692,34 +829,45 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
 
-        entry<AppRoute.Games>(transition = expand(AppRoute.Games::class)) {
+        page<AppRoute.Games>(transition = expand(AppRoute.Games::class)) {
             GamesScreen(onBack = back, onNavigate = router::open)
         }
-        entry<AppRoute.Game2048>(transition = expand(AppRoute.Game2048::class)) {
+        // 每个游戏页都记时长，给学期总结用
+        page<AppRoute.Game2048>(transition = expand(AppRoute.Game2048::class)) {
+            TrackGamePlaytime("2048")
             Gpa2048Screen(onBack = back)
         }
-        entry<AppRoute.GameMerge>(transition = expand(AppRoute.GameMerge::class), swipeDismiss = NavSwipeDirection.None) {
+        page<AppRoute.GameMerge>(transition = expand(AppRoute.GameMerge::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("合成")
             MergeGameScreen(onBack = back)
         }
-        entry<AppRoute.GameBlocks>(transition = expand(AppRoute.GameBlocks::class), swipeDismiss = NavSwipeDirection.None) {
+        page<AppRoute.GameBlocks>(transition = expand(AppRoute.GameBlocks::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("方块")
             BlocksScreen(onBack = back)
         }
-        entry<AppRoute.GameHop>(transition = expand(AppRoute.GameHop::class), swipeDismiss = NavSwipeDirection.None) {
+        page<AppRoute.GameHop>(transition = expand(AppRoute.GameHop::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("跳一跳")
             HopScreen(onBack = back, landmarkImages = rememberHopLandmarkImages())
         }
-        entry<AppRoute.GameGomoku>(transition = expand(AppRoute.GameGomoku::class), swipeDismiss = NavSwipeDirection.None) {
+        page<AppRoute.GameGomoku>(transition = expand(AppRoute.GameGomoku::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("五子棋")
             GomokuScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
-        entry<AppRoute.GameGo>(transition = expand(AppRoute.GameGo::class), swipeDismiss = NavSwipeDirection.None) {
+        page<AppRoute.GameGo>(transition = expand(AppRoute.GameGo::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("围棋")
             GoScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
-        entry<AppRoute.GameXiangqi>(transition = expand(AppRoute.GameXiangqi::class), swipeDismiss = NavSwipeDirection.None) {
+        page<AppRoute.GameXiangqi>(transition = expand(AppRoute.GameXiangqi::class), swipeDismiss = NavSwipeDirection.None) {
+            TrackGamePlaytime("象棋")
             XiangqiScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
-        entry<AppRoute.Match>(transition = expand(AppRoute.Match::class)) {
+        page<AppRoute.TermReport>(transition = expand(AppRoute.TermReport::class), swipeDismiss = NavSwipeDirection.None) {
+            TermReportScreen(onBack = back, onAskAgent = { sendToPidai(it, router::open) }, onNavigate = router::open)
+        }
+        page<AppRoute.Match>(transition = expand(AppRoute.Match::class)) {
             AppMatchScreen(onBack = back)
         }
-        entry<AppRoute.Accounts>(transition = expand(AppRoute.Accounts::class)) {
+        page<AppRoute.Accounts>(transition = expand(AppRoute.Accounts::class)) {
             AccountManagerScreen(
                 accountManager = accountManager,
                 activeAccountId = loginState.accountId,
@@ -727,7 +875,7 @@ fun NavEntryBuilder.appPageEntries(
                 onBack = back,
             )
         }
-        entry<AppRoute.WebVpnConverter>(transition = expand(AppRoute.WebVpnConverter::class)) {
+        page<AppRoute.WebVpnConverter>(transition = expand(AppRoute.WebVpnConverter::class)) {
             WebVpnConverterScreen(
                 codec = WebVpnUtil,
                 onBack = back,
@@ -772,6 +920,17 @@ fun AwaitSite(
 }
 
 /** 内置浏览器打开某个站点时带哪套登录会话的 cookie。 */
+/** 社区发帖附的诊断信息（#463）：只有版本、机型、系统，不含账号。 */
+private fun communityDiagnostics(context: android.content.Context): String = listOfNotNull(
+    "app版本：${com.xjtu.toolbox.BuildConfig.VERSION_NAME} (${com.xjtu.toolbox.BuildConfig.VERSION_CODE})",
+    "预览版：${if (com.xjtu.toolbox.BuildConfig.IS_PREVIEW) "是" else "否"}",
+    "设备型号：${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+    "系统版本：${android.os.Build.DISPLAY}, Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})",
+    com.xjtu.toolbox.error.CrashReporter.latestCrash(context)?.let {
+        "<details><summary>最近一次崩溃日志</summary>\n\n```\n${it.trim()}\n```\n</details>"
+    },
+).joinToString("\n")
+
 private fun siteKeyForHost(host: String): String = when {
     host == "dzpz.xjtu.edu.cn" -> "dzpz"
     "tyxylp.xjtu.edu.cn" in host -> "fitness"
@@ -780,7 +939,9 @@ private fun siteKeyForHost(host: String): String = when {
     "ywtb.xjtu.edu.cn" in host || "workflow.xjtu.edu.cn" in host -> "ywtb"
     "ncard.xjtu.edu.cn" in host -> "campus_card"
     "kq.xjtu.edu.cn" in host -> "new_attendance"
-    "lms.xjtu.edu.cn" in host -> "lms"
+    // 学堂的移动端站点（作业提交页在那儿）。与 lms 同一个站点会话：不写这一条会落到 else 的
+    // 「jwxt」，虽然眼下两者都锁在 NORMAL backend、拿的是同一罐 cookie，但那是巧合不是语义。
+    "lms-h5.xjtu.edu.cn" in host || "lms.xjtu.edu.cn" in host -> "lms"
     "202.117.17.144" in host -> "venue"
     else -> "jwxt"
 }

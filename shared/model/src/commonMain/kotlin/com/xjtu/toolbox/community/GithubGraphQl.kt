@@ -261,6 +261,10 @@ class GraphQlGithubDiscussionsRepository(
         fun JsonObject.byOthers() = login(this)?.equals(login, ignoreCase = true) == false
         fun JsonObject.activity(kind: CommunityActivityKind, post: JsonObject) = CommunityActivity(
             text("id"), kind, login(this).orEmpty(), post.text("title"), text("body"), text("url"), text("createdAt"),
+            // 帖子编号：优先用 GraphQL 给的 number，实在没有再从帖子地址里拆（老查询留着也能跑）
+            number = post["number"]?.jsonPrimitive?.intOrNull
+                ?: discussionNumberOf(post.text("url"))
+                ?: 0,
         )
         posts("mine").flatMap { post -> floors(post).filter { it.byOthers() }.map { it.activity(CommunityActivityKind.REPLY, post) } } +
             posts("at").flatMap { post ->
@@ -387,7 +391,8 @@ class GraphQlGithubDiscussionsRepository(
         const val COMMENT_FIELDS = "$REPLY_FIELDS replies(first:2){totalCount nodes{$REPLY_FIELDS}}"
         const val POLL = "poll{question totalVoteCount viewerCanVote viewerHasVoted options(first:20){nodes{id option totalVoteCount viewerHasVoted}}}"
         const val ACTIVITY_NODE = "id url body createdAt $AUTHOR"
-        const val ACTIVITY = "... on Discussion{$ACTIVITY_NODE title comments(last:20){nodes{$ACTIVITY_NODE replies(last:20){nodes{$ACTIVITY_NODE}}}}}"
+        // number 必取：社区通知要按编号在 App 内直达那一帖（点开不再丢给浏览器）
+        const val ACTIVITY = "... on Discussion{number $ACTIVITY_NODE title comments(last:20){nodes{$ACTIVITY_NODE replies(last:20){nodes{$ACTIVITY_NODE}}}}}"
         const val FIELDS = "viewerCanUpdate viewerCanDelete viewerCanClose viewerCanReopen authorAssociation id number title body url createdAt updatedAt closed stateReason locked repository{viewerPermission} $AUTHOR $REACTIONS $POLL category{id name isAnswerable} comments{totalCount} answer{id}"
     }
 }

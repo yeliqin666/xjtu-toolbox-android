@@ -18,15 +18,15 @@ enum class ApiMode {
     /** 旧形状（默认）：同源反代的 campus-api。 */
     CAMPUS_API,
 
-    /** 新契约：serve 模式的 `:server`（`docs/api-contract.md` §4/§5）。 */
+    /** 新契约：serve 模式的 `:server`（`docs/api-contract.md`）。 */
     SERVE,
 }
 
 /**
- * serve 契约（§4）的一次取数：成功即 `code == 0`，失败时 `message` 是给用户看的中文短句。
+ * serve 契约的一次取数：成功即 `code == 0`，失败时 `message` 是给用户看的中文短句。
  *
  * 公开（不再是 `internal`）：`*Api` 家族不只在 `:shared:network` 里 —— 例如下载那一族
- * （`docs/api-contract.md` §5.13）的模型在 `:feature:lms`，它那一份 API 就住在那里。
+ * （`/api/downloads`）的模型在 `:feature:lms`，它那一份 API 就住在那里。
  */
 suspend fun HttpClient.serveData(
     what: String,
@@ -52,7 +52,7 @@ suspend fun HttpClient.serveData(
 
 /** 「这条取数链只在 serve 契约里」的固定说法。 */
 fun serveOnly(what: String, endpoints: String): Nothing = throw UnsupportedOperationException(
-    "campus-api 形态没有「$what」的端点：它只在 serve 契约里（$endpoints，docs/api-contract.md §5.5）" +
+    "campus-api 形态没有「$what」的端点：它只在 serve 契约里（$endpoints，docs/api-contract.md）" +
         "—— 这一端要在 serve 模式下才有这条取数链",
 )
 
@@ -70,7 +70,7 @@ suspend fun HttpClient.serveAction(
  *
  * 与 [serveAction] 同一套语义（**业务拒绝 `code != 0` 也是结果，不是异常**），
  * 只是多了两个东西：请求方法与查询参数 —— 下载那一族的三个动词（`…/{id}/pause` 等）与删除
- * 都是没有请求体的 `POST` / `DELETE`，且删除要带 `?deleteFile=`（契约 §5.13）。
+ * 都是没有请求体的 `POST` / `DELETE`，且删除要带 `?deleteFile=`。
  */
 suspend fun HttpClient.serveWrite(
     baseUrl: String,

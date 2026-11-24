@@ -19,7 +19,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** serve 契约 §5.10 / §5.19 的客户端写侧：路径、请求体形状、错误映射，以及密码不泄漏。 */
+/** `/api/accounts` 的客户端写侧：路径、请求体形状、错误映射，以及密码不泄漏。 */
 class ServeAccountsWriteApiTest {
 
     private class Call(

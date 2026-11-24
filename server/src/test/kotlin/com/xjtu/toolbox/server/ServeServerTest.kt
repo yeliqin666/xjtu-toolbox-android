@@ -33,7 +33,7 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** serve 模式默认安全配置的验收（契约见 `docs/api-contract.md` §3）。 */
+/** serve 模式默认安全配置的验收（契约见 `docs/api-contract.md`「安全口径」）。 */
 class ServeServerTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -74,7 +74,7 @@ class ServeServerTest {
     fun `状态端点免令牌且不含身份信息`() {
         val harness = start(distDir = tempDist())
 
-        // 不带任何令牌 —— §3.4：它是唯一免令牌端点
+        // 不带任何令牌 —— 它是唯一免令牌端点
         val response = harness.get("/api/status")
         assertEquals(200, response.statusCode())
         assertContains(response.headers().firstValue("content-type").orElse(""), "application/json")
@@ -84,7 +84,7 @@ class ServeServerTest {
         assertEquals(
             setOf("authenticated", "uptimeSeconds"),
             body.keys,
-            "§3.4：/api/status 只报「活着 + 有没有会话」，不许出现学号/姓名之类的身份字段",
+            "/api/status 只报「活着 + 有没有会话」，不许出现学号/姓名之类的身份字段",
         )
         assertEquals(false, body.getValue("authenticated").jsonPrimitive.boolean)
         assertTrue(body.getValue("uptimeSeconds").jsonPrimitive.content.toLong() >= 0)
@@ -117,7 +117,7 @@ class ServeServerTest {
         assertEquals(404, allowed.statusCode())
         assertEquals(404, allowed.body().asJsonObject().getValue("code").jsonPrimitive.content.toInt())
 
-        // cookie 形态（契约 §3.2 的第二种）：令牌换 cookie 之后随请求带
+        // cookie 形态：令牌换 cookie 之后随请求带
         assertEquals(404, harness.get("/api/payment-code", cookie = token).statusCode())
         assertEquals(401, harness.get("/api/payment-code", cookie = "wrong").statusCode())
 

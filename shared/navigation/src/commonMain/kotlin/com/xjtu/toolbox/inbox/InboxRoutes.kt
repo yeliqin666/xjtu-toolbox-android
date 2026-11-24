@@ -16,6 +16,7 @@ fun InboxCategories.ofRoute(route: AppRoute): String? = when (route) {
     AppRoute.Coupon -> COUPON
     AppRoute.Judge -> JUDGE
     is AppRoute.Lms -> LMS
+    is AppRoute.Community, is AppRoute.CommunityPost -> COMMUNITY
     else -> null
 }
 /** 升级前已缓存的作业待办仍可从稳定 ID 恢复活动深链；测试维持原有课程入口。 */

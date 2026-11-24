@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.archive
 
-/** 档案的传输缝（§1.4）：目录 / zip / SAF / 下载都只露这两个窄接口。 */
+/** 档案的传输缝：目录 / zip / SAF / 下载都只露这两个窄接口。 */
 interface ArchiveSource {
     fun readManifest(): String?
     fun storeNames(): List<String>

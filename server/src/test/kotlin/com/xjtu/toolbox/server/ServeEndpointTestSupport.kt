@@ -210,7 +210,7 @@ internal fun JsonObject.optInt(key: String): Int? = optString(key)?.toIntOrNull(
 
 internal fun JsonObject.optLong(key: String): Long? = optString(key)?.toLongOrNull()
 
-/** §3.4 那条红线的实现：响应体不许出现登录用户本人相关的身份。 */
+/** 隐私红线的实现：响应体不许出现登录用户本人相关的身份。 */
 internal fun assertNoIdentity(body: String, where: String, forbidden: List<String>) {
     for (needle in forbidden) {
         if (needle.isBlank()) continue

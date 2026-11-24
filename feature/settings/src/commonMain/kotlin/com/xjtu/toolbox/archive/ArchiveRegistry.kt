@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.archive
 
-/** store 名 → 分类表（§2.4 / §3.2 / §5.2 第 7 条 / §8.10）。 */
+/** store 名 → 分类表。 */
 object ArchiveRegistry {
 
     enum class Scope { GLOBAL, ACCOUNT }
@@ -13,16 +13,16 @@ object ArchiveRegistry {
         val scope: Scope,
         val carrier: Carrier,
         val credential: Boolean = false,
-        /** 端内私有，永不进档案（§2.4），也不进 `redacted`。 */
+        /** 端内私有，永不进档案，也不进 `redacted`。 */
         val excluded: Boolean = false,
         val ttl: Ttl = Ttl.UNKNOWN,
         val rebuildable: Boolean = false,
     )
 
-    /** 凭据族前缀（§8.10）：`cookies_*` / `sites_*` / `agent_config_secure*`。 */
+    /** 凭据族前缀：`cookies_*` / `sites_*` / `agent_config_secure*`。 */
     private val credentialPrefixes = listOf("cookies_", "sites_", "agent_config_secure", "community_images_")
 
-    /** 端内私有、永不进档案（§2.4）。 */
+    /** 端内私有、永不进档案。 */
     private val excludedNames = setOf("data_cache_meta", "serve", "agent_config_fallback")
 
     /**
@@ -42,6 +42,7 @@ object ArchiveRegistry {
         "library_favorites" to setOf("favorite_seats"),
         "bulletin_store" to setOf("dismissed_ids", "acked_ids"),
         "feedback" to setOf("read_replies"),
+        "tips" to setOf("dismissed"),
         "notice_watch" to setOf("sources", "baselined_sources"),
         // 课表快照键带学期/来源（`snap3_<term>_<source>`，旧格式是 `snap_*`）⇒ 前缀匹配。
         "schedule_diff" to setOf("snap*"),
@@ -67,7 +68,8 @@ object ArchiveRegistry {
         put("haptics_prefs", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("jiaocai1_reader_prefs", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("feature_hints", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
-        // payment_code：Android/web 走 plain，桌面走 secure（§3.5/§5.3 #07 的跨端分歧）；按 Android 基准记 plain。
+        put("tips", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
+        // payment_code：Android/web 走 plain，桌面走 secure（跨端分歧）；按 Android 基准记 plain。
         put("payment_code", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("home_usage", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("home_stats_cursor", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
@@ -82,9 +84,9 @@ object ArchiveRegistry {
         put("lms_downloads", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("schedule_widget_prefs", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("notice_widget_cache", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
-        // 端内私有（§2.4）：换包判据 install_stamp。
+        // 端内私有：换包判据 install_stamp。
         put("data_cache_meta", Entry(Scope.GLOBAL, Carrier.PLAIN_KV, excluded = true))
-        // Room 三张表：档案里是行数组（§8.3），Android = Room，桌面 = secure，web = plain —— 记 Android 基准 ROOM_ROWS。
+        // Room 三张表：档案里是行数组，Android = Room，桌面 = secure，web = plain —— 记 Android 基准 ROOM_ROWS。
         put("download_tasks", Entry(Scope.GLOBAL, Carrier.ROOM_ROWS, rebuildable = true))
         put("jiaocai1_shelf", Entry(Scope.GLOBAL, Carrier.ROOM_ROWS))
         put("custom_courses", Entry(Scope.GLOBAL, Carrier.ROOM_ROWS))
@@ -126,11 +128,11 @@ object ArchiveRegistry {
     /** 查分类；没登记的名字默认按全局 plain KV 对待（不猜、不拦）。 */
     fun entryFor(base: String): Entry = table[base] ?: Entry(Scope.GLOBAL, Carrier.PLAIN_KV)
 
-    /** 是否凭据族（§8.10）：默认不进档案，除非显式开关。 */
+    /** 是否凭据族：默认不进档案，除非显式开关。 */
     fun isCredential(base: String): Boolean =
         entryFor(base).credential || credentialPrefixes.any { base.startsWith(it) }
 
-    /** 是否端内私有（§2.4）：永不进档案，也不进 `redacted`。 */
+    /** 是否端内私有：永不进档案，也不进 `redacted`。 */
     fun isExcluded(base: String): Boolean = base in excludedNames
 
     /**

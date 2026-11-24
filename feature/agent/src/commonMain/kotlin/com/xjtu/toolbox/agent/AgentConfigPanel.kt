@@ -68,13 +68,14 @@ internal fun ConfigPanel(
     var mcpEnabled by remember { mutableStateOf(config.mcpEnabled) }
     var mcpEndpoint by remember { mutableStateOf(config.mcpEndpoint) }
     var mcpToken by remember { mutableStateOf(config.mcpToken) }
+    var apiFormat by remember { mutableStateOf(config.apiFormat) }
     var mcpTesting by remember { mutableStateOf(false) }
     var mcpStatus by remember { mutableStateOf<String?>(null) }
     val uiPrefs = remember { keyValueStore("agent_config_ui") }
     var relayWarningDismissed by remember { mutableStateOf(uiPrefs.getBoolean("relay_warning_dismissed", false)) }
 
-    // 辅助函数：立即保存当前所有配置
-    fun saveNow() {
+    // 把面板上的当前值拼成一份配置交出去（写盘由宿主做）
+    fun writeConfig() {
         onSave(AgentConfig(
             provider = provider,
             apiKey = apiKey.trim(),
@@ -89,19 +90,16 @@ internal fun ConfigPanel(
             mcpEnabled = mcpEnabled,
             mcpEndpoint = mcpEndpoint.trim(),
             mcpToken = mcpToken.trim(),
+            apiFormat = apiFormat,
         ))
     }
 
-    var pendingSaveJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    // 刚粘完 API Key 就按返回：面板的协程跟着被取消，挂着的那次保存得在这里补上
-    DisposableEffect(Unit) {
-        onDispose {
-            if (pendingSaveJob?.isActive == true) {
-                pendingSaveJob?.cancel()
-                saveNow()
-            }
-        }
-    }
+    // 防抖保存 + 离开时补存：刚改完名字 / 粘完 API Key 就按返回，没写的那次在离开组合时补上。
+    // 补存不能靠「挂着的 job 还 isActive 吗」判断（作用域先于 onDispose 被取消），见 [rememberDebouncedSave]。
+    val saver = com.xjtu.toolbox.ui.components.rememberDebouncedSave(500L) { writeConfig() }
+
+    /** 立即保存（下拉、开关、键盘「完成」）。 */
+    fun saveNow() = saver.now()
 
     // 模型一键拉取
     var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -110,19 +108,8 @@ internal fun ConfigPanel(
     val scope = rememberCoroutineScope()
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
-    /**
-     * 防抖保存：每次调用都把挂起的保存任务延后 500ms，
-     * 文本框按键连续触发时只触发最后一次，避免每键一次 SharedPreferences 写。
-     * 退出时没赶上的由上面的 DisposableEffect 补存。
-     */
-    fun scheduleSave() {
-        pendingSaveJob?.cancel()
-        pendingSaveJob = scope.launch {
-            kotlinx.coroutines.delay(500)
-            saveNow()
-            pendingSaveJob = null
-        }
-    }
+    /** 文本框按键连续触发时只写最后一次（500ms 防抖），避免每键一次 SharedPreferences 写。 */
+    fun scheduleSave() = saver.schedule()
 
     val providerItems = AgentConfig.PROVIDERS.map { AgentConfig.providerLabel(it) }
     val providerIndex = AgentConfig.PROVIDERS.indexOf(provider).coerceAtLeast(0)
@@ -165,7 +152,7 @@ internal fun ConfigPanel(
                     )
                     // API Key 那一行：默认 = 下面这个可输入的框（Android / 桌面逐字不变）。
                     // 浏览器那一端拿不到 key（它存在运行 serve 的那台机器上）⇒ 宿主交一格
-                    // 「只读徽标 + 一句指路」把整行换掉（`docs/agent-web-spec.md` §4.3 第 2 条）。
+                    // 「只读徽标 + 一句指路」把整行换掉。
                     if (apiKeySection != null) apiKeySection() else TextField(
                         value = apiKey,
                         onValueChange = {
@@ -273,6 +260,21 @@ internal fun ConfigPanel(
                             }
                         )
                     }
+                    if (provider != AgentConfig.PROVIDER_DEEPSEEK) {
+                        // 接口格式（#427）：OpenAI 默认 Responses；中转大多只有 Chat Completions，支持 /responses 的可切过去
+                        val effectiveFormat = AgentConfig(provider = provider, apiFormat = apiFormat).effectiveApiFormat
+                        val formatIdx = AgentConfig.API_FORMATS.indexOf(effectiveFormat).coerceAtLeast(0)
+                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
+                            title = "接口格式",
+                            summary = AgentConfig.apiFormatLabel(effectiveFormat),
+                            items = AgentConfig.API_FORMATS.map { AgentConfig.apiFormatLabel(it) },
+                            selectedIndex = formatIdx,
+                            onSelectedIndexChange = {
+                                apiFormat = AgentConfig.API_FORMATS[it]
+                                saveNow()
+                            }
+                        )
+                    }
                     if (provider == AgentConfig.PROVIDER_CUSTOM) {
                         TextField(
                             value = baseUrl,
@@ -286,6 +288,7 @@ internal fun ConfigPanel(
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { saveNow() })
                         )
+
                         Text(
                             "填写 OpenAI 兼容中转地址；Claude 可通过 OpenRouter 等兼容服务接入。",
                             style = MiuixTheme.textStyles.footnote1,

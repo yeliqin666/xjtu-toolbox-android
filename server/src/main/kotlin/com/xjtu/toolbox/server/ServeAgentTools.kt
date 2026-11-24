@@ -11,7 +11,8 @@ import com.xjtu.toolbox.agent.ScheduleWidget
 import com.xjtu.toolbox.agent.ToolReply
 import com.xjtu.toolbox.agent.agentCalculate
 import com.xjtu.toolbox.agent.agentCourseLine
-import com.xjtu.toolbox.agent.agentGuideText
+import com.xjtu.toolbox.agent.APP_GUIDE
+import com.xjtu.toolbox.agent.campusGuideText
 import com.xjtu.toolbox.agent.agentStaleFallback
 import com.xjtu.toolbox.agent.agentToolDefinitions
 import com.xjtu.toolbox.agent.agentWeekRange
@@ -51,7 +52,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import com.xjtu.toolbox.util.formatOnCampus
-/** serve 侧的白名单工具层（`docs/agent-web-spec.md` §6） */
+/** serve 侧的白名单工具层 */
 internal class ServeAgentTools(
     private val session: ServeSession,
     private val memory: AgentMemory,
@@ -62,7 +63,7 @@ internal class ServeAgentTools(
     private val faculty: FacultyApi,
 ) : AgentTools {
 
-    /** 这一端真给模型的九件（顺序与 `:core` 那份目录里的顺序一致 —— 那一份是唯一一份顺序定义，这里只是筛子）。 */
+    /** 这一端真给模型的十件（顺序与 `:core` 那份目录里的顺序一致 —— 那一份是唯一一份顺序定义，这里只是筛子）。 */
     companion object {
         val NAMES: List<String> = listOf(
             "get_calendar",
@@ -73,6 +74,7 @@ internal class ServeAgentTools(
             "preference",
             "find_faculty",
             "app_guide",
+            "search_campus_guide",
             "calculate",
         )
     }
@@ -119,18 +121,14 @@ internal class ServeAgentTools(
                 category = args.argStr("category"),
                 limit = args.argInt("limit") ?: 10,
             )
-            // 给 value 是记下，不给是删掉
-            "preference" -> {
-                val key = args.argStr("key") ?: ""
-                val value = args.argStr("value").orEmpty()
-                if (value.isBlank()) memory.forget(key) else memory.remember(key, value)
-            }
+            "preference" -> memory.handleTool(args)
             "find_faculty" -> findFaculty(
                 name = args.argStr("name") ?: "",
                 college = args.argStr("college"),
                 limit = args.argInt("limit") ?: 3,
             )
-            "app_guide" -> agentGuideText(args.argStr("topic"))
+            "app_guide" -> APP_GUIDE
+            "search_campus_guide" -> campusGuideText(args.argStr("query"), args.argStr("section"), args.argInt("limit"))
             "calculate" -> agentCalculate(args.argStr("expression") ?: "")
             // 工具表里没画的档回 not_found：模型可能凭旧对话里的记忆调过来（那段历史是在别的端上生成的）
             else -> ToolReply.notFound("tool", name)

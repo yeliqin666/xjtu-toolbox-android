@@ -18,4 +18,5 @@ enum class LoginType(val label: String, val description: String) {
     ATTENDANCE("考勤", "考勤查询与请假"),
     ICLASSFACE("快速考勤流水", "今日签到/刷卡记录快速查询"),
     QMS("学生评教", "课程评教"),
+    SS("智慧社区", "活动报名与签到"),
 }

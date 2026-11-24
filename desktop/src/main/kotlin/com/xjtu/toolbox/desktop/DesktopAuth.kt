@@ -24,6 +24,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.VenueSession
 import com.xjtu.toolbox.auth.YwtbSession
 import com.xjtu.toolbox.auth.AttendanceSession
+import com.xjtu.toolbox.auth.CampusProbe
 import com.xjtu.toolbox.auth.LmsSession
 import com.xjtu.toolbox.auth.JwappSession
 import com.xjtu.toolbox.auth.IclassfaceSession
@@ -34,6 +35,11 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.library.LibrarySource
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** 桌面端的「自己登录」：会话管家 + 凭据存储 + MFA 宿主状态，装在一个对象里。 */
 class DesktopAuth(
@@ -74,6 +80,7 @@ class DesktopAuth(
 
         // 学生评教（QMS）：本科评教走它；公网直连，不走 WebVPN。
         register(QmsSession())
+        CampusProbe.attach(this)
     }
 
     /** 图书馆站点会话。冷启动时它还是「从快照恢复、待确认」，第一次取数会自己探活/重登。 */
@@ -106,6 +113,9 @@ class DesktopAuth(
 
     /** 登录页的密码输入。登录成功后**立刻清空**，不留在界面状态里。 */
     var password by mutableStateOf("")
+
+    /** 登录页选的身份：CAS 遇到本科/研究生双身份时按它选分支，选错会登不进研究生站点。 */
+    var loginAccountType by mutableStateOf(credentials.accountType.toCoreAccountType())
 
     var loginState by mutableStateOf<LoginUiState>(LoginUiState.Idle)
         private set
@@ -155,7 +165,7 @@ class DesktopAuth(
         }
         loginState = LoginUiState.Submitting
         val suffix = AccountContext.suffixFor(user)
-        val accountType = credentials.accountType
+        val accountType = loginAccountType.toXjtuLoginAccountType()
         writeActiveAccountId(user)
         AccountContext.activeAccountType = accountType.toCoreAccountType()
         sessionManager.reconfigureForAccount(suffix)
@@ -164,12 +174,9 @@ class DesktopAuth(
         sessionManager.fpVisitorId = credentials.fpVisitorId
         sessionManager.cachedRsaKey = credentials.rsaPublicKey
         return try {
-            // 只硬要求主站（图书馆）登录成功，其余站点尽力而为（体测会 502，不能因此挡住登录）；userInitiated 豁免 60 秒冷却。
-            sessionManager.ensureSite(LIBRARY_SITE_KEY, userInitiated = true)
-            SESSION_SITE_KEYS.filter { it != LIBRARY_SITE_KEY }.forEach { key ->
-                runCatching { sessionManager.ensureSite(key, userInitiated = true) }
-                    .onFailure { sessionManager.recordDiagnostic("WARN", key, "登录时预热失败（不阻塞登录）：${it.message}") }
-            }
+            // 用教务 + 一网通办验证账号，与「添加账号」和安卓同一判据：这两个站校外也能直连。
+            // 图书馆这类只在校内可达的站不能当判据，否则校外永远登不上。userInitiated 豁免 60 秒冷却。
+            VERIFY_SITE_KEYS.forEach { sessionManager.ensureSite(it, userInitiated = true) }
 
             // 成功才写进账号表。设备指纹换来换去会被当成新设备（多一次短信），RSA 公钥省一次 `GET /cas/jwt/publicKey`。
             val previous = accountStore.get(user)
@@ -194,6 +201,7 @@ class DesktopAuth(
             password = ""
             loginState = LoginUiState.Idle
             loggedIn = true
+            prewarmSites()
             true
         } catch (e: CancellationException) {
             throw e
@@ -210,25 +218,78 @@ class DesktopAuth(
         }
     }
 
-    /** 退出登录：凭据、cookie、站点快照一起删。 */
+    private val prewarmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var prewarmJob: Job? = null
+
+    /**
+     * 登录成功后在后台把其余站点的会话建起来，失败只记诊断：体测会 502、图书馆校外直连会卡满超时，
+     * 都不该让用户停在登录页。各屏进门时还会自己 ensure，这里只是让第一次进门快一点。
+     * 退出、切账号时由 [cancelPrewarm] 停掉，免得往换掉的命名空间里写会话。
+     */
+    private fun prewarmSites() {
+        cancelPrewarm()
+        detectAccessMode()
+        prewarmJob = prewarmScope.launch {
+            SESSION_SITE_KEYS.filter { it !in VERIFY_SITE_KEYS }.forEach { key ->
+                launch {
+                    runCatching { sessionManager.ensureSite(key, userInitiated = true) }
+                        .onFailure {
+                            if (it is CancellationException) throw it
+                            sessionManager.recordDiagnostic("WARN", key, "登录后预热失败（不阻塞登录）：${it.message}")
+                        }
+                }
+            }
+        }
+    }
+
+    private var networkJob: Job? = null
+
+    /**
+     * 判校内外：校外时图书馆、考勤这类只在校内可达的站点改走内置 WebVPN。判定落定前它们登录会先等着。
+     * 登录、冷启动恢复、切账号时各判一次。
+     */
+    fun detectAccessMode() {
+        networkJob?.cancel()
+        sessionManager.unsettleAccessMode()
+        networkJob = prewarmScope.launch { CampusProbe.applyAccessMode(sessionManager) }
+    }
+
+    private fun cancelPrewarm() {
+        prewarmJob?.cancel()
+        prewarmJob = null
+    }
+
+    /** 等后台预热与校内外判定结束。测试用：免得它们在假上游关掉、数据目录复位之后才落盘。 */
+    internal suspend fun awaitPrewarm() {
+        networkJob?.join()
+        prewarmJob?.join()
+    }
+
+    /**
+     * 退出当前账号：它的凭据、cookie、站点快照一起删并移出账号表；还有别的已存账号就切过去，
+     * 没有了才回登录页（与账号管理里删当前账号同一语义）。
+     */
     fun logout() {
+        cancelPrewarm()
         val id = AccountContext.activeAccountId
         val suffix = AccountContext.suffixFor(id)
         sessionManager.clearCredentials()
         sessionManager.forgetAllSites()
+        // 先离开这个账号的命名空间再删文件，免得 debounce 写盘把 TGC 写回刚删掉的文件
         sessionManager.reconfigureForAnonymous()
         writeActiveAccountId(null)
         runCatching { SessionBackend.wipe(suffix) }
-        if (id != null) {
-            accountStore.remove(id)
-            accountStore.clearActive()
-        }
+        if (id != null) accountStore.remove(id)
         // 再抹一次旧的单账号凭据文件：兼容从旧版本升级上来、还没重启过的那一瞬。
         credentials.clear()
-        username = ""
-        password = ""
-        loginState = LoginUiState.Idle
-        loggedIn = false
+        val next = accountStore.list().firstOrNull()
+        if (next != null) {
+            accountStore.setActive(next.accountId)
+            adoptAccount(next)
+        } else {
+            accountStore.clearActive()
+            dropToAnonymous()
+        }
     }
 
     // ── 多账号：`AccountsController` 要的内部钩子（切账号要改的四样状态都是这里的私有状态）──
@@ -248,6 +309,7 @@ class DesktopAuth(
 
     /** 把一条已保存账号认成「当前身份」：命名空间、凭据、指纹、RSA 公钥、界面状态一起换。 */
     internal fun adoptAccount(account: Account) {
+        cancelPrewarm()
         writeActiveAccountId(account.accountId)
         AccountContext.activeAccountType = account.accountType
         sessionManager.reconfigureForAccount(AccountContext.suffixFor(account.accountId))
@@ -260,10 +322,12 @@ class DesktopAuth(
         password = ""
         loginState = LoginUiState.Idle
         loggedIn = true
+        detectAccessMode()
     }
 
     /** 回到未登录（匿名命名空间）。删掉最后一条账号、或者新增失败要回滚时用。 */
     internal fun dropToAnonymous() {
+        cancelPrewarm()
         sessionManager.clearCredentials()
         sessionManager.forgetAllSites()
         sessionManager.reconfigureForAnonymous()
@@ -324,7 +388,10 @@ class DesktopAuth(
         /** 学生评教（`qms`）。本科评教那一屏进门时用它。 */
         const val QMS_SITE_KEY = QmsSession.SITE_KEY
 
-        /** 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。 */
+        /** 登录时用来验证账号的站点，必须成功。 */
+        private val VERIFY_SITE_KEYS = listOf(JWXT_SITE_KEY, YWTB_SITE_KEY)
+
+        /** 登录后后台预热的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。 */
         private val SESSION_SITE_KEYS = listOf(
             LIBRARY_SITE_KEY,
             FITNESS_SITE_KEY,

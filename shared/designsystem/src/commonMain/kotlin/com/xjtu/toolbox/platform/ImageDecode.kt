@@ -36,5 +36,11 @@ expect fun decodeImageDownToWidth(
  */
 expect fun cropImageToJpegDataUri(bytes: ByteArray, left: Int, top: Int, right: Int, bottom: Int, maxDim: Int): String?
 
+/**
+ * 只用来显示的静态大图换成显存里的一份（Android 的硬件位图）：不会因为 GPU 纹理缓存被挤掉而逐帧重新上传。
+ * 换出来的这份不能再读像素、不能画到软件画布上；没有这种位图的端原样返回。
+ */
+expect fun ImageBitmap.toDisplayBitmap(): ImageBitmap
+
 /** 平台能力：解码后位图缓存的内存预算（字节）。 */
 expect fun imageMemoryCacheBudgetBytes(): Int

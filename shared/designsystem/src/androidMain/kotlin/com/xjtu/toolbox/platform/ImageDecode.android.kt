@@ -3,6 +3,7 @@ package com.xjtu.toolbox.platform
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.max
@@ -56,6 +57,13 @@ actual fun decodeImageDownToWidth(
     }
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
 }
+
+actual fun ImageBitmap.toDisplayBitmap(): ImageBitmap =
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        asAndroidBitmap().copy(Bitmap.Config.HARDWARE, false)?.asImageBitmap() ?: this
+    } else {
+        this
+    }
 
 actual fun imageMemoryCacheBudgetBytes(): Int =
     (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(64L * 1024 * 1024).toInt()

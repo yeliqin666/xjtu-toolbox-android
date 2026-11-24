@@ -51,6 +51,8 @@ espressoCore = "3.7.0"
 # benchmark 同时提供 macrobenchmark 库和 baselineprofile 插件，两者版本必须一致
 benchmark = "1.5.0"
 profileinstaller = "1.4.1"
+# debug 包的组合追踪（Perfetto 里显示每个重组的组件名）
+tracingPerfetto = "1.0.1"
 uiautomator = "2.4.0"
 
 [libraries]
@@ -64,6 +66,9 @@ androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", versi
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-runtime-tracing = { group = "androidx.compose.runtime", name = "runtime-tracing" }
+androidx-tracing-perfetto = { group = "androidx.tracing", name = "tracing-perfetto", version.ref = "tracingPerfetto" }
+androidx-tracing-perfetto-binary = { group = "androidx.tracing", name = "tracing-perfetto-binary", version.ref = "tracingPerfetto" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 latex-fonts-katex = { group = "io.github.huarangmeng", name = "latex-fonts-katex", version.ref = "latex" }
 latex-renderer = { group = "io.github.huarangmeng", name = "latex-renderer", version.ref = "latex" }
@@ -72,6 +77,7 @@ markdown-renderer-coil3 = { group = "com.mikepenz", name = "multiplatform-markdo
 jetbrains-markdown = { group = "org.jetbrains", name = "markdown", version.ref = "jetbrainsMarkdown" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
+coil-svg = { group = "io.coil-kt.coil3", name = "coil-svg", version.ref = "coil" }
 androidx-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-brotli = { group = "com.squareup.okhttp3", name = "okhttp-brotli", version.ref = "okhttp" }

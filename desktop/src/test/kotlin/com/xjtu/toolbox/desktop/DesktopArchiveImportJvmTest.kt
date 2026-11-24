@@ -25,7 +25,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** 桌面端导入写侧接到 `StoreArchive.import`（§6.4）后该成立的几条。 */
+/** 桌面端导入写侧接到 `StoreArchive.import` 后该成立的几条。 */
 class DesktopArchiveImportJvmTest {
 
     private fun withRoot(block: (File) -> Unit) {
@@ -46,7 +46,7 @@ class DesktopArchiveImportJvmTest {
         files: List<ArchiveFile> = emptyList(),
     ): Map<String, String> = DesktopArchiveHost.buildArchive(emptyList(), stores, files, now = { FIXED_NOW })
 
-    /** 把档案字节映射落成一个**档案目录**（§2.0 的目录形态），返回那个目录。 */
+    /** 把档案字节映射落成一个**档案目录**（目录形态），返回那个目录。 */
     private fun dropArchiveDir(root: File, entries: Map<String, String>): File =
         File(root, DesktopArchiveHost.ARCHIVE_DIR).also { DesktopArchiveIo.writeDirectory(entries, it) }
 
@@ -102,7 +102,7 @@ class DesktopArchiveImportJvmTest {
         assertTrue(outcome is DesktopImportOutcome.Imported, "$outcome")
         val cache = KeyValueScheduleCacheStore(secureKeyValueStore(storeName), nowMs = { FIXED_NOW })
         assertEquals("2026-2027-1", ScheduleCache.readCurrentTerm(cache))
-        // §5.2 第 5 条：档案里的 `at` 落回旁挂键（下一次导入才判得出新旧）
+        // 档案里的 `at` 落回旁挂键（下一次导入才判得出新旧）
         assertEquals(
             FIXED_NOW.toString(),
             props(root, storeName).getProperty("schedule_current_term${ArchiveCodec.WRITTEN_AT_SUFFIX}"),
@@ -111,7 +111,7 @@ class DesktopArchiveImportJvmTest {
         wipeSecureStore(storeName)
     }
 
-    // ── §6.4 的裁决（桌面有 `at`，所以「新者胜」在这里真的生效） ─────────────
+    // ── 合并裁决（桌面有 `at`，所以「新者胜」在这里真的生效） ─────────────
 
     @Test
     fun `A6 档案更新时真写进端内（at 新者胜）`() = withRoot { root ->
@@ -171,7 +171,7 @@ class DesktopArchiveImportJvmTest {
         )
         assertEquals("2026-2027-1", ScheduleCache.readCurrentTerm(cache), "端内更旧那条没被覆盖")
         assertEquals("light", settings.darkMode, "端内独有的键一字未变")
-        // §8.4：`set` 值按元素集合读回来（写出去的那一份不是逗号串）
+        // `set` 值按元素集合读回来（写出去的那一份不是逗号串）
         assertEquals(
             setOf("A-101", "B-2"),
             (archiveStoreBackend().readStore("library_favorites")!!.keys.getValue("favorite_seats") as StoreValue.SetValue).v.toSet(),
@@ -267,9 +267,9 @@ class DesktopArchiveImportJvmTest {
             ImportResult.Ok(keysWritten = 0, keysKept = 0, filesWritten = 1),
             (outcome as DesktopImportOutcome.Imported).result,
         )
-        assertEquals("""[{"id":"local"}]""", existing.readText(), "端内已有 ⇒ 保持不变（§6.4 文件层）")
+        assertEquals("""[{"id":"local"}]""", existing.readText(), "端内已有 ⇒ 保持不变（文件层）")
         assertEquals("""{"id":"1"}""", File(existingDir, "convo_1.json").readText())
-        assertFalse(File(existingDir, "convo_1.json.tmp").exists(), "§8.8：不留 .tmp 残片")
+        assertFalse(File(existingDir, "convo_1.json.tmp").exists(), "不留 .tmp 残片")
     }
 
     @Test
@@ -294,7 +294,7 @@ class DesktopArchiveImportJvmTest {
             ImportResult.Ok(keysWritten = 0, keysKept = 0, filesWritten = 1),
             (outcome as DesktopImportOutcome.Imported).result,
         )
-        assertEquals("2026-2027-1", ScheduleCache.readCurrentTerm(cache), "端内已有 ⇒ 保持不变（§6.4 文件层）")
+        assertEquals("2026-2027-1", ScheduleCache.readCurrentTerm(cache), "端内已有 ⇒ 保持不变（文件层）")
         assertEquals(
             """[{"name":"高等数学"}]""",
             cache.readJsonStale("exams_2026-2027-1"),
@@ -345,7 +345,7 @@ class DesktopArchiveImportJvmTest {
     @Test
     fun `端到端：扫到档案就真导，状态文本如实`() = withRoot { root ->
         wipeSecureStore("app_settings")
-        assertEquals("数据根下没有待导入的档案", importStatusText())
+        assertEquals("没有待导入的存档", importStatusText())
 
         val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME")))))
         dropArchiveDir(root, entries)
@@ -356,8 +356,8 @@ class DesktopArchiveImportJvmTest {
         assertEquals("HOME", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).defaultTab)
 
         val text = importStatusText()
-        assertTrue(text.startsWith("发现待导入档案 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
-        assertTrue(text.contains("已经导过"), text)
+        assertTrue(text.startsWith("存档 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
+        assertTrue(text.contains("已经导入过"), text)
         wipeSecureStore(SettingsStore.APP_SETTINGS_FILE)
     }
 

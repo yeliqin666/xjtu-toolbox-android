@@ -146,7 +146,7 @@ class AppArchiveWiringTest {
     fun `导入触发点默认不动数据`() {
         val staging = newTempDir("xjtu-staging")
         try {
-            // 空目录 = 没有待导入档案 ⇒ 静默跳过（§6.2 第 1 条：NOT_FOUND 之外不报错）
+            // 空目录 = 没有待导入档案 ⇒ 静默跳过（NOT_FOUND 之外不报错）
             AppArchiveUx.maybeImportPendingArchive(listOf(staging))
             assertEquals(emptyList<File>(), staging.listFiles()?.toList().orEmpty())
 
@@ -165,7 +165,7 @@ class AppArchiveWiringTest {
         val archiveRoot = newTempDir("xjtu-archive-root")
         val staging = newTempDir("xjtu-staging")
         try {
-            // §2.0：目录即档案本体（`files/archive/<archive>/manifest.json`），不是只有 zip 才算
+            // 目录即档案本体（`files/archive/<archive>/manifest.json`），不是只有 zip 才算
             val dropped = File(archiveRoot, "archive")
             dropped.mkdirs()
             File(dropped, "manifest.json").writeText(ARCHIVE_MANIFEST_FIXTURE)

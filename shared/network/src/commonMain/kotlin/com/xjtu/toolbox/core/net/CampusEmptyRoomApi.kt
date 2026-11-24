@@ -29,7 +29,7 @@ import kotlin.time.Instant
 class CampusEmptyRoomApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : EmptyRoomSource {
 
@@ -176,7 +176,7 @@ class CampusEmptyRoomApi(
 
 
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
-        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        // serve 契约的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
         if (mode == ApiMode.SERVE) return client.serveData("加载空闲教室", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> if (v.isNotEmpty()) parameter(k, v) }
@@ -190,7 +190,7 @@ class CampusEmptyRoomApi(
             ?: error("campus-api 空闲教室返回缺少 data：${text.take(120)}")
     }
 
-    // ─── serve 模式（契约 §5.2）────────────────────────────────────────────
+    // ─── serve 模式────────────────────────────────────────────
 
     /** CDN / 直查两档（实时那一档见 [liveSnapshot]）：一次请求拿到整天（CDN）或整批楼（直查）。 */
     private suspend fun serveRooms(
@@ -257,7 +257,7 @@ class CampusEmptyRoomApi(
         if (keys.isNotEmpty()) serveSources = keys
     }
 
-    /** 契约 §4 的 ISO-8601 带时区时间 → epoch 毫秒；空串/解不出给 null（兜底交给调用方）。 */
+    /** 契约里的 ISO-8601 带时区时间 → epoch 毫秒；空串/解不出给 null（兜底交给调用方）。 */
     private fun parseIsoMillis(raw: String): Long? =
         raw.takeIf { it.isNotBlank() }
             ?.let { runCatching { Instant.parse(it).toEpochMilliseconds() }.getOrNull() }

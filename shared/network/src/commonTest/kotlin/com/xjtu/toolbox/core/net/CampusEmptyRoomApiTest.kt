@@ -139,7 +139,7 @@ class CampusEmptyRoomApiTest {
         return CampusEmptyRoomApi(createToolboxClient(engine = engine), "", ApiMode.SERVE)
     }
 
-    /** serve 形态（契约 §5.8）：座位数走它自己那一条端点。 */
+    /** serve 形态：座位数走它自己那一条端点。 */
     @Test
     fun serveSeatCountReadsItsOwnEndpointAndNullStaysNull() = runTest {
         val api = seatCountApiFor("""{"code":0,"data":{"room":"主楼A-101","seats":96}}""")
@@ -151,7 +151,7 @@ class CampusEmptyRoomApiTest {
         assertNull(unknown.seatCount("   "), "空白教室名不问上游")
     }
 
-    /** 字段缺失是「形状没对上」⇒ 抛错（§4：`null` 与字段缺失是两件事），不拿 null 冒充「上游说没有」。 */
+    /** 字段缺失是「形状没对上」⇒ 抛错（`null` 与字段缺失是两件事），不拿 null 冒充「上游说没有」。 */
     @Test
     fun serveSeatCountMissingFieldIsAShapeError() = runTest {
         val api = seatCountApiFor("""{"code":0,"data":{"room":"主楼A-101"}}""")

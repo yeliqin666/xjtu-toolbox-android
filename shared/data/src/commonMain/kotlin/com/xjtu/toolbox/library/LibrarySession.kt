@@ -16,5 +16,8 @@ interface LibrarySession {
 
     /** 构造本端的「会话失效」异常。 */
     fun authExpired(siteName: String): SessionExpiredException
+
+    /** 拿到一张认得出的「我的预约」页（[booking] 为 null = 页面说没有预约）。本机记录用，默认不做事。 */
+    fun onMyPage(html: String, finalUrl: String, booking: MyBookingInfo?) {}
 }
 

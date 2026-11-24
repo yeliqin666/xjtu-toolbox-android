@@ -5,7 +5,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.util.nowOnCampus
 import kotlin.math.PI
@@ -68,10 +67,13 @@ fun rememberLiquidMood(
             crease = 0.5f + 0.9f * tension,
         )
     }
-    return remember(automatic, appearance) { appearance.applyTo(automatic) }
+    return remember(automatic, appearance, primary) { appearance.applyTo(automatic, primary) }
 }
 
-internal fun HeroAppearance.applyTo(automatic: LiquidMood): LiquidMood {
+/**
+ * @param primary 主题色：`palette = custom` 但没挑过色时（`colorHex` 空串）液体配色跟着它走。
+ */
+internal fun HeroAppearance.applyTo(automatic: LiquidMood, primary: Color = automatic.colors.mid): LiquidMood {
     val selected = when (palette) {
         "midnight" -> LiquidPalettes.ClassicMidnight
         "orchid" -> LiquidPalettes.Orchid
@@ -79,7 +81,7 @@ internal fun HeroAppearance.applyTo(automatic: LiquidMood): LiquidMood {
         "lagoon" -> LiquidPalettes.Lagoon
         "honey" -> LiquidPalettes.Honey
         "custom" -> {
-            val color = CourseColors.parseHex(colorHex) ?: LiquidPalettes.Midnight.mid
+            val color = solidColorOn(primary)
             LiquidColors(lerp(color, Color.Black, 0.7f), color, lerp(color, Color.White, 0.6f))
         }
         else -> null

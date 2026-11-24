@@ -193,7 +193,7 @@ class WebAgentSessionTest {
 
     @Test
     fun `传输层失败的两句话形：服务端的 409 信封照读它的 message；断线报原因；abort 不说它出错`() {
-        // 开门阶段的失败是**信封**（契约 §5.11）：读服务端写好的中文短句
+        // 开门阶段的失败是**信封**：读服务端写好的中文短句
         assertEquals(
             "上一轮还在生成，先点停止或等它结束",
             agentStreamFailureMessage(

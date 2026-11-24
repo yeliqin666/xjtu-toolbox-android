@@ -9,6 +9,7 @@ import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJson
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -28,8 +29,11 @@ data class QmsQuestionnaire(
     val responseId: String,
     val planTitle: String,
     val courseName: String,
+    /** 这份答卷评的老师（多人课一位老师一份答卷）；答卷里没写时退回整门课的名单。 */
     val lecturers: List<String>,
     val status: String,
+    /** 评教截止日期（课程的 `evaluation_end_at`）。 */
+    val deadline: LocalDate? = null,
 ) {
     /** QMS 里只有 DRAFT 算没交。 */
     val finished get() = !status.equals("DRAFT", ignoreCase = true)
@@ -96,12 +100,19 @@ class QmsJudgeApi(private val site: SiteSession) {
                 val courses = try { groupedCourses(taskId, status) } catch (e: QmsException) { errors += e; continue }
                 for (course in courses) {
                     val name = course["course_name"].safeStringOrNull() ?: course["primary_plan_course_name"].safeString()
-                    val lecturers = course.arr("lecturers").orEmpty().map { it.safeString() }.filter { it.isNotBlank() }
+                    val courseLecturers = course.arr("lecturers").orEmpty().map { it.safeString() }.filter { it.isNotBlank() }
+                    val deadline = course["evaluation_end_at"].safeStringOrNull()
+                        ?.let { runCatching { LocalDate.parse(it.trim().take(10)) }.getOrNull() }
                     for (survey in course.arr("surveys").orEmpty().filterIsInstance<JsonObject>()) {
                         val response = survey.obj("response")
                         val id = response?.get("id").safeStringOrNull() ?: survey["response_id"].safeStringOrNull() ?: continue
                         if (id in all) continue
-                        all[id] = QmsQuestionnaire(id, planTitle, name, lecturers, response?.get("status").safeStringOrNull() ?: status)
+                        val lecturers = responseLecturers(response).ifEmpty { courseLecturers }
+                        all[id] = QmsQuestionnaire(
+                            id, planTitle, name, lecturers,
+                            response?.get("status").safeStringOrNull() ?: status,
+                            deadline,
+                        )
                     }
                 }
             }
@@ -111,6 +122,15 @@ class QmsJudgeApi(private val site: SiteSession) {
         val sorted = all.values.sortedWith(compareBy<QmsQuestionnaire>({ it.courseName }, { it.lecturers.joinToString() }))
         return sorted.filterNot { it.finished } to sorted.filter { it.finished }
     }
+
+    /**
+     * 这份答卷评的老师：`response.target.attributes.course.lecturers[].name`。
+     * 课程外层的 `lecturers` 是整门课的名单，多人课每份答卷都会显示成全体老师（参照 XJTUToolBox #103）。
+     */
+    private fun responseLecturers(response: JsonObject?): List<String> =
+        response?.obj("target")?.obj("attributes")?.obj("course")?.arr("lecturers").orEmpty()
+            .mapNotNull { (it as? JsonObject)?.get("name").safeStringOrNull()?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct()
 
     /** 全部按最好一档填好并提交（主观题填 [comment]）。 */
     suspend fun submitBest(q: QmsQuestionnaire, comment: String = DEFAULT_COMMENT) {

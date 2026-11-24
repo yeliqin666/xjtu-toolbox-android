@@ -28,14 +28,17 @@ actual fun HeroPixelBackground(modifier: Modifier, animated: Boolean) {
     if (!couiEffectsSupported) return CpuHeroPixelBackground(modifier)
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
-    val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+    val running = animated && LocalPageVisible.current.value && !LocalPageSettling.current.value && !LocalReducedEffects.current &&
+        lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
     val seconds = remember { mutableFloatStateOf(0f) }
     if (running) {
         LaunchedEffect(Unit) {
             val base = seconds.floatValue
             val start = TimeSource.Monotonic.markNow()
             while (true) {
-                seconds.floatValue = base + start.elapsedNow().inWholeMicroseconds / 1_000_000f
+                androidx.compose.ui.util.trace("xjtu:loop:heroPixel") {
+                    seconds.floatValue = base + start.elapsedNow().inWholeMicroseconds / 1_000_000f
+                }
                 delay(PIXEL_FRAME_MS)
             }
         }

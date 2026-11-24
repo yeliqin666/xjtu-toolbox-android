@@ -10,7 +10,9 @@ data class AgentSession(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
     /** true=标题已由用户改名或 AI 总结锁定，不再被首条消息自动覆盖。 */
-    val locked: Boolean = false
+    val locked: Boolean = false,
+    /** 标题是 AI 起的（话题变了还能再改）；用户改过名即为 false。老数据里锁定的一律当用户改过。 */
+    val aiTitled: Boolean = false,
 )
 
 @Serializable
@@ -53,8 +55,14 @@ interface AgentSessionPersistence {
     /** 新建空会话并登记。 */
     fun create(title: String = AGENT_SESSION_DEFAULT_TITLE): AgentSession
 
-    /** @param lock 是否锁定标题（用户改名或 AI 总结时为 true）。 */
-    fun rename(id: String, title: String, lock: Boolean = true)
+    /**
+     * @param lock 是否锁定标题（用户改名或 AI 总结时为 true）。
+     * @param ai 标题是 AI 起的；用户改名传 false，之后 AI 不再改（见 [canAiRetitle]）。
+     */
+    fun rename(id: String, title: String, lock: Boolean = true, ai: Boolean = false)
+
+    /** AI 还能不能改这个会话的标题：标题没锁（还是首条消息），或者锁定的是 AI 起的。 */
+    fun canAiRetitle(id: String): Boolean = !isLocked(id)
 
     fun delete(id: String)
 
@@ -78,7 +86,7 @@ interface AgentSessionPersistence {
             override fun list(): List<AgentSession> = emptyList()
             override fun create(title: String): AgentSession =
                 AgentSession(id = "", title = sanitizeAgentTitle(title, AGENT_SESSION_DEFAULT_TITLE))
-            override fun rename(id: String, title: String, lock: Boolean) {}
+            override fun rename(id: String, title: String, lock: Boolean, ai: Boolean) {}
             override fun delete(id: String) {}
             override fun load(id: String): StoredConversation? = null
             override fun save(id: String, convo: StoredConversation, title: String) {}

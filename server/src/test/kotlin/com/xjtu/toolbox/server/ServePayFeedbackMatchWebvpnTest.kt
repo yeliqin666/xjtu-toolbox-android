@@ -425,7 +425,7 @@ class ServePayFeedbackMatchWebvpnTest {
             ServeFeedback.ENV_TABLE_REPLY to FeedbackFakeUpstream.REPLY_TABLE,
         )
 
-        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人）：登录学号、校园卡上的姓名与学号、卡账号，以及几个一眼能认出来的身份键名。 */
+        /** 隐私红线的钉子组（全是夹具里的编造值，不是真人）：登录学号、校园卡上的姓名与学号、卡账号，以及几个一眼能认出来的身份键名。 */
         val IDENTITY = listOf(
             "username",
             "studentId",

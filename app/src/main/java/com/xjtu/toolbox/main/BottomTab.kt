@@ -73,7 +73,11 @@ data class BarTab(
         showsAccountBadge = core == BottomTab.PROFILE,
         // 首页的按钮和模糊带都在页面内容里
         drawsOwnTopBar = isRouteTab || core == BottomTab.HOME,
-        edgeToEdge = core == BottomTab.HOME,
+        // 可以在后台提前落地（含首次测量）的格：落地时的联网要么等页面可见（首页、小岱、我的、底栏登录门），
+        // 要么本来在组合时就发了（校园卡的 ViewModel 在 init 里取数，预组合就已触发）。
+        // 日程、学辅（落地即请求按 IP 限流的接口）和其余子页不提前
+        prewarm = core == BottomTab.HOME || core == BottomTab.PIDAI || core == BottomTab.PROFILE ||
+            route == AppRoute.CampusCard,
     )
 
     companion object {

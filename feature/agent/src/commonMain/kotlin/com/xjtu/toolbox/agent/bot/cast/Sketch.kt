@@ -277,3 +277,64 @@ class Sketch {
         const val TAU = PI * 2
     }
 }
+
+/**
+ * 上一次真正画到屏幕上的那一帧（命令与样式的副本）。
+ * 静息时角色只有呼吸、眨眼：小图标上呼吸的起伏不到半个像素，和它比一比，看不出差别的帧就不必重画。
+ */
+class SketchFrame {
+    private var cmd = FloatArray(0)
+    private var size = -1
+    private var ops = LongArray(0)
+    private var count = 0
+
+    /** 记下 [s] 此刻的样子。 */
+    fun capture(s: Sketch) {
+        if (cmd.size < s.size) cmd = FloatArray(s.cmd.size)
+        s.cmd.copyInto(cmd, endIndex = s.size)
+        size = s.size
+        if (ops.size < s.count * OP_FIELDS) ops = LongArray(s.count * OP_FIELDS * 2)
+        for (i in 0 until s.count) {
+            val op = s.op(i)
+            val o = i * OP_FIELDS
+            ops[o] = (op.start.toLong() shl 32) or op.end.toLong()
+            ops[o + 1] = op.color
+            ops[o + 2] = (op.tone.ordinal.toLong() shl 32) or (op.alpha * 255f + 0.5f).toLong()
+            ops[o + 3] = op.stroke.toRawBits().toLong()
+        }
+        count = s.count
+    }
+
+    /**
+     * [s] 和记下的那一帧比，有没有看得出的差别：笔画结构、颜色、透明度（按 1/255）不同，
+     * 或任何一个坐标、线宽差出 [tolerance]（Sketch 单位）以上。还没记过任何一帧时总是 true。
+     */
+    fun differs(s: Sketch, tolerance: Float): Boolean {
+        if (size != s.size || count != s.count) return true
+        for (i in 0 until count) {
+            val op = s.op(i)
+            val o = i * OP_FIELDS
+            if (ops[o] != ((op.start.toLong() shl 32) or op.end.toLong())) return true
+            if (ops[o + 1] != op.color) return true
+            if (ops[o + 2] != ((op.tone.ordinal.toLong() shl 32) or (op.alpha * 255f + 0.5f).toLong())) return true
+            if (kotlin.math.abs(Float.fromBits(ops[o + 3].toInt()) - op.stroke) > tolerance) return true
+            var k = op.start
+            while (k < op.end) {
+                val code = s.cmd[k]
+                if (cmd[k] != code) return true
+                val args = when (code) {
+                    Sketch.MOVE, Sketch.LINE -> 2
+                    Sketch.CUBIC -> 6
+                    else -> 0
+                }
+                for (j in k + 1..k + args) if (kotlin.math.abs(cmd[j] - s.cmd[j]) > tolerance) return true
+                k += args + 1
+            }
+        }
+        return false
+    }
+
+    private companion object {
+        const val OP_FIELDS = 4
+    }
+}

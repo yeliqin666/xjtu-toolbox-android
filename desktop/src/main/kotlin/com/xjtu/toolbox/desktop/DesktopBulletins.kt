@@ -78,6 +78,9 @@ internal class DesktopBulletins(
         closeDialog()
         if (bulletin.level == BulletinLevel.FORCE_UPDATE) {
             bulletin.url?.takeIf { it.isNotBlank() }?.let { openInBrowser(it) }
+        } else {
+            BulletinFeed.confirmDialog(store, bulletin)
+            refreshHero()
         }
     }
 

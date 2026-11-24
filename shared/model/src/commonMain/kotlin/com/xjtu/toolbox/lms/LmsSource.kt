@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.lms
 
+// `lmsHomeworkSubmissionUrl` 的 KDoc 里按名字引用了 `:feature:lms` 那个函数：跨模块不能用 KDoc
+// 链接语法（`[lmsHomeworkSubmissionUrl]` 在这里解析不到，dokka 会报 unresolved），只写名字。
+
 /** 思源学堂（`lms.xjtu.edu.cn`）的取数端口 —— 屏与批量下载的编排都在 `:core`，「谁来取数、谁把文件落到哪儿」由各端自己实现。 */
 interface LmsSource {
 
@@ -26,6 +29,15 @@ interface LmsSource {
 
     /** 作业已提交次数（只有详情接口给 `user_submit_count`）。 */
     suspend fun userSubmitCount(activityId: Int): Int
+
+    /**
+     * 当前登录者的用户 id（`/user/index` 的 `globalData.user.id`）。
+     *
+     * 只为一件事存在：拼官方 h5 的作业提交页 `/course/{c}/homework/{h}/submission/create/{committerId}`
+     * ——个人作业那一格要的就是这个 id（见 `feature/lms` 的 `lmsHomeworkSubmissionUrl`）。
+     * 拿不到就返回 null，调用方退到作业详情页，不拿猜出来的号去拼地址。
+     */
+    suspend fun currentUserId(): Int? = null
 
     /** 活动正文（HTML）转纯文本。 */
     suspend fun htmlToPlainText(html: String): String
@@ -84,4 +96,14 @@ interface LmsCacheStore {
     suspend fun writeActivities(courseId: Int, activities: List<LmsActivity>)
     suspend fun readBulletins(courseId: Int): List<LmsBulletin>? = null
     suspend fun writeBulletins(courseId: Int, bulletins: List<LmsBulletin>) {}
+
+    /**
+     * 作业 id → 交过没有。
+     *
+     * 列表接口**不给** `user_submit_count`，只能一条作业一次请求去问详情（见
+     * `LmsSource.userSubmitCount`）。不落盘的话每次重进思源学堂都要重新问一遍：网一慢或某条
+     * 查询失败，「已提交」那几个字就整片消失，用户以为还要再交一次。所以查到的结论留一份。
+     */
+    suspend fun readSubmitted(): Map<Int, Boolean>? = null
+    suspend fun writeSubmitted(byId: Map<Int, Boolean>) {}
 }

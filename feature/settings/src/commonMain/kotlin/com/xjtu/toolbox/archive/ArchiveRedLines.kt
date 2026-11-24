@@ -1,14 +1,14 @@
 package com.xjtu.toolbox.archive
 
 /**
- * 镜像档的红线清单（§6.4 逐字）：这些店无论档案长什么样，**一概不删**，只可能被写。
+ * 镜像档的红线清单：这些店无论档案长什么样，**一概不删**，只可能被写。
  *
  * 判断对象是店的 **base 名**（去掉账号后缀的那个名字），与 [ArchiveRegistry] 里的键同一套写法。
  * 保守口径：清单按「宁可留着」写 —— 多留一个键只占几字节，误删一个凭据就是重新登录一遍。
  */
 object ArchiveRedLines {
 
-    /** 逐字名单（§6.4）。 */
+    /** 逐字名单。 */
     private val exactNames: Set<String> = setOf(
         "xjtu_credentials",
         "xjtu_accounts",

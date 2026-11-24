@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 /**
- * serve 契约 §5.12（C-2 那一批）的客户端那一侧：作业截止 / 思源课程配对 / 评教提交。
+ * serve 契约的客户端那一侧：作业截止 / 思源课程配对 / 评教提交。
  *
  * 夹具一律编造，不打真实站点。
  */
@@ -131,7 +131,7 @@ class ServeC2EndpointsApiTest {
         assertNull(course)
     }
 
-    // ── 评教（QMS，契约 §5.15）──────────────────────────────────────────
+    // ── 评教（QMS）──────────────────────────────────────────
 
     @Test
     fun `serve 形态下评教列表读 QMS 投影：key 是 responseId，评语进确认文案`() = runTest {
@@ -169,7 +169,7 @@ class ServeC2EndpointsApiTest {
             "",
             ApiMode.SERVE,
         )
-        assertTrue(api.canSubmit, "serve 形态下真能提交（契约 §5.15）")
+        assertTrue(api.canSubmit, "serve 形态下真能提交")
 
         api.judge(CampusQuestionnaire("", "", "高等数学（上）", "示例教师", "", false, responseId = "R1", tag = "期末评教"))
 

@@ -46,6 +46,18 @@ internal data class WidgetCourse(
     val color: Int,
     /** 已经上完：之前的日子全算，今天看下课时间。 */
     val done: Boolean = false,
+    /**
+     * 这节课的节次（1 起）。智能卡片靠「日期 + 节次」这一格去考勤流水里取本堂状态，
+     * 自建日程没有节次（0），也就不可能有考勤。
+     */
+    val startSection: Int = 0,
+    /** 结束节次；连上多节时学校可能只报起始节，取记录时用它兜一层。 */
+    val endSection: Int = 0,
+    /**
+     * 教务课程号。智能卡片认考勤流水时优先用它 —— 考勤系统和教务是同一套课程号，
+     * 比课名可靠（两边对全角括号、班号后缀的写法未必一致）。
+     */
+    val courseCode: String = "",
 )
 
 /**
@@ -445,12 +457,42 @@ object ScheduleWidgetUpdater {
                 endMinute = end,
                 color = colors.colorOf(c.courseName).toArgb(),
                 done = date < today || (date == today && end <= nowMinute),
+                startSection = c.startSection,
+                endSection = c.endSection,
+                courseCode = c.courseCode,
             )
         }.sortedWith(compareBy({ it.startMinute }, { it.endMinute }))
     }
 
     internal fun todayCourses(context: Context): List<WidgetCourse> =
         loadTerm(context)?.coursesOn(LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)).orEmpty()
+
+    /**
+     * 当前学期码（如 `2025-2026-2`）。没缓存返回 null。
+     *
+     * 智能卡片要按学期码去读考勤流水落盘的那份，而学期码的兜底逻辑
+     * （[resolveTermCode] 会翻缓存目录）全在这个对象里，所以这一格开在这里。
+     */
+    internal fun currentTermCode(context: Context): String? {
+        com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
+        return resolveTermCode(context, DataCache(context))
+    }
+
+    /**
+     * 今天属于本学期的第几周、以及学期码。拿不到（没缓存 / 没有开学日期）返回 null。
+     *
+     * 课表网格与考勤角标按周次对格子；智能卡片**不用它**——那两套周次口径可能不一致，
+     * 卡片改按日期 + 节次取（见 `SmartWidgetUpdater` 的注释）。
+     */
+    internal fun todayTermAndWeek(context: Context): Pair<String, Int>? {
+        com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
+        val cache = DataCache(context)
+        val termCode = resolveTermCode(context, cache) ?: return null
+        val start = readStartDate(cache, termCode) ?: return null
+        val today = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
+        val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(start.toKx(), today.toKx())
+        return termCode.takeIf { it.isNotBlank() && week >= 1 }?.let { it to week }
+    }
 
     /**
      * 约下一次刷新：今天下一个上课或下课时刻，今天没有了就约到明天零点。系统自带的定时刷新半小时起步、

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <title>西交工具箱 · Web</title>
+    <title>岱宗盒子</title>
     <!-- PWA：manifest、主题色与 iOS 主屏图标。 -->
     <link rel="manifest" href="manifest.webmanifest" />
     <meta name="theme-color" content="#87CEEB" />
@@ -12,9 +12,43 @@
     <link href="styles.css" rel="stylesheet" type="text/css" />
   </head>
   <body>
+    <!-- wasm 下载与启动要几秒：先给一句话，画布挂上来就撤掉；太久没起来就说明可能的原因 -->
+    <div id="appLoading" role="status">
+      <div id="appLoadingText">正在加载岱宗盒子…</div>
+    </div>
     <!-- Compose Multiplatform (wasmJs) 的挂载点：viewportContainerId 必须与 Main.kt 一致 -->
     <div id="composeApp"></div>
-    <script src="toolbox-web.js" type="application/javascript"></script>
+    <script type="application/javascript">
+      (function () {
+        var loading = document.getElementById('appLoading');
+        var text = document.getElementById('appLoadingText');
+        var root = document.getElementById('composeApp');
+        function done() {
+          if (loading && loading.parentNode) loading.parentNode.removeChild(loading);
+        }
+        function fail(message) {
+          if (text) text.textContent = message;
+        }
+        new MutationObserver(function (_, observer) {
+          if (root.querySelector('canvas')) {
+            done();
+            observer.disconnect();
+          }
+        }).observe(root, { childList: true, subtree: true });
+        if (typeof WebAssembly !== 'object') {
+          fail('当前浏览器不支持 WebAssembly，请使用最新版 Chrome、Edge、Firefox 或 Safari。');
+        }
+        window.__xjtuToolboxLoadFailed = function () {
+          fail('加载失败，请检查网络后刷新页面。');
+        };
+        setTimeout(function () {
+          if (loading && loading.parentNode) {
+            fail('加载时间较长：网络较慢，或浏览器版本过旧（需要支持 WebAssembly GC 的最新版 Chrome、Edge、Firefox 或 Safari）。');
+          }
+        }, 20000);
+      })();
+    </script>
+    <script src="toolbox-web.js" type="application/javascript" onerror="window.__xjtuToolboxLoadFailed && window.__xjtuToolboxLoadFailed()"></script>
     <!-- canvas 与设备像素 1:1（分数 DPR 下 CMP 的 backing store 与真实视口差 1px ⇒ 永久微糊）。
          必须放在 toolbox-web.js **之后**：它要等 CMP 把 canvas 挂上去再钉尺寸。 -->
     <script src="canvas-crisp.js" type="application/javascript"></script>

@@ -37,7 +37,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 小岱（`AppRoute.Agent`）在浏览器上的那一屏（设计真源 `docs/agent-web-spec.md` §4）。 */
+/** 小岱（`AppRoute.Agent`）在浏览器上的那一屏。 */
 @Composable
 internal fun WebAgentScreen(
     client: HttpClient,
@@ -50,21 +50,15 @@ internal fun WebAgentScreen(
     var reloadNonce by remember { mutableStateOf(0) }
     LaunchedEffect(session, reloadNonce) { host.reload() }
 
-    // 读到 serve 上的配置之前不画屏：否则默认值会被写回 serve 覆盖掉真实配置。
+    // 读到 serve 上的配置（GET /api/agent/config）之前不画屏：否则默认值会被写回 serve 覆盖掉真实配置。
     if (host.config == null) {
-        WebUnavailableScreen(
-            title = "小岱（Web 这一端）",
-            why = host.configError
-                ?: "正在读取运行 serve 的那台机器上的小岱配置（GET /api/agent/config）…",
-            missing = listOf(
-                "这一屏的模型调用 / 工具取数 / 会话与记忆 / API Key 全在 serve 那一侧",
-                "配置没读回来之前不画屏：拿默认值画出来的表单一保存就会把 serve 上的配置覆盖掉",
-            ),
-        ) {
-            Button(
-                onClick = { reloadNonce++ },
-                colors = ButtonDefaults.buttonColorsPrimary(),
-            ) { Text("重新读一次", color = MiuixTheme.colorScheme.onPrimary) }
+        WebUnavailableScreen(title = "小岱", why = host.configError ?: "正在加载…") {
+            if (host.configError != null) {
+                Button(
+                    onClick = { reloadNonce++ },
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                ) { Text("重试", color = MiuixTheme.colorScheme.onPrimary) }
+            }
         }
         return
     }
@@ -108,7 +102,7 @@ internal fun WebAgentScreen(
     }
 }
 
-/** 浏览器这一端的宿主面（设计稿 §4.1 的逐槽位表；与 `DesktopAgentHost` 同形）。 */
+/** 浏览器这一端的宿主面（与 `DesktopAgentHost` 同形）。 */
 internal class WebAgentHost(
     private val session: WebAgentSession,
     private val scope: CoroutineScope,
@@ -283,10 +277,10 @@ internal fun agentToolLine(name: String): String {
     return if (label == "调用工具 $name…") "未知工具（$name）" else label.trimEnd('…')
 }
 
-/** 「为什么不开」的一组工具（设计稿 §6.2 的逐条理由，这里只留一句话级）。 */
+/** 「为什么不开」的一组工具（每条一句话理由）。 */
 internal class AgentClosedToolGroup(val title: String, val why: String, val names: List<String>)
 
-/** 白名单之外的那几档，按「为什么不开」分组（`docs/agent-web-spec.md` §6.2）。 */
+/** 白名单之外的那几档，按「为什么不开」分组。 */
 internal val AGENT_CLOSED_TOOL_GROUPS: List<AgentClosedToolGroup> = listOf(
     AgentClosedToolGroup(
         title = "闹钟和日程写入",

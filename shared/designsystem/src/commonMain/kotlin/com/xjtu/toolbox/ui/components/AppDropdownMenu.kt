@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.unit.toSize
@@ -103,6 +104,7 @@ fun AppDropdownMenu(
 ) {
     // 收起动画播完之前弹层还得留着
     var shown by remember { mutableStateOf(false) }
+    val opening = expanded && !shown
     if (expanded) shown = true
     val progress = remember { Animatable(0f) }
     val sub = remember { MenuSub() }
@@ -136,15 +138,19 @@ fun AppDropdownMenu(
     }
     // 锚点（触发按钮所在的那个父布局）在屏幕上的矩形：用一个零尺寸的探针读父布局的坐标。
     // 必须用屏幕坐标：弹层窗口的原点在状态栏下面，和应用窗口的坐标差一个状态栏
+    // 收着的时候只记坐标对象、不写状态：页面滚动时这个回调每帧都来，一屏几个菜单就是每帧几次白写
     val anchorOnScreen = remember { mutableStateOf<Rect?>(null) }
+    val anchorCoordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    fun anchorRect(parent: LayoutCoordinates) = Rect(parent.positionOnScreen(), parent.size.toSize())
     Spacer(
         Modifier.onGloballyPositioned { probe ->
             val parent = probe.parentLayoutCoordinates ?: return@onGloballyPositioned
-            if (parent.isAttached) {
-                anchorOnScreen.value = Rect(parent.positionOnScreen(), parent.size.toSize())
-            }
+            anchorCoordinates[0] = parent
+            if (shown && parent.isAttached) anchorOnScreen.value = anchorRect(parent)
         },
     )
+    // 打开的那一刻按最新位置定一次锚点
+    if (opening) anchorCoordinates[0]?.takeIf { it.isAttached }?.let { anchorOnScreen.value = anchorRect(it) }
     // 菜单自己的毛玻璃底：打开那一刻截一张被盖住的窗口（已缩小、模糊），铺在面板下面。
     // 要在弹层外面截（这里的 LocalView 是应用窗口），截不到的端面板保持不透明
     val frost = com.xjtu.toolbox.platform.rememberWindowSnapshot(capture = shown)

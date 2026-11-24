@@ -122,15 +122,18 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
         beat = pokes.poke(beat)
     }
     // 轻轻上下浮动：约 30 帧/秒推进相位，页面不可见就停（和底栏屁岱同一档开销）
-    val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current.value &&
+        !com.xjtu.toolbox.ui.components.LocalPageSettling.current.value
     val floatPhase = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     if (visible) {
         LaunchedEffect(Unit) {
             // 时钟用单调源：commonMain 没有 `System.nanoTime()`（见 [BotClock] 的同一处替换）。
             val start = kotlin.time.TimeSource.Monotonic.markNow()
             while (true) {
-                floatPhase.floatValue =
-                    (start.elapsedNow().inWholeNanoseconds / 1_000_000_000.0 * 1.6).toFloat()
+                androidx.compose.ui.util.trace("xjtu:loop:pidaiHero") {
+                    floatPhase.floatValue =
+                        (start.elapsedNow().inWholeNanoseconds / 1_000_000_000.0 * 1.6).toFloat()
+                }
                 delay(33)
             }
         }

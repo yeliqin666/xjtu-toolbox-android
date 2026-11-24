@@ -6,7 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Android store 投影的验收（§7）。 */
+/** Android store 投影的验收。 */
 class AndroidPrefsBackendTest {
 
     private fun backendOf(vararg names: String): Pair<Map<String, InMemorySharedPreferences>, AndroidPrefsBackend> {

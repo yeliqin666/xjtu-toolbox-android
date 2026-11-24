@@ -42,6 +42,7 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.home.BottomBarTabs
 import com.xjtu.toolbox.ui.components.MorphingLoader
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -84,7 +85,7 @@ import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
  * 子页挂到底栏上。子页原本是全屏页：顶栏自带状态栏留白、底部自己让导航条。
  * 底栏占位交给页面的滚动内容，页面继续铺到玻璃底栏下；已由壳处理的 inset 标成已消费。
  * 顶部：壳不画主顶栏、
- * 也不给这一格做跟随位移（`ShellTab.drawsOwnTopBar`），玻璃风格下页面从屏幕顶边画起、自己让状态栏。
+ * 也不给这一格做跟随位移（`ShellTab.drawsOwnTopBar`），两种风格下页面都从屏幕顶边画起、自己让状态栏。
  *
  * 要登录站点的页先过 [TabLoginGate]：压栈时这一步由 AppRouter 在跳转前做，放在底栏上没有跳转这一步，
  * 拿不到会话时页面会自己退回（WithSite / AwaitSite），所以先在这里登好再画。
@@ -93,14 +94,13 @@ import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 internal fun RouteTabPage(
     route: AppRoute,
     insets: ShellPageInsets,
-    glassStyle: Boolean,
     loginState: AppLoginState,
     content: @Composable () -> Unit,
 ) {
-    // 壳的内容区：横向 inset 两种风格都垫了；顶部只有经典风格垫（玻璃风格铺到状态栏下）；
+    // 壳的内容区垫了横向 inset；顶部不垫（页面铺到状态栏下，由自己的顶栏让开）；
     // 底部由底栏或 bottomBarReserve 盖住
     val handled = WindowInsets.systemBars.union(WindowInsets.displayCutout)
-        .only(if (glassStyle) WindowInsetsSides.Horizontal else WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
+        .only(WindowInsetsSides.Horizontal)
         .union(WindowInsets.navigationBars)
     Box(
         Modifier
@@ -121,19 +121,24 @@ internal fun RouteTabPage(
 @Composable
 private fun TabLoginGate(type: LoginType, title: String, loginState: AppLoginState, content: @Composable () -> Unit) {
     val manager = loginState.sessionManager
-    var ready by remember(manager) { mutableStateOf(manager?.getSiteOrNull(type.siteKey())?.hasLogin == true) }
+    // 按账号隔离：切账号复用同一个 SessionManager，只按 manager 记的话会沿用上一个账号的「已登录」或报错
+    val account = loginState.accountId
+    var ready by remember(manager, account) { mutableStateOf(manager?.getSiteOrNull(type.siteKey())?.hasLogin == true) }
     if (ready) {
         content()
         return
     }
-    var failure by remember { mutableStateOf<String?>(null) }
-    var attempt by remember { mutableIntStateOf(0) }
-    LaunchedEffect(manager, attempt) {
+    var failure by remember(account) { mutableStateOf<String?>(null) }
+    var attempt by remember(account) { mutableIntStateOf(0) }
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    LaunchedEffect(manager, account, attempt) {
         failure = null
         if (manager == null || !loginState.hasCredentials) {
             failure = "请先在「我的」里登录校园账号"
             return@LaunchedEffect
         }
+        // 这一格可能在后台提前落地：前台式登录（豁免失败冷却、可能弹短信验证）等用户真切过来再做
+        androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
         failure = try {
             // 用户点开了这一格，算前台等待：豁免站点失败冷却
             val site = withTimeoutOrNull(TAB_LOGIN_TIMEOUT_MS) { manager.ensureSite(type, userInitiated = true) }

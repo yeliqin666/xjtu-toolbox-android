@@ -9,6 +9,8 @@ kotlin {
         commonMain.dependencies {
             api(project(":shared:model"))
             implementation(compose.components.resources)
+            implementation(libs.latex.renderer)
+            implementation(libs.latex.fonts.katex)
         }
         androidMain.dependencies {
             implementation(libs.androidx.graphics.shapes)

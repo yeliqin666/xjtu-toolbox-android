@@ -12,16 +12,21 @@ import com.kyant.backdrop.internal.RuntimeShaderEffect
 import com.kyant.backdrop.isRuntimeShaderSupported
 import com.kyant.shapes.RoundedRectangularShape
 
-// [岱宗盒子 vendor 改动] 删掉了上游的 `chromaticAberration`（色散）：本仓库永远不用它，而它会
-// 把折射那一档从「每像素 1 次纹理采样」变成「7 次」（红橙黄绿青蓝紫七次 content.eval），
-// 是整页最贵的一层。现在这条路上只剩一个不带色散的折射 shader。
+// [岱宗盒子 vendor 改动] 删掉了上游的 `chromaticAberration`（色散）：它把折射那一档从
+// 「每像素 1 次纹理采样」变成「7 次」，是整页最贵的一层。
+//
+// [岱宗盒子 vendor 改动] [saturation] 在折射着色器里一并调饱和度：`vibrancy()` + `lens()` 是两趟离屏处理，
+// 合进来少一趟（Kyant #126 第 4 条：玻璃密集页最慢的帧约减半）。折射跑不了时退回颜色矩阵。
 fun BackdropEffectScope.lens(
     @FloatRange(from = 0.0) refractionHeight: Float,
     @FloatRange(from = 0.0) refractionAmount: Float,
-    depthEffect: Boolean = false
+    depthEffect: Boolean = false,
+    @FloatRange(from = 0.0) saturation: Float = 1f,
 ) {
-    if (!isRuntimeShaderSupported()) return
-    if (refractionHeight <= 0f || refractionAmount <= 0f) return
+    if (!isRuntimeShaderSupported() || refractionHeight <= 0f || refractionAmount <= 0f) {
+        if (saturation != 1f) colorControls(saturation = saturation)
+        return
+    }
 
     if (padding > 0f) {
         padding = (padding - refractionHeight).fastCoerceAtLeast(0f)
@@ -41,6 +46,7 @@ fun BackdropEffectScope.lens(
                 setFloatUniform("refractionHeight", refractionHeight)
                 setFloatUniform("refractionAmount", -refractionAmount)
                 setFloatUniform("depthEffect", if (depthEffect) 1f else 0f)
+                setFloatUniform("saturation", saturation)
             }
             RuntimeShaderEffect(shader, "content")
         } else {

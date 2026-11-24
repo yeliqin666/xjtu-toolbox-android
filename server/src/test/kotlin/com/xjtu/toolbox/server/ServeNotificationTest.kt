@@ -1,6 +1,11 @@
 package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.notification.AppNoticeSource
+import com.xjtu.toolbox.notification.MergedNotificationPage
+import com.xjtu.toolbox.notification.NoticeSource
+import com.xjtu.toolbox.notification.Notification
+import com.xjtu.toolbox.notification.NotificationSource
+import kotlinx.datetime.LocalDate
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import io.ktor.server.cio.CIOApplicationEngine
@@ -127,6 +132,45 @@ class ServeNotificationTest {
         assertNoIdentity(merged.body(), "GET /api/notification/list", LOGIN_IDENTITY)
         assertEquals(401, http.get("/api/notification/list", bearer = null).statusCode())
         assertEquals(401, http.get("/api/notification/list", bearer = "wrong").statusCode())
+    }
+
+    @Test
+    fun `站内搜索：关键词与来源透传，缺关键词 400`() = withFakeProxy(casEnabled = false) { _ ->
+        var asked: Pair<List<NotificationSource>, String>? = null
+        val stub = object : NoticeSource {
+            override suspend fun page(source: NotificationSource, page: Int) = error("不该调")
+            override suspend fun merged(sources: List<NotificationSource>, page: Int) = error("不该调")
+            override suspend fun search(sources: List<NotificationSource>, keyword: String): MergedNotificationPage {
+                asked = sources to keyword
+                return MergedNotificationPage(
+                    items = listOf(
+                        Notification(
+                            title = "关于奖学金评定的通知",
+                            link = "https://jwc.example.invalid/1",
+                            source = NotificationSource.JWC,
+                            date = LocalDate(2026, 11, 20),
+                        ),
+                    ),
+                    skipped = setOf(NotificationSource.OA),
+                    hasMore = true,
+                )
+            }
+        }
+        val token = AccessToken.newToken()
+        val (server, http) = startEndpointServer(token) { notificationRoutes(stub) }
+        started = server
+
+        val ok = http.get("/api/notification/search?sources=JWC,OA&keyword=%E5%A5%96%E5%AD%A6%E9%87%91")
+        assertEquals(200, ok.statusCode())
+        assertEquals(listOf(NotificationSource.JWC, NotificationSource.OA) to "奖学金", asked)
+        val data = envelopeData(ok)
+        assertEquals(1, data.arrOf("items").size)
+        assertEquals(listOf("OA"), data.arrOf("skipped").map { (it as kotlinx.serialization.json.JsonPrimitive).content })
+        assertTrue(data.optBoolean("hasMore") == false, "检索一次给全")
+
+        assertEquals(400, http.get("/api/notification/search?sources=JWC").statusCode())
+        assertEquals(400, http.get("/api/notification/search?sources=NOPE&keyword=x").statusCode())
+        assertEquals(401, http.get("/api/notification/search?keyword=x", bearer = null).statusCode())
     }
 
     private companion object {

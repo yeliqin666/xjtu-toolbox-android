@@ -175,7 +175,9 @@ private fun QrLoginContent(
     val view = androidx.compose.ui.platform.LocalView.current
     if (!view.isInEditMode) {
         androidx.compose.runtime.DisposableEffect(scanning) {
-            val window = (view.context as? android.app.Activity)?.window
+            // 图书馆页内扫码开在单独的 Dialog 窗口里，要改的是那个窗口
+            val window = (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+                ?: (view.context as? android.app.Activity)?.window
             val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
             val lightNav = controller?.isAppearanceLightNavigationBars
             if (scanning && controller != null) controller.isAppearanceLightNavigationBars = false

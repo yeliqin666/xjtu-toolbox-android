@@ -64,6 +64,10 @@ class AppLmsSource private constructor(
     override suspend fun userSubmitCount(activityId: Int): Int =
         withContext(Dispatchers.IO) { api().getUserSubmitCount(activityId) }
 
+    /** 拼官方 h5 提交页要的那一格（个人作业的 committerId）。`0` 当拿不到，别拿它去拼地址。 */
+    override suspend fun currentUserId(): Int? =
+        withContext(Dispatchers.IO) { api().getUserInfo().id.takeIf { it > 0 } }
+
     override suspend fun htmlToPlainText(html: String): String =
         withContext(Dispatchers.IO) { com.xjtu.toolbox.lms.htmlToPlainText(html) }
 

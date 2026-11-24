@@ -23,8 +23,11 @@ import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
+import com.xjtu.toolbox.core.net.serveData
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.datetime.LocalDate
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Web 端的日程页宿主面（`ScheduleHost`）。
@@ -46,7 +49,7 @@ internal class WebScheduleHost(
         // 调课/停课的气泡：一条自己的提醒写进 `:core` 的收纳（见类 KDoc 与 [postScheduleChange]）
         add(ScheduleCapability.SCHEDULE_CHANGE_BUBBLE)
         add(ScheduleCapability.SEAT_COUNT)
-        // serve 形态下多三档（2026-10-22 批5，契约 §5.12）：考勤那一档（角标 + 本次考勤）、思源下钻、作业截止。
+        // serve 形态下多三档：考勤那一档（角标 + 本次考勤）、思源下钻、作业截止。
         // 三条端点都只在 serve 契约里 ⇒ campus-api 形态照旧不画（不是「做不到」，是那一形态没有取数）。
         if (mode == ApiMode.SERVE) {
             add(ScheduleCapability.ATTENDANCE)
@@ -63,10 +66,7 @@ internal class WebScheduleHost(
      * 「坏了」，所以缺口说明就放在它本该出现的地方。文案：这一端没有什么 / 为什么 / 去哪儿能用。
      */
     override val gapNotes: Map<ScheduleCapability, String> = mapOf(
-        ScheduleCapability.SHARE_FILE to
-            "Web 版没有「导出日历 (ICS)」：这一步要落一个文件给系统，本端没接（不是浏览器做不到 ——" +
-                "只是这一端还没接上下载那一步）。要 .ics 请用 App 或桌面版：日程 → 右上「导出」，" +
-                "桌面会弹系统保存框。",
+        ScheduleCapability.SHARE_FILE to "网页版暂不支持导出日历，请在手机或桌面版导出。",
     )
 
     /** 课表变更（调课/停课/换教室）冒一条气泡。 */
@@ -90,7 +90,7 @@ internal class WebScheduleHost(
 
     override val session: ScheduleSession = WebScheduleSession(WebScheduleSource(client, mode))
 
-    override val holidays: HolidaySource = WebHolidaySource
+    override val holidays: HolidaySource = WebHolidaySource(client, mode)
 
     /** 课程详情的两项下钻本端没有 ⇒ 不画。 */
     /**
@@ -130,7 +130,7 @@ internal class WebScheduleHost(
     private val settings = SettingsStore()
 
     /**
-     * 详情里「N座」那一格的取数：serve 形态是 §5.8 的 `seat-count`；CAMPUS_API 形态从
+     * 详情里「N座」那一格的取数：serve 形态是 `/api/emptyroom/seat-count`；CAMPUS_API 形态从
      * 本次会话已经拉到的那一天教室行（`cachedRooms`）里按教室名查，查不到就是 null（那一格不画数字）。
      */
     private val emptyRoom = CampusEmptyRoomApi(client, API_BASE, mode)
@@ -167,17 +167,37 @@ internal class WebScheduleSession(private val webSource: WebScheduleSource) : Sc
     )
 }
 
-/** 节假日那一格：只读落盘的那一份，不联网。 */
-private object WebHolidaySource : HolidaySource {
-
-    private const val CACHE_KEY = "holiday_dates"
+/** 节假日那一格：serve 形态从 `/api/calendar/holidays` 取并落进课表缓存；campus-api 没有这条端点，只读缓存。 */
+private class WebHolidaySource(
+    private val client: HttpClient,
+    private val mode: ApiMode,
+) : HolidaySource {
 
     override fun peekCached(cache: ScheduleCacheStore): Map<LocalDate, String> =
         parseHolidays(cache.readJson(CACHE_KEY, Long.MAX_VALUE))
 
-    /** 见本对象 KDoc：本端不联网取节假日 ⇒ 刷新就是再读一次缓存。 */
-    override suspend fun refresh(cache: ScheduleCacheStore, force: Boolean): Map<LocalDate, String> =
-        peekCached(cache)
+    override suspend fun refresh(cache: ScheduleCacheStore, force: Boolean): Map<LocalDate, String> {
+        if (mode != ApiMode.SERVE) return peekCached(cache)
+        val cached = peekCached(cache)
+        val fresh = cache.ageMsOfJson(CACHE_KEY)?.let { it < REFRESH_INTERVAL_MS } == true
+        if (!force && cached.isNotEmpty() && fresh) return cached
+        val data = try {
+            client.serveData("加载节假日", API_BASE, "/api/calendar/holidays")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            return cached
+        }
+        val holidays = data["holidays"] as? JsonObject ?: return cached
+        if (holidays.isEmpty()) return cached
+        cache.writeJson(CACHE_KEY, holidays.toString())
+        return peekCached(cache)
+    }
+
+    private companion object {
+        const val CACHE_KEY = "holiday_dates"
+        const val REFRESH_INTERVAL_MS = 7L * 24 * 3600 * 1000
+    }
 
     private fun parseHolidays(json: String?): Map<LocalDate, String> {
         if (json.isNullOrBlank()) return emptyMap()

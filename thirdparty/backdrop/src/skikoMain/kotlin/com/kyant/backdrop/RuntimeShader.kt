@@ -3,6 +3,8 @@ package com.kyant.backdrop
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shader
 import androidx.compose.ui.graphics.asComposeShader
+import androidx.compose.ui.graphics.asSkiaBitmap
+import androidx.compose.ui.graphics.skiaShader
 import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import org.jetbrains.skia.RuntimeEffect
 import org.jetbrains.skia.RuntimeShaderBuilder
@@ -20,7 +22,18 @@ fun RuntimeShader.asSkikoRuntimeShader(): RuntimeShaderBuilder {
     return (this as SkikoRuntimeShader).shader
 }
 
+actual fun androidx.compose.ui.graphics.ImageBitmap.toLinearShader(): Shader =
+    asSkiaBitmap().makeShader(
+        org.jetbrains.skia.FilterTileMode.CLAMP,
+        org.jetbrains.skia.FilterTileMode.CLAMP,
+        org.jetbrains.skia.SamplingMode.LINEAR,
+    ).asComposeShader()
+
 internal class SkikoRuntimeShader(val shader: RuntimeShaderBuilder) : RuntimeShader {
+
+    override fun setInputShader(name: String, shader: Shader) {
+        this.shader.child(name, shader.skiaShader)
+    }
 
     override fun setFloatUniform(name: String, value: Float) {
         shader.uniform(name, value)

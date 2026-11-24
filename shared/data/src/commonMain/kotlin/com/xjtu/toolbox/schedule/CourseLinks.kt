@@ -209,6 +209,7 @@ object CourseLinks {
                             fetchedAt = now,
                             // 增量不推进全量时间戳，否则永远轮不到重扫。
                             fullScanAt = if (incremental) shard?.fullScanAt ?: now else now,
+                            sealed = !incremental && matched != null && termCode in sealedTerms,
                         ),
                         c.accountId,
                     )

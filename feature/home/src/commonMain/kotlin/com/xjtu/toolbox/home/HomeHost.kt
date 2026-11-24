@@ -12,6 +12,9 @@ enum class HomeCard {
     /** 顶部那条公告堆叠条（`:core` 的 `BulletinNoticePanel`）。 */
     BULLETIN_BAR,
 
+    /** 公告条位置的「小贴士」（`HomeTipPanel`），没有公告时才出。 */
+    TIPS,
+
     /** 问候与日期（`:core` 的 `Greeting` + 宿主给的日期文案）。 */
     GREETING,
 
@@ -164,7 +167,7 @@ interface HomeHost {
     suspend fun paymentCode(): String? = null
 
     /**
-     * 首页编辑态里点「齿轮」、或小组件编辑态里点「设置」：打开主页设置抽屉（需求 §1.3）。
+     * 首页编辑态里点「齿轮」、或小组件编辑态里点「设置」：打开主页设置抽屉。
      *
      * 默认空实现 = 这一端没有设置页，点了就在原地不动（桌面、Web 各自决定接不接）。
      */

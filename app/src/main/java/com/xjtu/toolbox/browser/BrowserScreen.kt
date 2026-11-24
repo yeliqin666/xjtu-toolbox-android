@@ -40,10 +40,13 @@ import androidx.compose.ui.text.style.TextOverflow
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -110,7 +113,9 @@ internal fun syncCookiesToWebView(
                 "login.xjtu.edu.cn", "cas.xjtu.edu.cn", "org.xjtu.edu.cn",
                 "jwxt.xjtu.edu.cn", "ywtb.xjtu.edu.cn", "bkkq.xjtu.edu.cn",
                 "ncard.xjtu.edu.cn", "rg.lib.xjtu.edu.cn", "jwapp.xjtu.edu.cn",
-                "lms.xjtu.edu.cn", "webvpn.xjtu.edu.cn"
+                "lg.xjtu.edu.cn", "lms.xjtu.edu.cn", "lms-h5.xjtu.edu.cn", "webvpn.xjtu.edu.cn",
+                // 学堂（含 h5 作业提交页）的统一认证经 identity1 中转，它自己的 SSO 会话 cookie 也要带上
+                "identity1.xjtu.edu.cn",
             ) + extraDomains).distinct()
             var count = 0
             for (domain in domains) {
@@ -199,6 +204,32 @@ fun BrowserScreen(
         }
     }
 
+    /**
+     * 网页里 `<input type="file">` 的唯一入口是 [WebChromeClient.onShowFileChooser]。不实现它，
+     * 点击「选择文件」一点反应都没有——思源学堂交作业上传附件就卡在这一步（本 App 不自己实现提交，
+     * 只打开官方 h5 页面，所以那一页功能必须完整）。
+     *
+     * 回调要一直留到用户选完文件才回填，所以先挂在 Compose 状态上。用 MutableState 而不是局部变量，
+     * 是为了让 ActivityResult 回调、WebView 内部（factory 里只创建一次）读到的是同一个格子。
+     */
+    val pendingFilePick = remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val callback = pendingFilePick.value ?: return@rememberLauncherForActivityResult
+        pendingFilePick.value = null
+        val data = result.data
+        val clip = data?.clipData
+        val single = data?.data
+        val picked: Array<Uri>? = when {
+            result.resultCode != android.app.Activity.RESULT_OK -> null
+            // 多选走 clipData、单选走 data；两者都可能给，先看 clipData
+            clip != null && clip.itemCount > 0 -> Array(clip.itemCount) { clip.getItemAt(it).uri }
+            single != null -> arrayOf(single)
+            else -> null
+        }
+        // 取消也必须回一次 null：WebView 内部在等这个回调，漏掉这一页的「选择文件」之后会彻底没反应
+        callback.onReceiveValue(picked)
+    }
+
     LaunchedEffect(isDark, webViewRef) {
         webViewRef?.let { WebViewNightMode.apply(it, isDark) }
     }
@@ -224,12 +255,17 @@ fun BrowserScreen(
         web.loadUrl(normalizeUrl(initialUrl))
     }
 
-    // 系统返回：在网页里后退（跳过登录中转页），退到头才关掉浏览器
-    BackHandler {
-        val web = webViewRef
-        val steps = web?.let(::backStepsSkippingAuth)
-        if (web != null && steps != null) web.goBackOrForward(-steps) else onBack()
+    // 返回：在网页里后退（跳过登录中转页），退到头就关掉浏览器。系统返回键 / 手势走这里，
+    // 网页自己的「返回」按钮（history.back() / history.go(-n)）经 [WebBackBridge] 也走这里。
+    val onBackState = rememberUpdatedState(onBack)
+    val navigateBack: (Int) -> Unit = remember {
+        { requested ->
+            val web = webViewRef
+            val steps = web?.let { if (requested <= 1) backStepsSkippingAuth(it) else backStepsOrNull(it, requested) }
+            if (web != null && steps != null) web.goBackOrForward(-steps) else onBackState.value()
+        }
     }
+    BackHandler { navigateBack(1) }
 
     Scaffold(
         topBar = {
@@ -399,6 +435,7 @@ fun BrowserScreen(
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
                             isLoading = false
+                            view?.evaluateJavascript(WebBackBridge.HOOK_JS, null)
                             url?.let { currentUrl = it }
                             view?.let { WebViewNightMode.apply(it, darkState.value) }
                             if (desktopState.value && url != null && !isAuthHop(url)) view?.evaluateJavascript(DESKTOP_VIEWPORT_JS, null)
@@ -478,9 +515,43 @@ fun BrowserScreen(
                             resultMsg.sendToTarget()
                             return true
                         }
+
+                        /** 网页自己调 `window.close()`（「关闭」「完成」一类按钮）：照着关掉浏览器。 */
+                        override fun onCloseWindow(window: WebView?) {
+                            if (window === webViewRef) onBackState.value()
+                        }
+
+                        /**
+                         * 网页点了 `<input type="file">`。不覆写这一条，WebView 默认什么都不做，
+                         * 页面上看起来就是「按钮坏了」。
+                         */
+                        override fun onShowFileChooser(
+                            view: WebView?,
+                            filePathCallback: ValueCallback<Array<Uri>>?,
+                            fileChooserParams: FileChooserParams?
+                        ): Boolean {
+                            val callback = filePathCallback ?: return false
+                            // 上一回没接完的先作废，否则那一页会一直等上一次的结果
+                            pendingFilePick.value?.onReceiveValue(null)
+                            pendingFilePick.value = callback
+                            // 选整个文件夹（webkitdirectory）：系统选择器给不出网页能用的一组文件，说清楚
+                            if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_FOLDER) {
+                                pendingFilePick.value = null
+                                callback.onReceiveValue(null)
+                                Toast.makeText(context, "这个网页想选整个文件夹，暂不支持", Toast.LENGTH_SHORT).show()
+                                return true
+                            }
+                            if (runCatching { filePicker.launch(webFileChooserIntent(fileChooserParams)) }.isFailure) {
+                                pendingFilePick.value = null
+                                callback.onReceiveValue(null)
+                                Toast.makeText(context, "没有可用的文件选择器", Toast.LENGTH_SHORT).show()
+                            }
+                            return true
+                        }
                     }
 
                     webViewRef = this
+                    addJavascriptInterface(WebBackBridge(this, navigateBack), WebBackBridge.NAME)
 
                     setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
                         if (url.startsWith("blob:")) {
@@ -509,7 +580,10 @@ fun BrowserScreen(
             },
             onRelease = { view ->
                 if (webViewRef === view) webViewRef = null
-                view.releaseSafely()
+                // 关页面时还挂着一个没回来的选择器回调就作废它，别留悬空引用
+                pendingFilePick.value?.onReceiveValue(null)
+                pendingFilePick.value = null
+                view.releaseSafely(listOf(WebBackBridge.NAME))
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -541,6 +615,43 @@ private fun backStepsSkippingAuth(web: WebView): Int? {
     return null
 }
 
+/** 网页要退 [requested] 步：历史里够退就照退，不够（直接打开的那一页上点了网页的返回）返回 null，由调用方关掉浏览器。 */
+private fun backStepsOrNull(web: WebView, requested: Int): Int? =
+    requested.takeIf { web.copyBackForwardList().currentIndex - it >= 0 }
+
+/**
+ * 接住网页自己的「返回」。
+ *
+ * 学堂 h5 这类单页应用左上角的返回调的是 `history.back()`；从 App 直接打开某一页（比如作业提交页）时
+ * 前面没有历史，浏览器内核什么都不做，用户就卡在那一页、只能点顶栏的关闭。这里把
+ * `history.back()` / `history.go(-n)` 换成问原生要不要退：有历史就照常退（同文档的 pushState 历史也在
+ * WebView 的后退列表里，退回去一样触发 popstate），没有就关掉浏览器——和系统返回键同一条规则。
+ *
+ * 这个接口对浏览器里打开的任何网页都可见，所以只给「退几步」这一个能力，不传回任何数据。
+ * `@JavascriptInterface` 跑在 JS 线程上，要 post 回主线程再碰 WebView 和 Compose 状态。
+ */
+internal class WebBackBridge(
+    private val web: WebView,
+    private val navigateBack: (Int) -> Unit,
+) {
+    @JavascriptInterface
+    fun back(steps: Int) {
+        val n = steps.coerceIn(1, MAX_STEPS)
+        web.post { navigateBack(n) }
+    }
+
+    companion object {
+        const val NAME = "XjtuToolboxBack"
+        private const val MAX_STEPS = 50
+
+        /** 每页加载完挂一次；同一文档里重复执行不会重复包装。 */
+        const val HOOK_JS = """(function(){var b=window.XjtuToolboxBack,h=window.history;
+if(!b||!h||h.__xtbBack)return;h.__xtbBack=true;var go=h.go.bind(h);
+h.back=function(){b.back(1);};
+h.go=function(n){n=Number(n)||0;if(n<0)b.back(-n);else go(n);};})()"""
+    }
+}
+
 internal fun isAuthHop(url: String): Boolean {
     val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
     val host = uri.host?.lowercase().orEmpty()
@@ -555,6 +666,53 @@ internal fun isAuthHop(url: String): Boolean {
 private fun displayHost(url: String): String {
     val real = shareableUrl(url, WebVpnUtil)
     return runCatching { URI(real).host.orEmpty() }.getOrDefault("").removePrefix("www.")
+}
+
+/**
+ * 把网页的 `<input type="file" accept=... multiple>` 折成系统选择器认得的 intent。
+ *
+ * `accept` 里既有 MIME（`application/pdf`）也有扩展名（`.pdf`），思源学堂的作业提交页就是混着写的。
+ * 扩展名原样塞进 `EXTRA_MIME_TYPES` 会让选择器一个文件都不显示，所以统一折成 MIME；
+ * 折不出来就退回不限类型——让用户至少能选到，比点了没反应好。
+ */
+private fun webFileChooserIntent(params: WebChromeClient.FileChooserParams?): android.content.Intent {
+    val mimes = acceptTypesToMimeTypes(params?.acceptTypes)
+    return android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+        addCategory(android.content.Intent.CATEGORY_OPENABLE)
+        // 只有一个类型时用 type，多个类型用 type=*/* + EXTRA_MIME_TYPES，系统文件选择器认这套
+        type = if (mimes.size == 1) mimes[0] else "*/*"
+        if (mimes.size > 1) putExtra(android.content.Intent.EXTRA_MIME_TYPES, mimes)
+        if (params?.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+            putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+    }
+}
+
+/**
+ * `accept` 属性 → 一组 MIME；空或通配符一律当「不限类型」。
+ *
+ * [mimeOfExtension] 默认走 [MimeTypeMap]；留成参数是为了单测能在纯 JVM 上验折算规则
+ * （`MimeTypeMap` 在单元测试里拿不到真实现）。
+ */
+internal fun acceptTypesToMimeTypes(
+    acceptTypes: Array<String>?,
+    mimeOfExtension: (String) -> String? = { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) },
+): Array<String> {
+    if (acceptTypes.isNullOrEmpty()) return arrayOf("*/*")
+    val mimes = linkedSetOf<String>()
+    for (raw in acceptTypes) {
+        val type = raw.trim().lowercase()
+        when {
+            type.isEmpty() -> Unit
+            type == "*/*" || type == "*" -> return arrayOf("*/*")
+            // `image/*` 这类通配 MIME 系统选择器直接认，原样留着
+            type.contains('/') -> mimes += type
+            // 扩展名：`.pdf` → `application/pdf`
+            type.startsWith(".") ->
+                mimeOfExtension(type.substring(1))?.let { mimes += it }
+        }
+    }
+    return if (mimes.isEmpty()) arrayOf("*/*") else mimes.toTypedArray()
 }
 
 

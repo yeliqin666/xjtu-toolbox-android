@@ -61,6 +61,11 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.plus
 import kotlin.time.Instant
 
 /**
@@ -72,8 +77,8 @@ import kotlin.time.Instant
  */
 
 /**
- * 今日：课、考试、今天截止的作业合并成一条竖直时间轴，下面接一段「接下来」
- * （plan2 §5）：3 天内的考试、7 天内没提交的作业，按时间混排。
+ * 今日：课、考试、今天截止的作业合并成一条竖直时间轴，下面接一段「接下来」：
+ * 3 天内的考试、7 天内没提交的作业，按时间混排。
  *
  * 这几类在这里不分家。用户脑子里"今天几点要到哪去、接下来要忙什么"是一件事，
  * 之所以来自三个不同接口，只是我们的实现细节，不该变成用户要自己合并的几张表。
@@ -96,10 +101,12 @@ fun TodayTimeline(
     /** 屁岱排日程卡里的安排写进日程（见 [DayPlanCard]）。 */
     onAddPlan: ((LocalDate, List<PlanItem>) -> Unit)? = null,
     onNavigate: (AppRoute) -> Unit = {},
+    /** 系统日历里的日程（设置里打开才有）：落在今天的那段插进时间轴，以后的在 [buildUpcoming] 里。 */
+    calendarEvents: List<SystemCalendarEvent> = emptyList(),
 ) {
     val courseColors = rememberCourseColors(allCourseNames)
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthNumber) }
-    val entries = remember(courses, exams, today, todayHomework) {
+    val entries = remember(courses, exams, today, todayHomework, calendarEvents) {
         val dow = today.dayOfWeek.ordinal + 1
         val fromCourses = courses.filter { it.dayOfWeek == dow }.map { c ->
             val (start, end) = c.clockMinutes(isSummer)
@@ -148,7 +155,25 @@ fun TodayTimeline(
                     route = AppRoute.Lms(hw.courseId, hw.activityId),
                 )
             }
-        (fromCourses + fromExams + fromHomework).sortedBy { it.startMinute }
+        val fromCalendar = calendarSlicesOn(today, calendarEvents).map { slice ->
+            val e = slice.event
+            TimelineEntry(
+                startMinute = slice.startMinute,
+                endMinute = slice.endMinute,
+                title = e.title,
+                place = e.location,
+                detail = listOfNotNull(
+                    e.calendarName.takeIf { it.isNotBlank() },
+                    slice.spanLabel(),
+                ).joinToString("  "),
+                kind = EntryKind.CALENDAR,
+                course = null,
+                allDay = slice.allDay,
+            )
+        }
+        // 全天的排最前面：它不占某个时刻，是这一天的背景（画的时候单独成一组，不进时间轴）
+        (fromCourses + fromExams + fromHomework + fromCalendar)
+            .sortedWith(compareBy<TimelineEntry> { !it.allDay }.thenBy { it.startMinute })
     }
 
     // 屁岱排今天：本地已有的课、考试、截止直接交给它
@@ -157,12 +182,13 @@ fun TodayTimeline(
         dayPlanSnapshot(
             today,
             entries.map { e ->
-                val time = formatTwoDigits(e.startMinute / 60) + ":" + formatTwoDigits(e.startMinute % 60) +
+                val time = if (e.allDay) "全天" else formatTwoDigits(e.startMinute / 60) + ":" + formatTwoDigits(e.startMinute % 60) +
                     (if (e.endMinute > 0) "–" + formatTwoDigits(e.endMinute / 60) + ":" + formatTwoDigits(e.endMinute % 60) else "")
                 val what = when (e.kind) {
                     EntryKind.COURSE -> "上课 ${e.title}"
                     EntryKind.EXAM -> "考试 ${e.title}"
                     EntryKind.HOMEWORK -> "作业截止 ${e.title}"
+                    EntryKind.CALENDAR -> "日历日程 ${e.title}"
                 }
                 "$time｜$what｜${e.place}"
             },
@@ -218,24 +244,32 @@ fun TodayTimeline(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (showPlan) item(key = "day_plan") { DayPlanCard(planSnapshot, today, onAdd = onAddPlan) }
+        // 全天日程单独一组放在最上面，不占时间轴上的某个钟点
+        val allDayEntries = entries.filter { it.allDay }
+        val timedEntries = entries.filterNot { it.allDay }
+        if (allDayEntries.isNotEmpty()) {
+            item(key = "all_day_label") { Box(Modifier.enterOnce(0)) { SectionLabel("全天") } }
+            itemsIndexed(allDayEntries) { i, e -> Box(Modifier.enterOnce(1 + i)) { AllDayRow(e) } }
+        }
+        val timedBase = if (allDayEntries.isEmpty()) 0 else allDayEntries.size + 1
         if (entries.isEmpty()) {
             // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
             // 别让页面看着像没加载出来。
             item { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
         } else {
-            itemsIndexed(entries) { i, e ->
+            itemsIndexed(timedEntries) { i, e ->
                 // 已经过去的条目压暗。今天这一级的价值就是"接下来干什么"，
                 // 上午的课到了下午还跟没上过一样醒目，等于每次都要自己再筛一遍。
                 val past = e.endMinute in 1 until nowMinute
                 val progress = if (e.endMinute > e.startMinute && nowMinute in e.startMinute until e.endMinute)
                     (nowMinute - e.startMinute).toFloat() / (e.endMinute - e.startMinute) else null
-                Box(Modifier.enterOnce(i)) {
+                Box(Modifier.enterOnce(timedBase + i)) {
                     TimelineRow(e, past, courseColors, onCourseClick, progress, onNavigate)
                 }
             }
         }
         if (upcoming.isNotEmpty()) {
-            val base = entries.size.coerceAtLeast(1)
+            val base = (timedBase + timedEntries.size).coerceAtLeast(1)
             item { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
             itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item, onNavigate) } }
         }
@@ -243,7 +277,7 @@ fun TodayTimeline(
     }
 }
 
-private enum class EntryKind { COURSE, EXAM, HOMEWORK }
+private enum class EntryKind { COURSE, EXAM, HOMEWORK, CALENDAR }
 
 private data class TimelineEntry(
     val startMinute: Int,
@@ -254,7 +288,51 @@ private data class TimelineEntry(
     val kind: EntryKind,
     val course: CourseItem?,
     val route: AppRoute? = null,
+    /** 系统日历的全天日程：时刻列写「全天」，不算进「已过去」。 */
+    val allDay: Boolean = false,
 )
+
+/** 今日顶上「全天」那一组的一行：系统日历的全天日程（含把今天整个盖住的跨天日程），不画钟点。 */
+@Composable
+private fun AllDayRow(e: TimelineEntry) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 12.dp,
+        colors = CardDefaults.defaultColors(color = SystemCalendarAccent.copy(alpha = 0.12f)),
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            AllDayBadge()
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    e.title,
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val sub = listOfNotNull(e.place.takeIf { it.isNotBlank() }, e.detail.takeIf { it.isNotBlank() }).joinToString("  ·  ")
+                if (sub.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(sub, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AllDayBadge() {
+    Surface(shape = RoundedCornerShape(4.dp), color = SystemCalendarAccent.copy(alpha = 0.9f)) {
+        Text(
+            "全天",
+            Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            style = MiuixTheme.textStyles.footnote2,
+            color = Color.White,
+        )
+    }
+}
 
 @Composable
 private fun NoCourseTodayCard() {
@@ -292,6 +370,7 @@ private fun TimelineRow(
         EntryKind.EXAM -> MiuixTheme.colorScheme.error
         EntryKind.HOMEWORK -> MiuixTheme.colorScheme.primary
         EntryKind.COURSE -> courseColors.colorOf(e.title)
+        EntryKind.CALENDAR -> SystemCalendarAccent
     }
     val alpha = if (past) 0.45f else 1f
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -301,7 +380,11 @@ private fun TimelineRow(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                if (e.startMinute >= 24 * 60) "待定" else formatMinute(e.startMinute),
+                when {
+                    e.allDay -> "全天"
+                    e.startMinute >= 24 * 60 -> "待定"
+                    else -> formatMinute(e.startMinute)
+                },
                 style = MiuixTheme.textStyles.body2,
                 fontWeight = FontWeight.Bold,
                 color = accent.copy(alpha = alpha),
@@ -343,6 +426,7 @@ private fun TimelineRow(
                     val badge = when (e.kind) {
                         EntryKind.EXAM -> "考试"
                         EntryKind.HOMEWORK -> "作业"
+                        EntryKind.CALENDAR -> "日历"
                         EntryKind.COURSE -> null
                     }
                     if (badge != null) {
@@ -385,8 +469,8 @@ private fun TimelineRow(
     }
 }
 
-/** 「接下来」一行：考试或作业，比今天更晚一点。 */
-enum class UpcomingKind { EXAM, HOMEWORK }
+/** 「接下来」一行：考试、作业或系统日历里的日程，比今天更晚一点。 */
+enum class UpcomingKind { EXAM, HOMEWORK, CALENDAR }
 
 data class UpcomingItem(
     val kind: UpcomingKind,
@@ -395,6 +479,8 @@ data class UpcomingItem(
     /** 排序用，不展示。 */
     val at: Instant,
     val route: AppRoute? = null,
+    /** 系统日历的全天日程：行首带「全天」标，不写钟点。 */
+    val allDay: Boolean = false,
 )
 
 /**
@@ -402,12 +488,13 @@ data class UpcomingItem(
  * 7 天内没提交、且不是今天截止的作业（今天截止的同样已经在时间轴里）。
  * 两类按时间混排。
  *
- * 纯函数，不碰 Context，方便单测（plan2 §5.4）。
+ * 纯函数，不碰 Context，方便单测。
  */
 fun buildUpcoming(
     exams: List<ExamItem>,
     homework: List<LmsDue>,
     now: LocalDateTime = nowOnCampus(),
+    calendar: List<SystemCalendarEvent> = emptyList(),
 ): List<UpcomingItem> {
     val today = now.date
     val zone = CampusTimeZone
@@ -449,14 +536,137 @@ fun buildUpcoming(
                 route = AppRoute.Lms(hw.courseId, hw.activityId),
             )
         }
-    return (examItems + homeworkItems).sortedBy { it.at }
+    // 系统日历：明天起 7 天，按天切开（今天的在时间轴里）。跨天的每天各一行，全天的排在当天最前面。
+    val calendarItems = (1..UPCOMING_CALENDAR_DAYS).flatMap { offset ->
+        val day = today.plus(offset, DateTimeUnit.DAY)
+        val dayStart = day.atStartOfDayIn(zone)
+        val dow = DOW_NAMES.getOrElse(day.dayOfWeek.ordinal + 1) { "" }
+        calendarSlicesOn(day, calendar, zone).map { slice ->
+            val e = slice.event
+            val time = when {
+                slice.allDay -> "全天"
+                slice.endMinute > slice.startMinute -> formatMinute(slice.startMinute) + "–" + formatMinute(slice.endMinute)
+                else -> formatMinute(slice.startMinute)
+            }
+            val whenText = "周$dow $time" + (slice.spanLabel()?.let { " · $it" } ?: "")
+            UpcomingItem(
+                kind = UpcomingKind.CALENDAR,
+                title = e.title,
+                subtitle = listOfNotNull(whenText, e.location.takeIf { it.isNotBlank() }).joinToString(" · "),
+                at = if (slice.allDay) dayStart else dayStart + slice.startMinute.minutes,
+                allDay = slice.allDay,
+            )
+        }
+    }.filter { it.at <= horizon }
+    return (examItems + homeworkItems + calendarItems).sortedWith(compareBy<UpcomingItem> { it.at }.thenBy { !it.allDay })
 }
+
+/** 系统日历日程落在某一天的那一段。跨天的日程每天各占一段：开始那天到 24:00，中间整天，结束那天从 0:00 起。 */
+internal data class CalendarDaySlice(
+    val event: SystemCalendarEvent,
+    val startMinute: Int,
+    /** 0 = 不画结束时刻（全天的）。 */
+    val endMinute: Int,
+    val allDay: Boolean,
+    /** 跨几天的日程里这是第几天（从 1 起）/ 一共几天；不跨天时都是 1。 */
+    val dayIndex: Int = 1,
+    val dayCount: Int = 1,
+) {
+    /** 「第 2/3 天」；不跨天时 null。 */
+    fun spanLabel(): String? = if (dayCount > 1) "第 $dayIndex/$dayCount 天" else null
+}
+
+/** 「接下来」里系统日历看几天（明天起）。 */
+private const val UPCOMING_CALENDAR_DAYS = 7
+
+/**
+ * [events] 里和 [day] 这一天（[zone] 的 0 点到次日 0 点）有交集的那些，换成这一天里的分钟段。
+ * 零时长的（只有一个时刻）开始时刻落在这一天才算。全天的、以及把这一天整个盖住的定时日程都记成全天。
+ *
+ * 纯函数，方便单测。
+ */
+internal fun calendarSlicesOn(
+    day: LocalDate,
+    events: List<SystemCalendarEvent>,
+    zone: TimeZone = CampusTimeZone,
+): List<CalendarDaySlice> {
+    val dayStart = LocalDateTime(day.year, day.monthNumber, day.dayOfMonth, 0, 0).toInstant(zone)
+    val dayEnd = dayStart + 1.days
+    fun minuteOf(t: Instant) = t.toLocalDateTime(zone).let { it.hour * 60 + it.minute }
+    return events.mapNotNull { e ->
+        val overlaps = if (e.end > e.begin) e.begin < dayEnd && e.end > dayStart else e.begin >= dayStart && e.begin < dayEnd
+        if (!overlaps) return@mapNotNull null
+        // 跨几天：开始那天到最后一天（结束是开区间，正好 0 点结束的不算进那天）
+        val firstDay = e.begin.toLocalDateTime(zone).date
+        val lastDay = if (e.end > e.begin) (e.end - 1.milliseconds).toLocalDateTime(zone).date else firstDay
+        val dayCount = (lastDay.toEpochDays() - firstDay.toEpochDays()).toInt() + 1
+        val dayIndex = (day.toEpochDays() - firstDay.toEpochDays()).toInt() + 1
+        val wholeDay = e.allDay || (e.begin <= dayStart && e.end >= dayEnd)
+        if (wholeDay) return@mapNotNull CalendarDaySlice(e, 0, 0, allDay = true, dayIndex = dayIndex, dayCount = dayCount)
+        val start = if (e.begin <= dayStart) 0 else minuteOf(e.begin)
+        val end = when {
+            e.end <= e.begin -> 0
+            e.end >= dayEnd -> 24 * 60
+            else -> minuteOf(e.end)
+        }
+        CalendarDaySlice(e, start, end, allDay = false, dayIndex = dayIndex, dayCount = dayCount)
+    }
+}
+
+/** 周视图里系统日历条目的课程号前缀：点开时据此区分，不当成课去查详情。 */
+internal const val SYSTEM_CALENDAR_CODE_PREFIX = "syscal:"
+
+/** 周视图里一周的系统日历：定时的画成格子（[slots]），全天的标在列头（[allDay]：日期 → 标题）。 */
+internal data class WeekCalendar(val slots: List<CourseItem>, val allDay: Map<LocalDate, List<String>>)
+
+/**
+ * 把 [events] 落到第 [week] 周的 [weekDates]（周一到周日）上，供周视图叠在课表上画。
+ * 定时的按当天的钟点画成格子（跨天的按天切开）；全天的、以及把一整天盖住的，只标在列头。
+ */
+internal fun weekCalendar(
+    weekDates: List<LocalDate>,
+    week: Int,
+    events: List<SystemCalendarEvent>,
+    zone: TimeZone = CampusTimeZone,
+): WeekCalendar {
+    if (week <= 0) return WeekCalendar(emptyList(), emptyMap())
+    val bits = "0".repeat(week - 1) + "1"
+    val allDay = linkedMapOf<LocalDate, MutableList<String>>()
+    val slots = weekDates.flatMapIndexed { i, day ->
+        calendarSlicesOn(day, events, zone).mapNotNull { slice ->
+            if (slice.allDay) {
+                allDay.getOrPut(day) { mutableListOf() } += slice.event.title
+                return@mapNotNull null
+            }
+            // 只有一个时刻的（提醒类）给半小时，格子才画得出来
+            val end = if (slice.endMinute > slice.startMinute) slice.endMinute else (slice.startMinute + 30).coerceAtMost(24 * 60)
+            fun section(minute: Int) = (minute / 60 - DAY_START_HOUR + 1).coerceIn(1, MAX_SECTIONS)
+            CourseItem(
+                courseName = slice.event.title,
+                location = slice.event.location,
+                weekBits = bits,
+                dayOfWeek = i + 1,
+                startSection = section(slice.startMinute),
+                endSection = section(end - 1),
+                courseCode = "$SYSTEM_CALENDAR_CODE_PREFIX${day}:${slice.startMinute}:${slice.event.title}",
+                courseType = "系统日历",
+                startMinuteOfDay = slice.startMinute,
+                endMinuteOfDay = end,
+            )
+        }
+    }
+    return WeekCalendar(slots, allDay)
+}
+
+/** 系统日历日程的强调色：和课（按课名配色）、考试（红）、作业（主色）都分得开。 */
+internal val SystemCalendarAccent = Color(0xFF26A69A)
 
 @Composable
 private fun UpcomingRow(item: UpcomingItem, onNavigate: (AppRoute) -> Unit) {
     val accent = when (item.kind) {
         UpcomingKind.EXAM -> MiuixTheme.colorScheme.error
         UpcomingKind.HOMEWORK -> MiuixTheme.colorScheme.primary
+        UpcomingKind.CALENDAR -> SystemCalendarAccent
     }
     Card(
         modifier = Modifier.fillMaxWidth().then(item.route?.let { route -> Modifier.clickable { onNavigate(route) } } ?: Modifier),
@@ -464,14 +674,20 @@ private fun UpcomingRow(item: UpcomingItem, onNavigate: (AppRoute) -> Unit) {
         colors = CardDefaults.defaultColors(color = accent.copy(alpha = 0.10f)),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text(
-                item.title,
-                style = MiuixTheme.textStyles.body2,
-                fontWeight = FontWeight.Bold,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (item.allDay) {
+                    AllDayBadge()
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    item.title,
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(2.dp))
             Text(item.subtitle, style = MiuixTheme.textStyles.footnote1, color = accent)
         }
@@ -684,7 +900,7 @@ private fun SectionLabel(text: String) {
 
 private fun LocalTime.toMinuteOfDay() = hour * 60 + minute
 
-private fun formatMinute(m: Int) = "${formatTwoDigits(m / 60)}:${formatTwoDigits(m % 60)}"
+internal fun formatMinute(m: Int) = "${formatTwoDigits(m / 60)}:${formatTwoDigits(m % 60)}"
 
 /** 考试时间是 "14:30-16:30" / "14:30~16:30" 这类文本，取开头的时刻。 */
 private fun parseExamStart(raw: String): Int? =

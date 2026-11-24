@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.Newspaper
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,19 +53,22 @@ fun NotificationScreen(
     val notifications = vm.notifications
     val searching = vm.searching
     var showSourceSheet by remember { mutableStateOf(false) }
+    var showRuleSheet by remember { mutableStateOf(false) }
     BackHandler(enabled = showSourceSheet) { showSourceSheet = false }
     val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
-    // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）
-    val filteredNotifications = remember(notifications, vm.searchQuery, vm.searchResults, vm.selectedTag) {
-        val tag = vm.selectedTag
-        if (!searching) notifications.filter { tag == null || tag in it.tags }
+    // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）。
+    // 两种都过一遍来源规则，[hiddenByRules] 是被规则挡掉的条数。
+    val (filteredNotifications, hiddenByRules) = remember(notifications, vm.searchQuery, vm.searchResults, vm.selectedTag, vm.rules) {
+        val candidates = if (!searching) notifications.filter { n -> vm.selectedTag.let { it == null || it in n.tags } }
         else {
             val local = notifications.filter { it.title.contains(vm.searchQuery.trim(), ignoreCase = true) }
             val remote = vm.searchResults
             if (remote == null) local
             else (remote + local).distinctBy { it.link }.sortedByDescending { it.date }
         }
+        val shown = candidates.filter(vm::passesRules)
+        shown to candidates.size - shown.size
     }
 
     // 换来源 / 模式后的内容回来了：滚回顶部
@@ -104,6 +108,14 @@ fun NotificationScreen(
                     else -> sources.take(2).joinToString("、") { it.displayName } + " 等 ${sources.size} 个来源"
                 },
                 actions = {
+                    // 有规则在筛当前来源时图标着主题色，提醒列表不是全量
+                    com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { showRuleSheet = true }) {
+                        Icon(
+                            Icons.Outlined.FilterList,
+                            contentDescription = if (vm.rulesActive) "通知规则（已启用）" else "通知规则",
+                            tint = if (vm.rulesActive) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                        )
+                    }
                     com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { showSourceSheet = true }) {
                         Icon(Icons.Outlined.Newspaper, contentDescription = "选择通知来源")
                     }
@@ -119,6 +131,13 @@ fun NotificationScreen(
                 vm.selectSources(it)
                 showSourceSheet = false
             },
+        )
+        NoticeRuleSheet(
+            show = showRuleSheet,
+            sources = vm.selectedSources,
+            rules = vm.rules,
+            onDismiss = { showRuleSheet = false },
+            onSave = vm::saveRules,
         )
         // 内容铺到顶栏下面。宽屏不再限宽 720：下面的卡片分列铺开，来源入口跟着占满。
         val glassTop = padding.glassTop(glass)
@@ -247,14 +266,26 @@ fun NotificationScreen(
                             if (bannerText != null) {
                                 fullLineItem(key = "skipped") { skippedNoticeBanner(Modifier) }
                             }
-                            if (searching && !vm.searchLoading && vm.searchResults != null && filteredNotifications.isNotEmpty()) {
+                            val searchCount = searching && !vm.searchLoading && vm.searchResults != null && filteredNotifications.isNotEmpty()
+                            if (searchCount || hiddenByRules > 0) {
                                 fullLineItem(key = "search_count") {
-                                    Text(
-                                        "站内搜到 ${filteredNotifications.size} 条 · 按时间排列",
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        modifier = Modifier.padding(horizontal = 4.dp),
-                                    )
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            listOfNotNull(
+                                                "站内搜到 ${filteredNotifications.size} 条 · 按时间排列".takeIf { searchCount },
+                                                "规则隐藏了 $hiddenByRules 条".takeIf { hiddenByRules > 0 },
+                                            ).joinToString(" · "),
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        if (hiddenByRules > 0) {
+                                            com.xjtu.toolbox.ui.components.TextLink(text = "改规则", onClick = { showRuleSheet = true })
+                                        }
+                                    }
                                 }
                             }
                             if (filteredNotifications.isEmpty()) {
@@ -267,6 +298,9 @@ fun NotificationScreen(
                                         EmptyState(
                                             title = "没有匹配的通知",
                                             subtitle = when {
+                                                hiddenByRules > 0 -> "有 $hiddenByRules 条被通知规则隐藏了"
+                                                // 站内检索失败或不支持时 searchResults 为 null：只能说本地没有
+                                                searching && vm.searchResults == null -> "已加载的通知里没有匹配，换个关键词试试"
                                                 searching -> "站内也没搜到，换个关键词试试"
                                                 vm.selectedTag != null -> "已加载的通知里没有这个分类"
                                                 else -> "请尝试更改搜索关键词"

@@ -36,9 +36,27 @@ internal class NotificationViewModel(
 
     /** 通知自带的分类（教务、OA 那行灰字）筛选，只筛列表（#357）。 */
     var selectedTag by mutableStateOf<String?>(null); private set
-    /** 选了分类后自动往后翻了几页。冷门分类可能翻遍全站都凑不满一屏，要有个头。 */
+    private val ruleStore = NoticeRuleStore(preferences)
+    /** 各来源的标题规则（只看 / 屏蔽），列表和站内搜索都按它过滤。 */
+    var rules by mutableStateOf(ruleStore.load()); private set
+    val rulesActive: Boolean get() = selectedSources.any { it in rules }
+
+    fun saveRules(newRules: Map<NotificationSource, NoticeRule>) {
+        ruleStore.save(newRules)
+        rules = newRules.filterValues { !it.isEmpty }
+        tagPagesLoaded = 0
+    }
+
+    fun passesRules(n: Notification): Boolean = rules[n.source]?.accepts(n.title) ?: true
+    fun visibleInList(n: Notification): Boolean = passesRules(n) && selectedTag.let { it == null || it in n.tags }
+
+    /**
+     * 有分类或规则在筛时，连续自动翻了几页都没翻出能显示的。
+     * 冷门分类、严格的规则可能翻遍全站都凑不满一屏，要有个头。
+     */
     private var tagPagesLoaded by mutableIntStateOf(0)
-    val tagAutoLoad: Boolean get() = selectedTag == null || tagPagesLoaded < MAX_TAG_PAGES
+    private val filtering: Boolean get() = selectedTag != null || rulesActive
+    val tagAutoLoad: Boolean get() = !filtering || tagPagesLoaded < MAX_TAG_PAGES
 
     fun selectTag(tag: String?) {
         selectedTag = tag
@@ -114,7 +132,7 @@ internal class NotificationViewModel(
     fun loadMore() {
         if (searching || isLoading || isLoadingMore || !hasMorePages || notifications.isEmpty() || !tagAutoLoad) return
         isLoadingMore = true
-        if (selectedTag != null) tagPagesLoaded++
+        if (filtering) tagPagesLoaded++
         viewModelScope.launch { load(page = page + 1, append = true) }
     }
 
@@ -136,6 +154,7 @@ internal class NotificationViewModel(
                 } else {
                     notifications = notifications + fresh
                     hasMorePages = fetched.hasMore
+                    if (fresh.any(::visibleInList)) tagPagesLoaded = 0
                 }
             } else {
                 notifications = fetched.items
@@ -177,7 +196,7 @@ internal class NotificationViewModel(
     }
 }
 
-/** 选了分类后最多自动翻几页。 */
+/** 筛选时连续几页没翻出能显示的就停下自动翻页。 */
 private const val MAX_TAG_PAGES = 5
 
 /** 当前已加载通知里出现过的分类，多的排前面。 */

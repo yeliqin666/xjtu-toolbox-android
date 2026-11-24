@@ -129,6 +129,9 @@ internal fun ActivityListPage(
     // 只看作业时（筛了「作业」，或这门课只有作业且当前全览）补查提交态，交过的沉底
     val selectedActivityType = (filter as? CourseContentFilter.Activity)?.type
     val homeworkOnly = (selectedActivityType ?: types.singleOrNull()) == LmsActivityType.HOMEWORK
+    // 提交态先按上次落盘的结论画上：联网那串逐条查询要几秒，中间不该是一片「没交过」。
+    // 只读盘，不发请求 —— 现查仍走下面那条 homeworkOnly 的分支。
+    LaunchedEffect(Unit) { cache.restoreSubmitted() }
     LaunchedEffect(homeworkOnly, activities) {
         if (homeworkOnly) cache.syncSubmitted(source, activities.filter { it.type == LmsActivityType.HOMEWORK })
     }
@@ -182,7 +185,7 @@ internal fun ActivityListPage(
                             Icon(Icons.Default.Palette, contentDescription = "课程颜色", tint = lmsAccent(course))
                         }
                         // 批量下载要能把文件落下来（`source.saveDownload` = 取字节 + 写下载位置）：
-                        // serve 形态两样都没有（契约 §5.6）⇒ 这一档整个不出现 —— 与「课堂回放」那一行
+                        // serve 形态两样都没有 ⇒ 这一档整个不出现 —— 与「课堂回放」那一行
                         // 按 `supportsVideoQueue` 收口同一条规矩（点了会失败的东西不摆出来）。
                         if (activities.any { it.type in BATCH_TYPES } && source.supportsDownload && filter !is CourseContentFilter.Bulletin) {
                             CouiToolbarActionButton(onClick = {

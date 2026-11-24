@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.async
@@ -33,7 +34,7 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** serve 模式的会话屏（契约 §5.1）：登录 / 短信二验 / 登出。 */
+/** serve 模式的会话屏：登录 / 短信二验 / 登出。 */
 @Composable
 fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
     val colors = MiuixTheme.colorScheme
@@ -48,16 +49,22 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
     var password by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var tokenInput by remember { mutableStateOf("") }
+    // 问会话失败（多半是令牌不对被闸门拒了）：令牌框要留着让人改，不然只能刷新页面
+    var sessionFailed by remember { mutableStateOf(false) }
 
     suspend fun refresh() {
         session.sessionState().fold(
-            onSuccess = { authenticated = it; error = null },
-            onFailure = { authenticated = false; error = it.message ?: it.toString() },
+            onSuccess = { authenticated = it; error = null; sessionFailed = false },
+            onFailure = {
+                authenticated = false
+                sessionFailed = true
+                error = it.message ?: it.toString()
+            },
         )
     }
 
     // 进屏先问一次「有没有会话」：带 cookie 的浏览器这里就答 true（冷启动从落盘凭据静默恢复）。
-    // 这一发同时也是「令牌换 cookie」的那一步（§5.1 第 1 条）。
+    // 这一发同时也是「令牌换 cookie」的那一步。
     LaunchedEffect(Unit) { refresh() }
 
     fun doLogin() {
@@ -72,7 +79,14 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                 session.mfa().onSuccess { if (it.pending) mfa = it }
             }
             login.await().fold(
-                onSuccess = { authenticated = true; mfa = null },
+                onSuccess = {
+                    authenticated = true
+                    mfa = null
+                    password = ""
+                    code = ""
+                    // 回到被 401 打断前的那一页
+                    onBack()
+                },
                 onFailure = { authenticated = false; mfa = null; error = it.message ?: it.toString() },
             )
             busy = false
@@ -96,29 +110,23 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row {
-            Text("serve 会话", color = colors.onSurface, fontSize = 18.sp, modifier = Modifier.weight(1f))
-            TextLink(text = "回课表", onClick = onBack, chevron = true)
+            Text("登录", color = colors.onSurface, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            TextLink(text = "返回", onClick = onBack, chevron = true)
         }
-        Text(
-            "这一屏是 serve 模式（`:server` 托管本页）的登录口：会话在 `:server` 进程里，" +
-                "浏览器不带任何凭据地登进去。非 serve 模式（同源反代 campus-api）用不到它。",
-            color = colors.onBackgroundVariant,
-            fontSize = 11.sp,
-        )
 
-        // ── 访问令牌：只在内存里，浏览器会话内贴一次 ──
-        if (!session.hasToken && authenticated != true) {
+        // 访问令牌是 `:server` 启动横幅里打印的那一行；只存页面内存，不写 localStorage
+        if (authenticated != true && (!session.hasToken || sessionFailed)) {
             Text(
-                "访问令牌：`:server` 启动横幅里打印的那一行（Authorization: Bearer <令牌>）。" +
-                    "它只存在这个页面的内存里，不写 localStorage —— 刷新后若 cookie 还在就不必重贴。",
+                if (session.hasToken) "访问令牌可能不对，请重新输入服务器启动时打印的令牌" else "请输入服务器的访问令牌",
                 color = colors.onBackgroundVariant,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
             )
             TextField(
                 value = tokenInput,
                 onValueChange = { tokenInput = it },
                 label = "访问令牌",
                 singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(
@@ -126,21 +134,15 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                 enabled = tokenInput.isNotBlank() && !busy,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColorsPrimary(),
-            ) { Text("用这枚令牌问会话", color = colors.onPrimary) }
+            ) { Text("确定", color = colors.onPrimary) }
         }
 
         when (authenticated) {
-            null -> Text("正在问 :server 有没有会话…", color = colors.onSurface, fontSize = 13.sp)
+            null -> Text("正在检查登录状态…", color = colors.onSurface, fontSize = 13.sp)
             true -> Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(14.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("已登录（会话在 :server 进程里）", color = colors.onSurface, fontSize = 14.sp)
-                    Text(
-                        "取数（课表 / 成绩 / 黄页 / 图书馆 / 校园卡 …）现在都走 `:server`。" +
-                            "退出后将清除服务端保存的校园账号登录信息。",
-                        color = colors.onBackgroundVariant,
-                        fontSize = 11.sp,
-                    )
-                    TextLink(text = "登出", onClick = { doLogout() }, enabled = !busy, color = colors.error)
+                    Text("已登录", color = colors.onSurface, fontSize = 14.sp)
+                    TextLink(text = "退出登录", onClick = { doLogout() }, enabled = !busy, color = colors.error)
                 }
             }
             false -> Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(14.dp)) {
@@ -157,9 +159,10 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                         onValueChange = { password = it },
                         label = "密码",
                         singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    // 这一发会一直开着等短信验证码（最长 150 秒）⇒ 按钮的文案要说清「可能挂一会儿」
+                    // 这一发会一直开着等短信验证码（最长 150 秒）
                     Button(
                         onClick = { doLogin() },
                         enabled = !busy && username.isNotBlank() && password.isNotBlank(),
@@ -167,7 +170,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                         colors = ButtonDefaults.buttonColorsPrimary(),
                     ) {
                         Text(
-                            if (busy) "正在登录…（挂短信二验时最长 150 秒）" else "登录",
+                            if (busy) "正在登录…" else "登录",
                             color = colors.onPrimary,
                         )
                     }
@@ -181,7 +184,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
         Spacer(Modifier.height(8.dp))
     }
 
-    // ── 短信二验：挂起的那条询问（轮询来的快照，见 §5.1 第 3 条）──
+    // ── 短信二验：挂起的那条询问（轮询来的快照）──
     val pending = mfa?.takeIf { it.pending }
     if (pending != null) {
         OverlayDialog(
@@ -205,14 +208,26 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
-                        onClick = { scope.launch { session.submitMfa(code.trim()).onSuccess { mfa = it } } },
+                        onClick = {
+                            scope.launch {
+                                session.submitMfa(code.trim())
+                                    .onSuccess { mfa = it }
+                                    .onFailure { error = "验证码没有提交成功：${it.message ?: it}" }
+                            }
+                        },
                         enabled = code.isNotBlank(),
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColorsPrimary(),
                     ) { Text("提交", color = MiuixTheme.colorScheme.onPrimary) }
                     TextLink(
                         text = "取消这次登录",
-                        onClick = { scope.launch { session.cancelMfa().onSuccess { mfa = it } } },
+                        onClick = {
+                            scope.launch {
+                                session.cancelMfa()
+                                    .onSuccess { mfa = it }
+                                    .onFailure { error = "取消没有成功：${it.message ?: it}" }
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                     )
                 }

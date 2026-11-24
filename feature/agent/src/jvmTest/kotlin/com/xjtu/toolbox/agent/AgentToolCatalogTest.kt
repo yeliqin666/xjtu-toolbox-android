@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** 工具层的纯逻辑那半边：工具清单（[agentToolDefinitions]）、它按 [AgentCapability] 做的取舍、参数访问器（[argStr] / [argInt] / [argBool]）、闹钟判据（[agentAlarmPlan]）、算术（[agentCalculate]）、引导文案（[agentGuideText]）与缓存年龄文案（[agentCacheAgeText]）。 */
+/** 工具层的纯逻辑那半边：工具清单（[agentToolDefinitions]）、它按 [AgentCapability] 做的取舍、参数访问器（[argStr] / [argInt] / [argBool]）、闹钟判据（[agentAlarmPlan]）、算术（[agentCalculate]）与缓存年龄文案（[agentCacheAgeText]）。 */
 class AgentToolCatalogTest {
 
     /** 工具清单里画出来的工具名，按画出来的顺序。 */
@@ -18,37 +18,37 @@ class AgentToolCatalogTest {
         (AppJson.parseToJsonElement(agentToolDefinitions(honored)) as JsonArray)
             .map { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content }
 
-    /** 所有端都画的那 22 档（纯逻辑 + 取数）。 */
+    /** 所有端都画的那 23 档（纯逻辑 + 取数）。 */
     private val alwaysDrawn = listOf(
         "get_calendar", "get_schedule", "get_exam_schedule", "search_school_courses",
         "get_empty_rooms", "get_attendance", "get_grades", "get_card_info", "get_notifications",
         "search_yellow_page", "preference", "find_faculty",
         "get_library", "list_zyxf", "read_zyxf_file", "get_textbooks", "get_coupons",
-        "get_lms", "get_lms_activity", "get_fitness_score", "app_guide", "calculate",
+        "get_lms", "get_lms_activity", "get_fitness_score", "app_guide", "search_campus_guide", "calculate",
     )
 
-    /** 进工具表的那四档（[AgentCapability.toolGated]）；剩下一档（相册）只管屏。 */
+    /** 进工具表的那五档（[AgentCapability.toolGated]）；剩下一档（相册）只管屏。 */
     private val gated = AgentCapability.toolGated.map { it.tool!! }
 
     @Test
-    fun `进工具表的端能力就是清单里那三个工具名`() {
-        assertEquals(listOf("set_alarm", "app_setting", "add_schedule_event", "save_file"), gated)
-        // 五档总数与「只管屏的那一档」也一并钉住：加减一档要两边一起改
-        assertEquals(5, AgentCapability.entries.size)
+    fun `进工具表的端能力就是清单里那五个工具名`() {
+        assertEquals(listOf("set_alarm", "app_setting", "add_schedule_event", "save_file", "activity"), gated)
+        // 六档总数与「只管屏的那一档」也一并钉住：加减一档要两边一起改
+        assertEquals(6, AgentCapability.entries.size)
         // 只剩相册那一档没有工具名：`save_file` 现在由 FILE_SAVE 一并把门（见那一档的 KDoc）。
         assertEquals(listOf(AgentCapability.IMAGE_INPUT), AgentCapability.entries.filter { it.tool == null })
     }
 
     @Test
-    fun `全 honored 的端画全 26 档`() {
+    fun `全 honored 的端画全 28 档`() {
         val drawn = tools(AgentCapability.entries.toSet())
-        assertEquals(26, drawn.size)
+        assertEquals(28, drawn.size)
         assertEquals((alwaysDrawn + gated).sorted(), drawn.sorted())
         assertEquals(drawn.size, drawn.distinct().size, "工具名不能重复")
     }
 
     @Test
-    fun `什么都不接的端只画那 22 档`() {
+    fun `什么都不接的端只画那 23 档`() {
         val drawn = tools(emptySet())
         assertEquals(alwaysDrawn.size, drawn.size)
         assertEquals(alwaysDrawn.sorted(), drawn.sorted())
@@ -69,7 +69,7 @@ class AgentToolCatalogTest {
         assertEquals(AgentCapability.ALARM, AgentCapability.ofTool("set_alarm"))
         assertEquals(AgentCapability.APP_SETTINGS, AgentCapability.ofTool("app_setting"))
         assertEquals(AgentCapability.SCHEDULE_EVENT_WRITE, AgentCapability.ofTool("add_schedule_event"))
-        // 纯逻辑与取数那 22 档都不在清单里（= 任何端都放行）
+        // 纯逻辑与取数那 23 档都不在清单里（= 任何端都放行）
         alwaysDrawn.forEach { assertNull(AgentCapability.ofTool(it), "$it 不该被当成端能力") }
         assertNull(AgentCapability.ofTool("不存在的工具"))
     }
@@ -161,16 +161,6 @@ class AgentToolCatalogTest {
         assertEquals("1/2 = 0.5", agentCalculate("1/2"))
         assertEquals(ToolReply.missing("expression"), agentCalculate("   "))
         assertTrue(agentCalculate("1+").startsWith("无法计算「1+」"), agentCalculate("1+"))
-    }
-
-    @Test
-    fun `引导文案三种取法`() {
-        assertEquals(APP_GUIDE, agentGuideText("app"))
-        assertEquals(APP_GUIDE, agentGuideText(" APP "))
-        assertEquals(XINGQING_GUIDE, agentGuideText("campus"))
-        assertEquals(XINGQING_GUIDE, agentGuideText("xingqing"))
-        assertEquals(APP_GUIDE + "\n\n" + XINGQING_GUIDE, agentGuideText(null))
-        assertEquals(APP_GUIDE + "\n\n" + XINGQING_GUIDE, agentGuideText("不认识的 topic"))
     }
 
     @Test

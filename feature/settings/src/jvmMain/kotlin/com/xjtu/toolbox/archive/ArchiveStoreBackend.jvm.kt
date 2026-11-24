@@ -32,7 +32,7 @@ internal class JvmStoreBackend(private val root: File) : ArchiveStoreBackend {
     }
 }
 
-/** §6.3 桌面行：Properties 只有字符串，带标签值靠反推；`set` 用 `\u0000` 分隔（与 `SecureStore.jvm.kt` 一致）。 */
+/** 桌面：Properties 只有字符串，带标签值靠反推；`set` 用 `\u0000` 分隔（与 `SecureStore.jvm.kt` 一致）。 */
 private fun inferValue(raw: String): StoreValue {
     if (raw.contains('\u0000')) {
         return StoreValue.SetValue(raw.split('\u0000').filter { it.isNotEmpty() })

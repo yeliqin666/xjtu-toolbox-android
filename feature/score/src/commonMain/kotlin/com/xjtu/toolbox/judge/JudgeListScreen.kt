@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.judge
 
+import kotlinx.datetime.daysUntil
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.platform.BackHandler
@@ -214,6 +215,22 @@ private fun QuestionnaireCard(card: JudgeCard, finished: Boolean, undoing: Boole
                 Text(card.course, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
                 Text("教师: ${card.teacher}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                card.deadline?.let { deadline ->
+                    val days = com.xjtu.toolbox.util.todayOnCampus().daysUntil(deadline)
+                    // 没评且一周内截止的标红提醒
+                    val urgent = !finished && days in 0..6
+                    Text(
+                        "${deadline.month.ordinal + 1}月${deadline.day}日截止 · " +
+                            when {
+                                days > 0 -> "还剩 $days 天"
+                                days == 0 -> "今天截止"
+                                else -> "已截止"
+                            },
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = if (urgent) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        fontWeight = if (urgent) FontWeight.Medium else FontWeight.Normal,
+                    )
+                }
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (card.tag.isNotBlank()) {

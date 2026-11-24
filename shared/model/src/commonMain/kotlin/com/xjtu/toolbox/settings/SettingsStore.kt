@@ -35,6 +35,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString(KEY_DARK_MODE) ?: DARK_MODE_SYSTEM
         set(value) = store.putString(KEY_DARK_MODE, value)
 
+    /** 简化光效：玻璃风格下去掉浮层光晕、投影和背景流动动画。默认关闭。 */
+    var reducedEffects: Boolean
+        get() = store.getBoolean(KEY_REDUCED_EFFECTS, false)
+        set(value) = store.putBoolean(KEY_REDUCED_EFFECTS, value)
+
     /** 跟随系统壁纸 / 调色盘动态取色（Material You / Monet）。默认关闭。 */
     var dynamicColor: Boolean
         get() = store.getBoolean(KEY_DYNAMIC_COLOR, false)
@@ -100,11 +105,18 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("hero_palette")?.takeIf { it in HERO_PALETTES } ?: "auto"
         set(value) = store.putString("hero_palette", value.takeIf { it in HERO_PALETTES } ?: "auto")
 
+    /**
+     * 头卡「纯色」底色。**空串 = 没挑过，跟随主题色**（见 `HeroAppearance.solidColorOn`）：
+     * 2026-11 维护者要求纯色模式默认就用主题色，而不是写死一个蓝。
+     *
+     * 以前这里兜底 `#2F7CFF`，把「没挑过」和「挑了个和主题色无关的蓝」压成同一个值，
+     * 所以现在把「没挑过」如实存成空串。
+     */
     var heroColorHex: String
-        get() = normalizeThemeColor(store.getString("hero_color_hex").orEmpty()).ifEmpty { "#2F7CFF" }
+        get() = normalizeThemeColor(store.getString("hero_color_hex").orEmpty())
         set(value) = store.putString("hero_color_hex", normalizeThemeColor(value))
 
-    /** 浅色 / 深色各存一份自选色；没单独选过的那一档回退到旧键。 */
+    /** 浅色 / 深色各存一份自选色；没单独选过的那一档回退到旧键。空串 = 跟随主题色。 */
     fun heroColorHex(dark: Boolean): String =
         normalizeThemeColor(store.getString(if (dark) "hero_color_hex_dark" else "hero_color_hex_light").orEmpty())
             .ifEmpty { heroColorHex }
@@ -197,6 +209,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, true)
         set(value) = store.putBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, value)
 
+    /** 桌面 / 网页是否同意过当前版本的用户协议（版本号与 `:app` 的 `CredentialStore.CURRENT_EULA_VERSION` 同步）。 */
+    var eulaAccepted: Boolean
+        get() = store.getInt(KEY_EULA_VERSION, 0) >= EULA_VERSION
+        set(value) = store.putInt(KEY_EULA_VERSION, if (value) EULA_VERSION else 0)
+
     /** 当前学期课表从哪个系统拉，取值见 `ScheduleSource.key`。 */
     var scheduleSource: String
         get() = store.getString(KEY_SCHEDULE_SOURCE) ?: SCHEDULE_SOURCE_JWXT
@@ -246,6 +263,7 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         const val HERO_IMAGE_BRIGHTNESS_MAX = 100
 
         private const val KEY_NAV_BAR_STYLE = "nav_bar_style"
+        private const val KEY_REDUCED_EFFECTS = "reduced_effects"
         private const val KEY_DARK_MODE = "dark_mode"
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_DEFAULT_TAB = "default_tab"
@@ -253,6 +271,8 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
+        private const val KEY_EULA_VERSION = "eula_accepted_version"
+        const val EULA_VERSION = 4
         private const val KEY_SCHEDULE_SOURCE = "schedule_source"
 
         const val SCHEDULE_SOURCE_JWXT = "jwxt"

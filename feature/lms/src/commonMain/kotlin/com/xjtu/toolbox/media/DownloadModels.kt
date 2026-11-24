@@ -101,6 +101,14 @@ data class DownloadedFile(
     val uri: String,
     val savedAt: Long,
     val category: String = CATEGORY_LMS,
+    /**
+     * 文件大小（字节）；0 = 这一端的登记里没有这一项。
+     *
+     * 思源学堂那边靠「同名 + 同大小」判断「这份资料是不是已经下过了」（见 `LmsUploadMatch`）：
+     * 只比文件名太松（同名不同内容是常事，比如老师把课件换成了新版），
+     * 只比大小又认不出改过名的同一份。两个一起比才是「文件相同」。
+     */
+    val size: Long = 0,
 ) {
     /** 屏上分组用的一行小字。 */
     val categoryLabel: String

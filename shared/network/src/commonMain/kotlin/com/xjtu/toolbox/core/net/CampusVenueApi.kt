@@ -36,7 +36,7 @@ import kotlinx.serialization.json.putJsonArray
 class CampusVenueApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
-    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读 serve 契约的形状。 */
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : VenueSource {
 
@@ -156,9 +156,9 @@ class CampusVenueApi(
         )
     }
 
-    // ─── serve 模式（契约 §5.3）────────────────────────────────────────────
+    // ─── serve 模式────────────────────────────────────────────
 
-    /** serve 模式（契约 §5.3） */
+    /** serve 模式 */
     private suspend fun serveVenues(): List<Venue> {
         val data = getData("/api/venue/products")
         return data.arr("venues").orEmpty().mapNotNull { element ->
@@ -176,7 +176,7 @@ class CampusVenueApi(
         }
     }
 
-    /** serve 模式（契约 §5.3） */
+    /** serve 模式 */
     private suspend fun serveSlots(serviceId: Int, date: String): List<AreaSlot> {
         val data = getData(
             "/api/venue/slots",
@@ -201,7 +201,7 @@ class CampusVenueApi(
         }.sortedWith(compareBy({ it.timeSlot }, { it.areaName }))
     }
 
-    /** serve 模式（契约 §5.3）：`{page,size,total|null,orders:[…],hasMore}`。 */
+    /** serve 模式：`{page,size,total|null,orders:[…],hasMore}`。 */
     private suspend fun serveOrders(page: Int, pageSize: Int): OrderPage {
         val data = getData(
             "/api/venue/orders",
@@ -232,13 +232,13 @@ class CampusVenueApi(
             orders = orders,
             page = data["page"].safeInt(page),
             pageSize = data["size"].safeInt(pageSize),
-            // §5.3：上游给不了总数就是 null（不拿这一页的条数冒充）
+            // 上游给不了总数就是 null（不拿这一页的条数冒充）
             total = if (data["total"].isNull) null else data["total"].safeInt(),
             hasMore = data["hasMore"].safeBoolean(),
         )
     }
 
-    // ─── 写路径（serve 模式；契约 §5.3.2）────────────────────────────
+    // ─── 写路径（serve 模式）────────────────────────────
 
     /** 支付页地址（屏上那个「去支付」把它交给宿主打开，见 `VenueScreen` 的 `pay`）。 */
     override fun paymentUrl(orderId: String): String = if (mode == ApiMode.SERVE) {
@@ -247,7 +247,7 @@ class CampusVenueApi(
         readOnly()
     }
 
-    /** `GET /api/venue/captcha?serviceId=`（契约 §5.3.2 第 1 条）：把挑战拿回浏览器里画。 */
+    /** `GET /api/venue/captcha?serviceId=`：把挑战拿回浏览器里画。 */
     override suspend fun captcha(serviceId: Int): CaptchaData {
         if (mode != ApiMode.SERVE) return readOnly()
         val data = getData("/api/venue/captcha", "serviceId" to serviceId.toString())
@@ -270,7 +270,7 @@ class CampusVenueApi(
         )
     }
 
-    /** `POST /api/venue/book`（契约 §5.3.2） */
+    /** `POST /api/venue/book` */
     override suspend fun submitBooking(
         serviceId: Int,
         pendingOrder: PendingOrder,
@@ -303,7 +303,7 @@ class CampusVenueApi(
         )
     }
 
-    /** `POST /api/venue/cancel`（契约 §5.3.2）：一次普通 POST，不需要滑块。 */
+    /** `POST /api/venue/cancel`：一次普通 POST，不需要滑块。 */
     override suspend fun cancelOrder(orderId: String): OrderActionResult {
         if (mode != ApiMode.SERVE) return readOnly()
         val body = buildJsonObject { put("orderId", orderId) }.toString()
@@ -330,7 +330,7 @@ class CampusVenueApi(
 
     /** 拆 `{code,data}` 信封；`code!=0` 按体测/校历那套报法显式失败（含 `appCode:need-login`）。 */
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
-        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        // serve 契约的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
         if (mode == ApiMode.SERVE) return client.serveData("场馆", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> parameter(k, v) }
@@ -352,16 +352,16 @@ class CampusVenueApi(
         /** 与 `:app` 的 `while (page <= 20)` 同一个上限。 */
         const val MAX_VENUE_PAGES = 20
 
-        /** serve 模式的两个写端点（契约 §5.3.2）都已经落地 ⇒ 两个能力开关随它翻 `true`。 */
+        /** serve 模式的两个写端点都已经落地 ⇒ 两个能力开关随它翻 `true`。 */
         const val SERVE_WRITE_ENDPOINTS_READY = true
 
-        /** 下单（§5.3.2）。 */
+        /** 下单。 */
         const val VENUE_BOOK_PATH = "/api/venue/book"
 
-        /** 取消订单（§5.3.2）。 */
+        /** 取消订单。 */
         const val VENUE_CANCEL_PATH = "/api/venue/cancel"
 
-        /** 支付那一跳（§5.3.2 第 6 条）：serve 的代跳端点（302 → 80 端口那台站点上的支付页地址）。 */
+        /** 支付那一跳：serve 的代跳端点（302 → 80 端口那台站点上的支付页地址）。 */
         const val VENUE_PAY_PATH = "/api/venue/pay"
         // 收藏的键名/落盘形态统一由 `:shared:model` 的 `VenueFavorites` 管，这里不再自带一份。
     }

@@ -7,7 +7,10 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * 桌面包的版本号（jpackage 的 `--app-version`）。⚠️ 必须与 `:app` 的 `versionName` 逐字相同：
  * 两个手抄本会漂（App 5.2.0 / 安装包 5.1.1 就是这么来的），`DesktopPackageVersionJvmTest` 盯着这件事。
  */
-val desktopPackageVersion = "6.0.2"
+val desktopPackageVersion = "6.2.0"
+
+/** 打包机是不是 Windows：jpackage 不能交叉构建，安装包与 app-image 都在本机系统上产出。 */
+val isWindowsHost = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
 
 /** 反馈后端的凭据（与 `:app` 同一份来源） */
 val desktopFeedbackConfig: Map<String, String> = run {
@@ -100,15 +103,14 @@ compose.desktop {
                 TargetFormat.AppImage,
                 TargetFormat.Exe,
             )
-            packageName = "xjtu-toolbox"
+            // 应用名 = 安装目录、启动器与快捷方式的名字。Windows 用中文：CI 以 zh_CN locale 跑 jpackage，
+            // MSI 才用 936 代码页（见 desktop-windows.yml 的 JAVA_TOOL_OPTIONS），否则 light.exe 报 LGHT0311；
+            // Linux 的 deb 包名与 /opt 目录只认 ASCII，用 xjtu-dzhz（desktop-linux.yml 的图标校验跟着它）。
+            packageName = if (isWindowsHost) "岱宗盒子" else "xjtu-dzhz"
             // jpackage 只接受 x.y.z 形式的版本号。
             packageVersion = desktopPackageVersion
-            // ⚠️ 只能用 ASCII：jpackage 在 Windows 上固定 `-cultures:en-us` ⇒ MSI 代码页 1252，
-            // 中文会让 WiX 的 light.exe 报 `LGHT0311`（退出码 311，且不打印任何错误）⇒ CI 上随机失败。
-            // 将来若要中文，得绕开 Compose 插件直接给 jpackage 传 `--resource-dir`（塞一份 overrides.wxi
-            // 把 `Product/@Codepage` 设成 936/65001）——那个口子插件目前没暴露。
-            // （Linux 的 .deb / .AppImage 描述读的也是同一个值，会跟着变英文；DSL 没有分平台的 description。）
-            description = "XJTU ToolBox (desktop preview)"
+            // ⚠️ 只能用 ASCII：MSI 的 Summary 信息不走本地化代码页，中文描述会让 light.exe 报 LGHT0311。
+            description = "Daizong Box"
             vendor = "XJTU ToolBox"
             copyright = "Copyright © XJTU ToolBox contributors"
 
@@ -120,7 +122,7 @@ compose.desktop {
             modules("jdk.httpserver")
 
             linux {
-                // 应用自己的图标（由自适应图标矢量光栅化，见 docs/linux-delivery.md §2.1）；⚠️ 不要用 `mipmap-*/ic_launcher.webp`，那是模板占位图。
+                // 由 App 图标导出（见 docs/desktop.md）。
                 iconFile.set(project.file("icons/linux.png"))
                 menuGroup = "Education"
                 appCategory = "Education"
@@ -131,7 +133,10 @@ compose.desktop {
             /** Windows 那一套 jpackage `--win-*` / WiX 参数。 */
             windows {
                 perUserInstall = true
+                // 同一个 upgradeUuid + 递增的版本号 ⇒ 新安装包原地升级旧版，不并排装第二份
                 upgradeUuid = "528a294e-23ee-4307-a37a-1a71bb591fa0"
+                shortcut = true
+                menu = true
                 menuGroup = "Education"
                 iconFile.set(project.file("icons/windows.ico"))
             }
@@ -190,10 +195,10 @@ tasks.register<JavaExec>("renderCampusExperience") {
 /** `./gradlew :desktop:packageTarGz` —— 把 jpackage 的 app-image（免安装目录）打成 `tar.gz`。 */
 tasks.register<org.gradle.api.tasks.bundling.Tar>("packageTarGz") {
     group = "distribution"
-    description = "把 app-image 打成 tar.gz（免安装：解压后直接跑 bin/xjtu-toolbox）"
+    description = "把 app-image 打成 tar.gz（免安装：解压后直接跑 bin/xjtu-dzhz）"
     dependsOn("createDistributable")
     compression = org.gradle.api.tasks.bundling.Compression.GZIP
-    archiveFileName.set("xjtu-toolbox-$desktopPackageVersion-linux-x64.tar.gz")
+    archiveFileName.set("xjtu-dzhz-$desktopPackageVersion-linux-x64.tar.gz")
     destinationDirectory.set(layout.buildDirectory.dir("compose/binaries/main/tar"))
     from(layout.buildDirectory.dir("compose/binaries/main/app"))
 }

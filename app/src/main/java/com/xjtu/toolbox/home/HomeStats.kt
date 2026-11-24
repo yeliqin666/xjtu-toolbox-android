@@ -4,6 +4,7 @@ import android.content.Context
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.withXianAreaCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.xjtu.toolbox.home.HomeLine
@@ -118,12 +119,31 @@ object HomeStats {
 
     private const val SNAPSHOT_KEY = "home_stats_snapshot"
 
-    /** 上次 [collect] 的完整结果，冷启动首帧直接显示。 */
-    fun snapshot(context: Context): Map<String, HomeStat> =
-        runCatching { DataCache(context).read<Map<String, HomeStat>>(SNAPSHOT_KEY, PUSHED_TTL_MS) }.getOrNull().orEmpty()
+    /** 读过 / 写过的快照留一份在内存，按账号认：首页组合时命中它就不必同步读盘解 JSON。 */
+    private class Held(val accountId: String?, val stats: Map<String, HomeStat>)
+
+    @Volatile
+    private var held: Held? = null
+
+    /** 上次 [collect] 的完整结果，冷启动首帧直接显示。内存里有当前账号的就不读盘。 */
+    fun snapshot(context: Context): Map<String, HomeStat> {
+        val account = com.xjtu.toolbox.account.AccountContext.activeAccountId
+        held?.takeIf { it.accountId == account }?.let { return it.stats }
+        val stats = runCatching { DataCache(context, account).read<Map<String, HomeStat>>(SNAPSHOT_KEY, PUSHED_TTL_MS) }
+            .getOrNull().orEmpty()
+        held = Held(account, stats)
+        return stats
+    }
+
+    /** 冷启动时在后台线程先读进内存，首页第一次组合就不卡在读盘上。 */
+    fun preloadSnapshot(context: Context) {
+        snapshot(context)
+    }
 
     fun saveSnapshot(context: Context, stats: Map<String, HomeStat>) {
-        runCatching { DataCache(context).write(SNAPSHOT_KEY, stats) }
+        val account = com.xjtu.toolbox.account.AccountContext.activeAccountId
+        runCatching { DataCache(context, account).write(SNAPSHOT_KEY, stats) }
+        held = Held(account, stats)
     }
 
     /** 某个功能推送过的摘要（没有或过期返回 null），给功能页顶部的入口卡显示状态。 */
@@ -158,24 +178,39 @@ object HomeStats {
     // 与首页摘要分开存：摘要是"现在是什么状态"，这两个是"跟上次比变了没有"。
     // 混在一起会出错——摘要 7 天过期，而基线不能过期，否则过完期就又报一次"新成绩"。
 
+    /** 旧游标（只记总门数），已由 [KEY_SEEN_GRADES] 取代，读到就顺手删掉。 */
     private const val KEY_SCORE_CURSOR = "proactive_score_total"
+    /** 见过的成绩标识（学期 + 课程号），换行分隔。见 [com.xjtu.toolbox.jwapp.NewGradeCursor]。 */
+    private const val KEY_SEEN_GRADES = "seen_grade_keys"
+    private val gradeCursorLock = Any()
     private const val KEY_LATEST_NOTICE = "proactive_latest_notice"
 
     /**
-     * 记录成绩总门数并返回**本次新增了几门**。
+     * 拿这次取到的全部成绩推进游标，返回**这次新出分的那几门**（#428）。
      *
-     * 首次调用（没有基线）返回 0：不知道之前有多少门，任何数字都可能是全部历史成绩，
+     * 首次调用（没有基线，含老用户第一次跑新游标）只建基线、返回空：不知道之前见过哪些，
      * 报「新增 200 门」只会让人以为坏了。
      *
-     * 游标只在这里前移，且只有成功取到数据才会调用——失败时不动基线，
-     * 否则一次失败把基线冲成 0，下次就会把全部成绩当成新增。
+     * 首页刷新和后台 [com.xjtu.toolbox.notification.GradeWatchWorker] 共用这一份游标，加锁保证
+     * 同一门只被其中一方报一次。只有成功取到数据才会调用——失败时不动基线。
      */
-    fun bumpScoreCursor(context: Context, total: Int, accountId: String? = AccountContext.activeAccountId): Int = runCatching {
-        val prefs = scorePrefs(context, accountId)
-        val prev = prefs.getInt(KEY_SCORE_CURSOR, -1)
-        prefs.edit().putInt(KEY_SCORE_CURSOR, total).apply()
-        if (prev < 0) 0 else (total - prev).coerceAtLeast(0)
-    }.getOrDefault(0)
+    fun advanceGradeCursor(
+        context: Context,
+        terms: List<com.xjtu.toolbox.jwapp.TermScore>,
+        accountId: String? = AccountContext.activeAccountId,
+    ): List<com.xjtu.toolbox.jwapp.ScoreItem> = runCatching {
+        synchronized(gradeCursorLock) {
+            val prefs = scorePrefs(context, accountId)
+            val previous = prefs.getString(KEY_SEEN_GRADES, null)
+                ?.split('\n')?.filter { it.isNotBlank() }?.toSet()
+            val adv = com.xjtu.toolbox.jwapp.NewGradeCursor.advance(previous, terms)
+            prefs.edit()
+                .putString(KEY_SEEN_GRADES, adv.seen.joinToString("\n"))
+                .remove(KEY_SCORE_CURSOR)
+                .apply()
+            adv.fresh
+        }
+    }.getOrDefault(emptyList())
 
     /** 当前的成绩新增数（供屁岱读取，不改变游标）。 */
     fun pendingNewScores(context: Context, accountId: String? = AccountContext.activeAccountId): Int = runCatching {
@@ -304,7 +339,7 @@ object HomeStats {
                 data.departments.firstOrNull { name in it.name && it.phoneItems.isNotEmpty() }
             }.distinct().ifEmpty { data.departments.filter { it.phoneItems.isNotEmpty() }.take(4) }
             out.lines(AppRoute.YellowPage.id, "", null,
-                picks.map { d -> HomeLine(d.name, "tel:" + d.dialNumber(d.phoneItems.first()), d.phoneItems.first()) })
+                picks.map { d -> HomeLine(d.name, "tel:" + d.dialNumber(d.phoneItems.first()), d.phoneItems.first().withXianAreaCode()) })
         }
         val games = com.xjtu.toolbox.game.GameStore.recentRoutes().mapNotNull { id ->
             com.xjtu.toolbox.game.GameStore.titles[id]?.let { HomeLine(it, "app:$id", com.xjtu.toolbox.game.GameStore.summary(id)) }

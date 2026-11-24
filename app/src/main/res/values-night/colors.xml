@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="widget_surface">#FF121212</color>
-    <color name="widget_surface_variant">#FF1E1F24</color>
-    <color name="widget_on_surface">#FFECEFF4</color>
-    <color name="widget_on_surface_secondary">#FFB9C0CC</color>
-    <color name="widget_divider">#1FECEFF4</color>
+    <color name="widget_surface">@android:color/system_neutral2_900</color>
+    <color name="widget_surface_variant">@android:color/system_accent2_800</color>
+    <color name="widget_on_surface">@android:color/system_neutral1_50</color>
+    <color name="widget_on_surface_secondary">@android:color/system_neutral2_200</color>
+    <color name="widget_accent">@android:color/system_accent1_200</color>
+    <color name="widget_key">@android:color/system_accent1_700</color>
+    <color name="widget_on_key">@android:color/system_accent1_100</color>
     <color name="widget_course_done">#FF555B66</color>
 </resources>

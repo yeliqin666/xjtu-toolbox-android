@@ -14,7 +14,7 @@ import io.ktor.server.routing.route
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
-/** `/api/session*` —— 四个端点（`docs/api-contract.md` §5 的「P0（新）」那一行）。 */
+/** `/api/session*` 端点（`docs/api-contract.md`「会话」）。 */
 internal fun Route.sessionRoutes(
     session: ServeSession,
     accessToken: String,

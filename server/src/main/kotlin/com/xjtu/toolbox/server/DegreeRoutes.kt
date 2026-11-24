@@ -22,9 +22,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
- * 学业进度（契约 §5.16）：取数就是 `:data` 的 [AppDegreeSource]，这里只投影成 JSON。
+ * 学业进度：取数就是 `:data` 的 [AppDegreeSource]，这里只投影成 JSON。
  * 方案树、课程行、教务报告按上游原样转发（屏的 `DegreeBuilder` 读的就是这些原始字段），
- * 只把其中的本人身份字段剥掉（§5.2 红线）。
+ * 只把其中的本人身份字段剥掉（隐私红线）。
  */
 internal fun Route.degreeRoutes(
     session: ServeSession,

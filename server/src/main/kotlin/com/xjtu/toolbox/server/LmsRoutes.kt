@@ -22,7 +22,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
-/** `/api/lms*` —— 思源学堂的五个只读端点（`docs/api-contract.md` §5.6；后两个是 B-5 作业截止与 B-4 课程配对）。 */
+/** `/api/lms*` —— 思源学堂的五个只读端点（`docs/api-contract.md`；后两个是作业截止与课程配对）。 */
 internal fun Route.lmsRoutes(session: ServeSession) {
     route(LMS_SEGMENT) {
 

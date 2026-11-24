@@ -20,7 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.Serializable
 
 /**
- * `/api/downloads` —— 下载管理在浏览器上的那一族（`docs/api-contract.md` §5.13）。
+ * `/api/downloads` —— 下载管理在浏览器上的那一族（`docs/api-contract.md`）。
  *
  * ## 口径（会议 #9 = 丙，**做法①**）
  *
@@ -54,14 +54,14 @@ import kotlinx.serialization.Serializable
  * 四条都**要求已登录**（`session.authenticated`，未登录回 401 指路）。上一轮落地时只挂了令牌闸门、
  * 没挂登录判据，后果是：拿到令牌就能让**那台机器**去取任意 URL 并往操作者的下载目录里写文件；
  * 而且 `AccountContext.activeAccountId` 还是 null 时，登记表会落到 `serve_download_tasks_default`
- * 那个命名空间。本批与其余二十多族拉齐（均要求登录），如实记在契约 §5.13。
+ * 那个命名空间。本批与其余二十多族拉齐（均要求登录）。
  *
  * ## 本批顺手修的三处（都是上一轮没测试所以没暴露的）
  *
  * 1. **路由挂错了**：原本写的是绝对路径 `/api/downloads`，而这棵子树已经挂在 `route("/api")` 之下
  *    ⇒ 实际注册成 `/api/api/downloads`，**整族在线上也是 404**。现在改挂相对段 [DOWNLOAD_SEGMENT]。
- * 2. **回的是裸对象**：四条都直接 `respond(DTO)` ⇒ 没有 §4 的信封（`{code,data,message}`）。
- *    本批全部包上 `ApiEnvelope.ok(…)`（这一族不在 §4 的例外清单里）。
+ * 2. **回的是裸对象**：四条都直接 `respond(DTO)` ⇒ 没有信封（`{code,data,message}`）。
+ *    本批全部包上 `ApiEnvelope.ok(…)`（这一族不在契约的例外清单里）。
  * 3. **删「正在下载」那一条是静默空操作**（`:data` 的 `deleteTask` 只在非 downloading 时真删），
  *    而旧代码照旧回 200 + 成功形状 ⇒ 屏上点删除看起来成功、那一行还在。
  *    现在**回查一次**再答：行还在就回 `409` + [DOWNLOAD_BUSY_MESSAGE]。

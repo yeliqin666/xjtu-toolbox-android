@@ -13,7 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/** serve 契约 §5.8 的客户端那一侧。 */
+/** `/api/jwxt/{changes,exams,textbooks}` 的客户端那一侧。 */
 class ServeJwxtScheduleExtraEndpointsApiTest {
 
     /** 一条发出去的请求：路径 + 完整 URL（判参数有没有发出去靠它）。 */
@@ -130,7 +130,7 @@ class ServeJwxtScheduleExtraEndpointsApiTest {
         assertTrue(e.message?.contains("教务会话已失效") == true, "实际：${e.message}")
     }
 
-    /** 非 serve 分支抛错而不是编一份空数据：这三条在 campus-api 里没有（那一头的字段名本端也不认，契约 §7 第 2 条） */
+    /** 非 serve 分支抛错而不是编一份空数据：这三条在 campus-api 里没有（那一头的字段名本端也不认） */
     @Test
     fun campusApiModeThrowsInsteadOfFakingEmptyData() = runTest {
         val engine = engineFor(

@@ -170,11 +170,22 @@ class AgentConfigStoreJvmTest {
 
     @Test
     fun `存着旧默认名的老用户读出新默认名，自定义名不动`() {
+        // 改默认名之前的老版本写下的配置：只有名字，没有「用户起的」标记
+        plainStore().putString("assistant_name", AgentConfig.LEGACY_ASSISTANT_NAME)
+        assertEquals(AgentConfig.DEFAULT_ASSISTANT_NAME, store().load().assistantName)
+        store().save(AgentConfig(assistantName = "屁岱二号"))
+        assertEquals("屁岱二号", store().load().assistantName)
+    }
+
+    /** 用户亲手把名字改成「屁岱」：以前每次读都被换成「小岱」，看起来像没保存。 */
+    @Test
+    fun `用户自己改成旧默认名也能存上`() {
         val s = store()
         s.save(AgentConfig(assistantName = AgentConfig.LEGACY_ASSISTANT_NAME))
-        assertEquals(AgentConfig.DEFAULT_ASSISTANT_NAME, s.load().assistantName)
-        s.save(AgentConfig(assistantName = "屁岱二号"))
-        assertEquals("屁岱二号", s.load().assistantName)
+        assertEquals(AgentConfig.LEGACY_ASSISTANT_NAME, s.load().assistantName)
+        // 再存一次别的设置（面板把读回来的整份配置写回去），名字仍不变
+        s.save(s.load().copy(model = "m2"))
+        assertEquals(AgentConfig.LEGACY_ASSISTANT_NAME, s.load().assistantName)
     }
 
     @Test

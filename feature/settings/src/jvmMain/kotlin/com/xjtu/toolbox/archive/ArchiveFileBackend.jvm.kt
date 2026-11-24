@@ -63,7 +63,7 @@ class JvmFileBackend(private val dataRoot: File) : ArchiveFileBackend {
         else -> null
     }
 
-    /** §6.3「mtime → `at`」：课表缓存族的年龄就是 `#written_at` 那个侧挂键的值。 */
+    /** mtime → `at`：课表缓存族的年龄就是 `#written_at` 那个侧挂键的值。 */
     override fun mtimeMs(suffix: String, relPath: String): Long? {
         if (!relPath.startsWith("$SCHEDULE_DIR/")) return null
         val key = scheduleKeyOf(relPath) ?: return null
@@ -90,7 +90,7 @@ class JvmFileBackend(private val dataRoot: File) : ArchiveFileBackend {
     private companion object {
         const val AGENT_SESSIONS_DIR = "agent_sessions"
 
-        /** 档案里这一族的目录名（与 `:app` 的 `cache/data_cache<suffix>/` ⇄ `files/schedule/` 同一行，§6.3）。 */
+        /** 档案里这一族的目录名（与 `:app` 的 `cache/data_cache<suffix>/` ⇄ `files/schedule/` 同一族）。 */
         const val SCHEDULE_DIR = "schedule"
 
         /**
