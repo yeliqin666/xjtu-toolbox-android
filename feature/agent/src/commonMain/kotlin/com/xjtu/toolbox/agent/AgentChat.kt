@@ -617,14 +617,23 @@ private fun ReasoningBar(
     )
 }
 private fun toolLabel(msg: ChatMessage) = msg.content.removeSuffix("…").trim()
+
+/** 同一个工具的不同状态文案（「整理结果卡片」/「已整理结果卡片」）归到一起。 */
+private fun toolKey(msg: ChatMessage) = toolLabel(msg).removePrefix("已").substringBefore(" · ").trim()
 /** 一轮里调用过的工具，收成一张小卡；多个或出错时可展开看每一次。 */
 @Composable
 private fun ToolCallNote(events: List<ChatMessage>, modifier: Modifier = Modifier) {
     if (events.isEmpty()) return
     val running = events.any { it.isToolCall }
-    val hasError = events.any { it.toolError != null }
+    // 失败后同一工具又调成功了（模型自己改参数重试）：那次失败只是过程，不标红、不进摘要
+    val recovered = events.indices.filter { i ->
+        events[i].toolError != null && events.drop(i + 1).any { later ->
+            later.toolError == null && !later.isToolCall && toolKey(later) == toolKey(events[i])
+        }
+    }.toSet()
+    val hasError = events.indices.any { events[it].toolError != null && it !in recovered }
     var expanded by remember(events.first().timestamp) { mutableStateOf(false) }
-    val labels = events.map { toolLabel(it) }.filter { it.isNotBlank() }
+    val labels = events.filterIndexed { i, _ -> i !in recovered }.map { toolLabel(it) }.filter { it.isNotBlank() }
     val summary = when {
         running -> labels.lastOrNull().orEmpty()
         hasError -> labels.joinToString(" · ").ifBlank { "调用失败" }
@@ -649,12 +658,16 @@ private fun ToolCallNote(events: List<ChatMessage>, modifier: Modifier = Modifie
         },
         details = {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                events.forEach { event ->
+                events.forEachIndexed { i, event ->
                     val err = event.toolError
                     Text(
-                        if (err != null) "${toolLabel(event)} · $err" else toolLabel(event),
+                        when {
+                            err == null -> toolLabel(event)
+                            i in recovered -> "${toolLabel(event)} · 参数有误，已自动重试"
+                            else -> "${toolLabel(event)} · $err"
+                        },
                         style = MiuixTheme.textStyles.footnote2,
-                        color = if (err != null) MiuixTheme.colorScheme.error else muted,
+                        color = if (err != null && i !in recovered) MiuixTheme.colorScheme.error else muted,
                     )
                 }
             }
@@ -739,44 +752,64 @@ private fun MessageBubble(
         }
         else -> {
             Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 2.dp),
+                Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.Start
             ) {
-                if (showReasoning && msg.reasoningContent.isNotBlank() || streaming && msg.content.isBlank()) {
-                    ReasoningBar(
-                        text = if (showReasoning) msg.reasoningContent else "",
-                        streaming = streaming,
-                        onNavigate = onNavigate,
-                        images = host.images,
-                    )
-                    if (msg.content.isNotBlank() && toolEvents.isEmpty()) Spacer(Modifier.height(6.dp))
-                }
-                if (toolEvents.isNotEmpty()) {
-                    ToolCallNote(toolEvents, Modifier.padding(top = 6.dp, bottom = if (msg.content.isNotBlank()) 8.dp else 0.dp))
-                }
-                if (msg.content.isNotBlank()) {
-                    MarkdownText(
-                        text = msg.content,
-                        color = MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier
+                val showThinking = showReasoning && msg.reasoningContent.isNotBlank() || streaming && msg.content.isBlank()
+                // 思考、工具、正文收进一个满宽的白底气泡（不像用户那条限宽），卡片和跳转按钮放在气泡外
+                if (showThinking || toolEvents.isNotEmpty() || msg.content.isNotBlank() || onPushPreferences != null) {
+                    Column(
+                        Modifier
                             .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = {},
-                                onLongClick = { copyText(msg.content) },
-                            ),
-                        images = host.images,
-                        onLink = { url ->
-                            onNavigate(AppRoute.Browser(url))
+                            .clip(RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp))
+                            // 浅色模式纯白，跟浅灰页底拉开；深色模式用卡片底色
+                            .background(
+                                if (com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current) MiuixTheme.colorScheme.surfaceVariant
+                                else androidx.compose.ui.graphics.Color.White
+                            )
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        if (showThinking) {
+                            ReasoningBar(
+                                text = if (showReasoning) msg.reasoningContent else "",
+                                streaming = streaming,
+                                onNavigate = onNavigate,
+                                images = host.images,
+                            )
+                            if (msg.content.isNotBlank() && toolEvents.isEmpty()) Spacer(Modifier.height(10.dp))
                         }
-                    )
-                }
-                onPushPreferences?.let { open ->
-                    Text("减少此类推送…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp))
-                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = open)
-                            .padding(horizontal = 4.dp, vertical = 6.dp))
+                        if (toolEvents.isNotEmpty()) {
+                            ToolCallNote(
+                                toolEvents,
+                                Modifier.padding(
+                                    top = if (showThinking) 6.dp else 0.dp,
+                                    bottom = if (msg.content.isNotBlank()) 10.dp else 0.dp,
+                                ),
+                            )
+                        }
+                        if (msg.content.isNotBlank()) {
+                            MarkdownText(
+                                text = msg.content,
+                                color = MiuixTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {},
+                                        onLongClick = { copyText(msg.content) },
+                                    ),
+                                images = host.images,
+                                onLink = { url ->
+                                    onNavigate(AppRoute.Browser(url))
+                                }
+                            )
+                        }
+                        onPushPreferences?.let { open ->
+                            Text("减少此类推送…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp))
+                                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = open)
+                                    .padding(horizontal = 4.dp, vertical = 6.dp))
+                        }
+                    }
                 }
                 msg.widgets.forEach { widget ->
                     AgentWidgetView(
