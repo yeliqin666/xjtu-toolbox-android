@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""讨论区「通知公告」→ App 公告（bulletin.json，工作流提交到 announce 分支、再推 Gitee）。
+"""讨论区公告分类（slug announcements）→ App 公告（bulletin.json，工作流提交到 announce 分支、再推 Gitee）。
 
     python3 announce.py event   # 讨论区有变动（新建 / 编辑 / 关闭 / 删除…）：重建公告，不统计
     python3 announce.py tally   # 每 4 天：统计投票、生成「大家在问」，再重建
 
-* 一帖一条公告：标题 = 帖子标题，其余按发帖表单（.github/DISCUSSION_TEMPLATE/通知公告.yml）的「### 小标题」解析。
+* 一帖一条公告：标题 = 帖子标题，其余按发帖表单（.github/DISCUSSION_TEMPLATE/announcements.yml）的「### 小标题」解析。
   只认维护者用表单发的帖（有「### 正文」一节）；分类里别的帖子（旧帖、随手发的讨论）不进 App。
   关闭普通公告 = 撤下；关闭投票帖 = 结束投票（截止时间改成关闭时刻，留在往期）；删帖 = 删除。
 * 公告 id =「发帖日期-d帖子号」。bulletin.json 每次整份重新生成，只含讨论区的公告；
@@ -169,12 +169,12 @@ def to_bulletin(d: dict, created: datetime, closed_at: Optional[datetime]) -> tu
 
 
 def notices(gh: fd.GitHub) -> list[Notice]:
-    """「通知公告」分类里最近 100 帖（开着的和关了的）。"""
+    """公告分类里最近 100 帖（开着的和关了的）。按 slug 认（ANNOUNCE_CATEGORY），名字也认。"""
     owner, name = gh.owner_name()
-    want = fd.env("ANNOUNCE_CATEGORY", "通知公告")
+    want = fd.env("ANNOUNCE_CATEGORY", "announcements")
     repo = gh.graphql("""query($o:String!,$n:String!){repository(owner:$o,name:$n){
-        discussionCategories(first:50){nodes{id name}}}}""", o=owner, n=name)["repository"]
-    cat = next((c["id"] for c in repo["discussionCategories"]["nodes"] if c["name"] == want), None)
+        discussionCategories(first:50){nodes{id name slug}}}}""", o=owner, n=name)["repository"]
+    cat = next((c["id"] for c in repo["discussionCategories"]["nodes"] if want in (c["slug"], c["name"])), None)
     if not cat:
         raise RuntimeError(f"讨论区没有「{want}」分类")
     got = gh.graphql("""query($o:String!,$n:String!,$c:ID!){repository(owner:$o,name:$n){

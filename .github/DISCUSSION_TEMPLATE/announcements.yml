@@ -1,4 +1,4 @@
-# 「通知公告」分类的发帖表单。帖子标题 = 公告标题；发出、编辑、关闭后由 .github/workflows/announce.yml
+# 公告分类（slug 必须是 announcements，文件名跟 slug 走；GitHub 不认中文 slug）的发帖表单。帖子标题 = 公告标题；发出、编辑、关闭后由 .github/workflows/announce.yml
 # 同步进 App 的公告（bulletin.json → announce 分支 / Gitee）。之后直接改帖子正文也行，保留「### 小标题」结构即可。
 # 不写 title：GitHub 不接受空字符串，填了又会成为标题前缀进到 App 里。
 body:

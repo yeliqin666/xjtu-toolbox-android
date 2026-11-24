@@ -1,6 +1,7 @@
 name: Announce
 
-# 讨论区「通知公告」= App 公告的唯一编辑处（发帖表单见 .github/DISCUSSION_TEMPLATE/通知公告.yml，
+# 讨论区公告分类（slug announcements）= App 公告的唯一编辑处（发帖表单见 .github/DISCUSSION_TEMPLATE/announcements.yml，
+# 文件名必须是分类的 slug，GitHub 不认中文 slug，所以分类名要保持英文 slug；
 # 解析和统计见 .github/scripts/announce.py）。生成的 JSON 提交到 GitHub 的 announce 分支，再把这个分支原样推到
 # Gitee：两边一致，App 先读 Gitee、再读 GitHub。不经过 OSS（OSS 只放小游戏和安装包）。
 #
@@ -36,14 +37,14 @@ jobs:
     # 别的分类的帖子不管；改分类可能是移进 / 移出，都重建一次
     if: >-
       github.event_name != 'discussion' ||
-      github.event.discussion.category.name == (vars.ANNOUNCE_CATEGORY || '通知公告') ||
+      github.event.discussion.category.slug == (vars.ANNOUNCE_CATEGORY || 'announcements') ||
       github.event.action == 'category_changed'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '' }}
       OUT_DIR: announce
-      ANNOUNCE_CATEGORY: ${{ vars.ANNOUNCE_CATEGORY || '通知公告' }}
+      ANNOUNCE_CATEGORY: ${{ vars.ANNOUNCE_CATEGORY || 'announcements' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -72,7 +73,7 @@ jobs:
           if git diff --cached --quiet; then echo "没有变化"; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -q -m "公告：由讨论区「通知公告」生成"
+          git commit -q -m "公告：由讨论区公告分类生成"
           git push -q origin HEAD:announce
           echo "pushed=1" >> "$GITHUB_OUTPUT"
 
