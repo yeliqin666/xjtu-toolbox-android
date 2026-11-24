@@ -357,7 +357,7 @@ jobs:
           PY
 
           echo "Uploading manifest last: stable.json"
-          python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/stable.json"
+          python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/stable.json" "no-cache"
           python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/history/stable-$VERSION.json"
 
           echo "Verifying OSS manifest and APK via SDK"
@@ -407,6 +407,22 @@ jobs:
         run: |
           python3 .github/scripts/project_story.py /tmp/project_story.json
           python3 .github/scripts/oss_upload.py /tmp/project_story.json "xjtu-toolbox/project_story.json" "no-cache"
+
+      # ESA 不认源站缓存头，固定路径的清单与 latest 包要主动刷新（#519）；没配 ESA_* secrets 就跳过
+      - name: Purge ESA cache for stable
+        if: github.ref == 'refs/heads/main' && steps.oss_publish.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
+          ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
+          ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
+        run: |
+          if [ -n "$ESA_SITE_ID" ]; then
+            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
+              || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
+          fi
+          python3 .github/scripts/esa_purge.py stable.json apk/latest/app-release.apk
 
       - name: Delete existing tag (if any)
         if: github.ref == 'refs/heads/main'
@@ -727,7 +743,7 @@ jobs:
           PY
 
           echo "Uploading manifest last: preview.json"
-          python3 .github/scripts/oss_upload.py /tmp/preview.json "xjtu-toolbox/preview.json"
+          python3 .github/scripts/oss_upload.py /tmp/preview.json "xjtu-toolbox/preview.json" "no-cache"
 
           echo "Verifying OSS preview manifest and APK via SDK"
           python3 - <<'PY'
@@ -754,6 +770,21 @@ jobs:
           print("preview manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
           PY
           echo "OSS preview publish verified"
+
+      - name: Purge ESA cache for preview
+        if: env.PUBLISH_PREVIEW == 'true' && steps.oss_preview_publish.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
+          ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
+          ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
+        run: |
+          if [ -n "$ESA_SITE_ID" ]; then
+            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
+              || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
+          fi
+          python3 .github/scripts/esa_purge.py preview.json
 
       - name: Create GitHub Pre-release
         if: env.PUBLISH_PREVIEW == 'true'
