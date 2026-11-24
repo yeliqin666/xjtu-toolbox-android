@@ -7,7 +7,7 @@
 
 * 一帖一条公告：标题 = 帖子标题，其余按发帖表单（.github/DISCUSSION_TEMPLATE/announcements.yml）的「### 小标题」解析。
   只认维护者用表单发的帖（有「### 正文」一节）；分类里别的帖子（旧帖、随手发的讨论）不进 App。
-  关闭普通公告 = 撤下；关闭投票帖 = 结束投票（截止时间改成关闭时刻，留在往期）；删帖 = 删除。
+  关帖 = 删除（普通公告与投票都从 App 撤下，机器人不再回帖）；要提前结束投票就改「截止时间」。
 * 公告 id =「发帖日期-d帖子号」。bulletin.json 每次整份重新生成，只含讨论区的公告；
   一条表单公告都还没有时不生成（announce 分支上手写的旧公告不动）。
 * 投票：票在飞书提交表（类型「投票·<id>」，App 写）。同一设备只算最后一次，截止后投的不算。
@@ -131,7 +131,9 @@ def clean(text: str) -> str:
 
 def to_bulletin(d: dict, created: datetime, closed_at: Optional[datetime]) -> tuple[Optional[dict], list[str]]:
     """一帖 → 一条公告（不含投票结果）。有错返回 (None, 错误)；
-    不是用表单发的、关闭的普通公告返回 (None, [])。"""
+    不是用表单发的、已关闭的帖子返回 (None, [])。"""
+    if closed_at:
+        return None, []
     sec = sections((d.get("body") or "").replace("\r\n", "\n"))
     if sec is None:
         return None, []
@@ -166,12 +168,9 @@ def to_bulletin(d: dict, created: datetime, closed_at: Optional[datetime]) -> tu
         if len(set(options)) != len(options):
             errors.append("投票选项有重复")
         b.update(options=options, allowMultiple="投票可多选" in flags, allowOther=other)
-        # 投票默认 7 天；关帖 = 提前结束
-        ends = times.get("endsAt") or (created + timedelta(days=POLL_DAYS)).astimezone(fd.BEIJING).replace(
+        # 投票默认 7 天
+        times["endsAt"] = times.get("endsAt") or (created + timedelta(days=POLL_DAYS)).astimezone(fd.BEIJING).replace(
             hour=23, minute=59, second=0, microsecond=0)
-        times["endsAt"] = min(ends, closed_at) if closed_at else ends
-    elif closed_at:
-        return None, []
     b.update({k: iso(v) for k, v in times.items()})
     b["mustAck"] = "必须点确认才能关掉" in flags
     b["block"] = "启动时拦住不让用（慎用）" in flags
@@ -367,7 +366,7 @@ def status_body(n: Notice, feishu_done: bool) -> str:
     if b.get("block"):
         bits.append("⚠️ 启动拦截")
     return (marks + f"\n✅ 已发布到 App（`{b['id']}`）：{' · '.join(bits)}\n\n"
-            "<sub>几分钟后生效。改帖子 = 改公告；关闭" + ("投票帖 = 结束投票" if b.get("options") else "帖子 = 撤下") + "</sub>")
+            "<sub>几分钟后生效。改帖子 = 改公告；关帖 = 删除</sub>")
 
 
 def write_feishu(fs: fd.Feishu, n: Notice) -> bool:
@@ -457,14 +456,16 @@ def main() -> None:
         number = event_number()
         touched = [n for n in ns if n.number == number]
         for n in touched:
-            # 投票帖刚关：当场出最终结果；第一次发布要写飞书公告表
-            poll_closed = n.bulletin and n.bulletin.get("options") and n.closed_at and not n.bulletin.get("final")
-            first = n.bulletin and not n.bot_comment(MARK_STATUS)
-            if poll_closed or first:
+            # 关帖 = 删除：已经不进 bulletin.json，也不回帖（关了的帖子机器人没有写权限）
+            if n.closed_at:
+                continue
+            # 第一次发布要写飞书公告表
+            if n.bulletin and not n.bot_comment(MARK_STATUS):
                 fs = fs or fd.Feishu()
-            if poll_closed:
-                update_polls(fs, gh, [n], now)
-            receipt(gh, fs, n)
+            try:
+                receipt(gh, fs, n)
+            except Exception as e:  # noqa: BLE001 —— 回帖失败不该拦住公告重建
+                fd.log(f"::warning::#{n.number} 解析结果没回进帖子：{e}")
     if not any(n.managed for n in ns):
         # 过渡：讨论区还没发过表单公告，announce 分支上手写的旧公告先别覆盖
         fd.log("讨论区还没有表单公告，不生成 bulletin.json")
@@ -498,7 +499,7 @@ def self_test() -> None:
     assert b["options"] == ["面", "饭"] and b["allowOther"] and b["allowMultiple"] and not b["mustAck"]
     assert b["endsAt"] == "2026-12-01T08:00:00+08:00" and b["minVersion"] == "6.0.2" and "url" not in b
     closed = datetime(2026, 11, 25, 9, 0, tzinfo=fd.BEIJING)
-    assert to_bulletin(d, created, closed)[0]["endsAt"] == "2026-11-25T09:00:00+08:00"
+    assert to_bulletin(d, created, closed) == (None, []), "关帖 = 删除，投票也一样"
     plain = {"number": 8, "title": "通知", "body": "随便写的正文\n\n### 背景\n\n不是表单", "url": "u"}
     assert to_bulletin(plain, created, None) == (None, [])
     notice = {"number": 9, "title": "通知", "body": "### 等级\r\n\r\n普通\r\n\r\n### 正文\r\n\r\n停水", "url": "u"}
