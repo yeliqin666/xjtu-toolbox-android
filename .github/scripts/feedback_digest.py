@@ -927,18 +927,30 @@ def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict) -> Optional[O
     tickets, pending, done = issue_marks(disc["body"])
     out = apply_commands(fs, cmds, tickets, pending, default, f"讨论 #{disc['number']}",
                          (c.get("author") or {}).get("login", ""))
+
+    # 飞书已经写了：后面这几步失败只记一条警告，不把整次算失败
+    def step(what: str, query: str, **variables: Any) -> bool:
+        try:
+            gwrite(query, **variables)
+            return True
+        except Exception as e:  # noqa: BLE001
+            out.errors.append(f"{what}失败（飞书那边已写好）：{e}")
+            return False
+
     if out.newly - done:
         done |= out.newly
         disc["body"] = MARK_DONE.sub(f"<!-- feedback-done={ids(done)} -->", disc["body"])
-        gwrite("""mutation($d:ID!,$b:String!){updateDiscussion(input:{discussionId:$d,body:$b}){discussion{id}}}""",
-               d=disc["id"], b=disc["body"])
+        step("更新帖子里的处理标记",
+             """mutation($d:ID!,$b:String!){updateDiscussion(input:{discussionId:$d,body:$b}){discussion{id}}}""",
+             d=disc["id"], b=disc["body"])
     # 那层反馈楼上标一下：回复过 🎉，跳过 👀，扫一眼就知道哪条还没处理
     if parent and default in out.newly:
-        gwrite("""mutation($s:ID!,$e:ReactionContent!){addReaction(input:{subjectId:$s,content:$e}){reaction{content}}}""",
-               s=parent["id"], e="HOORAY" if default in out.replied else "EYES")
-    if pending and pending <= done:
-        gwrite("""mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:RESOLVED}){discussion{id}}}""",
-               d=disc["id"])
+        step("给反馈楼加表情",
+             """mutation($s:ID!,$e:ReactionContent!){addReaction(input:{subjectId:$s,content:$e}){reaction{content}}}""",
+             s=parent["id"], e="HOORAY" if default in out.replied else "EYES")
+    if pending and pending <= done and step(
+            "关闭讨论", """mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:RESOLVED}){discussion{id}}}""",
+            d=disc["id"]):
         disc["closed"] = True
         out.notes.append("本期都处理完了，已关闭")
         log(f"讨论 #{disc['number']} 全部处理完，已关闭")

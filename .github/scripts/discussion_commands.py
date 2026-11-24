@@ -35,6 +35,7 @@ admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正�
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -624,6 +625,18 @@ def pick_source(comment: Comment, command_line_index: int) -> Source:
             fallback_title=f"Discussion #{discussion.number} 的回复",
         )
 
+    feedback = feedback_item_view(comment.reply_to_body)
+    if feedback is not None:
+        title, content = feedback
+        return Source(
+            key=f"discussioncomment-{comment.reply_to_id}",
+            content=content,
+            raw_title=title,
+            link=f"[反馈日报 #{discussion.number} 的这条反馈]({comment.reply_to_url})",
+            where="父评论",
+            fallback_title=f"反馈日报 #{discussion.number} 的反馈",
+        )
+
     return Source(
         key=f"discussioncomment-{comment.reply_to_id}",
         content=comment.reply_to_body,
@@ -632,6 +645,28 @@ def pick_source(comment: Comment, command_line_index: int) -> Source:
         where="父评论",
         fallback_title=f"Discussion #{discussion.number} 的父评论",
     )
+
+
+FEEDBACK_ITEM_RE = re.compile(r"<!-- feedback-ticket:(T[A-Z0-9]{8,16}) -->")
+
+
+def feedback_item_view(body: str) -> Optional[tuple[str, str]]:
+    """反馈日报里的一层楼（feedback_digest.py 发的）转 issue：标题取反馈原文第一句，正文展开、不折叠。
+    不是反馈楼返回 None。"""
+    m = FEEDBACK_ITEM_RE.search(body)
+    if not m:
+        return None
+    text = body[m.end():].strip()
+    folded = re.match(r"<details><summary>(.*?)</summary>\s*(.*?)\s*</details>\s*$", text, re.S)
+    if folded:
+        head, rest = folded.group(1).strip(), folded.group(2).strip()
+    else:
+        head, _, rest = text.partition("\n")
+        rest = rest.strip()
+    quoted = (html.unescape(line[1:]).replace("​", "").strip()
+              for line in rest.splitlines() if line.startswith(">"))
+    title = next((q for q in quoted if q), "")
+    return title, f"{head.strip()}\n\n{rest}"
 
 
 def pick_attachment(ctx: Context) -> Attachment:
@@ -1086,8 +1121,15 @@ class FeedbackHandler(CommandHandler):
             "discussion": {"id": d.node_id, "number": d.number, "body": d.body,
                            "closed": d.closed, "category": {"name": d.category}},
         }
+        def gwrite(query: str, **variables: Any) -> dict[str, Any]:
+            try:
+                return ctx.client.graphql(query, variables)
+            except GitHubError as error:  # 把 GitHub 给的具体原因带出来，光一句「返回错误」没法查
+                detail = "；".join(e.get("message", "") for e in error.errors) or str(error)
+                raise RuntimeError(f"{query.split('(')[0].split()[-1]}：{detail}") from None
+
         try:
-            out = fd.run_discussion_commands(lambda q, **v: ctx.client.graphql(q, v), None, node)
+            out = fd.run_discussion_commands(gwrite, None, node)
         except Exception as error:  # noqa: BLE001 —— 飞书 / GraphQL 出错都当一次失败回给操作者
             raise CommandFailure(str(error)) from None
         if out is None:
