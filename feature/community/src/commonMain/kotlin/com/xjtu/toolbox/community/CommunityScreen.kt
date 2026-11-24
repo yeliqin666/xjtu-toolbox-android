@@ -51,10 +51,12 @@ fun CommunityScreen(
     onBack: () -> Unit,
     /** 非空时直接打开这一帖，从帖子返回即退出社区。 */
     discussionNumber: Int? = null,
+    /** 不用登录的应用内反馈；null 时不显示入口。 */
+    onOpenFeedback: (() -> Unit)? = null,
 ) {
     // MIUIX 的 OverlayDialog 只在某个 Scaffold 底下才渲染得出来：账号弹窗、删除确认、放弃编辑这些
     // 都写在各页 Scaffold 的外面，这一层外壳给它们兜底，弹窗也就铺满全屏
-    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, discussionNumber) }
+    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, discussionNumber, onOpenFeedback) }
 }
 
 @Composable
@@ -63,17 +65,26 @@ private fun CommunityContent(
     deviceAuth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
     discussionNumber: Int?,
+    onOpenFeedback: (() -> Unit)?,
 ) {
     val login by session.login.collectAsStateWithLifecycle()
     // 登录 / 退出时两套界面淡入淡出地换
     Crossfade(targetState = login, animationSpec = tween(300), label = "communityLogin") { signedIn ->
         if (signedIn == null) {
-            CommunityLoginScreen(session, deviceAuth, onBack)
+            CommunityLoginScreen(session, deviceAuth, onBack, onOpenFeedback)
         } else {
-            CommunityForum(session, signedIn, onBack, discussionNumber)
+            CommunityForum(session, signedIn, onBack, discussionNumber, onOpenFeedback)
         }
     }
 }
+
+/** 社区里的「反馈与投票」入口：给不想登录 GitHub 的人。 */
+@Composable
+internal fun FeedbackEntry(onClick: () -> Unit) =
+    com.xjtu.toolbox.ui.components.SecondaryEntry(
+        Icons.Default.Info, MiuixTheme.colorScheme.primary,
+        "反馈与投票", "不用登录，回复和投票都在这里", onClick = onClick,
+    )
 
 /** 社区里的三种页面；层级决定转场方向。 */
 private sealed interface ForumPage {
@@ -93,6 +104,7 @@ private fun CommunityForum(
     signedIn: String,
     onBack: () -> Unit,
     discussionNumber: Int?,
+    onOpenFeedback: (() -> Unit)?,
 ) {
     val repo = session.repository
     val vm: DiscussionsViewModel = viewModel(key = "community-$signedIn") {
@@ -194,6 +206,7 @@ private fun CommunityForum(
                 onAuthor = vm::selectAuthor,
                 me = signedIn,
                 onAccount = { accountDialog = true },
+                onFeedback = onOpenFeedback,
             )
         }
         }
@@ -233,6 +246,7 @@ private fun CommunityLoginScreen(
     session: GithubSession,
     auth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
+    onOpenFeedback: (() -> Unit)?,
 ) {
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
@@ -380,6 +394,10 @@ private fun CommunityLoginScreen(
                     color = colors.onSurfaceVariantSummary,
                     modifier = Modifier.clickable(onClick = onClick),
                 )
+            }
+            onOpenFeedback?.let {
+                Spacer(Modifier.height(8.dp))
+                FeedbackEntry(it)
             }
         }
     }

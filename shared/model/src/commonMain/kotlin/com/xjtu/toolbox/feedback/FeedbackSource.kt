@@ -19,9 +19,12 @@ interface FeedbackSource {
         version: String? = null,
     )
 
-    /** 拉取这些工单号对应的回复（一次最多认 20 个，见实现里的 `take(20)`）。 */
+    /** 拉取这些工单号对应的回复，同一工单取最新一条。 */
     suspend fun replies(tickets: List<String>): Map<String, FeedbackReply>
 
     /** 拉「大家在问」那一栏（没配凭据或字段还没建时返回空表，绝不退回整表拉取）。 */
     suspend fun publicQa(): List<FeedbackPublicQa>
+
+    /** 本机已知、不该出现在反馈正文里的值（标签 to 原值），发送前用来打码。 */
+    fun privateTerms(): List<Pair<String, String>> = emptyList()
 }

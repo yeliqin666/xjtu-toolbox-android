@@ -71,6 +71,7 @@ import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.AppFeedbackSource
+import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -168,7 +169,7 @@ private val standaloneHostedRoutes: Set<AppRoute> = setOf(
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
     AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress,
     AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox, AppRoute.QrScan,
-    AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
+    AppRoute.Community, AppRoute.Feedback, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
     AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
     AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi,
     AppRoute.Match,
@@ -788,7 +789,24 @@ fun NavEntryBuilder.appPageEntries(
                         )
                     },
                     onBack = back,
+                    onOpenFeedback = { router.open(AppRoute.Feedback) },
                 )
+            }
+        }
+        page<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
+            val context = LocalContext.current
+            androidx.compose.runtime.CompositionLocalProvider(com.xjtu.toolbox.community.LocalCommunityDiagnostics provides { communityDiagnostics(context.applicationContext) }) {
+            FeedbackScreen(
+                source = AppFeedbackSource,
+                onOpenUrl = { url ->
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                },
+                onBack = back,
+                onOpenCommunity = { router.open(AppRoute.Community) },
+                polls = com.xjtu.toolbox.feedback.AppFeedbackPolls,
+            )
             }
         }
         page<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->

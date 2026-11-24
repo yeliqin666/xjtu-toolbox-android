@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Settings
 import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.graphicsLayer
 import com.xjtu.toolbox.nav.ExpandOriginSource
@@ -550,6 +551,7 @@ internal fun MainScreen(
                         showQrLogin = true
                     }
                 },
+                onSettings = { router.open(AppRoute.Settings) },
             )
         },
         barBubble = { handles ->
@@ -960,6 +962,7 @@ private fun MainTopBar(
     toolsAppBarState: CouiCollapsingAppBarState?,
     toolsSearchBar: (@Composable () -> Unit)?,
     onScan: (ExpandOriginSource) -> Unit,
+    onSettings: () -> Unit,
 ) {
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
     // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给；
@@ -1026,7 +1029,7 @@ private fun MainTopBar(
     }
     // 其余主 tab 的大字顶栏就是 COUI 原版 LargeTopAppBar：110dp → 52dp、原版 AppBarLayout 测量与
     // CouiTopAppBarSurface 渐变模糊；折叠进度由 COUI 自己的 scrollBehavior 驱动。
-    // 「我的」右上角放扫一扫：扫的是电脑端登录码 / 图书馆座位码，放在账号这一页更好找。
+    // 「我的」右上角放扫一扫和设置：扫的是电脑端登录码 / 图书馆座位码，放在账号这一页更好找。
     CouiPageTopAppBar(
         color = color,
         title = title,
@@ -1034,7 +1037,17 @@ private fun MainTopBar(
         scrollBehavior = couiScrollBehavior,
         pageBackdrop = LocalCouiPageBackdrop.current,
         actions = {
-            if (selectedTab == BottomTab.PROFILE) ScanAction(onScan = onScan)
+            if (selectedTab == BottomTab.PROFILE) {
+                ScanAction(onScan = onScan)
+                HomeRoundAction(onClick = onSettings) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = "设置",
+                        tint = MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
         },
     )
 }

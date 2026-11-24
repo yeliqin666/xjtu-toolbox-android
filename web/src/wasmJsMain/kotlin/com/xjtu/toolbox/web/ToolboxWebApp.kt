@@ -30,6 +30,7 @@ import com.xjtu.toolbox.core.net.CampusJiaocaiApi
 import com.xjtu.toolbox.core.net.CampusJwappScoreApi
 import com.xjtu.toolbox.core.net.CampusLmsApi
 import com.xjtu.toolbox.core.net.CampusFeedbackApi
+import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.core.net.CampusPayApi
 import com.xjtu.toolbox.core.net.CampusWebVpnApi
 import com.xjtu.toolbox.core.net.CampusJwxtScheduleApi
@@ -673,7 +674,27 @@ private fun AppPage(
             // 登录页本身是共享屏，输入框由 supportsManualToken 长出来，:app 那边不会出现。
             deviceAuth = remember(session) { WebGithubDeviceAuth(session) },
             onBack = back,
+            onOpenFeedback = if (mode == ApiMode.SERVE) {
+                { onNavigate(WebTarget.App(AppRoute.Feedback)) }
+            } else null,
         )
+
+        // 反馈凭据在 serve 进程（FEEDBACK_* 环境变量），campus-api 形态没有这一屏
+        AppRoute.Feedback -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(title = "反馈与投票")
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote("反馈记录保存在当前浏览器，清除浏览器数据后将无法查看。")
+                Box(Modifier.weight(1f)) {
+                    FeedbackScreen(
+                        source = remember(client, mode) { CampusFeedbackApi(client, API_BASE, mode) },
+                        onOpenUrl = { openInNewTab(it) },
+                        onBack = back,
+                        onOpenCommunity = { onNavigate(WebTarget.App(AppRoute.Community)) },
+                    )
+                }
+            }
+        }
 
         is AppRoute.CommunityPost -> CommunityScreen(
             session = session,

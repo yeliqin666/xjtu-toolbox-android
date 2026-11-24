@@ -67,6 +67,7 @@ fun DiscussionsScreen(
     /** 当前登录的 GitHub 用户名，「我发的」用。 */
     me: String,
     onAccount: () -> Unit,
+    onFeedback: (() -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     // 顶部的刷新圈只跟用户下拉触发的那一次走，滑到底翻页时不转
@@ -158,6 +159,7 @@ fun DiscussionsScreen(
                         bleed = 12.dp,
                     )
                 }
+                if (onFeedback != null) item(key = "feedback") { FeedbackEntry(onFeedback) }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {
                         LoadingState("正在加载帖子…", Modifier.fillMaxWidth().padding(vertical = 48.dp))

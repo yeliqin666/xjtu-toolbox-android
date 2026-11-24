@@ -75,9 +75,23 @@ data class Bulletin(
     val allowMultiple: Boolean = false,
     /** 附加一个"其他（自己填）"文本框；填了就作为额外一条选项一起提交。 */
     val allowOther: Boolean = false,
+    /** 投票结果，每 4 天由 Action 写回（见 .github/scripts/announce.py）；按 [options] 的顺序，末尾可能多一项「其他」。 */
+    val results: List<PollResult> = emptyList(),
+    /** 参与投票的人数（按设备去重）。 */
+    val voters: Int = 0,
+    /** 结果统计时间，ISO 文本。 */
+    val resultsAt: String? = null,
+    /** 社区里建这个投票的帖子，结果每天同步过去。 */
+    val discussionUrl: String? = null,
 ) {
     val isPoll: Boolean get() = options.isNotEmpty()
+
+    /** 投票截止就是公告的 [endsAt]（关闭投票帖 = 改成关帖时刻），旧版 App 到点同样不再提示。 */
+    fun isClosedAt(now: Instant): Boolean = endsAt != null && now >= endsAt
 }
+
+/** 投票的一个选项拿到几票。 */
+data class PollResult(val option: String, val votes: Int)
 
 object BulletinRules {
     private val beijing = CampusTimeZone
@@ -125,6 +139,14 @@ object BulletinRules {
                     .orEmpty(),
                 allowMultiple = obj.get("allowMultiple")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
                 allowOther = obj.get("allowOther")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
+                results = obj.get("results")?.takeIf { it.isArray }?.jsonArray?.mapNotNull { r ->
+                    val o = r.takeIf { it.isObject }?.jsonObject ?: return@mapNotNull null
+                    val option = o.get("option")?.takeIf { it.isPrimitive }?.stringValue?.trim().orEmpty()
+                    if (option.isEmpty()) null else PollResult(option, parseInt(o.get("votes")) ?: 0)
+                }.orEmpty(),
+                voters = parseInt(obj.get("voters")) ?: 0,
+                resultsAt = obj.get("resultsAt")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                discussionUrl = obj.get("discussionUrl")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
             )
         }
     }

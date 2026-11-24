@@ -50,6 +50,7 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.feedback.AppFeedbackSource
+import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessScreen
@@ -301,7 +302,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.JwappScore to "成绩",
     AppRoute.Iclassface to "快速考勤流水",
     AppRoute.Community to "社区",
-
+    AppRoute.Feedback to "反馈与投票",
 
     AppRoute.Jiaocai to "教材查询",
 
@@ -646,6 +647,14 @@ private fun DesktopPage(
                 GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)
             },
             onBack = back,
+            onOpenFeedback = { onNavigate(DesktopTarget.App(AppRoute.Feedback)) },
+        )
+        // 反馈：上游是飞书开放平台，不套 `DesktopSiteGate`；凭据没配时表单隐藏、只剩外链。
+        AppRoute.Feedback -> FeedbackScreen(
+            source = remember { AppFeedbackSource },
+            onOpenUrl = { url -> if (url.isNotBlank()) openInBrowser(url) },
+            onBack = back,
+            onOpenCommunity = { onNavigate(DesktopTarget.App(AppRoute.Community)) },
         )
         is AppRoute.CommunityPost -> CommunityScreen(
             session = remember { SecureGithubSession.get() },

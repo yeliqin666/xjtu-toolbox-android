@@ -42,6 +42,7 @@ internal object WebSupport {
         AppRoute.Library::class,
         AppRoute.Community::class,
         AppRoute.CommunityPost::class,
+        AppRoute.Feedback::class,
         AppRoute.Settings::class,
         AppRoute.Transcript::class,
         AppRoute.Attendance::class,

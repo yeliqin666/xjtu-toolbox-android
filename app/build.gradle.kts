@@ -38,8 +38,8 @@ android {
         // FEEDBACK_TABLE_SUBMIT / FEEDBACK_TABLE_REPLY。
         // 也认旧写法 FEEDBACK_APPID（camelCase 键直接大写、没有下划线）。
         //
-        // app_secret 终究是打进 APK 的，无法真正保密。安全性靠"这对凭据能干什么"来兜：
-        // 应用只被授权写反馈表 + 读回复表，回复表里不含用户原文。详见 FeedbackApi 注释。
+        // app_secret 终究是打进 APK 的，无法真正保密：这对凭据只有记录的检索与新增权限（没有删除），
+        // 拿到的人能读到两张表全部内容。反馈本来就会公开到 GitHub 日报，所以不再放联系方式。
         run {
             val fp = rootProject.file("feedback.properties")
             val props = Properties().apply { if (fp.exists()) fp.inputStream().use { load(it) } }

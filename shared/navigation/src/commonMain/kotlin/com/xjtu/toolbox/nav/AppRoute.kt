@@ -171,6 +171,7 @@ sealed interface AppRoute : NavKey {
      */
     @Serializable data object QrScan : AppRoute { override val id get() = "qr_scan" }
     @Serializable data object Community : AppRoute { override val id get() = "community" }
+    @Serializable data object Feedback : AppRoute { override val id get() = "feedback" }
     /** 直达社区里的某一帖（首页卡片、链接）；返回时直接退出社区。 */
     @Serializable data class CommunityPost(val number: Int) : AppRoute { override val id get() = "community/$number" }
 
@@ -233,7 +234,7 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
     AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox, AppRoute.QrScan,
-    AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
+    AppRoute.Feedback, AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
     AppRoute.WebVpnConverter, AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge,
     AppRoute.GameBlocks, AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi, AppRoute.Match,
     AppRoute.Tips,

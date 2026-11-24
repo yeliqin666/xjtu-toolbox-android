@@ -40,10 +40,10 @@ class FeedbackStoreJvmTest {
 
     @Test
     fun `回复缓存：键值对往返（节流命中时屏直接拿它渲染）`() {
-        FeedbackStore.cacheReplies(mapOf("TA" to ("示例回复" to "2026-10-01 12:00")))
+        FeedbackStore.cacheReplies(mapOf("TA" to FeedbackReply("示例回复", "2026-10-01 12:00", "yeliqin666")))
         val cached = FeedbackStore.cachedReplies()
         assertEquals(setOf("TA"), cached.keys)
-        assertEquals("示例回复" to "2026-10-01 12:00", cached.getValue("TA"))
+        assertEquals(FeedbackReply("示例回复", "2026-10-01 12:00", "yeliqin666"), cached.getValue("TA"))
     }
 
     @Test
@@ -62,12 +62,13 @@ class FeedbackStoreJvmTest {
     }
 
     @Test
-    fun `拉取回复的节流：force 直接放行，拉过一次之后就不再放行`() {
-        assertTrue(FeedbackStore.shouldFetchReplies(hasPending = true), "从没拉过 ⇒ 该拉")
+    fun `拉取回复的节流：有待回的每天一次，没有就只靠下拉，下拉也防连点`() {
+        assertTrue(FeedbackStore.shouldFetchReplies(hasPending = true), "从没拉过、有待回 ⇒ 该拉")
+        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = false), "没有待回 ⇒ 进页面不自动拉")
+        assertTrue(FeedbackStore.shouldFetchReplies(hasPending = false, manual = true), "下拉 ⇒ 该拉")
         FeedbackStore.markRepliesFetched()
-        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = true), "刚拉过（10 分钟档）⇒ 不该再拉")
-        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = false), "刚拉过（6 小时档）⇒ 不该再拉")
-        assertTrue(FeedbackStore.shouldFetchReplies(hasPending = false, force = true), "下拉刷新绕过节流")
+        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = true), "刚拉过 ⇒ 当天不再自动拉")
+        assertFalse(FeedbackStore.shouldFetchReplies(hasPending = false, manual = true), "刚拉过 ⇒ 下拉也先不查")
     }
 
     @Test

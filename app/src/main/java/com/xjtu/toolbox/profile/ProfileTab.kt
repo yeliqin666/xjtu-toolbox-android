@@ -326,10 +326,16 @@ private fun MenuGroup(modifier: Modifier = Modifier, content: @Composable Column
     )
 }
 
+@Composable
+private fun FeedbackMenuRow(onNavigate: (AppRoute) -> Unit) =
+    ProfileMenuRow(
+        Icons.Default.Feedback, TINT_BLUE, "反馈与投票", subtitle = "不用登录，回复和投票都在这里",
+        onClick = { onNavigate(AppRoute.Feedback) }, route = AppRoute.Feedback,
+    )
+
 // 图标配色与设置页同一套固定色板，不跟主题色走：主题色可能被设成黑色这类极端色，
 // 跟着它走时有的图标底块看得见、有的看不见，一页里就不齐了
 private val TINT_TEAL = com.xjtu.toolbox.settings.SettingsColors.Teal
-private val TINT_SLATE = com.xjtu.toolbox.settings.SettingsColors.BlueGray
 private val TINT_BLUE = com.xjtu.toolbox.settings.SettingsColors.Blue
 private val TINT_INDIGO = com.xjtu.toolbox.settings.SettingsColors.Indigo
 private val TINT_ORANGE = com.xjtu.toolbox.settings.SettingsColors.Orange
@@ -915,7 +921,7 @@ internal fun ProfileTab(
 
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(2)) {
-                    ProfileMenuRow(Icons.Default.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
+                    FeedbackMenuRow(onNavigate)
                 }
             } else {
                 // ━━ 已登录 ━━
@@ -972,7 +978,7 @@ internal fun ProfileTab(
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(4)) {
-                    ProfileMenuRow(Icons.Default.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
+                    FeedbackMenuRow(onNavigate)
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
 

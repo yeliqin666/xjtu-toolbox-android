@@ -159,7 +159,7 @@ class LaunchNotices(
                 )
             }
         }
-        bulletinStore.ack(bulletin.id)
+        bulletinStore.recordVote(bulletin.id, selected)
         refreshHero()
         closeBulletinDialog()
     }
