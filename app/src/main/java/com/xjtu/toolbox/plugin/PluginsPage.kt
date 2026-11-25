@@ -80,7 +80,6 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     var pending by remember { mutableStateOf<PendingPluginInstall?>(null) }
-    var confirmUninstall by remember { mutableStateOf<PluginRecord?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -115,7 +114,15 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
             onToggleTools = { on ->
                 if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setToolsEnabled(detail.id, on) }
             },
-            onAskUninstall = { confirmUninstall = detail },
+            onUninstall = {
+                detailId = null
+                if (!demo) {
+                    scope.launch {
+                        manager.uninstall(detail.id)
+                        manager.refresh()
+                    }
+                }
+            },
         )
         return
     }
@@ -204,49 +211,6 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
         }
     }
 
-    // 卸载确认：红色按钮，说清楚删什么
-    val target = confirmUninstall
-    if (target != null) {
-        OverlayDialog(
-            show = true,
-            title = "卸载「${target.manifest.name}」？",
-            summary = buildString {
-                append("会删掉插件包和它自己的数据目录，这个插件的页面和小岱工具立刻失效。\n\n")
-                append("已经产生的本地数据不能恢复。")
-            },
-            onDismissRequest = { confirmUninstall = null },
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(
-                    text = "取消",
-                    onClick = { confirmUninstall = null },
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(20.dp))
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            confirmUninstall = null
-                            detailId = null
-                            scope.launch {
-                                manager.uninstall(target.id)
-                                manager.refresh()
-                            }
-                        }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "卸载",
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.error,
-                    )
-                }
-            }
-        }
-    }
 }
 
 /** 两类插件的图例：徽章 + 一句话说明。dex 那条末尾是红的。 */
@@ -374,9 +338,10 @@ private fun DetailPage(
     onOpenPage: (String) -> Unit,
     onToggleEnabled: (Boolean) -> Unit,
     onToggleTools: (Boolean) -> Unit,
-    onAskUninstall: () -> Unit,
+    onUninstall: () -> Unit,
 ) {
     val glass = rememberPageGlass()
+    var confirm by remember { mutableStateOf(false) }
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     Scaffold(
         topBar = {
@@ -454,7 +419,7 @@ private fun DetailPage(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable(onClick = onAskUninstall)
+                        .clickable { confirm = true }
                         .padding(horizontal = 16.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -472,6 +437,41 @@ private fun DetailPage(
                 }
             }
             HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
+        }
+
+        if (confirm) {
+            OverlayDialog(
+                show = true,
+                title = "卸载「${record.manifest.name}」？",
+                summary = "会删掉插件包和它自己的数据目录，这个插件的页面和小岱工具立刻失效。\n\n已经产生的本地数据不能恢复。",
+                onDismissRequest = { confirm = false },
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        text = "取消",
+                        onClick = { confirm = false },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                confirm = false
+                                onUninstall()
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "卸载",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
         }
     }
 }
