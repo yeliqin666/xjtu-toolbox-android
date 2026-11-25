@@ -37,6 +37,7 @@ object AppChangelog {
         "6.2.2" to VersionChangelog(
             items = listOf(
                 "🪶" to "筌者所以在鱼，得鱼而忘筌。",
+                "🎮" to "小游戏全服榜迁至独立服务，查榜与上榜连接更稳定",
                 "📢" to "管理员在 App 里选公告板块发帖时，正文自动带上公告表单的格式，照着填就能发到 App",
             )
         ),
