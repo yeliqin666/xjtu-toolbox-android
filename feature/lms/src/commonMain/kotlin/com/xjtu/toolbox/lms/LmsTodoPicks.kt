@@ -1,38 +1,33 @@
 package com.xjtu.toolbox.lms
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.EventNote
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.AddTask
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightSpec
 import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
-import com.xjtu.toolbox.ui.components.AppInsetColor
-import com.xjtu.toolbox.ui.components.PidaiChip
+import com.xjtu.toolbox.ui.components.PidaiIconAction
 import com.xjtu.toolbox.ui.components.PidaiInsightCard
+import com.xjtu.toolbox.ui.components.PidaiList
+import com.xjtu.toolbox.ui.components.PidaiListRow
+import com.xjtu.toolbox.ui.components.PidaiSummary
 import com.xjtu.toolbox.ui.components.rememberInsight
 import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.safeStringOrNull
@@ -145,75 +140,56 @@ internal fun LmsTodoCard(
         title = "待办",
         state = state,
         modifier = modifier,
-        subtitle = if (gathering || !scanned) "在汇总本学期没交的作业、测试和公告…" else "本学期没交的作业、测试和新公告",
+        hint = if (gathering || !scanned) "在汇总本学期没交的作业、测试和公告…" else "",
+        askLabel = "帮我排这周",
         askPrompt = { "思源这些作业，帮我具体规划一下这周怎么做完？" },
     ) { json ->
-        json["summary"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-        (json["items"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }.forEach { item ->
-            TodoRow(item, courses, onOpenCourse)
-        }
+        PidaiSummary(json["summary"].safeStringOrNull())
+        val items = (json["items"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+            .filter { !it["title"].safeStringOrNull().isNullOrBlank() }
+        PidaiList(items) { TodoRow(it, courses, onOpenCourse) }
     }
 }
 
+/** 一项待办：左边课程色条，「课程 · 类型」→ 标题 → 建议 → 截止（先做的标红）。 */
 @Composable
 private fun TodoRow(item: JsonObject, courses: List<LmsCourseSummary>, onOpenCourse: (LmsCourseSummary) -> Unit) {
-    val title = item["title"].safeStringOrNull().orEmpty().ifBlank { return }
+    val title = item["title"].safeStringOrNull().orEmpty()
     val courseName = item["course"].safeStringOrNull().orEmpty()
     val course = courses.firstOrNull { it.id.toString() == item["course_id"].safeStringOrNull() } ?: courses.firstOrNull { it.name == courseName }
     val due = item["due"].safeStringOrNull()?.takeIf { it.isNotBlank() && it != "null" }
     val kind = item["kind"].safeStringOrNull().orEmpty()
     // 公告没有「交」这回事，不给记待办（有截止的除外）
-    val done = kind == "公告" && item["due"].safeStringOrNull().let { it.isNullOrBlank() || it == "null" }
-    val priority = item["priority"].safeStringOrNull()?.toIntOrNull() ?: 1
+    val notice = kind == "公告" && due == null
+    val urgent = (item["priority"].safeStringOrNull()?.toIntOrNull() ?: 1) >= 3
     val accent = course?.let { lmsAccent(it) } ?: MiuixTheme.colorScheme.primary
     var added by remember(title) { mutableStateOf(false) }
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(AppInsetColor)
-            .clickable(enabled = course != null) { course?.let(onOpenCourse) }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(accent))
+    val parsed = due?.let { SelfTodoRules.parseDue(it) }
+    PidaiListRow(
+        title = title,
+        overline = listOf(courseName, kind).filter { it.isNotBlank() }.joinToString(" · "),
+        detail = item["advice"].safeStringOrNull().orEmpty().takeIf { it != "null" }.orEmpty(),
+        onClick = course?.let { { onOpenCourse(it) } },
+        leading = { Box(Modifier.width(3.dp).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(accent)) },
+        footer = if (due == null) null else ({
+            val color = if (urgent) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary
             Text(
-                courseName, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(start = 6.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                listOfNotNull(kind.takeIf { it.isNotBlank() }, when { priority >= 3 -> "先做"; priority == 2 -> "这几天"; else -> null })
-                    .joinToString(" · "),
+                "截止 $due",
                 style = MiuixTheme.textStyles.footnote2,
-                fontWeight = FontWeight.Bold,
-                color = if (priority >= 3) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary,
+                fontWeight = if (urgent) FontWeight.Medium else FontWeight.Normal,
+                color = color,
+                modifier = Modifier.padding(top = 2.dp).clip(RoundedCornerShape(6.dp))
+                    .background(if (urgent) color.copy(alpha = 0.1f) else Color.Transparent)
+                    .padding(horizontal = if (urgent) 6.dp else 0.dp, vertical = 1.dp),
             )
-        }
-        Text(title, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        item["advice"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                due?.let { "截止 $it" }.orEmpty(),
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.weight(1f),
-            )
-            val parsed = due?.let { SelfTodoRules.parseDue(it) }
-            if (parsed != null && !done) {
-                PidaiChip(
-                    if (added) "已记待办" else "记待办",
-                    icon = if (added) Icons.Filled.Check else Icons.AutoMirrored.Filled.EventNote,
-                    enabled = !added,
-                    onClick = {
-                        added = SelfTodoStore.create(
-                            title = "[$courseName] $title", dueDate = parsed.first, source = "agent",
-                            allDay = parsed.second, remind = true,
-                        ) != null
-                    },
-                )
-            }
-        }
-    }
+        }),
+        trailing = if (parsed != null && !notice) ({
+            PidaiIconAction(Icons.Filled.AddTask, if (added) "已记待办" else "记待办", emphasized = urgent, done = added, onClick = {
+                added = SelfTodoStore.create(
+                    title = "[$courseName] $title", dueDate = parsed.first, source = "agent",
+                    allDay = parsed.second, remind = true,
+                ) != null
+            })
+        }) else null,
+    )
 }

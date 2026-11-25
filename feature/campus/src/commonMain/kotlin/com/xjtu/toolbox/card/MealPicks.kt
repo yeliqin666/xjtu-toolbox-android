@@ -1,30 +1,25 @@
 package com.xjtu.toolbox.card
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightSpec
 import com.xjtu.toolbox.agent.PidaiCard
-import com.xjtu.toolbox.ui.components.AppInsetColor
-import com.xjtu.toolbox.ui.components.PidaiChip
-import com.xjtu.toolbox.ui.components.PidaiChipRow
+import com.xjtu.toolbox.ui.components.PidaiChipFlow
+import com.xjtu.toolbox.ui.components.PidaiContextLine
+import com.xjtu.toolbox.ui.components.PidaiFilterChip
+import com.xjtu.toolbox.ui.components.PidaiHero
+import com.xjtu.toolbox.ui.components.PidaiHeroText
 import com.xjtu.toolbox.ui.components.PidaiInsightCard
+import com.xjtu.toolbox.ui.components.PidaiList
+import com.xjtu.toolbox.ui.components.PidaiListRow
 import com.xjtu.toolbox.ui.components.rememberInsight
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.todayOnCampus
@@ -32,6 +27,7 @@ import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.minus
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -134,48 +130,52 @@ internal fun MealPicksCard(transactions: List<Transaction>, balance: Double?, da
     val base = remember(transactions, balance) { mealPicksInput(transactions, balance, dailyRate) } ?: return
     val input = remember(base, prefs) { base + "\n这次想要：" + prefs.joinToString("、").ifBlank { "没特别要求" } }
     val state = rememberInsight(MEAL_PICKS, input)
+    val runway = balance?.let { runwayDays(it, dailyRate) }
     PidaiInsightCard(
         title = "今天吃啥",
         state = state,
         modifier = modifier,
-        subtitle = "按你常去的档口、余额和今天的课推荐",
+        brief = { json -> meals(json).firstOrNull()?.let { "${it.slot} · ${it.place}" } },
+        askLabel = "换几家没吃过的",
         askPrompt = { "今天吃啥你再帮我想想，换几个没吃过的？" },
         controls = {
-            PidaiChipRow {
-                MealPrefs.OPTIONS.forEach { p ->
-                    PidaiChip(p, selected = p in prefs, onClick = {
-                        prefs = if (p in prefs) prefs - p else prefs + p
-                        MealPrefs.save(prefs)
-                    })
+            PidaiContextLine(
+                lead = runway?.let { "余额够 $it 天 · " }.orEmpty() + if (prefs.isEmpty()) "没特别要求" else "想要 ",
+                emphasis = prefs.joinToString(" · "),
+            ) {
+                PidaiChipFlow {
+                    MealPrefs.OPTIONS.forEach { p ->
+                        PidaiFilterChip(p, selected = p in prefs, onClick = {
+                            prefs = if (p in prefs) prefs - p else prefs + p
+                            MealPrefs.save(prefs)
+                        })
+                    }
                 }
             }
         },
     ) { json ->
-        ((json["meals"] as? JsonArray).orEmpty()).mapNotNull { runCatching { it.jsonObject }.getOrNull() }.forEach { m ->
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AppInsetColor)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.width(52.dp)) {
-                    Text(m["slot"].safeStringOrNull().orEmpty(), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold,
-                        color = MiuixTheme.colorScheme.primary)
-                    Text(m["time"].safeStringOrNull().orEmpty(), style = MiuixTheme.textStyles.footnote2,
+        val list = meals(json)
+        list.firstOrNull()?.let { m ->
+            PidaiHero(
+                title = m.place,
+                label = listOf(m.slot, m.time).filter { it.isNotBlank() }.joinToString(" · "),
+                detail = m.why,
+                trailing = if (m.price.isNotBlank()) ({ PidaiHeroText(m.price) }) else null,
+            )
+        }
+        PidaiList(list.drop(1)) { m ->
+            PidaiListRow(
+                title = m.place,
+                detail = m.why,
+                leading = {
+                    Text(m.slot, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.width(36.dp))
+                },
+                trailing = {
+                    Text(m.price, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        listOfNotNull(m["where"].safeStringOrNull(), m["what"].safeStringOrNull()).filter { it.isNotBlank() }.joinToString(" · "),
-                        style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
-                    )
-                    m["why"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    }
-                }
-                m["price"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
+                },
+            )
         }
         json["quip"].safeStringOrNull()?.takeIf { it.isNotBlank() && it != "null" }?.let {
             Text("「$it」", style = MiuixTheme.textStyles.footnote1, fontStyle = FontStyle.Italic,
@@ -183,3 +183,12 @@ internal fun MealPicksCard(transactions: List<Transaction>, balance: Double?, da
         }
     }
 }
+
+private class MealPick(val slot: String, val time: String, val place: String, val price: String, val why: String)
+
+private fun meals(json: JsonObject): List<MealPick> =
+    (json["meals"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }.mapNotNull { m ->
+        fun s(k: String) = m[k].safeStringOrNull().orEmpty().takeIf { it != "null" }.orEmpty().trim()
+        val place = listOf(s("where"), s("what")).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { return@mapNotNull null }
+        MealPick(s("slot"), s("time"), place, s("price"), s("why"))
+    }

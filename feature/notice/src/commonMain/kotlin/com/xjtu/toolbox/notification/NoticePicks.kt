@@ -1,15 +1,11 @@
 package com.xjtu.toolbox.notification
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.automirrored.filled.EventNote
+import androidx.compose.material.icons.filled.AddTask
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,10 +20,14 @@ import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
 import com.xjtu.toolbox.platform.keyValueStore
-import com.xjtu.toolbox.ui.components.AppInsetColor
-import com.xjtu.toolbox.ui.components.PidaiChip
-import com.xjtu.toolbox.ui.components.PidaiChipRow
+import com.xjtu.toolbox.ui.components.PidaiChipFlow
+import com.xjtu.toolbox.ui.components.PidaiContextLine
+import com.xjtu.toolbox.ui.components.PidaiFilterChip
+import com.xjtu.toolbox.ui.components.PidaiIconAction
 import com.xjtu.toolbox.ui.components.PidaiInsightCard
+import com.xjtu.toolbox.ui.components.PidaiList
+import com.xjtu.toolbox.ui.components.PidaiListRow
+import com.xjtu.toolbox.ui.components.PidaiSummary
 import com.xjtu.toolbox.ui.components.rememberInsight
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.todayOnCampus
@@ -74,7 +74,6 @@ private object NoticePicksPrefs {
 internal fun NoticePicksCard(onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
     var sources by remember { mutableStateOf(NoticePicksPrefs.sources) }
     var topics by remember { mutableStateOf(NoticePicksPrefs.topics) }
-    var editing by remember { mutableStateOf(false) }
     val input = remember(sources, topics) {
         buildString {
             append("今天是 ${todayOnCampus()}，用户打开了通知页。\n来源：")
@@ -87,54 +86,54 @@ internal fun NoticePicksCard(onOpen: (String) -> Unit, modifier: Modifier = Modi
         title = "小岱精选",
         state = state,
         modifier = modifier,
-        subtitle = if (sources.isEmpty()) "按你的身份挑" else "从 ${sources.size} 个来源里挑",
+        askLabel = "哪些要马上办",
         askPrompt = { "通知精选里这几条，哪些要马上处理、怎么办？" },
         controls = {
-            PidaiChipRow {
-                PidaiChip(
-                    if (sources.isEmpty()) "范围：按身份自动" else "范围：${sources.size} 个来源",
-                    icon = Icons.Filled.Tune,
-                    selected = editing,
-                    onClick = { editing = !editing },
-                )
-                NoticePicksPrefs.TOPICS.forEach { t ->
-                    PidaiChip(t, selected = t in topics, onClick = {
-                        topics = if (t in topics) topics - t else topics + t
-                        NoticePicksPrefs.topics = topics
-                    })
+            PidaiContextLine(
+                lead = (if (sources.isEmpty()) "按身份" else "${sources.size} 个来源") + if (topics.isEmpty()) " · 不限主题" else " · 关注 ",
+                emphasis = topics.joinToString(" · "),
+            ) {
+                FilterLabel("主题")
+                PidaiChipFlow {
+                    NoticePicksPrefs.TOPICS.forEach { t ->
+                        PidaiFilterChip(t, selected = t in topics, onClick = {
+                            topics = if (t in topics) topics - t else topics + t
+                            NoticePicksPrefs.topics = topics
+                        })
+                    }
                 }
+                SourcePicker(sources) { sources = it; NoticePicksPrefs.sources = it }
             }
-            if (editing) SourcePicker(sources) { sources = it; NoticePicksPrefs.sources = it }
         },
     ) { json ->
-        json["summary"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
+        PidaiSummary(json["summary"].safeStringOrNull())
         val picks = (json["picks"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }
-        picks.forEach { PickRow(it, onOpen) }
+            .filter { !it["title"].safeStringOrNull().isNullOrBlank() }
+        PidaiList(picks) { PickRow(it, onOpen) }
     }
 }
 
-/** 来源多选：按分类分行；一个都不选 = 按身份自动。 */
+@Composable
+private fun FilterLabel(text: String) {
+    Text(text, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+}
+
+/** 来源多选：按分类分组；一个都不选 = 按身份自动。 */
 @Composable
 private fun SourcePicker(selected: Set<NotificationSource>, onChange: (Set<NotificationSource>) -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(AppInsetColor).padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        PidaiChipRow {
-            PidaiChip("按身份自动", icon = if (selected.isEmpty()) Icons.Filled.Check else null, selected = selected.isEmpty(), onClick = { onChange(emptySet()) })
-        }
-        SourceCategory.entries.forEach { cat ->
-            val list = NotificationSource.entries.filter { it.category == cat }
-            if (list.isEmpty()) return@forEach
-            Text(cat.displayName, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            PidaiChipRow {
-                list.forEach { s ->
-                    PidaiChip(s.displayName, selected = s in selected, onClick = {
-                        onChange(if (s in selected) selected - s else selected + s)
-                    })
-                }
+    FilterLabel("来源")
+    PidaiChipFlow {
+        PidaiFilterChip("按身份自动", selected = selected.isEmpty(), onClick = { onChange(emptySet()) })
+    }
+    SourceCategory.entries.forEach { cat ->
+        val list = NotificationSource.entries.filter { it.category == cat }
+        if (list.isEmpty()) return@forEach
+        FilterLabel(cat.displayName)
+        PidaiChipFlow {
+            list.forEach { s ->
+                PidaiFilterChip(s.displayName, selected = s in selected, onClick = {
+                    onChange(if (s in selected) selected - s else selected + s)
+                })
             }
         }
     }
@@ -142,28 +141,29 @@ private fun SourcePicker(selected: Set<NotificationSource>, onChange: (Set<Notif
 
 @Composable
 private fun PickRow(pick: JsonObject, onOpen: (String) -> Unit) {
-    val title = pick["title"].safeStringOrNull().orEmpty().ifBlank { return }
+    val title = pick["title"].safeStringOrNull().orEmpty()
     val link = pick["link"].safeStringOrNull().orEmpty()
     val due = pick["due"].safeStringOrNull()?.takeIf { it.isNotBlank() && it != "null" }
     val level = pick["level"].safeStringOrNull()?.toIntOrNull() ?: 1
     var added by remember(title) { mutableStateOf(false) }
     val parsed = due?.let { SelfTodoRules.parseDue(it) }
-    com.xjtu.toolbox.ui.components.NoticePickItem(
+    val dot = when (level) {
+        3 -> MiuixTheme.colorScheme.error
+        2 -> MiuixTheme.colorScheme.primary
+        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
+    }
+    PidaiListRow(
         title = title,
-        metadata = listOfNotNull(pick["source"].safeStringOrNull(), pick["date"].safeStringOrNull(), due?.let { "截止 $it" })
+        overline = listOfNotNull(pick["source"].safeStringOrNull(), pick["date"].safeStringOrNull(), due?.let { "截止 $it" })
             .filter { it.isNotBlank() }.joinToString(" · "),
-        why = pick["why"].safeStringOrNull().orEmpty(), level = level,
-        enabled = link.startsWith("https://") || link.startsWith("http://"), onOpen = { onOpen(link) },
+        detail = pick["why"].safeStringOrNull().orEmpty(),
+        onClick = if (link.startsWith("https://") || link.startsWith("http://")) ({ onOpen(link) }) else null,
+        leading = { Box(Modifier.size(7.dp).clip(CircleShape).background(dot)) },
         trailing = if (parsed != null) ({
-            PidaiChip(
-                if (added) "已记待办" else "记待办",
-                icon = if (added) Icons.Filled.Check else Icons.AutoMirrored.Filled.EventNote,
-                enabled = !added,
-                onClick = {
-                    added = SelfTodoStore.create(title = title, content = link, dueDate = parsed.first,
-                        source = "agent", allDay = parsed.second, remind = true) != null
-                },
-            )
+            PidaiIconAction(Icons.Filled.AddTask, if (added) "已记待办" else "记待办", emphasized = level >= 3, done = added, onClick = {
+                added = SelfTodoStore.create(title = title, content = link, dueDate = parsed.first,
+                    source = "agent", allDay = parsed.second, remind = true) != null
+            })
         }) else null,
     )
 }

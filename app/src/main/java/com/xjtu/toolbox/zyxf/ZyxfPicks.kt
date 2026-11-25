@@ -1,23 +1,15 @@
 package com.xjtu.toolbox.zyxf
 
 import android.content.Context
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.InsightSpec
@@ -25,11 +17,15 @@ import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.ScheduleCache
-import com.xjtu.toolbox.ui.components.AppInsetColor
 import com.xjtu.toolbox.ui.components.PidaiChip
-import com.xjtu.toolbox.ui.components.PidaiChipRow
+import com.xjtu.toolbox.ui.components.PidaiHero
+import com.xjtu.toolbox.ui.components.PidaiIconAction
 import com.xjtu.toolbox.ui.components.PidaiInsightCard
+import com.xjtu.toolbox.ui.components.PidaiList
+import com.xjtu.toolbox.ui.components.PidaiListRow
+import com.xjtu.toolbox.ui.components.PidaiSummary
 import com.xjtu.toolbox.ui.components.rememberInsight
+import top.yukonga.miuix.kmp.basic.Icon
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.serialization.json.JsonArray
@@ -88,49 +84,72 @@ internal fun ZyxfPicksCard(
         title = "为你找资料",
         state = state,
         modifier = modifier,
-        subtitle = if (input == null) "日程页同步过课表后，小岱按你的课来找" else "按你这学期的课和考试找",
+        hint = if (input == null) "日程页同步过课表后，小岱按你的课来找" else "",
         askPrompt = { "学辅里这几份资料，挑最该看的帮我讲讲重点。" },
+        primary = { json ->
+            picks(json).firstOrNull()?.let { (_, entry) ->
+                PidaiChip("让小岱讲这份", icon = Icons.AutoMirrored.Filled.Chat, emphasized = true, onClick = { explain(entry) })
+            }
+        },
     ) { json ->
-        json["summary"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        PidaiSummary(json["summary"].safeStringOrNull())
+        val list = picks(json)
+        list.firstOrNull()?.let { (item, entry) ->
+            PidaiHero(
+                title = entry.name,
+                label = item["course"].safeStringOrNull().orEmpty(),
+                detail = item["why"].safeStringOrNull().orEmpty(),
+                onClick = { onPreview(entry) },
+                leading = { FileIcon(entry, MiuixTheme.colorScheme.primary) },
+                trailing = { DownloadAction(entry, onDownload, downloadState) },
+            )
         }
-        (json["items"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }.forEach { item ->
-            PickRow(item, onPreview, onDownload, downloadState)
+        PidaiList(list.drop(1)) { (item, entry) ->
+            PidaiListRow(
+                title = entry.name,
+                overline = item["course"].safeStringOrNull().orEmpty(),
+                detail = item["why"].safeStringOrNull().orEmpty(),
+                onClick = { onPreview(entry) },
+                leading = { FileIcon(entry, MiuixTheme.colorScheme.onSurfaceVariantSummary) },
+                trailing = {
+                    DownloadAction(entry, onDownload, downloadState)
+                    PidaiIconAction(Icons.AutoMirrored.Filled.Chat, "让小岱讲", onClick = { explain(entry) })
+                },
+            )
         }
     }
 }
 
+private fun picks(json: JsonObject): List<Pair<JsonObject, ZyxfApi.Entry>> =
+    (json["items"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }.mapNotNull { item ->
+        val id = item["file_id"].safeStringOrNull()?.toIntOrNull() ?: return@mapNotNull null
+        val name = item["name"].safeStringOrNull().orEmpty().ifBlank { return@mapNotNull null }
+        item to ZyxfApi.Entry(
+            id = id, name = name, path = item["path"].safeStringOrNull().orEmpty(), isFolder = false,
+            ext = name.substringAfterLast('.', ""),
+        )
+    }
+
+private fun explain(entry: ZyxfApi.Entry) = AgentInsightHub.insights.ask(
+    "帮我讲讲学辅资料「${entry.name}」：先读它（file_id ${entry.id}），再挑重点讲，有题就讲思路。",
+    null,
+)
+
 @Composable
-private fun PickRow(
-    item: JsonObject,
-    onPreview: (ZyxfApi.Entry) -> Unit,
-    onDownload: (ZyxfApi.Entry) -> Unit,
-    downloadState: (Int) -> String?,
-) {
-    val id = item["file_id"].safeStringOrNull()?.toIntOrNull() ?: return
-    val name = item["name"].safeStringOrNull().orEmpty().ifBlank { return }
-    val entry = ZyxfApi.Entry(
-        id = id, name = name, path = item["path"].safeStringOrNull().orEmpty(), isFolder = false,
-        ext = name.substringAfterLast('.', ""),
+private fun FileIcon(entry: ZyxfApi.Entry, tint: androidx.compose.ui.graphics.Color) {
+    Icon(
+        if (entry.ext.equals("pdf", ignoreCase = true)) Icons.Filled.PictureAsPdf else Icons.AutoMirrored.Filled.InsertDriveFile,
+        contentDescription = null, tint = tint, modifier = Modifier.size(24.dp),
     )
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(AppInsetColor).padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(item["course"].safeStringOrNull().orEmpty(), style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.primary)
-        Text(name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        item["why"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-        PidaiChipRow {
-            PidaiChip("预览", icon = Icons.Filled.Visibility, onClick = { onPreview(entry) })
-            PidaiChip(downloadState(id) ?: "下载", icon = Icons.Filled.Download, enabled = downloadState(id) == null, onClick = { onDownload(entry) })
-            PidaiChip("让小岱讲", icon = Icons.AutoMirrored.Filled.Chat, emphasized = true, onClick = {
-                AgentInsightHub.insights.ask(
-                    "帮我讲讲学辅资料「$name」：先读它（file_id $id），再挑重点讲，有题就讲思路。",
-                    null,
-                )
-            })
-        }
+}
+
+/** 下载：进行中 / 已下载时换成状态字。 */
+@Composable
+private fun DownloadAction(entry: ZyxfApi.Entry, onDownload: (ZyxfApi.Entry) -> Unit, downloadState: (Int) -> String?) {
+    val status = downloadState(entry.id)
+    if (status != null) {
+        Text(status, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1)
+    } else {
+        PidaiIconAction(Icons.Filled.Download, "下载", onClick = { onDownload(entry) })
     }
 }
