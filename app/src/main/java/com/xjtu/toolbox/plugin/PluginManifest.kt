@@ -18,6 +18,12 @@ internal data class PluginManifest(
     val summary: String = "",
     /** 插件形态：`dex`（进程内加载代码）或 `web`（内置浏览器打开网页）。 */
     val type: String = "dex",
+    /** 作者名。 */
+    val author: String = "",
+    /** 作者主页，详情页可点开。 */
+    val authorUrl: String = "",
+    /** 项目源码/主页地址。 */
+    val projectUrl: String = "",
     val version: String = "",
     val versionCode: Int,
     val minAppVersionCode: Int = 0,

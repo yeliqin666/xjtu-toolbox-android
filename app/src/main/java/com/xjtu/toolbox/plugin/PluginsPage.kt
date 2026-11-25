@@ -2,6 +2,8 @@ package com.xjtu.toolbox.plugin
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -25,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,15 +44,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.ui.components.AppChipTabRow
+import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.components.AppDropdownOption
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import com.xjtu.toolbox.ui.components.DockedPageTabs
 import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.components.MenuMorph
 import com.xjtu.toolbox.ui.components.SwitchPreference
 import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
@@ -81,12 +89,11 @@ private val DexBadgeColor = Color(0xFFF97316)
 /** 徽章固定宽度：两个徽章左边对齐、右边也齐，说明文字才不会跳。 */
 private val BadgeWidth = 44.dp
 
-/** 在线市场的分类筛选。索引里暂时只有一套；分类多了再加。 */
-private enum class MarketFilter(val label: String) {
-    All("全部"),
-    Tool("工具"),
-    Study("学习"),
-    Life("生活"),
+/** 在线市场的排序方式。 */
+private enum class MarketSort(val label: String) {
+    Hot("热度"),
+    New("最新"),
+    Name("名称"),
 }
 
 /**
@@ -110,8 +117,6 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
     var message by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
-    var marketQuery by rememberSaveable { mutableStateOf("") }
-    var marketFilter by rememberSaveable { mutableStateOf(MarketFilter.All) }
 
     val records = if (demo) demoRecords() else manager.records
     val broken = if (demo) DemoBrokenIds else manager.brokenIds
@@ -189,7 +194,8 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
             .padding(padding.withoutTop(glass))
             .glassSource(glass)
 
-        if (tab == 0) {
+        Crossfade(targetState = tab, animationSpec = tween(200), label = "pluginTab") { current ->
+        if (current == 0) {
             val listState = rememberLazyListState()
             ReportScrollPosition(listState)
             LazyColumn(
@@ -220,7 +226,9 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                             record = record,
                             broken = record.id in broken,
                             onClick = { detailId = record.id },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp),
+                            modifier = Modifier
+                                .animateItem()
+                                .padding(horizontal = 16.dp, vertical = 5.dp),
                         )
                     }
                 }
@@ -228,10 +236,6 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
         } else {
             MarketTab(
                 demo = demo,
-                query = marketQuery,
-                onQueryChange = { marketQuery = it },
-                filter = marketFilter,
-                onFilterChange = { marketFilter = it },
                 refreshing = refreshing,
                 onRefresh = {
                     refreshing = true
@@ -246,6 +250,7 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                 glassTop = glassTop,
                 scrollBehavior = scrollBehavior,
             )
+        }
         }
     }
 
@@ -422,15 +427,13 @@ private data class MarketEntry(
     val author: String,
     /** 索引里带 `featured: true` 的进顶部横滑精选。 */
     val featured: Boolean = false,
+    /** 标签：索引根下 `tags` 数组里的值。 */
+    val tags: List<String> = emptyList(),
 )
 
 @Composable
 private fun MarketTab(
     demo: Boolean,
-    query: String,
-    onQueryChange: (String) -> Unit,
-    filter: MarketFilter,
-    onFilterChange: (MarketFilter) -> Unit,
     refreshing: Boolean,
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -438,11 +441,30 @@ private fun MarketTab(
     glassTop: androidx.compose.ui.unit.Dp,
     scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior?,
 ) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by remember { mutableStateOf(MarketSort.Hot) }
+    var types by remember { mutableStateOf(setOf("dex", "web")) }
+    var tags by remember { mutableStateOf(emptySet<String>()) }
+    var openMenu by remember { mutableStateOf<String?>(null) }
+
     val entries = if (demo) demoMarket() else emptyList()
-    val shown = entries.filter { entry ->
-        (filter == MarketFilter.All || filter.label in entry.summary || filter.label == entry.author) &&
-            (query.isBlank() || entry.name.contains(query, ignoreCase = true) || entry.summary.contains(query, ignoreCase = true))
-    }
+    val allTags = if (demo) DemoTags else emptyList()
+
+    val shown = entries
+        .filter { entry -> if (entry.isWeb) "web" in types else "dex" in types }
+        .filter { entry -> tags.isEmpty() || entry.tags.any { it in tags } }
+        .filter { entry ->
+            query.isBlank() ||
+                entry.name.contains(query, ignoreCase = true) ||
+                entry.summary.contains(query, ignoreCase = true)
+        }
+        .let { list ->
+            when (sort) {
+                MarketSort.Hot -> list
+                MarketSort.New -> list.reversed()
+                MarketSort.Name -> list.sortedBy { it.name }
+            }
+        }
     val featured = entries.filter { it.featured }
 
     val listState = rememberLazyListState()
@@ -461,8 +483,8 @@ private fun MarketTab(
             contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
         ) {
             if (featured.isNotEmpty()) {
-                item {
-                    Column {
+                item(key = "featured") {
+                    Column(Modifier.padding(top = 12.dp)) {
                         Text(
                             text = "精选",
                             style = MiuixTheme.textStyles.title3,
@@ -473,39 +495,98 @@ private fun MarketTab(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                         ) {
-                            items(featured, key = { it.id }) { entry -> FeaturedCard(entry) }
+                            items(featured, key = { it.id }) { entry ->
+                                FeaturedCard(entry, Modifier.animateItem())
+                            }
                         }
                     }
                 }
-                item { Spacer(Modifier.height(16.dp)) }
+                item { Spacer(Modifier.height(18.dp)) }
             }
 
-            item {
+            item(key = "filters") {
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     AppSearchBar(
                         query = query,
-                        onQueryChange = onQueryChange,
+                        onQueryChange = { query = it },
                         label = "搜索插件",
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(10.dp))
-                    AppChipTabRow(
-                        options = MarketFilter.entries,
-                        selected = filter,
-                        onSelect = onFilterChange,
-                        label = { it.label },
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // 排序：单选
+                        Box {
+                            AppFilterChip(
+                                selected = sort != MarketSort.Hot,
+                                onClick = { openMenu = "sort" },
+                                label = sort.label,
+                                trailingIcon = { ChipArrow() },
+                            )
+                            AppDropdownMenu(
+                                expanded = openMenu == "sort",
+                                onDismissRequest = { openMenu = null },
+                                morph = MenuMorph.FromTab,
+                            ) {
+                                MarketSort.entries.forEach { option ->
+                                    AppDropdownOption(option.label, option == sort) {
+                                        sort = option
+                                        openMenu = null
+                                    }
+                                }
+                            }
+                        }
+                        // 类型：dex / web 多选
+                        Box {
+                            AppFilterChip(
+                                selected = types.size != 2,
+                                onClick = { openMenu = "type" },
+                                label = "类型",
+                                trailingIcon = { ChipArrow() },
+                            )
+                            AppDropdownMenu(
+                                expanded = openMenu == "type",
+                                onDismissRequest = { openMenu = null },
+                                morph = MenuMorph.FromTab,
+                            ) {
+                                listOf("dex" to "dex 插件", "web" to "web 插件").forEach { (value, label) ->
+                                    AppDropdownOption(label, value in types) {
+                                        types = if (value in types) types - value else types + value
+                                    }
+                                }
+                            }
+                        }
+                        // 标签：索引根下 tags 数组，多选
+                        Box {
+                            AppFilterChip(
+                                selected = tags.isNotEmpty(),
+                                onClick = { if (allTags.isNotEmpty()) openMenu = "tag" },
+                                label = if (tags.isEmpty()) "标签" else "标签 ${tags.size}",
+                                trailingIcon = { ChipArrow() },
+                            )
+                            AppDropdownMenu(
+                                expanded = openMenu == "tag",
+                                onDismissRequest = { openMenu = null },
+                                morph = MenuMorph.FromTab,
+                            ) {
+                                allTags.forEach { tag ->
+                                    AppDropdownOption(tag, tag in tags) {
+                                        tags = if (tag in tags) tags - tag else tags + tag
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
             if (shown.isEmpty()) {
-                item {
+                item(key = "empty") {
                     EmptyState(
                         title = "在线市场还没开张",
                         subtitle = if (entries.isEmpty()) {
-                            "还没配索引地址，或者索引里还没有内容。右上角设置里可以填索引地址。"
+                            "还没配索引地址，或者索引里还没有内容。"
                         } else {
-                            "没有匹配的插件。"
+                            "没有符合筛选条件的插件。"
                         },
                     )
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -522,18 +603,33 @@ private fun MarketTab(
                 }
             } else {
                 items(shown, key = { it.id }) { entry ->
-                    MarketRow(entry, Modifier.padding(horizontal = 16.dp, vertical = 5.dp))
+                    MarketRow(
+                        entry = entry,
+                        modifier = Modifier
+                            .animateItem()
+                            .padding(horizontal = 16.dp, vertical = 5.dp),
+                    )
                 }
             }
         }
     }
 }
 
+/** 胶囊尾巴上的下拉箭头。 */
+@Composable
+private fun ChipArrow() {
+    Icon(
+        Icons.Default.KeyboardArrowDown,
+        contentDescription = null,
+        modifier = Modifier.size(16.dp),
+    )
+}
+
 /** 横滑精选卡：不自动播放，只占首屏一小条。 */
 @Composable
-private fun FeaturedCard(entry: MarketEntry) {
+private fun FeaturedCard(entry: MarketEntry, modifier: Modifier = Modifier) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .width(220.dp)
             .heightIn(min = 104.dp),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
@@ -675,7 +771,12 @@ private fun SettingsSheet(demo: Boolean, onDismiss: () -> Unit, onInstallFromFil
     }
 }
 
-/** 详情页：开关、页面入口、卸载。 */
+/**
+ * 详情页。分组从上到下：开关（启用 / 允许小岱）、页面、作者与项目、卸载。
+ *
+ * 开关和页面分开放两个卡：一个是「这个插件有没有被允许运行」，一个是「它能从哪里进去」，
+ * 混在一起时用户点开关会以为在控制页面。
+ */
 @Composable
 private fun DetailPage(
     record: PluginRecord,
@@ -687,8 +788,10 @@ private fun DetailPage(
     onUninstall: () -> Unit,
 ) {
     val glass = rememberPageGlass()
-    var confirm by remember { mutableStateOf(false) }
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    val uriHandler = LocalUriHandler.current
+    var confirm by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -713,7 +816,7 @@ private fun DetailPage(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = record.versionName.ifBlank { "v${record.versionCode}" },
-                    style = MiuixTheme.textStyles.footnote2,
+                    style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 Spacer(Modifier.width(8.dp))
@@ -726,15 +829,16 @@ private fun DetailPage(
                 )
             }
             if (record.manifest.summary.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = record.manifest.summary,
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.onSurface,
                 )
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(18.dp))
 
+            // ① 开关
             CouiSettingsCard {
                 SwitchPreference(
                     title = "启用",
@@ -750,16 +854,53 @@ private fun DetailPage(
                     enabled = record.enabled && !broken,
                     onCheckedChange = onToggleTools,
                 )
-                record.manifest.pages.forEach { page ->
-                    ArrowPreference(
-                        title = page.title.ifBlank { page.id },
-                        summary = "打开插件页面",
-                        enabled = record.enabled && !broken,
-                        onClick = { onOpenPage(page.id) },
-                    )
+            }
+
+            // ② 页面
+            Spacer(Modifier.height(14.dp))
+            if (record.manifest.pages.isEmpty()) {
+                Text(
+                    text = "这个插件没有页面，只给小岱加工具。",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                )
+            } else {
+                CouiSettingsCard {
+                    record.manifest.pages.forEach { page ->
+                        ArrowPreference(
+                            title = page.title.ifBlank { page.id },
+                            summary = "打开插件页面",
+                            enabled = record.enabled && !broken,
+                            onClick = { onOpenPage(page.id) },
+                        )
+                    }
                 }
             }
 
+            // ③ 作者与项目
+            if (record.manifest.author.isNotBlank() || record.manifest.projectUrl.isNotBlank()) {
+                Spacer(Modifier.height(14.dp))
+                CouiSettingsCard {
+                    if (record.manifest.author.isNotBlank()) {
+                        ArrowPreference(
+                            title = "作者",
+                            summary = record.manifest.author,
+                            enabled = record.manifest.authorUrl.isNotBlank(),
+                            onClick = { uriHandler.openUri(record.manifest.authorUrl) },
+                        )
+                    }
+                    if (record.manifest.projectUrl.isNotBlank()) {
+                        ArrowPreference(
+                            title = "项目地址",
+                            summary = record.manifest.projectUrl,
+                            onClick = { uriHandler.openUri(record.manifest.projectUrl) },
+                        )
+                    }
+                }
+            }
+
+            // ④ 卸载
             Spacer(Modifier.height(14.dp))
             CouiSettingsCard {
                 Row(
@@ -804,6 +945,9 @@ private fun DetailPage(
 
 private val DemoBrokenIds: Set<String> = setOf("com.example.card.watch")
 
+/** 索引根下的 `tags` 数组，市场筛选用。 */
+private val DemoTags: List<String> = listOf("课表", "通知", "学习", "生活", "工具")
+
 private fun demoRecord(
     id: String,
     name: String,
@@ -827,6 +971,9 @@ private fun demoRecord(
         apiVersion = 2,
         id = id,
         name = name,
+        author = "Hz6826",
+        authorUrl = "https://github.com/Hz6826",
+        projectUrl = "https://github.com/yeliqin666/xjtu-toolbox-android",
         summary = summary,
         type = if (isWeb) "web" else "dex",
         version = version,
@@ -895,6 +1042,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         isWeb = false,
         version = "1.4.0",
         author = "工具",
+        tags = listOf("学习", "通知"),
         featured = true,
     ),
     MarketEntry(
@@ -904,6 +1052,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         isWeb = true,
         version = "0.8.2",
         author = "学习",
+        tags = listOf("学习", "课表"),
         featured = true,
     ),
     MarketEntry(
@@ -913,6 +1062,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         isWeb = true,
         version = "2.1.0",
         author = "生活",
+        tags = listOf("生活"),
         featured = true,
     ),
     MarketEntry(
@@ -922,6 +1072,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         isWeb = false,
         version = "1.0.3",
         author = "学习",
+        tags = listOf("学习", "通知"),
     ),
     MarketEntry(
         id = "com.example.bus.live",
@@ -930,5 +1081,6 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         isWeb = true,
         version = "1.2.1",
         author = "生活",
+        tags = listOf("生活"),
     ),
 )
