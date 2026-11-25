@@ -76,6 +76,18 @@ fun canPostIn(category: GithubDiscussionCategory, viewerPermission: String?): Bo
 fun postableCategories(categories: List<GithubDiscussionCategory>, viewerPermission: String?) =
     categories.filter { canPostIn(it, viewerPermission) }
 
+/** 公告表单的「### 小标题」骨架：App 发帖不走 GitHub 表单，没有这些小节 announce.py 不认。与 announce.py 的 SKELETON 同一份。 */
+const val ANNOUNCE_SKELETON = "### 等级\n\n普通\n\n### 正文\n\n\n\n### 链接\n\n\n\n### 开始时间\n\n\n\n### 截止时间\n\n\n\n" +
+    "### 最低版本\n\n\n\n### 最高版本\n\n\n\n### 投票选项\n\n\n\n### 设置\n\n- [ ] 投票可多选\n" +
+    "- [ ] 必须点确认才能关掉\n- [ ] 启动时拦住不让用（慎用）"
+
+/** 换到公告分类且正文空着就填骨架；从公告换走时骨架没动过就清掉。 */
+fun bodyForCategory(category: GithubDiscussionCategory?, body: String): String = when {
+    category?.slug == ANNOUNCEMENT_SLUG -> body.ifBlank { ANNOUNCE_SKELETON }
+    body == ANNOUNCE_SKELETON -> ""
+    else -> body
+}
+
 data class GithubDiscussionComment(
     val id: String, val body: String, val author: String?, val isAnswer: Boolean,
     val canMarkAnswer: Boolean = false, val canUnmarkAnswer: Boolean = false,
