@@ -16,16 +16,16 @@ import kotlinx.coroutines.runBlocking
 class GithubCommunityJvmTest {
 
     /** 按老存储名 `github_community` 直接开一份：刻意写字符串而不引用常量，存储名被改时这条断言会拦住。 */
-    private val store = secureKeyValueStore("github_community")
+    private lateinit var store: com.xjtu.toolbox.platform.KeyValueStore
+    private lateinit var session: SecureGithubSession
 
     private lateinit var fake: FakeCampusProxy
 
     @BeforeTest
     fun setUp() {
         dataRootOverride = Files.createTempDirectory("xjtu-community-test").toFile()
-        // 单例与存储都是进程级的：先清干净，再装那两件进程级前置（必须在碰 HttpClients 之前）
-        store.remove("token")
-        store.remove("login")
+        store = secureKeyValueStore("github_community")
+        session = SecureGithubSession(store)
         FakeCampusProxy.installFakeUpstreams()
         fake = FakeCampusProxy().start()
     }
@@ -33,7 +33,7 @@ class GithubCommunityJvmTest {
     @AfterTest
     fun tearDown() {
         fake.close()
-        SecureGithubSession.get().signOut()
+        session.signOut()
         dataRootOverride = null
     }
 
@@ -81,7 +81,6 @@ class GithubCommunityJvmTest {
 
     @Test
     fun `登录态：signIn 先查用户名再落盘（同一个存储名与键），signOut 只清本机`() {
-        val session = SecureGithubSession.get()
         session.signOut()
         assertNull(session.login.value, "开头应当是未登录")
 
