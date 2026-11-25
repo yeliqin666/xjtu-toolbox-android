@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.community
+package com.xjtu.toolbox.ui.markdown
 
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionSummary.kt
 
@@ -7,10 +7,9 @@ import org.intellij.markdown.MarkdownTokenTypes as Tokens
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.parser.MarkdownParser
-import com.xjtu.toolbox.ui.markdown.githubHtmlToMarkdown
 
-/** A bounded list preview. The original body is always used by the detail reader. */
-fun discussionSummary(markdown: String): String {
+/** Markdown 正文的纯文本摘要（最多 240 字），给列表预览用：社区帖子列表、消息收纳里的公告。详情仍渲染原文。 */
+fun markdownSummary(markdown: String): String {
     // HTML 先换成 Markdown，否则 `<details><summary>` 那一行整块被当 HTML 丢掉
     val source = githubHtmlToMarkdown(markdown.take(8_192))
     val tree = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(source)

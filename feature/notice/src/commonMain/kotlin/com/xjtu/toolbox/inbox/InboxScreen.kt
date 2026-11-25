@@ -111,6 +111,8 @@ import kotlinx.datetime.minus
 import com.xjtu.toolbox.util.campusDateTimeOf
 import com.xjtu.toolbox.util.todayOnCampus
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
+import com.xjtu.toolbox.ui.markdown.GithubMarkdown
+import com.xjtu.toolbox.ui.markdown.markdownSummary
 
 @Composable
 fun InboxScreen(
@@ -753,8 +755,12 @@ private fun InboxRow(e: Entry) {
                     modifier = Modifier.padding(start = 8.dp),
                 )
             }
+            // 公告正文是 Markdown，列表里只放纯文本摘要
+            val body = remember(item.body, item.category) {
+                if (item.category == InboxCategories.BULLETIN) markdownSummary(item.body) else item.body
+            }
             // 学校不少消息的标题就是系统名，和上面的来源重复，这时直接拿正文当标题
-            val titleIsSource = item.title == item.source && item.body.isNotBlank()
+            val titleIsSource = item.title == item.source && body.isNotBlank()
             Row(verticalAlignment = Alignment.Top) {
                 // 重要程度只画角标：顺序仍按截止时间，标签不插队
                 if (e.importance != InboxRules.IMPORTANCE_NONE) {
@@ -762,7 +768,7 @@ private fun InboxRow(e: Entry) {
                     Spacer(Modifier.width(6.dp))
                 }
                 Text(
-                    if (titleIsSource) item.body else item.title,
+                    if (titleIsSource) body else item.title,
                     style = MiuixTheme.textStyles.body1,
                     fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 2,
@@ -770,9 +776,9 @@ private fun InboxRow(e: Entry) {
                     modifier = Modifier.weight(1f).padding(top = 2.dp),
                 )
             }
-            if (item.body.isNotBlank() && !titleIsSource) {
+            if (body.isNotBlank() && !titleIsSource) {
                 Text(
-                    item.body,
+                    body,
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 2,
@@ -873,10 +879,14 @@ private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null,
             androidx.compose.foundation.text.selection.SelectionContainer(
                 Modifier.weight(1f, fill = false).heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
             ) {
-                Text(
-                    item.body.ifBlank { item.title },
-                    style = MiuixTheme.textStyles.body2,
-                )
+                if (item.category == InboxCategories.BULLETIN && item.body.isNotBlank()) {
+                    GithubMarkdown(item.body, textStyle = MiuixTheme.textStyles.body2)
+                } else {
+                    Text(
+                        item.body.ifBlank { item.title },
+                        style = MiuixTheme.textStyles.body2,
+                    )
+                }
             }
             if (onAskPidai == null) {
                 TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())

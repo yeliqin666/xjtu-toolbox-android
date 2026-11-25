@@ -47,6 +47,7 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.markdown.GithubMarkdown
+import com.xjtu.toolbox.ui.markdown.markdownSummary
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -201,7 +202,7 @@ fun DiscussionsScreen(
 @Composable
 private fun DiscussionCard(discussion: GithubDiscussion, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = MiuixTheme.colorScheme
-    val summary = remember(discussion.body) { discussionSummary(discussion.body) }
+    val summary = remember(discussion.body) { markdownSummary(discussion.body) }
     Card(
         modifier = modifier.fillMaxWidth(),
         cornerRadius = 16.dp,
