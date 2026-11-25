@@ -34,6 +34,12 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "6.2.2" to VersionChangelog(
+            items = listOf(
+                "🪶" to "筌者所以在鱼，得鱼而忘筌。",
+                "📢" to "管理员在 App 里选公告板块发帖时，正文自动带上公告表单的格式，照着填就能发到 App",
+            )
+        ),
         "6.2.1" to VersionChangelog(
             items = listOf(
                 "🪶" to "Festina lente.（慢慢地赶快）",
