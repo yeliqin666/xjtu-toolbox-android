@@ -21,15 +21,6 @@ class DataCacheConcurrencyTest {
     private val account = "cache-concurrency-test"
     private val dir = File(app.cacheDir, "data_cache" + AccountContext.suffixFor(account))
 
-    // 只借反射取得原有的锁，控制真实 clearAll() 的执行顺序。
-    // 两个版本使用同一测试源码；反射失败不能算作复现成功。
-    private fun lockForTest(cache: DataCache): Any {
-        val field = DataCache::class.java.declaredFields.firstOrNull { it.name == "lock" }
-        if (field != null) return field.apply { isAccessible = true }.get(cache)
-        val method = DataCache::class.java.getDeclaredMethod("lockFor", String::class.java)
-        return method.apply { isAccessible = true }.invoke(cache, "key")
-    }
-
     @Test
     fun allInstancesAndClearUseTheDirectoryLock() {
         val first = DataCache(app, account)
@@ -38,20 +29,24 @@ class DataCacheConcurrencyTest {
         val task = FutureTask<Unit> { second.clearAll() }
         val worker = Thread(task, "cache-clear-regression").apply { isDaemon = true }
         try {
-            synchronized(lockForTest(first)) {
+            synchronized(DataCache.directoryLock(dir)) {
                 worker.start()
                 val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                var blockedInClear = false
                 while (!task.isDone && System.nanoTime() < deadline) {
                     if (worker.state == Thread.State.BLOCKED &&
                         worker.stackTrace.any { it.className == DataCache::class.java.name &&
-                            it.methodName == "clearAll" }) break
+                            it.methodName == "clearAll" }) {
+                        blockedInClear = true
+                        break
+                    }
                     Thread.yield()
                 }
                 if (task.isDone) {
                     task.get() // 其他异常不能当成目标缺陷
                     fail("S1_SHARED_LOCK: another instance cleared while the first lock was held")
                 }
-                assertEquals("worker did not reach clearAll monitor", Thread.State.BLOCKED, worker.state)
+                assertTrue("worker did not reach clearAll monitor", blockedInClear)
                 assertEquals("old", first.getStale("key"))
             }
             task.get(5, TimeUnit.SECONDS)

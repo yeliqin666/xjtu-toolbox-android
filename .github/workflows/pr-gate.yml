@@ -17,7 +17,7 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +40,7 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends fonts-noto-cjk
           fc-list :lang=zh | grep -q . || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
 
-      # :app:compileDebugKotlin 顺带编出所有共享模块的 android 变体；jvmTest 按任务名选中所有 KMP 模块；
+      # :app:testDebugUnitTest 覆盖 app 自身的单元测试；jvmTest 按任务名选中所有 KMP 模块；
       # :web:wasmJsBrowserTest 顺带证明 :core 等 commonMain 能编到 wasm。
       - name: 编译与测试
         run: >-

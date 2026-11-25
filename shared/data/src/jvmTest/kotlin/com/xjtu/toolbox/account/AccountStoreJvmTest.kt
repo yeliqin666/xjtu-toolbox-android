@@ -1,9 +1,11 @@
 package com.xjtu.toolbox.account
 
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
+import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -17,20 +19,26 @@ import kotlin.test.assertTrue
 class AccountStoreJvmTest {
 
     /** 按老存储名 `xjtu_accounts` 直接开一份，确认老数据仍读得到。 */
-    private val raw = secureKeyValueStore("xjtu_accounts")
+    private lateinit var raw: KeyValueStore
+    private lateinit var root: File
+    private var previousRoot: File? = null
 
     @BeforeTest
     fun setUp() {
-        dataRootOverride = Files.createTempDirectory("xjtu-account-store-test").toFile()
-        // 存储是**进程级**缓存的（Android 上正是靠这一点让前后台看到同一份账号表）⇒ 前后各清一次
-        raw.clear()
+        previousRoot = dataRootOverride
+        root = Files.createTempDirectory("xjtu-account-store-test").toFile()
+        dataRootOverride = root
+        raw = secureKeyValueStore("xjtu_accounts")
     }
 
     @AfterTest
     fun tearDown() {
-        raw.clear()
-        wipeSecureStore("xjtu_accounts")
-        dataRootOverride = null
+        try {
+            wipeSecureStore("xjtu_accounts")
+        } finally {
+            dataRootOverride = previousRoot
+            root.deleteRecursively()
+        }
     }
 
     @Test
