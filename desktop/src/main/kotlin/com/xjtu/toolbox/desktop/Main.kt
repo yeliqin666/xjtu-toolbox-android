@@ -36,7 +36,7 @@ fun main() {
     // ── 单实例闸门（B-13）──
     //
     // 键值存储是「init 整份读进内存、每次改动整份回写」的，两个进程同开就是互相覆盖（桌面窗口 +
-    // `:server` 的 serve，或者两个桌面窗口）。所以**在碰任何存储之前**先抢 `<数据根>/.lock`：
+    // `:server` 的 serve，或者两个桌面窗口）。所以**在碰任何存储之前**先抢数据根目录的进程锁：
     // 抢不到就把写闸合上（`StoreWriteGate`），顶栏挂一条横幅说明这一端只读。
     // 抢锁必须在这里、而不是在某个屏里：下面 `DesktopArchiveHost.maybeImportPendingArchive()` 就要写盘了。
     val lock = InstanceLock.acquire("desktop")
@@ -76,8 +76,6 @@ fun main() {
             }
         }
 
-        // 窗口全关了才走到这里：把锁还回去（进程被 kill 时锁会留下，下次启动靠 pid 判僵尸抢回来）
-        lock.release()
     }
 }
 private const val MIN_WINDOW_WIDTH = 360
