@@ -15,6 +15,8 @@ kotlin {
             implementation(libs.coil.compose)
             implementation(libs.markdown.renderer)
             implementation(libs.markdown.renderer.coil3)
+            // markdownSummary 要用 AST，版本跟 renderer 走
+            implementation(libs.jetbrains.markdown)
         }
         androidMain.dependencies {
             implementation(libs.androidx.graphics.shapes)
