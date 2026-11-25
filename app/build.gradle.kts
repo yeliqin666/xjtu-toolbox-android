@@ -216,6 +216,9 @@ baselineProfile {
     dexLayoutOptimization = true
 }
 
+// 只用来下载 Robolectric 的 android-all，见文件末尾
+val robolectricAndroidAll: Configuration by configurations.creating
+
 dependencies {
     // 三端共用的业务与平台抽象（KMP）；:core 必须能编过 wasmJs（CI 门禁在守）。
     implementation(project(":core"))
@@ -306,9 +309,25 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
+    robolectricAndroidAll("org.robolectric:android-all-instrumented:15-robolectric-13954326-i7")
     debugImplementation(libs.androidx.ui.tooling)
     // 组合追踪：广播 androidx.tracing.perfetto.action.ENABLE_TRACING 后，Perfetto 的 track_event 里有每个重组的组件名
     debugImplementation(libs.androidx.compose.runtime.tracing)
     debugImplementation(libs.androidx.tracing.perfetto)
     debugImplementation(libs.androidx.tracing.perfetto.binary)
+}
+
+// Robolectric 默认在测试运行时自己从 Maven Central 拉 android-all（约 200 MB，不重试、不进 Gradle 缓存），
+// CI 上常因网络抖动挂。改由 Gradle 解析下载（有重试，进 setup-gradle 的缓存），测试离线读这个目录。
+// 版本是 Robolectric 4.17 里 SDK 35 对应的那份（测试都 @Config(sdk = [35])）；升 Robolectric 或改 sdk 时一起改，
+// 漏了测试会报找不到依赖，不会静默联网。
+val robolectricJars = layout.buildDirectory.dir("robolectric-jars")
+val syncRobolectricJars by tasks.registering(Sync::class) {
+    from(robolectricAndroidAll)
+    into(robolectricJars)
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(syncRobolectricJars)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", robolectricJars.get().asFile.absolutePath)
 }
