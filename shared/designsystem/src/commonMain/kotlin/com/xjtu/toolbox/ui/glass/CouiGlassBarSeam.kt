@@ -25,7 +25,7 @@ interface CouiGlassBarBackdrop {
  * AGSL 管线整包移植在 androidMain/coui：COUI-Kit 0.0.1-alpha10 的浮层材质、边缘光、内发光、
  * 轮廓光、阴影与焦散、融球、弹簧与跟手光，外加 `NavigationBar` 本体（三主体底栏）。
  * 页面采样层由 [rememberCouiGlassBarBackdrop] 挂在内容节点上，底栏按 `CouiFloatingSurface` 的
- * bounds 采样。关掉即回退到 kyant 玻璃（非 Android 平台始终走那条）。
+ * bounds 采样。关掉或非 Android 平台时玻璃底栏不画（宿主应改走经典底栏，见 `glassNavStyle`）。
  */
 const val couiGlassBarMaterialEnabled: Boolean = true
 
@@ -34,7 +34,7 @@ val couiGlassBarSupported: Boolean get() = couiGlassBarPlatformSupported()
 
 expect fun couiGlassBarPlatformSupported(): Boolean
 
-/** 页面背后的采样源；非 Android 平台返回 null（底栏回退 kyant 玻璃）。 */
+/** 页面背后的采样源；非 Android 平台返回 null。 */
 @Composable
 expect fun rememberCouiGlassBarBackdrop(): CouiGlassBarBackdrop?
 
@@ -58,5 +58,5 @@ expect fun CouiGlassBottomBar(
     modifier: Modifier = Modifier,
 )
 
-/** 供宿主把采样源一路传到底栏；null 表示走原来的 kyant 玻璃。 */
+/** 供宿主把采样源一路传到底栏；null 时玻璃底栏不画。 */
 val LocalCouiGlassBarBackdrop = staticCompositionLocalOf<CouiGlassBarBackdrop?> { null }

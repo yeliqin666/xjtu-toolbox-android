@@ -26,6 +26,7 @@ import com.xjtu.toolbox.home.HomeStat
 import com.xjtu.toolbox.home.HomeTone
 import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.ScheduleCacheStore
 import com.xjtu.toolbox.util.singletonState
@@ -213,6 +214,10 @@ internal class DesktopHomeHost(
     }
 
     override fun onBulletinTap(bulletin: Bulletin) = bulletinHost.onTap(bulletin)
+
+    /** 「查看详情」进站内公告详情页（与 `:app` 同一屏）：只有正文的公告也能看全。 */
+    override fun onBulletinDetail(bulletin: Bulletin, source: SeamlessCardSource?) =
+        onNavigate(DesktopTarget.App(AppRoute.NoticeDetail.of(bulletin)))
 
     override fun onBulletinDismiss(bulletin: Bulletin) = bulletinHost.dismissHero(bulletin)
 }

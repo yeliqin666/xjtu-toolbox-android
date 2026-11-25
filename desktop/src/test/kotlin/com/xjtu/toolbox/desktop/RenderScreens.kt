@@ -631,10 +631,6 @@ fun main(args: Array<String>) {
         check(agentWelcomeShown) { "agent_welcome.png：没落在「先接一个模型」那张欢迎页上 —— AppRoute.Agent 没接上宿主面？" }
 
 
-        // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
-        // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
-        shot("routes.png", height = 1900, frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
-
         secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE).putString("dark_mode", SettingsStore.DARK_MODE_DARK)
         var settingsShown = false
         var settingsToggled = false

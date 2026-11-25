@@ -73,7 +73,7 @@ internal fun DesktopBrowserScreen(
             }
         }
 
-        TextLink(text = "返回", onClick = { onNavigate(DesktopTarget.Routes) })
+        TextLink(text = "返回", onClick = { onNavigate(DesktopTarget.App(com.xjtu.toolbox.nav.AppRoute.Main)) })
     }
 }
 

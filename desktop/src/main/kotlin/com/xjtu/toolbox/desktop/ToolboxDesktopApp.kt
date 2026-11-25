@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -24,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -35,12 +34,16 @@ import com.xjtu.toolbox.agent.AgentConfig
 import com.xjtu.toolbox.agent.AgentHost
 import com.xjtu.toolbox.agent.AgentScreen
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.AuthExpiryHandler
+import com.xjtu.toolbox.auth.LocalAuthExpiry
+import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.bulletin.BulletinApi
 import com.xjtu.toolbox.bulletin.BulletinLaunchDialog
+import com.xjtu.toolbox.bulletin.NoticeDetailScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.CampusCardScreen
@@ -136,7 +139,6 @@ import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.xjtu.toolbox.ui.components.TextLink
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -224,6 +226,30 @@ internal fun ToolboxDesktopApp(
             onAccountTypeChange = { auth.loginAccountType = it },
         )
     } else {
+        // 页面判定登录失效：作废该站点的登录、退回首页，再重新打开它（进门时 DesktopSiteGate 重登，
+        // 要短信验证就弹 MFA）。同一页在 AUTH_RETRY_WINDOW_MS 内只自动重开一次，重登后仍失效就停在首页。
+        var retryRoute by remember { mutableStateOf<AppRoute?>(null) }
+        val lastRetryAt = remember { mutableMapOf<String, Long>() }
+        val authExpiry = remember(auth) {
+            AuthExpiryHandler { route, onBack ->
+                route.loginType?.let { auth.sessionManager.getSiteOrNull(it.siteKey())?.invalidateLogin() }
+                onBack()
+                val now = System.currentTimeMillis()
+                if (now - (lastRetryAt[route.id] ?: 0L) > AUTH_RETRY_WINDOW_MS) {
+                    lastRetryAt[route.id] = now
+                    retryRoute = route
+                }
+            }
+        }
+        LaunchedEffect(retryRoute) {
+            val route = retryRoute ?: return@LaunchedEffect
+            retryRoute = null
+            // 先让首页落一帧：旧页面整个拆掉，重开时站点闸门与 ViewModel 才是新的
+            withFrameNanos { }
+            withFrameNanos { }
+            target = DesktopTarget.App(route)
+        }
+
         // 共享壳（`:core` 的 AppShell）：底栏 / 侧栏 / 当前页那一层 / 形态学全在它里面，
         // 与 `:app` 是同一份代码。这一端只交三样：五格、当前页、以及「留下谁」那一档。
         val navState = ShellNavState(
@@ -237,7 +263,7 @@ internal fun ToolboxDesktopApp(
         // 窗口形状喂给共享壳（`:app` 那边由 `AppNavigation` 算好往下提供）：窗口够宽时底栏换侧栏，
         // 判据就是 `:core` 那条 `calculateIsWideLayout` —— 与 Android 在宽屏 / 折叠屏上同一套。
             val wideLayout = calculateIsWideLayout()
-            CompositionLocalProvider(LocalIsWideLayout provides wideLayout) {
+            CompositionLocalProvider(LocalIsWideLayout provides wideLayout, LocalAuthExpiry provides authExpiry) {
             AppShell(
                 nav = navState,
                 // 这一端的导航模型是**路由表**（43 条里 37 条不属于任何一格）⇒ 只画当前这一页，
@@ -249,9 +275,9 @@ internal fun ToolboxDesktopApp(
                 bottomInset = 0.dp,
                 contentWindowInsets = WindowInsets(0),
                 page = { opened, _ ->
-                    // 43 条顶层分支都在 DesktopPage 里（`when (route)`）——这一段只分派「哪一种页」。
-                    when (val openedTarget = opened.target) {
-                        is ShellTarget.App -> DesktopPage(
+                    // 这一端的目标只有共享路由（`DesktopTarget.App`），壳不会递来「全部页面」或 Custom
+                    (opened.target as? ShellTarget.App)?.let { openedTarget ->
+                        DesktopPage(
                             auth = auth,
                             route = openedTarget.route,
                             bulletins = bulletins,
@@ -259,9 +285,6 @@ internal fun ToolboxDesktopApp(
                             onAppearanceChanged = { appearanceTick++ },
                             onNavigate = { target = it },
                         )
-
-                        // 「全部」那一页 = 索引页。Custom（端自己的页）这一端还没有 ⇒ 落到同一页，不白屏。
-                        ShellTarget.AllPages, is ShellTarget.Custom -> RoutesPage(auth) { target = it }
                     }
                 },
             )
@@ -352,9 +375,8 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Match to "匹配交友",
 )
 
-/** 屏已在 `:core`、但这一端还没有数据源的路由。 */
-internal val DESKTOP_PENDING_ROUTES = emptyList<Pair<AppRoute, String>>()
-
+/** 自动重开登录失效页面的冷却：重登后同一页仍失效就不再来回弹。 */
+private const val AUTH_RETRY_WINDOW_MS = 30_000L
 
 /** 一屏共享页。 */
 
@@ -451,13 +473,13 @@ private fun DesktopPage(
             source = remember { com.xjtu.toolbox.bus.BusApi(yellowPageClient) },
             onBack = back,
         )
-        AppRoute.Library -> {
+        // 与 `:app` 的 WithSite("library") 同位：先建会话再进屏；每次进门新建取数，ViewModel 跟着换新
+        AppRoute.Library -> DesktopSiteGate(auth, DesktopAuth.LIBRARY_SITE_KEY, "图书馆") { site ->
             val hintPrefs = remember { keyValueStore("feature_hints") }
             LibraryScreen(
-                source = auth.librarySource,
+                source = remember(site) { DesktopLibrarySource(site) },
                 onBack = back,
                 reAuthenticate = {
-                    // 「重新认证」：凭据在会话管家里，直接 `ensureSite(userInitiated = true)`。
                     auth.sessionManager.ensureSite(DesktopAuth.LIBRARY_SITE_KEY, userInitiated = true)
                 },
                 showFirstUseHint = !hintPrefs.getBoolean("library_hint_shown", false),
@@ -847,8 +869,12 @@ private fun DesktopPage(
             }
             com.xjtu.toolbox.degree.DegreeScreen(source = source, onBack = back)
         }
-        // 公告详情在桌面端是从列表里内联展开的，没有独立一屏；`else` 只留给「加了路由却忘了加分支」。
-        is AppRoute.NoticeDetail -> NotPortedScreen(onNavigate)
+        // 首页公告条「查看详情」的落点（只有正文、没有链接的公告也靠它看）
+        is AppRoute.NoticeDetail -> NoticeDetailScreen(
+            notice = route,
+            onBack = back,
+            onOpenUrl = { url -> desktopBrowserTarget(url)?.let { openInBrowser(it) } },
+        )
         // 扫一扫是 Android 顶栏的相机入口，桌面端没有这一屏。
         AppRoute.QrScan -> NotPortedScreen(onNavigate)
         AppRoute.Tips -> com.xjtu.toolbox.tips.TipsScreen(onBack = back, onRoute = { onNavigate(DesktopTarget.App(it)) })
@@ -898,45 +924,6 @@ private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> U
 }
 
 
-/** 全部页面：先列真能用的，再列屏在了但没数据源的。 */
-@Composable
-internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) {
-    val cs = MiuixTheme.colorScheme
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("全部页面", color = cs.onSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        DESKTOP_SUPPORTED_ROUTES.forEach { (route, label) ->
-            TextLink(
-                text = label,
-                onClick = { onNavigate(DesktopTarget.App(route)) },
-                modifier = Modifier.fillMaxWidth(),
-                chevron = true,
-            )
-        }
-
-        if (DESKTOP_PENDING_ROUTES.isNotEmpty()) {
-            Text("暂不可用", color = cs.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            DESKTOP_PENDING_ROUTES.forEach { (route, label) ->
-                TextLink(
-                    text = label,
-                    onClick = { onNavigate(DesktopTarget.App(route)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    chevron = true,
-                )
-            }
-        }
-
-        TextLink(
-            text = "退出当前账号",
-            onClick = { auth.logout() },
-            modifier = Modifier.fillMaxWidth(),
-            color = cs.error,
-        )
-    }
-}
-
 /** 「这一屏还没搬到桌面」的占位页。 */
 @Composable
 private fun NotPortedScreen(onNavigate: (DesktopTarget) -> Unit) =
@@ -960,7 +947,7 @@ private fun HostUnavailableScreen(
             Text(line, color = cs.onBackgroundVariant, fontSize = 13.sp)
         }
         Button(
-            onClick = { onNavigate(DesktopTarget.Routes) },
+            onClick = { onNavigate(DesktopTarget.App(AppRoute.Main)) },
             colors = ButtonDefaults.buttonColorsPrimary(),
         ) { Text("返回", color = cs.onPrimary) }
     }

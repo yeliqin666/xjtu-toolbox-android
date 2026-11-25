@@ -188,10 +188,10 @@ class DesktopShellRailJvmTest {
     }
 
     @Test
-    fun `界面风格到玻璃开关：只有浮动（默认）且不宽屏才给玻璃`() {
-        assertTrue(
+    fun `界面风格到玻璃开关：桌面画不出玻璃底栏，一律走经典`() {
+        assertFalse(
             glassNavStyle(SettingsStore.NAV_STYLE_FLOATING, isWide = false),
-            "默认那一档（玻璃 + 窄窗）应该是玻璃底栏",
+            "桌面没有玻璃底栏实现，默认那一档也要退回经典，否则窄窗口没有 dock",
         )
         assertFalse(
             glassNavStyle(SettingsStore.NAV_STYLE_CLASSIC, isWide = false),

@@ -51,16 +51,15 @@ class DesktopShellJvmTest {
             DesktopTarget.App(AppRoute.Main),
             DesktopTarget.App(AppRoute.Fitness),
             DesktopTarget.App(AppRoute.Schedule),
-            DesktopTarget.Routes,
         ).forEach { target ->
             assertEquals(target, target.toShell().toDesktop(), "$target 换算一圈变了")
         }
         assertEquals(AppRoute.Fitness, (DesktopTarget.App(AppRoute.Fitness).toShell() as ShellTarget.App).route)
-        assertEquals(ShellTarget.AllPages, DesktopTarget.Routes.toShell())
     }
 
     @Test
-    fun `壳里有而这一端没有的那一档如实返回 null（Custom = 端自己的页）`() {
+    fun `壳里有而这一端没有的那一档如实返回 null（全部页面 / 端自己的页）`() {
+        assertNull(ShellTarget.AllPages.toDesktop())
         assertNull(ShellTarget.Custom("desktop_only").toDesktop())
     }
 }

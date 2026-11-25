@@ -2,17 +2,18 @@ package com.xjtu.toolbox.ui.glass
 
 import com.xjtu.toolbox.settings.SettingsStore
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 /** [glassNavStyle] 的四档：浮动/经典 × 宽屏/窄窗。 */
 class GlassNavStyleTest {
 
     @Test
-    fun `默认那一档（浮动 + 窄窗）给玻璃`() {
-        assertTrue(
+    fun `默认那一档（浮动 + 窄窗）只在画得出玻璃底栏的平台给玻璃`() {
+        assertEquals(
+            couiGlassBarSupported,
             glassNavStyle(SettingsStore.NAV_STYLE_FLOATING, isWide = false),
-            "设置默认值就是 floating ⇒ 默认桌面/web 窗口（520dp 那种）应该是玻璃底栏",
+            "画不出玻璃底栏的平台要退回经典，否则窄窗口没有 dock",
         )
     }
 
