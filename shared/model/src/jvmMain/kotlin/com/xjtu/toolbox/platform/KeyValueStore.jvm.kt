@@ -29,7 +29,18 @@ private fun storeFor(file: File): JvmFileKeyValueStore {
 }
 
 /** 保留现有句柄的同一把锁和内存状态，避免删除后重新打开产生第二个快照。 */
-fun wipeJvmFileKeyValueStore(file: File) = storeFor(file).wipe()
+fun wipeJvmFileKeyValueStore(file: File) {
+    val canonical = file.canonicalFile
+    stores.compute(canonical) { _, existing ->
+        if (existing != null) {
+            existing.wipe()
+        } else if (StoreWriteGate.allowsWrites) {
+            // 用户主动删除时无需先解析文件：损坏的文件也必须能清掉。
+            Files.deleteIfExists(canonical.toPath())
+        }
+        existing
+    }
+}
 
 /** Properties 文件格式不变。凭据保护由上层包装器负责。 */
 internal class JvmFileKeyValueStore(private val file: File) : KeyValueStore {
