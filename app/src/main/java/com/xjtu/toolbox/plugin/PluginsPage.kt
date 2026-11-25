@@ -385,9 +385,10 @@ private fun SlideInDetail(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    // 起点在屏幕右边一个屏宽处，progress 到 1 就正好对齐
+                    // 起点在屏幕右边一个屏宽处，progress 到 1 就正好对齐。
+                    // 只补一点点淡入，别让半路看着像还在加载。
                     translationX = size.width * (1f - progress)
-                    alpha = progress.coerceIn(0f, 1f)
+                    alpha = (0.85f + 0.15f * progress).coerceIn(0f, 1f)
                 },
         ) {
             content()
