@@ -114,7 +114,7 @@ internal object PluginPackages {
             require(size == declared.size) {
                 "${declared.path} 大小不符（清单写 ${declared.size}，实际 $size）"
             }
-            require(sha256Hex(digest.digest()) == declared.sha256) {
+            require(toHex(digest.digest()) == declared.sha256) {
                 "${declared.path} 的 sha256 不符，包内容被改过"
             }
             total += size
@@ -157,7 +157,7 @@ internal object PluginPackages {
                     }
                 }
             }
-            require(size == declared.size && sha256Hex(digest.digest()) == declared.sha256) {
+            require(size == declared.size && toHex(digest.digest()) == declared.sha256) {
                 "${declared.path} 解压后校验失败"
             }
             out.setReadOnly()
@@ -167,8 +167,11 @@ internal object PluginPackages {
         }
     }
 
-    fun sha256Hex(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    /** 算 SHA-256 并转成十六进制。 */
+    fun sha256Hex(bytes: ByteArray): String = toHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+
+    /** 单纯把字节转十六进制（别再 hash 一遍——[MessageDigest.digest] 返回的已经是摘要）。 */
+    fun toHex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun decodeBase64(text: String, what: String): ByteArray = try {
         Base64.getDecoder().decode(text.trim())
