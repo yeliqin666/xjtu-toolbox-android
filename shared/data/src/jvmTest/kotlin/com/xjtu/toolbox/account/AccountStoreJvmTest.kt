@@ -7,6 +7,10 @@ import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -119,5 +123,47 @@ class AccountStoreJvmTest {
 
         store.clearActive()
         assertNull(AccountStore().activeAccountId())
+    }
+
+    @Test
+    fun concurrentUpdatesFromDifferentInstancesPreserveBothChanges() {
+        val first = AccountStore()
+        val second = AccountStore()
+        first.upsert(Account(accountId = "A"))
+        first.upsert(Account(accountId = "B"))
+        val insideUpdate = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val secondStarted = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val a = pool.submit {
+                first.update("A") {
+                    insideUpdate.countDown()
+                    check(resume.await(5, TimeUnit.SECONDS))
+                    it.copy(nickname = "first")
+                }
+            }
+            assertTrue(insideUpdate.await(5, TimeUnit.SECONDS))
+            val b = pool.submit {
+                secondStarted.countDown()
+                second.update("B") { it.copy(nickname = "second") }
+            }
+            assertTrue(secondStarted.await(5, TimeUnit.SECONDS))
+            try {
+                b.get(300, TimeUnit.MILLISECONDS)
+            } catch (_: TimeoutException) {
+                // B 等待 A 的整个读改写事务结束。
+            } finally {
+                resume.countDown()
+            }
+            a.get(5, TimeUnit.SECONDS)
+            b.get(5, TimeUnit.SECONDS)
+            assertEquals("first", first.get("A")?.nickname)
+            assertEquals("second", first.get("B")?.nickname)
+        } finally {
+            resume.countDown()
+            pool.shutdownNow()
+            pool.awaitTermination(5, TimeUnit.SECONDS)
+        }
     }
 }
