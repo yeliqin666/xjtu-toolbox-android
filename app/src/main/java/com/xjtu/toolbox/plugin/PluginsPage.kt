@@ -3,8 +3,6 @@ package com.xjtu.toolbox.plugin
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,7 +35,6 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,14 +45,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownOption
 import com.xjtu.toolbox.ui.components.AppFilterChip
@@ -112,7 +107,12 @@ private enum class MarketSort(val label: String) {
  * 免得装几个插件就是一整面开关墙。[demo] 为 true 时用假数据，方便看版式。
  */
 @Composable
-internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
+internal fun PluginsPage(
+    onBack: () -> Unit,
+    detailId: String = "",
+    onOpenDetail: (String) -> Unit = {},
+    demo: Boolean = PluginOverlay.listDemo,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val manager = remember { PluginManager.get(context) }
@@ -120,13 +120,11 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     var pending by remember { mutableStateOf<PendingPluginInstall?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
-    var closing by remember { mutableStateOf(false) }
     var pendingMarket by remember { mutableStateOf<MarketEntry?>(null) }
 
     val records = if (demo) demoRecords() else manager.records
@@ -147,50 +145,35 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
 
     if (!demo) LaunchedEffect(Unit) { manager.refresh() }
 
-    BackHandler(enabled = detail != null) { closing = true }
-
     // 下拉刷新途中切到另一个 tab：那个 PullToRefresh 已经被组掉了，转圈状态得自己收回来
     LaunchedEffect(tab) { refreshing = false }
 
-    // ── 详情页 ────────────────────────────────────────────────────────────
+    // ── 详情页：自己占一层路由，返回交给导航栈 ──────────────────────────────
     if (detail != null) {
-        SlideInDetail(
-            closing = closing,
-            onClosed = {
-                detailId = null
-                closing = false
+        DetailPage(
+            record = detail,
+            broken = detail.id in broken,
+            onBack = onBack,
+            onOpenPage = { pageId ->
+                val launch = PluginLauncher.openRoute
+                if (launch != null) launch(detail.id, pageId) else PluginOverlay.open(detail.id, pageId)
             },
-        ) {
-            DetailPage(
-                record = detail,
-                broken = detail.id in broken,
-                onBack = { closing = true },
-                onOpenPage = { pageId ->
-                    val launch = PluginLauncher.openRoute
-                    if (launch != null) {
-                        PluginOverlay.closeList()
-                        launch(detail.id, pageId)
-                    } else {
-                        PluginOverlay.open(detail.id, pageId)
+            onToggleEnabled = { on ->
+                if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setEnabled(detail.id, on) }
+            },
+            onToggleTools = { on ->
+                if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setToolsEnabled(detail.id, on) }
+            },
+            onUninstall = {
+                if (!demo) {
+                    scope.launch {
+                        manager.uninstall(detail.id)
+                        manager.refresh()
                     }
-                },
-                onToggleEnabled = { on ->
-                    if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setEnabled(detail.id, on) }
-                },
-                onToggleTools = { on ->
-                    if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setToolsEnabled(detail.id, on) }
-                },
-                onUninstall = {
-                    closing = true
-                    if (!demo) {
-                        scope.launch {
-                            manager.uninstall(detail.id)
-                            manager.refresh()
-                        }
-                    }
-                },
-            )
-        }
+                }
+                onBack()
+            },
+        )
         return
     }
 
@@ -258,7 +241,7 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                         PluginRow(
                             record = record,
                             broken = record.id in broken,
-                            onClick = { detailId = record.id },
+                            onClick = { onOpenDetail(record.id) },
                             modifier = Modifier
                                 .animateItem()
                                 .padding(horizontal = 16.dp, vertical = 5.dp),
@@ -344,54 +327,6 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                     pending = null
                 },
             )
-        }
-    }
-}
-
-/**
- * 详情页从右侧划入，返回时再划回右侧，底下压一层渐暗的背景。
- *
- * 原来是从被点的那张卡片放大出来，但整页和小卡片的比例对不上，
- * 文字被拉伸得很别扭，所以换成规矩的横向滑入。
- */
-@Composable
-private fun SlideInDetail(
-    closing: Boolean,
-    onClosed: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    var progress by remember { mutableFloatStateOf(0f) }
-
-    LaunchedEffect(closing) {
-        if (closing) {
-            animate(progress, 0f, animationSpec = tween(200, easing = FastOutSlowInEasing)) { value, _ ->
-                progress = value
-            }
-            onClosed()
-        } else {
-            animate(0f, 1f, animationSpec = tween(280, easing = FastOutSlowInEasing)) { value, _ ->
-                progress = value
-            }
-        }
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(MiuixTheme.colorScheme.background.copy(alpha = (progress * 1.4f).coerceIn(0f, 1f))),
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    // 起点在屏幕右边一个屏宽处，progress 到 1 就正好对齐。
-                    // 只补一点点淡入，别让半路看着像还在加载。
-                    translationX = size.width * (1f - progress)
-                    alpha = (0.85f + 0.15f * progress).coerceIn(0f, 1f)
-                },
-        ) {
-            content()
         }
     }
 }
@@ -996,6 +931,8 @@ private fun DetailPage(
                 .padding(horizontal = 16.dp)
                 .padding(top = glassTop, bottom = 24.dp),
         ) {
+            // 大标题下面先空一段，不然徽章那行贴在标题底边上
+            Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TypeBadge(isWeb = record.manifest.isWeb)
                 Spacer(Modifier.width(8.dp))
@@ -1014,14 +951,14 @@ private fun DetailPage(
                 )
             }
             if (record.manifest.summary.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 Text(
                     text = record.manifest.summary,
                     style = MiuixTheme.textStyles.body1,
                     color = MiuixTheme.colorScheme.onSurface,
                 )
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(22.dp))
 
             // ① 开关
             CouiSettingsCard {
@@ -1071,7 +1008,12 @@ private fun DetailPage(
                         ArrowPreference(
                             title = "作者",
                             summary = record.manifest.author,
-                            startAction = { AuthorAvatar(record.manifest.author) },
+                            startAction = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    AuthorAvatar(record.manifest.author)
+                                    Spacer(Modifier.width(12.dp))
+                                }
+                            },
                             enabled = record.manifest.authorUrl.isNotBlank(),
                             onClick = { uriHandler.openUri(record.manifest.authorUrl) },
                         )

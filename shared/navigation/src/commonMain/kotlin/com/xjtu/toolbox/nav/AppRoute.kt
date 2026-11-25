@@ -168,6 +168,14 @@ sealed interface AppRoute : NavKey {
     @Serializable data class Plugin(val pluginId: String, val page: String = "") : AppRoute {
         override val id get() = "plugin/${encode(pluginId)}" + if (page.isEmpty()) "" else "/${encode(page)}"
     }
+    /**
+     * 插件管理页：`detailId` 为空是列表，非空是某个插件的详情。
+     *
+     * 列表和详情各占一层返回栈，所以从详情按返回是回列表，不是退出应用。
+     */
+    @Serializable data class Plugins(val detailId: String = "") : AppRoute {
+        override val id get() = "plugins" + if (detailId.isEmpty()) "" else "/${encode(detailId)}"
+    }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 小贴士与常见问题（`com.xjtu.toolbox.tips.Tips` 全集）。 */
     @Serializable data object Tips : AppRoute { override val id get() = "tips" }
@@ -267,6 +275,11 @@ fun appRouteOf(id: String): AppRoute? {
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
+        path == "plugins" -> AppRoute.Plugins()
+        path.startsWith("plugins/") -> path.removePrefix("plugins/")
+            .takeIf { it.isNotBlank() }
+            ?.let(AppRoute::Plugins)
+            ?: AppRoute.Plugins()
         path.startsWith("plugin/") -> {
             val rest = path.removePrefix("plugin/")
             val id = rest.substringBefore('/')

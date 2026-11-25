@@ -39,7 +39,11 @@ internal object PluginOverlay {
     var current by mutableStateOf<Request?>(null)
         private set
 
-    /** 调试用：整页显示插件列表（设置 → 插件那一页）。[demo] 时用假数据。 */
+    /**
+     * 「打开插件管理页」的请求标志，由 [com.xjtu.toolbox.main.AppRoot] 读走并转成路由
+     * `AppRoute.Plugins`。插件管理页本身在导航栈里，不再是覆盖层。
+     * [listDemo] 为 true 时用假数据，只看版式。
+     */
     var listOpen by mutableStateOf(false)
         private set
 
@@ -49,6 +53,11 @@ internal object PluginOverlay {
     fun openList(demo: Boolean = false) {
         listDemo = demo
         listOpen = true
+    }
+
+    /** 标记「已经在开路由了」，避免 AppRoot 重复消费同一次请求。 */
+    fun consumeListRequest() {
+        listOpen = false
     }
 
     fun closeList() {
@@ -84,13 +93,11 @@ internal object PluginLauncher {
  * 所以不存在跨 classloader 的类型身份问题，插件也不必自带 Compose / lifecycle / 协程。
  *
  * 这里不放导航栈：插件页是覆盖层，返回键先关它；账号切换由 [AppRoot] 调 [PluginOverlay.close]。
+ * 插件管理页（列表 / 详情）不在这儿，它走路由 `AppRoute.Plugins`。
  */
 @Composable
 internal fun PluginPageOverlayHost() {
-    if (PluginOverlay.listOpen) {
-        PluginsPage(onBack = { PluginOverlay.closeList() }, demo = PluginOverlay.listDemo)
-        return
-    }
+    // 插件管理页（列表/详情）走路由，不在这里画；这里只剩插件自己的公开页兜底
     val request = PluginOverlay.current ?: return
     PluginPageScreen(request.pluginId, request.pageId) { PluginOverlay.close() }
 }
