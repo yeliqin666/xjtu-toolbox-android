@@ -67,7 +67,7 @@ class KeyValueStoreJvmTest {
     }
 
     @Test
-    fun `failed replacement leaves committed memory unchanged and cleans temp`() = withTempRoot { root ->
+    fun failedReplacementKeepsCommittedMemory() = withTempRoot { root ->
         val store = keyValueStore("failed_write")
         store.putString("k", "old")
         val file = File(root, "failed_write.properties")
@@ -76,7 +76,7 @@ class KeyValueStoreJvmTest {
         assertTrue(file.mkdir())
         File(file, "sentinel").writeText("keep")
         kotlin.test.assertFailsWith<java.io.IOException> { store.putString("k", "new") }
-        assertEquals("old", store.getString("k"))
+        assertEquals("old", store.getString("k"), "S2_UNCOMMITTED_MEMORY: failed write changed the memory snapshot")
         assertEquals("keep", File(file, "sentinel").readText())
         assertTrue(root.listFiles().orEmpty().none { it.name.endsWith(".tmp") })
         file.deleteRecursively()

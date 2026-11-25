@@ -25,10 +25,9 @@ class SharedJvmFileStoreTest {
     }
 
     @Test
-    fun `ordinary and secure factories preserve each others writes`() = withRoot { root ->
+    fun ordinaryAndSecurePreserveWrites() = withRoot { root ->
         val plain = keyValueStore("score_report")
         val secure = secureKeyValueStore("score_report")
-        assertSame(plain, secure)
         plain.putString("a", "one")
         secure.putString("b", "two")
         plain.putString("c", "three")
@@ -36,19 +35,20 @@ class SharedJvmFileStoreTest {
             File(root, "score_report.properties").inputStream().use { load(it) }
         }
         assertEquals("one", disk.getProperty("a"))
-        assertEquals("two", disk.getProperty("b"))
+        assertEquals("two", disk.getProperty("b"), "S2_LOST_UPDATE: second factory write disappeared")
         assertEquals("three", disk.getProperty("c"))
+        assertSame(plain, secure)
         assertEquals(setOf("a", "b", "c"), secure.keys())
     }
 
     @Test
-    fun `wipe also clears old handles without creating a second snapshot`() = withRoot { root ->
+    fun wipeClearsOldHandles() = withRoot { root ->
         val plain = keyValueStore("wipe")
         val secure = secureKeyValueStore("wipe")
         plain.putString("old", "value")
         wipeSecureStore("wipe")
         assertFalse(File(root, "wipe.properties").exists())
-        assertNull(plain.getString("old"))
+        assertNull(plain.getString("old"), "S2_STALE_HANDLE: wipe left old handle populated")
         assertSame(secure, secureKeyValueStore("wipe"))
         secure.putString("new", "value")
         assertNull(plain.getString("old"))
@@ -56,21 +56,21 @@ class SharedJvmFileStoreTest {
     }
 
     @Test
-    fun `same name in different roots remains isolated`() = withRoot { root ->
+    fun differentRootsRemainIsolated() = withRoot { root ->
         val first = secureKeyValueStore("same")
         first.putString("k", "first")
         dataRootOverride = File(root, "another")
         val second = secureKeyValueStore("same")
-        assertNull(second.getString("k"))
+        assertNull(second.getString("k"), "S2_ROOT_ALIAS: different roots share cached data")
         second.putString("k", "second")
         assertEquals("first", first.getString("k"))
         assertEquals("second", second.getString("k"))
     }
     @Test
-    fun `explicit wipe can remove corrupt unopened properties`() = withRoot { root ->
+    fun corruptFileCanBeExplicitlyWiped() = withRoot { root ->
         val file = File(root, "broken.properties")
         file.writeText("key=\\uZZZZ")
-        kotlin.test.assertFailsWith<IllegalArgumentException> { secureKeyValueStore("broken") }
+        kotlin.test.assertFailsWith<IllegalArgumentException>("S2_CORRUPT_READ: corrupt data was treated as empty") { secureKeyValueStore("broken") }
         wipeSecureStore("broken")
         assertFalse(file.exists())
         assertNull(secureKeyValueStore("broken").getString("key"))

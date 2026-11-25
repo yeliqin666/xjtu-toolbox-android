@@ -17,7 +17,7 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +45,7 @@ jobs:
       - name: 编译与测试
         run: >-
           ./gradlew --continue
-          :app:compileDebugKotlin
+          :app:compileDebugKotlin :app:testDebugUnitTest
           jvmTest :server:test :desktop:test
           :web:wasmJsBrowserTest
 
