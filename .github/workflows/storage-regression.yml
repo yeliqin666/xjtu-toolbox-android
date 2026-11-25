@@ -10,6 +10,7 @@ on:
       - 'shared/data/src/**/kotlin/com/xjtu/toolbox/platform/**'
       - '.github/workflows/storage-regression.yml'
       - '.github/scripts/check-storage-regression.py'
+      - '.github/scripts/test-storage-regression-validator.py'
       - '**/build.gradle.kts'
       - 'gradle/**'
   workflow_dispatch:
@@ -36,6 +37,8 @@ jobs:
           java-version: '21'
           distribution: temurin
       - uses: gradle/actions/setup-gradle@v4
+      - name: Test the report validator itself
+        run: python3 .github/scripts/test-storage-regression-validator.py
       - name: Install Android SDK 37
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true

@@ -41,7 +41,7 @@ def validate_results(results, classname, expected, original, status, label):
     cases = {}
     for xml in results.glob("TEST-*.xml"):
         for case in ET.parse(xml).iter("testcase"):
-            name = case.get("name", "").removesuffix("()")
+            name = case.get("name", "").removesuffix("[35]").removesuffix("()")
             if case.get("classname") != classname or name not in expected or name in cases:
                 raise AssertionError(f"{label}: unexpected/duplicate test {case.attrib}")
             cases[name] = case
@@ -58,7 +58,10 @@ def validate_results(results, classname, expected, original, status, label):
             failure = failures[0]
             message = failure.get("message", "")
             kind = failure.get("type", "")
-            if marker not in message or not ("AssertionError" in kind or "AssertionFailedError" in kind):
+            if marker not in message or kind not in {
+                "java.lang.AssertionError", "org.junit.ComparisonFailure",
+                "org.opentest4j.AssertionFailedError", "junit.framework.AssertionFailedError",
+            }:
                 raise AssertionError(f"{label}: {name} failed for the wrong reason: {kind}: {message}")
             print(f"REPRODUCED {marker}: {name}", flush=True)
         else:
