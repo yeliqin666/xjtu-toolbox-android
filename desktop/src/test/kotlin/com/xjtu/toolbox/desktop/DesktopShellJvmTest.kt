@@ -58,7 +58,7 @@ class DesktopShellJvmTest {
     }
 
     @Test
-    fun `壳里有而这一端没有的那一档如实返回 null（全部页面 / 端自己的页）`() {
+    fun `壳里有而这一端没有的那一档如实返回 null（全部页面、端自己的页）`() {
         assertNull(ShellTarget.AllPages.toDesktop())
         assertNull(ShellTarget.Custom("desktop_only").toDesktop())
     }
