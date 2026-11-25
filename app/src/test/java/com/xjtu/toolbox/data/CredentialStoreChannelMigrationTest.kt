@@ -26,5 +26,8 @@ class CredentialStoreChannelMigrationTest {
 
         store.updateChannel = AppUpdater.CHANNEL_GITHUB
         assertEquals(AppUpdater.CHANNEL_GITHUB, store.updateChannel)
+
+        store.updateChannel = AppUpdater.CHANNEL_CLOUDFLARE
+        assertEquals(AppUpdater.CHANNEL_CLOUDFLARE, store.updateChannel)
     }
 }

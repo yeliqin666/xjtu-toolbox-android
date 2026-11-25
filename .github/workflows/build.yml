@@ -395,6 +395,31 @@ jobs:
           # 不再从 runner 抽查公网 CDN：跨境访问几乎每次超时，SDK 校验已证明对象就位
           echo "OSS primary publish verified"
 
+      - name: Publish stable to Cloudflare R2
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE: ${{ secrets.R2_PUBLIC_BASE }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+        run: |
+          set -euo pipefail
+          if [ -n "${R2_ACCOUNT_ID:-}" ] && [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && [ -n "${R2_BUCKET:-}" ]; then
+            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 boto3
+          fi
+          python3 .github/scripts/r2_publish.py stable \
+            --apk app/build/outputs/apk/release/app-release.apk \
+            --version "$VERSION" \
+            --version-code "$VERSION_CODE" \
+            --notes-file /tmp/release_body.md
+
       # 学期总结「关于岱宗盒子」那几页的线上数据；App 读不到就用源码里的快照。失败不影响发版。
       - name: Publish project story to OSS
         if: github.ref == 'refs/heads/main' && steps.oss_sdk.outcome == 'success'
@@ -677,6 +702,35 @@ jobs:
           print("preview manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
           PY
           echo "OSS preview publish verified"
+
+      - name: Publish preview to Cloudflare R2
+        if: env.PUBLISH_PREVIEW == 'true'
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          VERSION: ${{ steps.preview.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          TAG: ${{ steps.preview.outputs.tag }}
+          COMMIT_SHA: ${{ github.sha }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE: ${{ secrets.R2_PUBLIC_BASE }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+        run: |
+          set -euo pipefail
+          if [ -n "${R2_ACCOUNT_ID:-}" ] && [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && [ -n "${R2_BUCKET:-}" ]; then
+            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 boto3
+          fi
+          python3 .github/scripts/r2_publish.py preview \
+            --apk "xjtu-toolbox-$VERSION.apk" \
+            --version "$VERSION" \
+            --version-code "$VERSION_CODE" \
+            --tag "$TAG" \
+            --commit "$COMMIT_SHA" \
+            --keep 5
 
       # 重跑同一版本会重新构建出字节不同的 APK：版本目录里的旧包若已被边缘缓存，清单里的
       # sha256 就对不上，客户端会报「安装包 SHA-256 校验失败」。清单本身不缓存，只需刷这个 APK。

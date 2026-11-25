@@ -200,10 +200,15 @@ class AppUpdaterPickReleaseTest {
     @Test
     fun aliyunChannelLabelAndNormalization() {
         assertEquals("阿里云", AppUpdater.channelLabel(AppUpdater.CHANNEL_ALIYUN))
+        assertEquals("Cloudflare", AppUpdater.channelLabel(AppUpdater.CHANNEL_CLOUDFLARE))
         assertEquals("GitHub", AppUpdater.channelLabel(AppUpdater.CHANNEL_GITHUB))
         assertEquals("Gitee", AppUpdater.channelLabel(AppUpdater.CHANNEL_GITEE))
         assertEquals(AppUpdater.CHANNEL_ALIYUN, AppUpdater.normalizeChannel("oss"))
         assertEquals(AppUpdater.CHANNEL_ALIYUN, AppUpdater.normalizeChannel("stable"))
+        assertEquals(AppUpdater.CHANNEL_CLOUDFLARE, AppUpdater.normalizeChannel("r2"))
+        assertEquals(AppUpdater.CHANNEL_CLOUDFLARE, AppUpdater.normalizeChannel("cf"))
+        assertEquals(AppUpdater.CHANNEL_CLOUDFLARE, AppUpdater.normalizeChannel("Cloudflare"))
         assertEquals(AppUpdater.CHANNEL_GITEE, AppUpdater.normalizeChannel("gitee"))
+        assertEquals(AppUpdater.channelKeys.size, AppUpdater.channelLabels.size)
     }
 }

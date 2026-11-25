@@ -61,19 +61,23 @@ data class UpdateManifest(
 
 object AppUpdater {
     const val CHANNEL_ALIYUN = "aliyun"
+    const val CHANNEL_CLOUDFLARE = "cloudflare"
     const val CHANNEL_GITEE = "gitee"
     const val CHANNEL_GITHUB = "github"
     const val OSS_BASE_URL = "https://dzhz.zyxf.top/xjtu-toolbox"
+    const val R2_BASE_URL = "https://dl.dzhz.top"
     const val AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
     val channelKeys = listOf(
         CHANNEL_ALIYUN,
+        CHANNEL_CLOUDFLARE,
         CHANNEL_GITHUB,
         CHANNEL_GITEE,
     )
 
     val channelLabels = listOf(
         "阿里云",
+        "Cloudflare",
         "GitHub",
         "Gitee",
     )
@@ -85,7 +89,7 @@ object AppUpdater {
         .followSslRedirects(true)
         .build()
 
-    /** 清单很小，不能像 APK 下载一样等 120 秒；OSS 不可用时尽快回退。 */
+    /** 清单很小，不能像 APK 下载一样等 120 秒；OSS / R2 不可用时尽快回退。 */
     private val manifestClient = HttpClients.base.newBuilder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -100,6 +104,7 @@ object AppUpdater {
     fun normalizeChannel(channel: String?): String = when (channel?.trim()?.lowercase()) {
         // 旧版本的 stable/beta 都走默认渠道；现在默认是阿里云。
         CHANNEL_ALIYUN, "oss", "auto", "stable", "beta" -> CHANNEL_ALIYUN
+        CHANNEL_CLOUDFLARE, "r2", "cf" -> CHANNEL_CLOUDFLARE
         CHANNEL_GITHUB, "github_latest" -> CHANNEL_GITHUB
         CHANNEL_GITEE, "gitee_latest" -> CHANNEL_GITEE
         else -> CHANNEL_ALIYUN
@@ -107,6 +112,7 @@ object AppUpdater {
 
     fun channelLabel(channel: String?): String = when (normalizeChannel(channel)) {
         CHANNEL_ALIYUN -> "阿里云"
+        CHANNEL_CLOUDFLARE -> "Cloudflare"
         CHANNEL_GITHUB -> "GitHub"
         CHANNEL_GITEE -> "Gitee"
         else -> "阿里云"
@@ -115,7 +121,7 @@ object AppUpdater {
     fun releasesPageUrl(channel: String): String = when (normalizeChannel(channel)) {
         CHANNEL_GITHUB -> "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest"
         CHANNEL_GITEE -> "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases"
-        // 阿里云清单自带 releaseUrl；拿不到时用 GitHub 发布页兜底。
+        // 阿里云 / Cloudflare 清单自带 releaseUrl；拿不到时用 GitHub 发布页兜底。
         else -> "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest"
     }
 
@@ -128,17 +134,10 @@ object AppUpdater {
         includePreview: Boolean = false,
     ): AppUpdateInfo = withContext(Dispatchers.IO) {
         when (val normalized = normalizeChannel(channel)) {
-            CHANNEL_ALIYUN -> {
-                fetchAliyunLatest(includePreview)
-                    ?: if (includePreview) {
-                        // 预览版只有 GitHub Pre-release 有兜底；不能先退 Gitee 的稳定版。
-                        runCatching { fetchGithubLatest(true) }.getOrNull()
-                            ?: runCatching { fetchGiteeLatest() }.getOrNull()
-                    } else {
-                        // 正式版优先 Gitee（国内更稳），再退 GitHub。
-                        runCatching { fetchGiteeLatest() }.getOrNull()
-                            ?: fetchGithubLatest(false)
-                    }
+            CHANNEL_ALIYUN, CHANNEL_CLOUDFLARE -> {
+                val baseUrl = if (normalized == CHANNEL_CLOUDFLARE) R2_BASE_URL else OSS_BASE_URL
+                fetchManifestChannel(baseUrl, normalized, includePreview)
+                    ?: fetchFallbackLatest(includePreview)
                     ?: error("检查更新失败")
             }
             CHANNEL_GITHUB -> fetchGithubLatest(includePreview)
@@ -146,15 +145,30 @@ object AppUpdater {
         }
     }
 
-    /** OSS 清单不可用或字段非法时返回 null，交给 Gitee/GitHub 兜底。 */
-    private fun fetchAliyunLatest(includePreview: Boolean): AppUpdateInfo? {
-        val stable = fetchOssManifest("$OSS_BASE_URL/stable.json")
+    private suspend fun fetchFallbackLatest(includePreview: Boolean): AppUpdateInfo? =
+        if (includePreview) {
+            // 预览版只有 GitHub Pre-release 有兜底；不能先退 Gitee 的稳定版。
+            runCatching { fetchGithubLatest(true) }.getOrNull()
+                ?: runCatching { fetchGiteeLatest() }.getOrNull()
+        } else {
+            // 正式版优先 Gitee（国内更稳），再退 GitHub。
+            runCatching { fetchGiteeLatest() }.getOrNull()
+                ?: runCatching { fetchGithubLatest(false) }.getOrNull()
+        }
+
+    /** 清单不可用或字段非法时返回 null，交给 Gitee/GitHub 兜底。 */
+    private fun fetchManifestChannel(
+        baseUrl: String,
+        channel: String,
+        includePreview: Boolean,
+    ): AppUpdateInfo? {
+        val stable = fetchOssManifest("$baseUrl/stable.json")
         val preview = if (includePreview) {
-            fetchOssManifest("$OSS_BASE_URL/preview.json")
+            fetchOssManifest("$baseUrl/preview.json")
         } else {
             null
         }
-        return pickNewestManifest(stable, preview)?.toUpdateInfo()
+        return pickNewestManifest(stable, preview)?.toUpdateInfo(channel)
     }
 
     internal fun pickNewestManifest(a: UpdateManifest?, b: UpdateManifest?): UpdateManifest? =
@@ -171,14 +185,14 @@ object AppUpdater {
     private fun UpdateManifest.publishedAtMillis(): Long =
         runCatching { java.time.Instant.parse(publishedAt).toEpochMilli() }.getOrDefault(0)
 
-    private fun UpdateManifest.toUpdateInfo(): AppUpdateInfo = AppUpdateInfo(
+    private fun UpdateManifest.toUpdateInfo(channel: String): AppUpdateInfo = AppUpdateInfo(
         version = versionName,
         notes = notes,
         downloadUrl = apkUrl,
         releaseUrl = releaseUrl,
-        channel = CHANNEL_ALIYUN,
-        channelLabel = channelLabel(CHANNEL_ALIYUN),
-        isPreview = channel == "preview",
+        channel = channel,
+        channelLabel = channelLabel(channel),
+        isPreview = this.channel == "preview",
         sha256 = sha256,
         publishedAtMillis = publishedAtMillis(),
         versionCode = versionCode,
