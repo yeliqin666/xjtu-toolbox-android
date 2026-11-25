@@ -70,6 +70,14 @@ internal object PluginOverlay {
 }
 
 /**
+ * 把插件公开页压进导航栈的入口；由 `AppRoot` 注入（它手上有 router）。
+ * 没注入时退回覆盖层，至少点得开。
+ */
+internal object PluginLauncher {
+    var openRoute: ((pluginId: String, pageId: String) -> Unit)? = null
+}
+
+/**
  * 全屏插件页宿主：标准顶栏 + 插件返回的界面树。
  *
  * 插件那边一个 Compose 类都没有——它只交回数据（[UiNode]），这里用盒子自己的组件画。
@@ -84,6 +92,15 @@ internal fun PluginPageOverlayHost() {
         return
     }
     val request = PluginOverlay.current ?: return
+    PluginPageScreen(request.pluginId, request.pageId) { PluginOverlay.close() }
+}
+
+/**
+ * 插件页本体。两条入口共用：设置里的覆盖层（[PluginPageOverlayHost]），
+ * 以及 `AppRoute.Plugin` 压进导航栈的那一页。
+ */
+@Composable
+internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val manager = remember { PluginManager.get(context) }
     val glass = rememberPageGlass()
@@ -91,15 +108,15 @@ internal fun PluginPageOverlayHost() {
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val scroll = rememberScrollState()
 
-    var opened by remember(request) { mutableStateOf<OpenedPluginPage?>(null) }
-    var error by remember(request) { mutableStateOf<String?>(null) }
-    var tick by remember(request) { mutableIntStateOf(0) }
+    var opened by remember(pluginId, pageId) { mutableStateOf<OpenedPluginPage?>(null) }
+    var error by remember(pluginId, pageId) { mutableStateOf<String?>(null) }
+    var tick by remember(pluginId, pageId) { mutableIntStateOf(0) }
 
-    BackHandler(enabled = true) { PluginOverlay.close() }
+    BackHandler(enabled = true) { onBack() }
 
-    LaunchedEffect(request) {
+    LaunchedEffect(pluginId, pageId) {
         val result = withContext(Dispatchers.IO) {
-            runCatching { manager.openPage(request.pluginId, request.pageId) }
+            runCatching { manager.openPage(pluginId, pageId) }
         }
         val page = result.getOrNull()
         if (page != null) {
@@ -139,7 +156,7 @@ internal fun PluginPageOverlayHost() {
 
     val title = page?.page?.title()?.takeIf { it.isNotBlank() }
         ?: page?.title
-        ?: manager.records.firstOrNull { it.id == request.pluginId }?.manifest?.name
+        ?: manager.records.firstOrNull { it.id == pluginId }?.manifest?.name
         ?: "插件"
 
     val onAction: (String, String?) -> Unit = remember(page) {
@@ -155,7 +172,7 @@ internal fun PluginPageOverlayHost() {
                 title = title,
                 glass = glass,
                 scrollBehavior = scrollBehavior,
-                onBack = { PluginOverlay.close() },
+                onBack = onBack,
             )
         },
     ) { padding ->

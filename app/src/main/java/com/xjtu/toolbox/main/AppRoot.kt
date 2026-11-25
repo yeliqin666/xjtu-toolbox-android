@@ -261,6 +261,11 @@ fun AppRoot(
 
         // 插件页是覆盖层，不进返回栈；账号切换时上面已经关掉
         com.xjtu.toolbox.plugin.PluginPageOverlayHost()
+        androidx.compose.runtime.SideEffect {
+            com.xjtu.toolbox.plugin.PluginLauncher.openRoute = { id, page ->
+                router.open(com.xjtu.toolbox.nav.AppRoute.Plugin(id, page))
+            }
+        }
 
         AutoLoginDialog(router)
 

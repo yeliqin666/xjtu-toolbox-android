@@ -159,6 +159,15 @@ sealed interface AppRoute : NavKey {
         override val id get() = "browser?url=${encode(url)}" + if (then.isEmpty()) "" else "&then=${encode(then)}"
         override val loginType get() = LoginType.DZPZ.takeIf { url.startsWith("https://dzpz.xjtu.edu.cn/") }
     }
+    /**
+     * 插件自己的一级公开页（`page` 空串 = 清单里的第一页）。
+     *
+     * 和普通页面一样进返回栈、能深链；以后 dex 插件的主页可以挂到首页宫格或底栏，
+     * web 插件则固定把它的网页当作唯一公开页。
+     */
+    @Serializable data class Plugin(val pluginId: String, val page: String = "") : AppRoute {
+        override val id get() = "plugin/${encode(pluginId)}" + if (page.isEmpty()) "" else "/${encode(page)}"
+    }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 小贴士与常见问题（`com.xjtu.toolbox.tips.Tips` 全集）。 */
     @Serializable data object Tips : AppRoute { override val id get() = "tips" }
@@ -258,6 +267,11 @@ fun appRouteOf(id: String): AppRoute? {
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
+        path.startsWith("plugin/") -> {
+            val rest = path.removePrefix("plugin/")
+            val id = rest.substringBefore('/')
+            if (id.isBlank()) null else AppRoute.Plugin(id, rest.substringAfter('/', ""))
+        }
         path.startsWith("community/") -> path.removePrefix("community/").toIntOrNull()?.takeIf { it > 0 }?.let(AppRoute::CommunityPost)
         path.startsWith("notice_detail/") -> {
             val noticeId = path.removePrefix("notice_detail/")

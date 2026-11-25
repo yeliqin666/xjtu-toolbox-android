@@ -673,6 +673,14 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
+        // 插件自己的一级公开页：和普通页面一样进返回栈、能深链、能断言来源
+        page<AppRoute.Plugin>(transition = expand(AppRoute.Plugin::class)) { plugin ->
+            com.xjtu.toolbox.plugin.PluginPageScreen(
+                pluginId = plugin.pluginId,
+                pageId = plugin.page,
+                onBack = back,
+            )
+        }
         // WebView 常有横向滚动，关掉页内侧滑返回
         page<AppRoute.Browser>(
             transition = expand(AppRoute.Browser::class),

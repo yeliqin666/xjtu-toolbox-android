@@ -170,7 +170,15 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                 record = detail,
                 broken = detail.id in broken,
                 onBack = { closing = true },
-                onOpenPage = { pageId -> PluginOverlay.open(detail.id, pageId) },
+                onOpenPage = { pageId ->
+                    val launch = PluginLauncher.openRoute
+                    if (launch != null) {
+                        PluginOverlay.closeList()
+                        launch(detail.id, pageId)
+                    } else {
+                        PluginOverlay.open(detail.id, pageId)
+                    }
+                },
                 onToggleEnabled = { on ->
                     if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setEnabled(detail.id, on) }
                 },
