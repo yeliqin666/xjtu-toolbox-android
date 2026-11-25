@@ -173,8 +173,8 @@ class DownloadManager(
                 }
             }
 
-            store.updateStatus(taskId, DownloadStatus.COMPLETED)
             store.updateProgress(taskId, outcome.downloadedBytes, outcome.totalBytes)
+            store.updateStatus(taskId, DownloadStatus.COMPLETED)
             emitProgress(taskId, outcome.downloadedBytes, outcome.totalBytes, DownloadStatus.COMPLETED)
         } catch (e: kotlinx.coroutines.CancellationException) {
             // 暂停 / 取消：状态由发起方写（pauseDownload 写 paused，cancelDownload 删记录），
