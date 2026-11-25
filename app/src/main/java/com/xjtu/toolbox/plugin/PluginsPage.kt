@@ -2,6 +2,10 @@ package com.xjtu.toolbox.plugin
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,31 +15,41 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
-import com.xjtu.toolbox.ui.components.SmallTitle
+import com.xjtu.toolbox.ui.components.DockedPageTabs
+import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.SwitchPreference
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.glassTop
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.glass.withoutTop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
@@ -43,22 +57,36 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+/** web 插件徽章色。 */
+private val WebBadgeColor = Color(0xFF3B82F6)
+
+/** dex 插件徽章色。 */
+private val DexBadgeColor = Color(0xFFF97316)
+
 /**
- * 设置 → 插件：安装、启用、允许小岱调用、打开页面、卸载。
+ * 设置 → 插件：上面一条窄 navbar 分「已安装 / 在线市场」，点条目进详情页。
  *
- * 插件是进程内代码，安装时把"同权限"这件事说清楚，不做逐次授权（也挡不住）。
+ * 列表页只回答「装了什么、是什么类型、能不能用」；开关和卸载都收进详情页，免得装几个插件
+ * 就是一整面开关墙。[demo] 为 true 时用假数据，方便看版式。
  */
 @Composable
-internal fun PluginsPage(onBack: () -> Unit) {
+internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val manager = remember { PluginManager.get(context) }
     val glass = rememberPageGlass()
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
 
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     var pending by remember { mutableStateOf<PendingPluginInstall?>(null) }
+    var confirmUninstall by remember { mutableStateOf<PluginRecord?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+
+    val records = if (demo) demoRecords() else manager.records
+    val broken = if (demo) DemoBrokenIds else manager.brokenIds
+    val detail = records.firstOrNull { it.id == detailId }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -72,8 +100,27 @@ internal fun PluginsPage(onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(Unit) { manager.refresh() }
+    if (!demo) LaunchedEffect(Unit) { manager.refresh() }
 
+    // ── 详情页 ────────────────────────────────────────────────────────────
+    if (detail != null) {
+        DetailPage(
+            record = detail,
+            broken = detail.id in broken,
+            onBack = { detailId = null },
+            onOpenPage = { pageId -> PluginOverlay.open(detail.id, pageId) },
+            onToggleEnabled = { on ->
+                if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setEnabled(detail.id, on) }
+            },
+            onToggleTools = { on ->
+                if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setToolsEnabled(detail.id, on) }
+            },
+            onAskUninstall = { confirmUninstall = detail },
+        )
+        return
+    }
+
+    // ── 列表页 ────────────────────────────────────────────────────────────
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -81,7 +128,13 @@ internal fun PluginsPage(onBack: () -> Unit) {
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                subtitle = "Android 上的进程内扩展；只装你信任的插件",
+                bottomContent = {
+                    DockedPageTabs(
+                        tabs = listOf("已安装", "在线市场"),
+                        selectedTabIndex = tab,
+                        onTabSelected = { tab = it },
+                    )
+                },
             )
         },
     ) { padding ->
@@ -91,161 +144,421 @@ internal fun PluginsPage(onBack: () -> Unit) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(padding.withoutTop(glass))
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp)
+                .padding(top = glassTop, bottom = 24.dp),
         ) {
-            // 玻璃顶栏悬在内容上方：不补这段，按钮会画到状态栏/顶栏底下点不到
-            Spacer(Modifier.height(glassTop))
-            message?.let {
-                Text(it, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.error)
-                Spacer(Modifier.padding(top = 6.dp))
-            }
-            TextButton(
-                text = if (busy) "处理中…" else "安装插件 APK",
-                onClick = {
-                    picker.launch(
-                        arrayOf(
-                            "application/vnd.android.package-archive",
-                            "application/octet-stream",
-                            "*/*",
-                        ),
-                    )
-                },
-                enabled = !busy,
-            )
-            Spacer(Modifier.padding(top = 8.dp))
-            if (busy) {
-                Text(
-                    "正在校验插件签名与清单…",
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-            }
+            if (tab == 0) {
+                message?.let {
+                    Text(it, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.error)
+                    Spacer(Modifier.height(8.dp))
+                }
+                TypeLegend()
+                Spacer(Modifier.height(12.dp))
 
-            if (manager.records.isEmpty()) {
-                Text(
-                    "还没有安装插件。插件是带签名的 APK，不会被系统安装，只由本 App 加载。",
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-            }
-
-            manager.records.forEach { record ->
-                val broken = record.id in manager.brokenIds
-                SmallTitle(record.manifest.name + " · " + record.versionName.ifBlank { "v${record.versionCode}" })
-                CouiSettingsCard {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = record.manifest.name,
-                                style = MiuixTheme.textStyles.title3,
-                                color = MiuixTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = record.versionName.ifBlank { "v${record.versionCode}" },
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
-                        }
-                        if (record.manifest.summary.isNotBlank()) {
-                            Text(
-                                text = record.manifest.summary,
-                                style = MiuixTheme.textStyles.footnote2,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
-                    SwitchPreference(
-                        title = "启用",
-                        summary = if (broken) "APK 丢失，请卸载后重装" else "关闭后页面和小岱工具都不可用",
-                        checked = record.enabled && !broken,
-                        enabled = !broken,
-                        onCheckedChange = { on ->
-                            scope.launch { manager.setEnabled(record.id, on) }
-                        },
+                if (records.isEmpty()) {
+                    EmptyState(
+                        title = "还没有装插件",
+                        subtitle = "插件是一个 .zip 包：dex 类型在里面带 APK，web 类型只是打开一个网页。",
                     )
-                    SwitchPreference(
-                        title = "允许小岱调用",
-                        summary = "把这个插件的工具列给小岱；插件代码本来就能在本机运行",
-                        checked = record.toolsEnabled && !broken,
-                        enabled = record.enabled && !broken,
-                        onCheckedChange = { on ->
-                            scope.launch { manager.setToolsEnabled(record.id, on) }
-                        },
-                    )
-                    record.manifest.pages.forEach { page ->
-                        ArrowPreference(
-                            title = page.title.ifBlank { page.id },
-                            summary = "打开插件页面",
-                            enabled = record.enabled && !broken,
-                            onClick = { PluginOverlay.open(record.id, page.id) },
+                } else {
+                    records.forEach { record ->
+                        PluginRow(
+                            record = record,
+                            broken = record.id in broken,
+                            onClick = { detailId = record.id },
                         )
+                        Spacer(Modifier.height(10.dp))
                     }
-                    ArrowPreference(
-                        title = "卸载",
-                        summary = "删除插件 APK 与数据目录",
-                        onClick = {
-                            scope.launch { manager.uninstall(record.id) }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = if (busy) "正在校验插件包…" else "从文件安装插件…",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = if (busy) {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        } else {
+                            MiuixTheme.colorScheme.primary
                         },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(enabled = !busy) {
+                                picker.launch(
+                                    arrayOf(
+                                        "application/zip",
+                                        "application/octet-stream",
+                                        "*/*",
+                                    ),
+                                )
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                     )
                 }
-                Spacer(Modifier.padding(bottom = 6.dp))
+            } else {
+                EmptyState(
+                    title = "在线市场还没开张",
+                    subtitle = "以后这里会读一份索引 JSON，列可安装的插件、版本和签名指纹。现在先占个位。",
+                )
             }
+        }
+    }
 
-            // MIUIX 的 Overlay 必须挂在 Scaffold 内容里；放到 Scaffold 外面不显示
-            val install = pending
-            if (install != null) {
-                OverlayDialog(
-                    show = true,
-                    title = if (install.isUpdate) "更新插件" else "安装插件",
-                    summary = buildString {
-                        append("${install.manifest.name}  v${install.manifest.version}（versionCode ${install.manifest.versionCode}）\n")
-                        install.oldVersionName?.let { append("已安装 v$it → 本次更新\n") }
-                        append("页面 ${install.manifest.pages.size} 个，工具 ${install.manifest.tools.size} 个\n")
-                        append("签名 ${install.certSha256.take(16)}…\n\n")
-                        append("插件会以与本 App 相同的权限运行，能读取你的账号、登录会话、本机数据并联网。只安装你信任来源的插件。")
-                    },
-                    onDismissRequest = {
-                        manager.cancel(install)
-                        pending = null
-                    },
+    // 卸载确认：红色按钮，说清楚删什么
+    val target = confirmUninstall
+    if (target != null) {
+        OverlayDialog(
+            show = true,
+            title = "卸载「${target.manifest.name}」？",
+            summary = buildString {
+                append("会删掉插件包和它自己的数据目录，这个插件的页面和小岱工具立刻失效。\n\n")
+                append("已经产生的本地数据不能恢复。")
+            },
+            onDismissRequest = { confirmUninstall = null },
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    text = "取消",
+                    onClick = { confirmUninstall = null },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            confirmUninstall = null
+                            detailId = null
+                            scope.launch {
+                                manager.uninstall(target.id)
+                                manager.refresh()
+                            }
+                        }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Row(Modifier.fillMaxWidth()) {
-                        TextButton(
-                            text = "取消",
-                            onClick = {
-                                manager.cancel(install)
-                                pending = null
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(20.dp))
-                        TextButton(
-                            text = if (install.isUpdate) "确认更新" else "确认安装",
-                            onClick = {
-                                pending = null
-                                busy = true
-                                scope.launch {
-                                    runCatching { withContext(Dispatchers.IO) { manager.commit(install) } }
-                                        .onSuccess {
-                                            message = "已${if (install.isUpdate) "更新" else "安装"}：${install.manifest.name}"
-                                        }
-                                        .onFailure { message = it.message ?: "安装失败" }
-                                    manager.refresh()
-                                    busy = false
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+                    Text(
+                        text = "卸载",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.error,
+                    )
                 }
             }
         }
     }
 }
+
+/** 两类插件的图例：徽章 + 一句话说明。dex 那条末尾是红的。 */
+@Composable
+private fun TypeLegend() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                TypeBadge(isWeb = true)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "在内置浏览器上运行，与 App 隔离，一般更安全。",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+            }
+            Row(verticalAlignment = Alignment.Top) {
+                TypeBadge(isWeb = false)
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "加载外部代码，功能、性能与界面都强于 web 插件，但与 App 拥有同等权限。",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "务必确认插件来源可信！",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 类型徽章：web 蓝、dex 橙。 */
+@Composable
+private fun TypeBadge(isWeb: Boolean) {
+    val color = if (isWeb) WebBadgeColor else DexBadgeColor
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(color.copy(alpha = 0.16f))
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = if (isWeb) "web" else "dex",
+            style = MiuixTheme.textStyles.footnote2,
+            color = color,
+        )
+    }
+}
+
+/** 列表里的一项：名字 + 版本 / 徽章 + 状态 / 三行简介。 */
+@Composable
+private fun PluginRow(record: PluginRecord, broken: Boolean, onClick: () -> Unit) {
+    val status = when {
+        broken -> "插件包丢失，卸载后重装"
+        !record.enabled -> "已停用"
+        record.toolsEnabled -> "已启用 · 允许小岱调用"
+        else -> "已启用"
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick),
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = record.manifest.name,
+                    style = MiuixTheme.textStyles.title3,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = record.versionName.ifBlank { "v${record.versionCode}" },
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TypeBadge(isWeb = record.manifest.isWeb)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = status,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = if (broken) {
+                        MiuixTheme.colorScheme.error
+                    } else {
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    },
+                )
+            }
+            if (record.manifest.summary.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = record.manifest.summary,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** 详情页：开关、页面入口、卸载。 */
+@Composable
+private fun DetailPage(
+    record: PluginRecord,
+    broken: Boolean,
+    onBack: () -> Unit,
+    onOpenPage: (String) -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
+    onToggleTools: (Boolean) -> Unit,
+    onAskUninstall: () -> Unit,
+) {
+    val glass = rememberPageGlass()
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    Scaffold(
+        topBar = {
+            GlassTopAppBar(
+                title = record.manifest.name,
+                glass = glass,
+                scrollBehavior = scrollBehavior,
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        val glassTop = padding.glassTop(glass)
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(padding.withoutTop(glass))
+                .padding(horizontal = 16.dp)
+                .padding(top = glassTop, bottom = 24.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TypeBadge(isWeb = record.manifest.isWeb)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = record.versionName.ifBlank { "v${record.versionCode}" },
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = record.id,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (record.manifest.summary.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = record.manifest.summary,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+
+            CouiSettingsCard {
+                SwitchPreference(
+                    title = "启用",
+                    summary = if (broken) "插件包丢失，请卸载后重装" else "关闭后页面和小岱工具都不可用",
+                    checked = record.enabled && !broken,
+                    enabled = !broken,
+                    onCheckedChange = onToggleEnabled,
+                )
+                SwitchPreference(
+                    title = "允许小岱调用",
+                    summary = "把这个插件的工具列给小岱；插件代码本来就能在本机运行",
+                    checked = record.toolsEnabled && !broken,
+                    enabled = record.enabled && !broken,
+                    onCheckedChange = onToggleTools,
+                )
+                record.manifest.pages.forEach { page ->
+                    ArrowPreference(
+                        title = page.title.ifBlank { page.id },
+                        summary = "打开插件页面",
+                        enabled = record.enabled && !broken,
+                        onClick = { onOpenPage(page.id) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            CouiSettingsCard {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onAskUninstall)
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "卸载插件",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "删除插件包与数据目录",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+            HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
+        }
+    }
+}
+
+// ── 假数据：只为看版式 ──────────────────────────────────────────────────────
+
+private val DemoBrokenIds: Set<String> = setOf("com.example.card.watch")
+
+private fun demoRecord(
+    id: String,
+    name: String,
+    summary: String,
+    isWeb: Boolean,
+    version: String = "1.0.0",
+    versionCode: Int = 1,
+    enabled: Boolean = true,
+    tools: Int = 0,
+    pages: Int = 1,
+): PluginRecord = PluginRecord(
+    id = id,
+    versionCode = versionCode,
+    versionName = version,
+    apk = "$id/$versionCode.apk",
+    certSha256 = "0000000000000000000000000000000000000000000000000000000000000000",
+    enabled = enabled,
+    toolsEnabled = tools > 0,
+    installedAt = 0L,
+    manifest = PluginManifest(
+        apiVersion = 2,
+        id = id,
+        name = name,
+        summary = summary,
+        type = if (isWeb) "web" else "dex",
+        version = version,
+        versionCode = versionCode,
+        minAppVersionCode = 101,
+        entryClass = "$id.Plugin",
+        pages = (1..pages).map { PluginPageManifest("page$it", "页面 $it") },
+        tools = (1..tools).map { PluginToolManifest("tool$it", JsonObject(emptyMap())) },
+    ),
+)
+
+private fun demoRecords(): List<PluginRecord> = listOf(
+    demoRecord(
+        id = "com.xjtu.toolbox.plugin.sample",
+        name = "示例插件",
+        summary = "把课程、考试、成绩、图书馆座位和空教室整理到一页，顺手给小岱加两个只读工具，不碰登录会话也不上传数据",
+        isWeb = false,
+        version = "1.1.1",
+        versionCode = 4,
+        tools = 2,
+    ),
+    demoRecord(
+        id = "com.example.library.web",
+        name = "图书馆座位预约",
+        summary = "直接在盒子里打开图书馆的预约页，登录状态跟浏览器分开，不和 App 共享任何东西。",
+        isWeb = true,
+        version = "2.0.3",
+        versionCode = 11,
+    ),
+    demoRecord(
+        id = "com.example.ics.export",
+        name = "课程表导出成 ICS 日历文件的小工具",
+        summary = "把本学期课表和考试安排导出成标准 ICS，可以导进系统日历、Outlook 或者任何支持订阅的日历应用。",
+        isWeb = false,
+        version = "1.0.0-beta.12",
+        versionCode = 7,
+        enabled = false,
+        pages = 2,
+        tools = 1,
+    ),
+    demoRecord(
+        id = "com.example.card.watch",
+        name = "校园卡余额提醒",
+        summary = "每天早上八点查一次余额，低于 30 块就用通知栏提醒你去充。",
+        isWeb = true,
+        version = "0.9.1",
+        versionCode = 3,
+    ),
+    demoRecord(
+        id = "com.example.pickcourse.radar",
+        name = "选课捡漏雷达（一直蹲在后台盯着退课，捡到就弹通知）",
+        summary = "盯住你指定的几门课，有人退课就立刻在通知栏喊你，还能设置只在白天盯、只在某几周盯。",
+        isWeb = false,
+        version = "3.2.0",
+        versionCode = 21,
+        tools = 4,
+        pages = 3,
+    ),
+)

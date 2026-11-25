@@ -215,9 +215,9 @@ class MainActivity : ComponentActivity() {
                 }.onFailure { Log.e("NekoPluginDebug", "插件安装失败：$path", it) }
             }
         }
-        if (intent?.getStringExtra(EXTRA_PLUGIN_LIST) != null) {
+        intent?.getStringExtra(EXTRA_PLUGIN_LIST)?.let { mode ->
             intent.removeExtra(EXTRA_PLUGIN_LIST)
-            com.xjtu.toolbox.plugin.PluginOverlay.openList()
+            com.xjtu.toolbox.plugin.PluginOverlay.openList(demo = mode == "demo")
         }
         val pluginId = intent?.getStringExtra(EXTRA_PLUGIN)
         if (!pluginId.isNullOrBlank()) {

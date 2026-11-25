@@ -16,6 +16,8 @@ internal data class PluginManifest(
     val name: String,
     /** 一句话简介，列表页最多两行。空串表示这个插件没写。 */
     val summary: String = "",
+    /** 插件形态：`dex`（进程内加载代码）或 `web`（内置浏览器打开网页）。 */
+    val type: String = "dex",
     val version: String = "",
     val versionCode: Int,
     val minAppVersionCode: Int = 0,
@@ -23,6 +25,8 @@ internal data class PluginManifest(
     val pages: List<PluginPageManifest> = emptyList(),
     val tools: List<PluginToolManifest> = emptyList(),
 ) {
+    val isWeb: Boolean get() = type == "web"
+
     fun pageTitle(pageId: String): String =
         pages.firstOrNull { it.id == pageId }?.title?.takeIf { it.isNotBlank() } ?: name
 }
