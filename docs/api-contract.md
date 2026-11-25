@@ -97,7 +97,7 @@
 | `bus` | `GET runs` | 校车 |
 | `webvpn` | `POST convert` | WebVPN 网址互转，纯函数 |
 | `accounts` | `GET` · `POST switch` · `add` · `delete` · `password` | 多账号；写操作要求 HTTPS |
-| `agent` | `GET/POST config` · `POST models` · `GET/POST sessions` · `GET sessions/{id}` · `POST sessions/{id}/rename\|delete` · `GET memory` · `POST memory/forget\|clear` · `POST chat` · `POST stop` · `GET status` | 屁岱，见下文 |
+| `agent` | `GET/POST config` · `POST models` · `GET/POST sessions` · `GET sessions/{id}` · `POST sessions/{id}/rename\|delete` · `GET memory` · `POST memory/forget\|clear` · `POST chat` · `POST stop` · `GET status` | 小岱，见下文 |
 
 逐字段形状以 `server/src/main/kotlin/.../*Routes.kt` 和 `server/src/test` 的契约测试为准。
 
@@ -108,7 +108,7 @@
 - 同一时间只允许一个登录流程，并发的第二次请求回 `409`。
 - MFA 用轮询：`GET mfa` 返回 `{pending, siteName, rejections, attemptsLeft}`（无挂起时后三项为 `null`）；`POST mfa` 交 `{"code"}` 或 `{"cancel": true}`，结论从下一次轮询或登录请求的响应里读。
 
-### 屁岱
+### 小岱
 
 - API Key 只存在 serve 侧，浏览器只拿到 `keyConfigured`。对话循环与会话落盘都在 serve 侧。
 - `POST chat` 的 SSE 事件：`delta` · `reasoning` · `tool_call` · `tool_result` · `usage` · `mfa` · `widget` · `nav` · `done` · `error`，外加保活注释帧。

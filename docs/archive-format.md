@@ -62,7 +62,7 @@
 
 | 路径 | 内容 |
 |---|---|
-| `files/agent_sessions/index.json`、`convo_<id>.json` | 屁岱会话索引与会话内容 |
+| `files/agent_sessions/index.json`、`convo_<id>.json` | 小岱会话索引与会话内容 |
 | `files/courses/custom_courses.json` | 自建课程行数组，`id` 保持原值 |
 | `files/media/download_tasks.json` | 下载任务 |
 | `files/jiaocai/jiaocai1_shelf.json` | 教材书架 |
