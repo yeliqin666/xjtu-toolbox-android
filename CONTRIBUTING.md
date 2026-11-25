@@ -191,7 +191,8 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 - 提交信息使用 Conventional Commits 风格：`feat(scope): ...`、`fix(scope): ...`、`refactor(scope): ...`、`chore(scope): ...`、`docs: ...`、`test: ...`、`ci: ...`。
 - `scope` 使用模块名或功能名，例如 `home`、`schedule`、`update`、`ci`；没有明确范围时可以省略。
 - 一个提交只做一件事。格式化、重命名与行为修改尽量分开，便于 review 和回滚。
-- 改了带 `schedule` 的 workflow，推到 `main` 的那次提交**不得**带 `[skip ci]`：GitHub 在推送默认分支时登记定时，被跳过的推送不登记，定时就一直不跑。只改 `.github/workflows/**` 不会触发正式版构建（`build.yml` 有 paths-ignore），不需要靠 `[skip ci]` 防重发。
+- 只改 `.github/**`、文档的提交推到 `main` 不会触发正式版构建（`build.yml` 有 paths-ignore），不需要靠 `[skip ci]` 防重发。
+- GitHub 的定时（`schedule`）是尽力而为：整点最挤，常晚几小时甚至整次丢掉，cron 分钟别用 0 / 30。要紧的任务别只靠定时，留着 `workflow_dispatch` 手动补跑。
 - PR 描述应当说明：改了什么、为什么改、如何验证（命令、测试结果、必要的截图或录屏）。
 - 涉及 UI 的改动应当附截图或录屏；涉及更新与发版的改动应当说明版本号与升级路径。
 - 不得在提交、Issue、PR 或截图中包含账号、密码、Cookie、API Key、签名口令或其他凭据。
@@ -224,7 +225,7 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 - `release.jks`、`keystore.properties`；
 - `feedback.properties`；
 - `leaderboard.properties`；
-- `server/leaderboard/aliyun.env`、`server/leaderboard/banned.txt`；
+- `server/leaderboard/aliyun.env`、`server/leaderboard/banned.txt`（旧 Node 版使用；线上 Cloudflare Worker 版在独立仓库 `Guochaoo/dzhz-server` 部署，审核 AK 走 `wrangler secret`，扩展词表走 `BANNED_EXTRA`）；
 - `local.properties`。
 
 需要新增本地配置时，应当同时更新 `.gitignore`，并在文档中说明配置项与获取方式；不要把真实凭据写进示例。

@@ -319,7 +319,8 @@ fun DiscussionComposer(
     // 分区加载好了还没选（或选中的发不了）：默认选第一个可发的，少点一下
     LaunchedEffect(postable) {
         if (state.categories.isNotEmpty() && postable.none { it.id == state.categoryId }) {
-            onEdit(state.title, state.body, postable.firstOrNull()?.id)
+            val first = postable.firstOrNull()
+            onEdit(state.title, bodyForCategory(first, state.body), first?.id)
         }
     }
     // 发新帖时能 @ 的人：列表里出现过的作者
@@ -402,7 +403,7 @@ fun DiscussionComposer(
                     failed = state.categoriesError,
                     enabled = !state.submitting,
                     onRetry = onRetryCategories,
-                    onPick = { onEdit(state.title, state.body, it) },
+                    onPick = { id -> onEdit(state.title, bodyForCategory(postable.firstOrNull { it.id == id }, state.body), id) },
                 )
                 TextField(
                     value = state.title,

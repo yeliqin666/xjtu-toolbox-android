@@ -15,7 +15,7 @@
 * 投票：票在飞书提交表（类型「投票·<id>」，App 写）。同一设备只算最后一次，截止后投的不算。
   结果存在机器人在帖子里的结果回复（隐藏 JSON），重建时从那里读回；截止后另发一条最终结果，
   两条都写进帖子后，下一步把飞书里这次投票的票删掉。
-* 帖子首次发布成功时往飞书公告表（FEEDBACK_TABLE_NOTICE，没配就跳过）写一行；机器人回复一条解析结果。
+* 机器人在帖子里回一条解析结果；分类里没按表单写的帖子（如 App 里发的）新建或编辑时回一条提示和表单骨架。
 * feedback-qa.json（只在 tally 时生成）：「大家在问」，回复表里每个工单取最新一条，勾了「公开」才收。
 文件写进 OUT_DIR（announce 分支的检出），提交推送由工作流做（announce.yml）。
 """
@@ -42,7 +42,6 @@ MAX_OPTIONS = 10
 POLL_DAYS = 7
 LEVELS = {"普通": "info", "提醒": "warn", "更新": "update", "重要": "critical", "强制更新": "force_update"}
 MARK_STATUS = "<!-- announce-status -->"
-MARK_FEISHU = "<!-- announce-feishu -->"
 MARK_RESULT = "<!-- poll-result:{} -->"
 MARK_FINAL = "<!-- poll-final:{} -->"
 DATA_RE = re.compile(r"<!-- poll-data:(\{.*?\}) -->", re.S)
@@ -378,7 +377,7 @@ def close_expired(gh: fd.GitHub, ns: list[Notice], now: datetime) -> None:
             continue
         try:
             n.bulletin = None
-            upsert_comment(gh, n, MARK_STATUS, status_body(n, bool(n.bot_comment(MARK_FEISHU))))
+            upsert_comment(gh, n, MARK_STATUS, status_body(n))
             gh.gwrite(CLOSE, d=n.node_id)
             n.closed_at = now
             fd.log(f"#{n.number} {b['id']} 已过截止时间，关帖撤下")
@@ -401,18 +400,26 @@ def upsert_comment(gh: fd.GitHub, n: Notice, mark: str, body: str) -> None:
         current["body"] = body
 
 
-# ---------------------------------------------------------------- 发布回执 / 飞书公告表
+# ---------------------------------------------------------------- 发布回执
 
 LEVEL_NAMES = {v: k for k, v in LEVELS.items()}
+# 与发帖表单的小标题同序；App 里发帖时预填的是同一份（GithubDiscussions.kt 的 ANNOUNCE_SKELETON）
+SKELETON = ("### 等级\n\n普通\n\n### 正文\n\n\n\n### 链接\n\n\n\n### 开始时间\n\n\n\n### 截止时间\n\n\n\n"
+            "### 最低版本\n\n\n\n### 最高版本\n\n\n\n### 投票选项\n\n\n\n### 设置\n\n- [ ] 投票可多选\n"
+            "- [ ] 必须点确认才能关掉\n- [ ] 启动时拦住不让用（慎用）")
+NOT_FORM = (MARK_STATUS + "\nℹ️ **没进 App**：这帖不是按公告表单写的（缺「### 正文」一节）。"
+            "要发到 App，把正文改成下面的格式，只有「正文」必填，空着的小节可以删：\n\n"
+            f"````markdown\n{SKELETON}\n````\n\n<sub>网页端在本分类发帖会出表单；App 里选本分类会预填这份骨架。</sub>")
 
 
-def status_body(n: Notice, feishu_done: bool) -> str:
-    marks = MARK_STATUS + (f"\n{MARK_FEISHU}" if feishu_done else "")
+def status_body(n: Notice) -> str:
+    if not n.managed:
+        return NOT_FORM
     if n.errors:
-        return marks + "\n⚠️ **没发布**，改一下帖子就会重试：\n\n" + "\n".join(f"- {e}" for e in n.errors)
+        return MARK_STATUS + "\n⚠️ **没发布**，改一下帖子就会重试：\n\n" + "\n".join(f"- {e}" for e in n.errors)
     b = n.bulletin
     if b is None:
-        return marks + "\n🗑️ 已从 App 撤下（帖子关闭了）。重新打开就恢复。"
+        return MARK_STATUS + "\n🗑️ 已从 App 撤下（帖子关闭了）。重新打开就恢复。"
     bits = [LEVEL_NAMES.get(b["level"], b["level"])]
     if b.get("startsAt"):
         bits.append(f"{parse_time(b['startsAt']):%m-%d %H:%M} 起")
@@ -427,39 +434,8 @@ def status_body(n: Notice, feishu_done: bool) -> str:
         bits.append("必须确认")
     if b.get("block"):
         bits.append("⚠️ 启动拦截")
-    return (marks + f"\n✅ 已发布到 App（`{b['id']}`）：{' · '.join(bits)}\n\n"
+    return (MARK_STATUS + f"\n✅ 已发布到 App（`{b['id']}`）：{' · '.join(bits)}\n\n"
             "<sub>几分钟后生效。改帖子 = 改公告；关帖 = 删除</sub>")
-
-
-def write_feishu(fs: fd.Feishu, n: Notice) -> bool:
-    table = os.environ.get("FEEDBACK_TABLE_NOTICE", "").strip()
-    if not table:
-        fd.log("没配 FEEDBACK_TABLE_NOTICE，不写飞书公告表")
-        return False
-    b = n.bulletin
-    fields = {"公告ID": b["id"], "标题": b["title"], "正文": b["body"],
-              "等级": LEVEL_NAMES.get(b["level"], b["level"]),
-              "开始时间": b.get("startsAt", ""), "截止时间": b.get("endsAt", ""),
-              "投票选项": "\n".join(b.get("options") or []), "讨论链接": b["discussionUrl"]}
-    if fd.DRY_RUN:
-        fd.log(f"[dry-run] 公告表 += {json.dumps(fields, ensure_ascii=False)[:300]}")
-        return True
-    r = fd.http("POST", f"{fd.FEISHU}/bitable/v1/apps/{fs.base}/tables/{table}/records", {"fields": fields}, fs.auth)
-    if r.get("code") != 0:
-        fd.log(f"::warning::写飞书公告表失败：{r.get('code')} {r.get('msg')}")
-        return False
-    return True
-
-
-def receipt(gh: fd.GitHub, fs: Optional[fd.Feishu], n: Notice) -> None:
-    """在帖子里回一条解析结果；第一次发布成功时写飞书公告表。"""
-    if not n.managed:
-        return
-    current = n.bot_comment(MARK_STATUS)
-    done = bool(current and MARK_FEISHU in current["body"])
-    if not done and n.bulletin and not n.errors and fs is not None:
-        done = write_feishu(fs, n)
-    upsert_comment(gh, n, MARK_STATUS, status_body(n, done))
 
 
 # ---------------------------------------------------------------- 大家在问
@@ -505,7 +481,6 @@ def main() -> None:
     now = datetime.now(fd.BEIJING)
     gh = fd.GitHub()
     ns = notices(gh)
-    fs: Optional[fd.Feishu] = None
     if mode == "tally":
         fs = fd.Feishu()
         items = public_qa(fs)
@@ -529,11 +504,8 @@ def main() -> None:
             # 关帖 = 删除：已经不进 bulletin.json，也不回帖（关了的帖子机器人没有写权限）
             if n.closed_at:
                 continue
-            # 第一次发布要写飞书公告表
-            if n.bulletin and not n.bot_comment(MARK_STATUS):
-                fs = fs or fd.Feishu()
             try:
-                receipt(gh, fs, n)
+                upsert_comment(gh, n, MARK_STATUS, status_body(n))
             except Exception as e:  # noqa: BLE001 —— 回帖失败不该拦住公告重建
                 fd.log(f"::warning::#{n.number} 解析结果没回进帖子：{e}")
     if not any(n.managed for n in ns):
@@ -577,6 +549,9 @@ def self_test() -> None:
     assert to_bulletin(d, created, closed) == (None, []), "关帖 = 删除，投票也一样"
     plain = {"number": 8, "title": "通知", "body": "随便写的正文\n\n### 背景\n\n不是表单", "url": "u"}
     assert to_bulletin(plain, created, None) == (None, [])
+    assert status_body(Notice("P", 8, "u", created, None, False, None, [], [])) == NOT_FORM
+    filled = to_bulletin({**plain, "body": SKELETON.replace("### 正文\n\n", "### 正文\n\n停电")}, created, None)
+    assert filled[0]["body"] == "停电" and not filled[1] and "options" not in filled[0], "骨架填了正文就能发"
     notice = {"number": 9, "title": "通知", "body": "### 等级\r\n\r\n普通\r\n\r\n### 正文\r\n\r\n停水", "url": "u"}
     got = to_bulletin(notice, created, None)[0]
     assert got["level"] == "info" and got["body"] == "停水" and "options" not in got

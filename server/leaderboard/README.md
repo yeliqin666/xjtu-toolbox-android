@@ -1,5 +1,8 @@
 # 小游戏全服榜服务端
 
+> **线上目标已迁至 Cloudflare Workers + D1**（独立仓库 `Guochaoo/dzhz-server` 的 `services/leaderboard`）。
+> 本目录为旧 Node 实现，供老版本兼容或回滚使用，接口、状态码、错误 `code` 与新实现一致。
+
 分数类小游戏（合成西交大、GPA 2048、方块三玩法、跳一跳）的全服榜。App 端代码在
 `app/src/main/java/com/xjtu/toolbox/game/board/`。
 

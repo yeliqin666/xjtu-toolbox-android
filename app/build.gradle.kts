@@ -26,8 +26,8 @@ android {
         // Android 12 起可装；低于 Android 15 时玻璃特效统一退回朴素外观（见 GlassSupport），PDF 取文字不可用
         minSdk = 31
         targetSdk = 36
-        versionCode = 99
-        versionName = "6.2.1"
+        versionCode = 100
+        versionName = "6.2.2"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -57,20 +57,25 @@ android {
             buildConfigField("String", "FEEDBACK_TABLE_SUBMIT", "\"${cfg("tableSubmit")}\"")
             buildConfigField("String", "FEEDBACK_TABLE_REPLY", "\"${cfg("tableReply")}\"")
 
-            // 小游戏全服榜的服务端地址（服务端见 server/leaderboard）。
+            // 小游戏全服榜的服务端地址（服务端见 Guochaoo/dzhz-server 的 services/leaderboard；
+            // 旧 Node 实现见本仓库 server/leaderboard）。
+            //
+            // 新版本直连 Cloudflare Worker（api.dzhz.top/games/*）；老版本里写死的
+            // dzhz.zyxf.top/games 仍由老 Node 服务提供——实测客户端 HTTP 栈不跟随 307，
+            // 所以不能靠重定向把老版本迁过去。
             //
             // 默认指向正式环境，这是公开地址、不是密钥，所以直接写在这里而不是塞进
             // 某个 properties 文件——CI 和普通克隆都该开箱即用。本地联调要指到自己的
             // 服务端时，用环境变量 LEADERBOARD_BASE_URL，或在仓库根建
-            // leaderboard.properties（已 gitignore）写 baseUrl=http://127.0.0.1:4100/games，
-            // 配合 adb reverse tcp:4100 tcp:4100。
+            // leaderboard.properties（已 gitignore）写 baseUrl=http://127.0.0.1:8787/games
+            // （Worker 版 wrangler dev；旧 Node 版是 4100），配合 adb reverse tcp:<端口> tcp:<端口>。
             //
             // 置成空字符串 = 整块排行榜功能从界面上消失（Leaderboard.enabled 为 false）。
             val lbFile = rootProject.file("leaderboard.properties")
             val lbProps = Properties().apply { if (lbFile.exists()) lbFile.inputStream().use { load(it) } }
             val lbUrl = System.getenv("LEADERBOARD_BASE_URL")?.trim()?.takeIf { it.isNotEmpty() }
                 ?: lbProps.getProperty("baseUrl")?.trim()?.takeIf { it.isNotEmpty() }
-                ?: "https://dzhz.zyxf.top/games"
+                ?: "https://api.dzhz.top/games"
             buildConfigField("String", "LEADERBOARD_BASE_URL", "\"$lbUrl\"")
         }
     }

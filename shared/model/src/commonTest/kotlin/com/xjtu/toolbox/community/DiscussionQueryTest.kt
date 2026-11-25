@@ -45,4 +45,12 @@ class DiscussionQueryTest {
         assertEquals(listOf(general), postableCategories(all, null))
         assertEquals(all, postableCategories(all, "MAINTAIN"))
     }
+
+    @Test
+    fun announcementCategoryPrefillsFormSkeleton() {
+        assertEquals(ANNOUNCE_SKELETON, bodyForCategory(notice, ""))
+        assertEquals("写好的", bodyForCategory(notice, "写好的"))
+        assertEquals("", bodyForCategory(general, ANNOUNCE_SKELETON))
+        assertEquals("写好的", bodyForCategory(general, "写好的"))
+    }
 }
