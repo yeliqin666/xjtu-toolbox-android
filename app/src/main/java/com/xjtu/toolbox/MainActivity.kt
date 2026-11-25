@@ -49,6 +49,13 @@ class MainActivity : ComponentActivity() {
 
         /** 启动后要切到的底栏 tab，值是 [BottomTab.name]。 */
         const val EXTRA_LAUNCH_TAB = "extra_launch_tab"
+
+        /** 仅 debug 包：命令行指定要装的插件包路径，直接走 inspect + commit，跳过设置页。 */
+        const val EXTRA_PLUGIN_INSTALL = "extra_plugin_install"
+
+        /** 仅 debug 包：启动后直接打开的插件 id / 页面 id。 */
+        const val EXTRA_PLUGIN = "extra_plugin"
+        const val EXTRA_PLUGIN_PAGE = "extra_plugin_page"
     }
 
     /** 登录恢复完成（首帧已画出）后为 true，SplashScreen 据此消失。 */
@@ -159,6 +166,7 @@ class MainActivity : ComponentActivity() {
     /** 文章入口自动阅读，普通深链保留草稿；控件路由取自无 data 的内部入口。 */
     private fun consumeLaunchIntent(intent: Intent?) {
         incomingImages?.cancel()
+        if (BuildConfig.DEBUG) consumePluginDebugIntent(intent)
         val deepLink = intent?.let(DeepLinkRouter::resolve)
         if (deepLink?.sharedMaterial == true) AccountContext.restoreIfNeeded()
         val extras = intent?.takeIf { it.data == null && it.component?.className != DeepLinkRouter.PIDAI_LINK_ALIAS }
@@ -180,6 +188,38 @@ class MainActivity : ComponentActivity() {
             deepLink.sharedMaterial -> importSharedMaterial(deepLink)
             deepLink.imageUris.isNotEmpty() -> importSharedImages(deepLink)
             else -> deepLink.prompt?.let { AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend) }
+        }
+    }
+
+    /**
+     * 只在 debug 包生效的插件调试入口：不用点设置页，命令行一步到位。
+     *
+     * ```
+     * adb shell am start -n com.xjtu.toolbox.debug/com.xjtu.toolbox.MainActivity \
+     *   --es extra_plugin_install /sdcard/Download/sample-debug.apk
+     * adb shell am start -n com.xjtu.toolbox.debug/com.xjtu.toolbox.MainActivity \
+     *   --es extra_plugin com.example.demo --es extra_plugin_page home
+     * ```
+     */
+    private fun consumePluginDebugIntent(intent: Intent?) {
+        val path = intent?.getStringExtra(EXTRA_PLUGIN_INSTALL)
+        if (!path.isNullOrBlank()) {
+            intent.removeExtra(EXTRA_PLUGIN_INSTALL)
+            lifecycleScope.launch {
+                runCatching {
+                    val manager = com.xjtu.toolbox.plugin.PluginManager.get(applicationContext)
+                    val pending = manager.inspect(Uri.fromFile(File(path)))
+                    manager.commit(pending)
+                    Log.i("NekoPluginDebug", "已安装 ${pending.manifest.id} ${pending.manifest.version}")
+                }.onFailure { Log.e("NekoPluginDebug", "插件安装失败：$path", it) }
+            }
+        }
+        val pluginId = intent?.getStringExtra(EXTRA_PLUGIN)
+        if (!pluginId.isNullOrBlank()) {
+            intent.removeExtra(EXTRA_PLUGIN)
+            val page = intent.getStringExtra(EXTRA_PLUGIN_PAGE)?.takeIf { it.isNotBlank() } ?: "home"
+            Log.i("NekoPluginDebug", "打开插件页 $pluginId/$page")
+            com.xjtu.toolbox.plugin.PluginOverlay.open(pluginId, page)
         }
     }
 
