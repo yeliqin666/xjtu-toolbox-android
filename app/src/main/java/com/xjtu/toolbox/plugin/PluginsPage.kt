@@ -439,47 +439,17 @@ private fun DetailPage(
         }
 
         if (confirm) {
-            OverlayDialog(
-                show = true,
+            com.xjtu.toolbox.community.ConfirmDialog(
                 title = "卸载「${record.manifest.name}」？",
                 summary = "会删掉插件包和它自己的数据目录，这个插件的页面和小岱工具立刻失效。\n\n已经产生的本地数据不能恢复。",
-                onDismissRequest = { confirm = false },
-            ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { confirm = false }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "取消",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(Modifier.width(20.dp))
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                confirm = false
-                                onUninstall()
-                            }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "卸载",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.error,
-                        )
-                    }
-                }
-            }
+                confirm = "卸载",
+                onConfirm = {
+                    confirm = false
+                    onUninstall()
+                },
+                onDismiss = { confirm = false },
+                danger = true,
+            )
         }
     }
 }

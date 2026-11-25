@@ -30,6 +30,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import com.xjtu.toolbox.ui.components.appDangerTextButtonColors
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 关闭原因（DiscussionCloseReason）。 */
@@ -125,7 +126,15 @@ fun ReasonDialog(
 
 /** 二次确认。 */
 @Composable
-fun ConfirmDialog(title: String, summary: String, confirm: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun ConfirmDialog(
+    title: String,
+    summary: String,
+    confirm: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    /** 删除、卸载这类做了回不去的操作：确认键换成红底白字（[appDangerTextButtonColors]）。 */
+    danger: Boolean = false,
+) {
     OverlayDialog(show = true, title = title, summary = summary, onDismissRequest = onDismiss) {
         Row(Modifier.fillMaxWidth()) {
             TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
@@ -134,7 +143,7 @@ fun ConfirmDialog(title: String, summary: String, confirm: String, onConfirm: ()
                 text = confirm,
                 onClick = onConfirm,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
+                colors = if (danger) appDangerTextButtonColors() else ButtonDefaults.textButtonColorsPrimary(),
             )
         }
     }
