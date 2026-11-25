@@ -232,10 +232,10 @@ internal fun validatePackageManifest(manifest: PluginPackageManifest) {
     }
     require(manifest.files.map { it.path }.toSet().size == manifest.files.size) { "files 里有重复路径" }
     manifest.files.forEach { file ->
-        require(!file.path.equals(PluginPackages.MANIFEST_NAME, ignoreCase = true)) {
+        require(!file.path.equals(PACKAGE_MANIFEST_NAME, ignoreCase = true)) {
             "files 里不该声明清单本身"
         }
-        require(!file.path.equals(PluginPackages.SIGNATURE_NAME, ignoreCase = true)) {
+        require(!file.path.equals(PACKAGE_SIGNATURE_NAME, ignoreCase = true)) {
             "files 里不该声明签名文件"
         }
     }
