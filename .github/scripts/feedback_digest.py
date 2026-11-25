@@ -20,6 +20,7 @@
 * 在某层反馈楼里回复：/reply [私密] + 下一行起写回复（第一行「问题：…」可改公开问答的问题）；/skip 不回复。
   顶层评论里要写工单号；/skip all 跳过本期剩下全部。/toissue 由 discussion_commands.py 处理。
 * /reply 往回复表追加一条（工单号、回复、回复时间、公开、问题），公开默认勾上。
+  在已 /toissue 过的反馈楼里回复时，回复同时作为评论贴到那个 issue。
 * 待处理的工单写在帖子正文的隐藏标记里（发帖时一次写定，Action 改不了帖子正文）；已处理的记在 bot
   自己的结果回帖里（只认 bot 发的），不查飞书。结果在那串楼里显式回一条，和 /toissue 一致；
   反馈楼标 🎉 / 👀。都处理完关闭讨论。
@@ -923,8 +924,8 @@ def on_comment(number: int, comment_id: int) -> None:
 
 # ---------------------------------------------------------------- 讨论区命令
 
-_COMMENT_FIELDS = """id body authorAssociation author{login}
-    replyTo{id body}
+_COMMENT_FIELDS = """id url body authorAssociation author{login}
+    replyTo{id databaseId body}
     discussion{id number body closed category{name}}"""
 
 
@@ -988,6 +989,11 @@ def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict, done: set[str
         step("给反馈楼加表情",
              """mutation($s:ID!,$e:ReactionContent!){addReaction(input:{subjectId:$s,content:$e}){reaction{content}}}""",
              s=parent["id"], e="HOORAY" if default in out.replied else "EYES")
+    # 这层反馈楼已经 /toissue 过：回复同时搬到那个 issue，跟进 issue 的人也看得到
+    if parent and default in out.replied and parent.get("databaseId"):
+        sent = next((x for x in cmds if x.verb == "reply" and x.tickets == [default]), None)
+        if sent:
+            mirror_reply(gwrite, parent["databaseId"], sent, c, out)
     if pending and pending <= done:
         if step("关闭讨论", """mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:RESOLVED}){discussion{id}}}""",
                 d=disc["id"]):
@@ -997,6 +1003,39 @@ def run_discussion_commands(gwrite, fs: Optional[Feishu], c: dict, done: set[str
         else:
             out.notes.append("本期都处理完了，请手动关闭本帖")
     return out
+
+
+TOISSUE_SEARCH = """query($q:String!){search(query:$q,type:ISSUE,first:10){nodes{... on Issue{id number body author{login}}}}}"""
+
+
+def toissue_of(gwrite, floor_id: int) -> Optional[dict]:
+    """这层反馈楼 /toissue 建的 issue：discussion_commands.py 在 issue 正文里埋了去重标记，只认 bot 建的。
+    没转过返回 None。"""
+    key = f"toissue:source=discussioncomment-{floor_id}"
+    data = gwrite(TOISSUE_SEARCH, q=f'repo:{env("GITHUB_REPOSITORY")} "{key}" in:body')
+    hits = [n for n in (data.get("search") or {}).get("nodes") or []
+            if f"<!-- {key} -->" in (n.get("body") or "") and ((n.get("author") or {}).get("login") or "") in BOT_LOGINS]
+    return min(hits, key=lambda n: n["number"]) if hits else None
+
+
+def mirror_reply(gwrite, floor_id: int, cmd: Command, c: dict, out: Outcome) -> None:
+    """把 /reply 的回复作为评论贴到这层反馈楼转出的 issue；没转过就什么都不做。飞书已写好，失败只记警告。"""
+    try:
+        issue = toissue_of(gwrite, floor_id)
+        if not issue:
+            return
+        who = (c.get("author") or {}).get("login", "")
+        where = f"反馈日报 #{c['discussion']['number']}"
+        if c.get("url"):
+            where = f"[{where}]({c['url']})"
+        scope = "在 App「大家在问」里公开" if cmd.public else "只有反馈者在 App 里能看到"
+        # 不写 @：免得每次都提醒回复人自己
+        body = f"> {who} 在{where}里用 `/reply` 回复了这条反馈（{scope}）：\n\n{cmd.reply.strip()}"
+        gwrite("""mutation($s:ID!,$b:String!){addComment(input:{subjectId:$s,body:$b}){subject{id}}}""",
+               s=issue["id"], b=body)
+        out.notes.append(f"回复已同步到 issue #{issue['number']}")
+    except Exception as e:  # noqa: BLE001
+        out.errors.append(f"同步到 issue 失败（飞书那边已写好）：{e}")
 
 
 def result_lines(out: Outcome) -> str:

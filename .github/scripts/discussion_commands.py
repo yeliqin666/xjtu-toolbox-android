@@ -1115,9 +1115,11 @@ class FeedbackHandler(CommandHandler):
             raise CommandFailure("这期反馈日报已经关闭了")
         node = {
             "id": c.node_id,
+            "url": c.url,
             "body": c.body,
             "author": {"login": c.author_login},
-            "replyTo": {"id": c.reply_to_node_id, "body": c.reply_to_body} if c.reply_to_node_id else None,
+            "replyTo": {"id": c.reply_to_node_id, "databaseId": c.reply_to_id, "body": c.reply_to_body}
+            if c.reply_to_node_id else None,
             "discussion": {"id": d.node_id, "number": d.number, "body": d.body,
                            "closed": d.closed, "category": {"name": d.category}},
         }
