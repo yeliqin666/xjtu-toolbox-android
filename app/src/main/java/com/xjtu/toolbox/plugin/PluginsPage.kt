@@ -47,13 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
@@ -129,7 +126,6 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
     var message by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
-    var originRect by remember { mutableStateOf<Rect?>(null) }
     var closing by remember { mutableStateOf(false) }
     var pendingMarket by remember { mutableStateOf<MarketEntry?>(null) }
 
@@ -158,8 +154,7 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
 
     // ── 详情页 ────────────────────────────────────────────────────────────
     if (detail != null) {
-        ExpandFromCard(
-            origin = originRect,
+        SlideInDetail(
             closing = closing,
             onClosed = {
                 detailId = null
@@ -263,10 +258,7 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                         PluginRow(
                             record = record,
                             broken = record.id in broken,
-                            onClick = { rect ->
-                                originRect = rect
-                                detailId = record.id
-                            },
+                            onClick = { detailId = record.id },
                             modifier = Modifier
                                 .animateItem()
                                 .padding(horizontal = 16.dp, vertical = 5.dp),
@@ -357,14 +349,13 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
 }
 
 /**
- * 从被点的那张卡片放大成整页，返回时缩回卡片。
+ * 详情页从右侧划入，返回时再划回右侧，底下压一层渐暗的背景。
  *
- * 不用共享元素过渡（miuix-nav 那套是给页面路由用的），而是记下卡片的矩形，
- * 让整页从那个矩形按比例放大：起点对齐卡片的圆角位置，所以看着像卡片自己长开了。
+ * 原来是从被点的那张卡片放大出来，但整页和小卡片的比例对不上，
+ * 文字被拉伸得很别扭，所以换成规矩的横向滑入。
  */
 @Composable
-private fun ExpandFromCard(
-    origin: Rect?,
+private fun SlideInDetail(
     closing: Boolean,
     onClosed: () -> Unit,
     content: @Composable () -> Unit,
@@ -373,12 +364,12 @@ private fun ExpandFromCard(
 
     LaunchedEffect(closing) {
         if (closing) {
-            animate(progress, 0f, animationSpec = tween(220, easing = FastOutSlowInEasing)) { value, _ ->
+            animate(progress, 0f, animationSpec = tween(200, easing = FastOutSlowInEasing)) { value, _ ->
                 progress = value
             }
             onClosed()
         } else {
-            animate(0f, 1f, animationSpec = tween(320, easing = FastOutSlowInEasing)) { value, _ ->
+            animate(0f, 1f, animationSpec = tween(280, easing = FastOutSlowInEasing)) { value, _ ->
                 progress = value
             }
         }
@@ -388,27 +379,14 @@ private fun ExpandFromCard(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(MiuixTheme.colorScheme.background.copy(alpha = progress)),
+                .background(MiuixTheme.colorScheme.background.copy(alpha = (progress * 1.4f).coerceIn(0f, 1f))),
         )
         Box(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    val from = origin
-                    if (from != null && from != Rect.Zero && progress < 1f) {
-                        val fullWidth = size.width
-                        val fullHeight = size.height
-                        if (fullWidth > 0f && fullHeight > 0f) {
-                            val startScaleX = from.width / fullWidth
-                            val startScaleY = from.height / fullHeight
-                            scaleX = startScaleX + (1f - startScaleX) * progress
-                            scaleY = startScaleY + (1f - startScaleY) * progress
-                            transformOrigin = TransformOrigin(
-                                pivotFractionX = from.center.x / fullWidth,
-                                pivotFractionY = from.center.y / fullHeight,
-                            )
-                        }
-                    }
+                    // 起点在屏幕右边一个屏宽处，progress 到 1 就正好对齐
+                    translationX = size.width * (1f - progress)
                     alpha = progress.coerceIn(0f, 1f)
                 },
         ) {
@@ -493,10 +471,9 @@ private fun TypeBadge(isWeb: Boolean) {
 private fun PluginRow(
     record: PluginRecord,
     broken: Boolean,
-    onClick: (Rect) -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var bounds by remember { mutableStateOf(Rect.Zero) }
     val status = when {
         broken -> "插件包丢失，卸载后重装"
         !record.enabled -> "已停用"
@@ -507,8 +484,7 @@ private fun PluginRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .onGloballyPositioned { bounds = it.boundsInRoot() }
-            .clickable { onClick(bounds) },
+            .clickable(onClick = onClick),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
