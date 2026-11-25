@@ -119,7 +119,12 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
             runCatching {
                 // 冷启动直接从路由进来时还没人读过 registry，先刷一遍再取页面
                 manager.refresh()
-                manager.openPage(pluginId, pageId)
+                // 路由没带 page（插件的一级公开页）：用它清单里的第一页
+                val target = pageId.ifBlank {
+                    manager.records.firstOrNull { it.id == pluginId }
+                        ?.manifest?.pages?.firstOrNull()?.id.orEmpty()
+                }
+                manager.openPage(pluginId, target)
             }
         }
         val page = result.getOrNull()
