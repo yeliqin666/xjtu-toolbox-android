@@ -6,8 +6,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DiscussionQueryTest {
-    private val general = GithubDiscussionCategory("c1", "综合讨论", false)
-    private val notice = GithubDiscussionCategory("c2", ANNOUNCEMENT_CATEGORY, false)
+    private val general = GithubDiscussionCategory("c1", "综合讨论", false, "general")
+    private val notice = GithubDiscussionCategory("c2", "Announcements", false, ANNOUNCEMENT_SLUG)
 
     @Test
     fun searchTextCombinesStateAuthorCategoryAndSort() {

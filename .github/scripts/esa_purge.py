@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""上传完清单后刷新 ESA 边缘缓存（dzhz.zyxf.top 前面的阿里云边缘加速）。
+"""发版后刷新 ESA 边缘缓存（dzhz.zyxf.top 前面的阿里云边缘加速）。
 
-    esa_purge.py <对象路径>...   # 相对 xjtu-toolbox/，例如 preview.json apk/latest/app-release.apk
+    esa_purge.py <对象路径>...   # 相对 xjtu-toolbox/，例如 apk/latest/app-release.apk
 
-ESA 不认源站的 Cache-Control，固定路径的清单和 latest 安装包会被边缘缓存近一个月（#519），
-所以每次覆盖之后主动刷新。没配 ESA_SITE_ID / ESA_ACCESS_KEY_ID / ESA_ACCESS_KEY_SECRET 时跳过；
+清单类 JSON（stable.json / preview.json / bulletin.json 等）在 ESA 规则里是不缓存的，
+不需要刷；真正要刷的是「会被覆盖写、又落在长缓存规则里」的固定路径：目前只有
+apk/latest/app-release.apk（30 天）。ESA 不认源站 Cache-Control，覆盖写之后不刷就要等
+缓存过期（#519）。没配 ESA_SITE_ID / ESA_ACCESS_KEY_ID / ESA_ACCESS_KEY_SECRET 时跳过；
 刷新失败只报警告，不让发版失败。
 """
 import os

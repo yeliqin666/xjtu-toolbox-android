@@ -46,6 +46,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -571,7 +572,7 @@ fun MarkdownEditor(
                         if (value.isBlank()) {
                             Text("还没写内容", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         } else {
-                            MarkdownText(value)
+                            GithubMarkdown(value)
                         }
                     }
                 }

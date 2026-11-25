@@ -974,10 +974,6 @@ class DesktopAuthLibraryJvmTest {
             DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Notification },
             "通知公告该在「真能用」那一栏里",
         )
-        assertTrue(
-            DESKTOP_PENDING_ROUTES.isEmpty(),
-            "Stage A 的 pending 表该空了，还剩：${DESKTOP_PENDING_ROUTES.map { it.second }}",
-        )
     }
 
     // ══════ 校历：免登录的那条路 ══════

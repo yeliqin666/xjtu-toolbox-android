@@ -59,6 +59,7 @@ import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import kotlin.time.Clock
 import com.xjtu.toolbox.util.campusDateTimeOf
+import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 
 private const val FEEDBACK_GITHUB_ISSUE_URL =
     "https://github.com/yeliqin666/xjtu-toolbox-android/issues/new"
@@ -117,7 +118,7 @@ fun FeedbackScreen(
 
     /**
      * 拉一次回复和公共问答。回复按工单号查飞书（一次调用），进页面有待回的才每天一次，下拉立即，见 [FeedbackStore.shouldFetchReplies]；
-     * 公共问答读 Gitee，隔 4 天或下拉才拉。
+     * 公共问答读 Gitee，每天一次或下拉才拉。
      *
      * @param manual 下拉刷新。
      */
@@ -129,12 +130,10 @@ fun FeedbackScreen(
                 val got = runCatching { source.replies(tickets.map { it.id }) }.getOrNull()
                 if (got != null) {
                     FeedbackStore.markRepliesFetched()
-                    if (got.isNotEmpty()) {
-                        val merged = replies + got
-                        FeedbackStore.cacheReplies(merged)
-                        replies = merged
-                        FeedbackStore.markRead(got.keys)
-                    }
+                    // 查的是全部工单，以飞书为准整份替换：回复表里删掉的回复这里也要消失
+                    FeedbackStore.cacheReplies(got)
+                    replies = got
+                    FeedbackStore.markRead(got.keys)
                 }
             }
         }
@@ -567,7 +566,7 @@ private fun FoldRow(
                         fontWeight = FontWeight.Medium,
                     )
                     Spacer(Modifier.height(4.dp))
-                    Text(reply, style = MiuixTheme.textStyles.body2)
+                    GithubMarkdown(reply, textStyle = MiuixTheme.textStyles.body2)
                 }
             }
         }

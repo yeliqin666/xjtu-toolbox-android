@@ -1,19 +1,20 @@
 package com.xjtu.toolbox.schedule
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddTask
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,7 +22,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightSpec
@@ -29,14 +32,20 @@ import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.campusmap.CampusMaps
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
-import com.xjtu.toolbox.ui.components.AppInsetColor
+import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.components.AppDropdownOption
 import com.xjtu.toolbox.ui.components.CampusMapView
 import com.xjtu.toolbox.ui.components.MapMark
+import com.xjtu.toolbox.ui.components.MenuMorph
 import com.xjtu.toolbox.ui.components.PidaiChip
-import com.xjtu.toolbox.ui.components.PidaiChipRow
-import com.xjtu.toolbox.ui.components.PidaiInputRow
+import com.xjtu.toolbox.ui.components.PidaiComposer
+import com.xjtu.toolbox.ui.components.PidaiIconAction
 import com.xjtu.toolbox.ui.components.PidaiInsightCard
+import com.xjtu.toolbox.ui.components.PidaiSummary
+import com.xjtu.toolbox.ui.components.PidaiTip
+import com.xjtu.toolbox.ui.components.PidaiToken
 import com.xjtu.toolbox.ui.components.rememberInsight
+import kotlinx.coroutines.delay
 import com.xjtu.toolbox.util.safeStringOrNull
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
@@ -128,6 +137,7 @@ internal fun DayPlanCard(
     var target by rememberSaveable(today.toString()) { mutableStateOf(today.toString()) }
     var asked by rememberSaveable(today.toString()) { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
+    var choosingDay by remember { mutableStateOf(false) }
     val targetDate = remember(target) { LocalDate.parse(target) }
     val state = rememberInsight(
         DAY_PLAN,
@@ -146,68 +156,71 @@ internal fun DayPlanCard(
         if (text == asked) state.refresh() else asked = text
     }
     val choices = remember(today) { dayChoices(today) }
+    // 占位轮播常用说法
+    var hintAt by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(3500); hintAt++ } }
+    // 这次结果里已经加进去的块（按块的下标记），重排后换一批
+    var added by remember(state.outcome) { mutableStateOf(emptySet<Int>()) }
+    // 日程要这一端能写日程；待办哪端都能建
+    fun addable(item: PlanItem?) = item != null && (item.todo || onAdd != null)
+    fun add(indexed: List<Pair<Int, PlanItem>>) {
+        val (todos, events) = indexed.partition { it.second.todo }
+        val ok = todos.filter { addTodo(targetDate, it.second) } + events
+        if (events.isNotEmpty()) onAdd?.invoke(targetDate, events.map { it.second })
+        added = added + ok.map { it.first }
+    }
+    fun pending(json: JsonObject) = planBlocks(json).map(::planItemOf).withIndex()
+        .mapNotNull { (i, it) -> it?.takeIf { addable(it) && i !in added }?.let { i to it } }
     PidaiInsightCard(
         title = "小岱排日程",
         state = state,
         modifier = modifier,
-        subtitle = "选一天、说一句，按你的要求整理",
         askPrompt = { "你排的${dayLabel(targetDate, today)}这个安排，再帮我调一调。" },
         controls = {
-            PidaiChipRow {
-                choices.forEach { (label, date) ->
-                    PidaiChip(label, selected = date == targetDate, onClick = { target = date.toString() })
-                }
-                PidaiChip(
-                    if (targetDate in choices.map { it.second }) "选日期" else "$targetDate",
-                    icon = Icons.Filled.CalendarMonth,
-                    selected = targetDate !in choices.map { it.second },
-                    onClick = { picking = true },
-                )
-            }
-            PidaiInputRow(
+            PidaiComposer(
                 value = draft,
                 onValueChange = { draft = it },
-                placeholder = if (targetDate == today) "下午复习高数，晚上想打球…" else "那天想做什么？",
+                placeholder = "试试：" + DAY_PLAN_PRESETS[hintAt % DAY_PLAN_PRESETS.size],
                 onSubmit = { submit() },
-                enabled = !state.loading,
+                busy = state.loading,
+                suggestions = DAY_PLAN_PRESETS,
+                leading = {
+                    Box {
+                        PidaiToken(choices.firstOrNull { it.second == targetDate }?.first ?: target.substring(5).replace('-', '/')) {
+                            choosingDay = true
+                        }
+                        AppDropdownMenu(
+                            expanded = choosingDay,
+                            onDismissRequest = { choosingDay = false },
+                            alignment = Alignment.TopStart,
+                            morph = MenuMorph.FromRow,
+                        ) {
+                            choices.forEach { (label, date) ->
+                                AppDropdownOption(label, selected = date == targetDate) { choosingDay = false; target = date.toString() }
+                            }
+                            AppDropdownOption("选日期…", selected = choices.none { it.second == targetDate }) { choosingDay = false; picking = true }
+                        }
+                    }
+                },
             )
-            PidaiChipRow {
-                DAY_PLAN_PRESETS.forEach { p ->
-                    PidaiChip(p, onClick = { draft = if (draft.isBlank()) p else "$draft，$p" })
-                }
-            }
+        },
+        primary = { json ->
+            val all = pending(json)
+            if (all.size > 1) PidaiChip("全部加入 ${all.size}", icon = Icons.Filled.EventAvailable, emphasized = true, onClick = { add(all) })
         },
     ) { json ->
-        json["summary"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
-        }
-        val blocks = (json["blocks"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }
-        // 这次结果里已经加进去的块（按块的下标记），重排后换一批
-        var added by remember(json) { mutableStateOf(emptySet<Int>()) }
-        // 日程要这一端能写日程；待办哪端都能建
-        fun addable(item: PlanItem?) = item != null && (item.todo || onAdd != null)
-        fun add(indexed: List<Pair<Int, PlanItem>>) {
-            val (todos, events) = indexed.partition { it.second.todo }
-            val ok = todos.filter { addTodo(targetDate, it.second) } + events
-            if (events.isNotEmpty()) onAdd?.invoke(targetDate, events.map { it.second })
-            added = added + ok.map { it.first }
-        }
+        PidaiSummary(json["summary"].safeStringOrNull())
+        val blocks = planBlocks(json)
         val items = blocks.map(::planItemOf)
-        blocks.forEachIndexed { i, block ->
-            val item = items[i]
-            PlanRow(block, todo = item?.todo == true, added = i in added,
-                onAdd = if (addable(item)) { { add(listOf(i to item!!)) } } else null)
-        }
-        val pending = items.withIndex().mapNotNull { (i, it) -> it?.takeIf { addable(it) && i !in added }?.let { i to it } }
-        if (pending.size > 1) {
-            PidaiChipRow {
-                PidaiChip("全部加入（${pending.size}）", icon = Icons.Filled.EventAvailable, onClick = { add(pending) })
+        Column {
+            blocks.forEachIndexed { i, block ->
+                val item = items[i]
+                PlanRow(block, first = i == 0, last = i == blocks.lastIndex, todo = item?.todo == true, added = i in added,
+                    onAdd = if (addable(item)) { { add(listOf(i to item!!)) } } else null)
             }
         }
+        (json["tips"] as? JsonArray).orEmpty().mapNotNull { it.safeStringOrNull() }.filter { it.isNotBlank() }.forEach { PidaiTip(it) }
         DayPlanMap(blocks)
-        (json["tips"] as? JsonArray).orEmpty().mapNotNull { it.safeStringOrNull() }.filter { it.isNotBlank() }.forEach {
-            Text("· $it", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
     }
     com.xjtu.toolbox.ui.components.AppDatePickerDialog(
         show = picking,
@@ -237,27 +250,39 @@ private fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
     else -> "（周${"一二三四五六日"[date.dayOfWeek.isoDayNumber - 1]}）"
 }
 
+private fun planBlocks(json: JsonObject): List<JsonObject> =
+    (json["blocks"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+        .filter { !it["title"].safeStringOrNull().isNullOrBlank() }
+
+/** 时间线的一格：左时间、中间圆点连线（课和考试实心，自己的安排空心），右侧加入按钮。 */
 @Composable
-private fun PlanRow(block: JsonObject, todo: Boolean, added: Boolean, onAdd: (() -> Unit)?) {
-    val start = block["start"].safeStringOrNull().orEmpty()
-    val title = block["title"].safeStringOrNull().orEmpty().ifBlank { return }
+private fun PlanRow(block: JsonObject, first: Boolean, last: Boolean, todo: Boolean, added: Boolean, onAdd: (() -> Unit)?) {
     val kind = block["kind"].safeStringOrNull().orEmpty()
     val fixed = kind == "class" || kind == "exam"
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-            .background(if (fixed) MiuixTheme.colorScheme.primary.copy(alpha = 0.08f) else AppInsetColor)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.width(52.dp)) {
-            Text(start, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold,
-                color = if (fixed) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface)
+    val primary = MiuixTheme.colorScheme.primary
+    val rail = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.25f)
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.width(44.dp)) {
+            Text(block["start"].safeStringOrNull().orEmpty(), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold,
+                color = if (fixed) primary else MiuixTheme.colorScheme.onSurface)
             block["end"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
                 Text(it, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+        Box(
+            Modifier.width(18.dp).fillMaxHeight().drawBehind {
+                val x = size.width / 2
+                val cy = size.height / 2
+                val r = 4.dp.toPx()
+                val w = 1.5.dp.toPx()
+                if (!first) drawLine(rail, Offset(x, 0f), Offset(x, cy - r - w), w)
+                if (!last) drawLine(rail, Offset(x, cy + r + w), Offset(x, size.height), w)
+                if (fixed) drawCircle(primary, r, Offset(x, cy))
+                else drawCircle(primary, r - w / 2, Offset(x, cy), style = Stroke(w))
+            },
+        )
+        Column(Modifier.weight(1f).padding(start = 8.dp, top = 9.dp, bottom = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(block["title"].safeStringOrNull().orEmpty(), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
             val sub = listOfNotNull(block["place"].safeStringOrNull(), block["note"].safeStringOrNull()).filter { it.isNotBlank() }
             if (sub.isNotEmpty()) {
                 Text(sub.joinToString(" · "), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -265,11 +290,10 @@ private fun PlanRow(block: JsonObject, todo: Boolean, added: Boolean, onAdd: (()
         }
         // 课和考试本来就在课表里；其余安排按小岱标的类型进日程或待办
         if (onAdd != null) {
-            PidaiChip(
+            PidaiIconAction(
+                if (todo) Icons.Filled.AddTask else Icons.Filled.EventAvailable,
                 if (added) "已加入" else if (todo) "加入待办" else "加入日程",
-                icon = if (added) Icons.Filled.Check else if (todo) Icons.Filled.AddTask else Icons.Filled.EventAvailable,
-                enabled = !added,
-                onClick = onAdd,
+                onClick = onAdd, emphasized = true, done = added,
             )
         }
     }

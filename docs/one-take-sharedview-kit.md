@@ -18,7 +18,7 @@
 | ROM 声明支持 SharedViewKit（`isViewAnimationSupported() > 0`）、目标页可独立托管、有凭据、非离线页有网 | `KitOneTake` → `SeamlessPageActivity`（独立 Activity，`ActivityOptions`） | ROM 系统级一镜到底：卡片/图标快照长成页面，返回缩回原卡片 |
 | 站点会话还没连上（有凭据） | 同上，宿主先画骨架再补登录 | **转场立刻播**；骨架后面 `ensureSite`（超时 60s / 多跳 180s），连上后才压真实页面 |
 | 一个凭据都没有 / 页面要联网但没网且没有缓存 / 页面维护中 | 原 Compose 路由（`AppRouter.open` 提示 / 自动登录） | 保留原来的提示，不把人送进一页空白 |
-| 底栏语义路由（日程 / 屁岱 / 学辅）、付款码覆盖层、`Main` | 原路径 | 保持切 tab / 覆盖层语义 |
+| 底栏语义路由（日程 / 小岱 / 学辅）、付款码覆盖层、`Main` | 原路径 | 保持切 tab / 覆盖层语义 |
 | 不支持 ROM / 截图失败 / `makeViewAnimationOptions()` 返回 null / 已有启动在进行 | 原 Compose 路由 | 仓库现有放大转场：窗口从卡片矩形长到全屏，返回叠回源快照 |
 
 判定在点击处完成；KIT 失败路径**恰好回落一次**（主线程），不会出现「点不动」或两套动画叠加。

@@ -2,7 +2,7 @@ package com.xjtu.toolbox.community
 
 /** GitHub Discussions 的模型与取数接口（实现留在 :app，因为它是 okhttp 的）。 */
 
-data class GithubDiscussionCategory(val id: String, val name: String, val acceptsAnswers: Boolean)
+data class GithubDiscussionCategory(val id: String, val name: String, val acceptsAnswers: Boolean, val slug: String = "")
 
 /** 一种表情回应：[content] 是 GitHub 的 ReactionContent 枚举名。 */
 data class GithubReaction(val content: String, val count: Int, val mine: Boolean)
@@ -66,12 +66,12 @@ fun discussionSearchText(owner: String, name: String, query: DiscussionQuery): S
     append(' ').append(query.sort.searchTerm)
 }
 
-/** 只有这个分类限制发帖。GitHub 没有公告格式字段，按名字（slug 同名）认。 */
-const val ANNOUNCEMENT_CATEGORY = "通知公告"
+/** 只有这个分类限制发帖（App 公告的来源，见 .github/workflows/announce.yml）。GitHub 没有公告格式字段，按 slug 认。 */
+const val ANNOUNCEMENT_SLUG = "announcements"
 
-/** 公告分类只有仓库 ADMIN / MAINTAIN 能发；WRITE（协作者）和普通用户都不行。 */
+/** 公告分类是 GitHub 的公告格式：只有仓库 ADMIN / MAINTAIN 能发；WRITE（协作者）和普通用户都不行。 */
 fun canPostIn(category: GithubDiscussionCategory, viewerPermission: String?): Boolean =
-    category.name.trim() != ANNOUNCEMENT_CATEGORY || viewerPermission == "ADMIN" || viewerPermission == "MAINTAIN"
+    category.slug != ANNOUNCEMENT_SLUG || viewerPermission == "ADMIN" || viewerPermission == "MAINTAIN"
 
 fun postableCategories(categories: List<GithubDiscussionCategory>, viewerPermission: String?) =
     categories.filter { canPostIn(it, viewerPermission) }

@@ -3,7 +3,7 @@ name: Feedback digest
 # 飞书反馈表 → 崩溃日报（issue）+ 反馈日报（讨论，一条反馈一层楼），/reply、/skip 回写飞书回复表。
 # 细节见 .github/scripts/feedback_digest.py。
 #
-# 定时（每天北京时间 08:30 = UTC 00:30）：发两类日报（没有新内容就不发），再补处理漏掉的命令。
+# 定时（每天北京时间 08:37 = UTC 00:37，避开整点、半点 GitHub 排队最挤的时候）：发两类日报（没有新内容就不发），再补处理漏掉的命令。
 # 手动：workflow_dispatch，可选 dry_run（只打印不写）。
 # 「大家在问」和投票统计在 announce.yml。
 # 评论：讨论里的 /reply、/skip 由 discussion-commands.yml 统一接收（和 /toissue 同一个入口）；
@@ -16,7 +16,7 @@ name: Feedback digest
 
 on:
   schedule:
-    - cron: '30 0 * * *'
+    - cron: '37 0 * * *'
   workflow_dispatch:
     inputs:
       dry_run:

@@ -221,7 +221,7 @@ class GraphQlGithubDiscussionsRepository(
         mutate("addDiscussionPollVote", "AddDiscussionPollVoteInput", buildJsonObject { put("pollOptionId", optionId) })
 
     override suspend fun categories(owner: String, name: String): Result<List<GithubDiscussionCategory>> = execute(
-        "query(\$owner:String!,\$name:String!){repository(owner:\$owner,name:\$name){discussionCategories(first:100){nodes{id name isAnswerable}}}}",
+        "query(\$owner:String!,\$name:String!){repository(owner:\$owner,name:\$name){discussionCategories(first:100){nodes{id name slug isAnswerable}}}}",
         buildJsonObject { put("owner", owner); put("name", name) }
     ) { data -> data.getValue("repository").jsonObject.getValue("discussionCategories").jsonObject
         .getValue("nodes").jsonArray.map { category(it.jsonObject) } }
@@ -334,7 +334,8 @@ class GraphQlGithubDiscussionsRepository(
     private fun avatar(value: JsonObject) = value.obj("author")?.optText("avatarUrl")
     private fun login(value: JsonObject) = value.obj("author")?.text("login")
 
-    private fun category(value: JsonObject) = GithubDiscussionCategory(value.text("id"), value.text("name"), value.flag("isAnswerable"))
+    private fun category(value: JsonObject) =
+        GithubDiscussionCategory(value.text("id"), value.text("name"), value.flag("isAnswerable"), value["slug"]?.jsonPrimitive?.content.orEmpty())
     private fun discussion(value: JsonObject) = GithubDiscussion(
         id = value.text("id"),
         number = value.getValue("number").jsonPrimitive.int,
@@ -393,6 +394,6 @@ class GraphQlGithubDiscussionsRepository(
         const val ACTIVITY_NODE = "id url body createdAt $AUTHOR"
         // number 必取：社区通知要按编号在 App 内直达那一帖（点开不再丢给浏览器）
         const val ACTIVITY = "... on Discussion{number $ACTIVITY_NODE title comments(last:20){nodes{$ACTIVITY_NODE replies(last:20){nodes{$ACTIVITY_NODE}}}}}"
-        const val FIELDS = "viewerCanUpdate viewerCanDelete viewerCanClose viewerCanReopen authorAssociation id number title body url createdAt updatedAt closed stateReason locked repository{viewerPermission} $AUTHOR $REACTIONS $POLL category{id name isAnswerable} comments{totalCount} answer{id}"
+        const val FIELDS = "viewerCanUpdate viewerCanDelete viewerCanClose viewerCanReopen authorAssociation id number title body url createdAt updatedAt closed stateReason locked repository{viewerPermission} $AUTHOR $REACTIONS $POLL category{id name slug isAnswerable} comments{totalCount} answer{id}"
     }
 }

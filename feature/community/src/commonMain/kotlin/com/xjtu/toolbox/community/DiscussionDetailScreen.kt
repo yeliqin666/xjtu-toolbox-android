@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -359,7 +360,7 @@ private fun OriginalPost(
         }
         DiscussionStateTags(discussion, Modifier.padding(top = 10.dp))
         Spacer(Modifier.height(12.dp))
-        MarkdownText(discussion.body.ifBlank { "（没有正文）" })
+        GithubMarkdown(discussion.body.ifBlank { "（没有正文）" })
         discussion.poll?.let { DiscussionPollCard(it, onVote) }
         ReactionChips(discussion.reactions, discussion.canReact, onToggle = onReact)
         Spacer(Modifier.height(8.dp))
@@ -434,7 +435,7 @@ private fun Floor(
             if (reason != null && !expanded) {
                 MinimizedNotice(reason) { expanded = true }
             } else {
-                MarkdownText(comment.body)
+                GithubMarkdown(comment.body)
                 ReactionChips(comment.reactions, comment.canReact, onToggle = onReactFloor)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -590,7 +591,7 @@ private fun ReplyComposer(
                     .background(AppCardColor)
                     .verticalScroll(rememberScrollState())
                     .padding(14.dp),
-            ) { MarkdownText(text) }
+            ) { GithubMarkdown(text) }
         }
         if (query != null) {
             MentionSuggestions(mentionCandidates, query) { user ->

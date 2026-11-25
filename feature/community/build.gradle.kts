@@ -14,10 +14,8 @@ kotlin {
             api(project(":shared:navigation"))
             api(project(":shared:designsystem"))
             api(project(":shared:network"))
-            // 社区屏要的 Coil 与 GFM renderer（全 KMP）；`coil-network-okhttp` 留在 :app。
+            // 头像用 Coil（全 KMP）；`coil-network-okhttp` 留在 :app。正文渲染在 :shared:designsystem 的 GithubMarkdown。
             api(libs.coil.compose)
-            api(libs.markdown.renderer)
-            api(libs.markdown.renderer.coil3)
             // markdown 解析器：社区摘要要用 AST，版本跟 renderer 走。
             api(libs.jetbrains.markdown)
         }

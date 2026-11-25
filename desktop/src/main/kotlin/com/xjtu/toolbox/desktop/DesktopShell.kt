@@ -53,23 +53,20 @@ internal val DESKTOP_SHELL_TABS: ShellTabs = ShellTabs(
     ),
 )
 
-/** 这一端「当前在哪一页」的两种写法。见文件头：它是 [ShellTarget] 的子集，不是另一套模型。 */
+/** 这一端「当前在哪一页」：都是共享路由表里的一屏（[ShellTarget] 的子集）。 */
 internal sealed interface DesktopTarget {
     data class App(val route: AppRoute) : DesktopTarget
-    data object Routes : DesktopTarget
 }
 
-/** 这一端 → 壳（全函数：这两种目标壳里都有对应的一档）。 */
+/** 这一端 → 壳。 */
 internal fun DesktopTarget.toShell(): ShellTarget = when (this) {
     is DesktopTarget.App -> ShellTarget.App(route)
-    DesktopTarget.Routes -> ShellTarget.AllPages
 }
 
-/** 壳 → 这一端；null = 壳里有、这一端还没有的那一档（[ShellTarget.Custom]：端自己的页）。 */
+/** 壳 → 这一端；null = 这一端没有的那一档（「全部页面」与端自己的页，首页服务宫格就是本端的功能目录）。 */
 internal fun ShellTarget.toDesktop(): DesktopTarget? = when (this) {
     is ShellTarget.App -> DesktopTarget.App(route)
-    ShellTarget.AllPages -> DesktopTarget.Routes
-    is ShellTarget.Custom -> null
+    ShellTarget.AllPages, is ShellTarget.Custom -> null
 }
 
 /**
@@ -83,16 +80,15 @@ internal fun ShellTarget.toDesktop(): DesktopTarget? = when (this) {
  * - `schedule` → [AppRoute.Schedule]（课表是一页，但**底栏里没有这一格** ⇒ 一格都不高亮，
  *   这是共享壳里就允许的状态，见 `ShellNavState.selected` 的 KDoc）；
  * - `agent` → [AppRoute.Agent]（同上：屁岱有页无格）；
- * - `services` → [DesktopTarget.Routes]（列本端真能打开的路由，与「学辅」目录同位；dock 里没有这一格）；
+ * - `services` → [AppRoute.Main]（桌面没有「学辅」目录，首页服务宫格列的就是本端真能打开的功能）；
  * - `profile` → [AppRoute.Settings]（桌面没有「我的」那格；与账号/外观相关的只有设置页）。
  *
  * 认不出（老文件、手工改过的值）退日程：与 `SettingsStore.TAB_KEY_DEFAULT` 同一档。
  */
 internal fun desktopStartTarget(defaultTab: String): DesktopTarget =
     when (SettingsStore.normalizeDefaultTab(defaultTab)) {
-        SettingsStore.TAB_KEY_HOME -> DesktopTarget.App(AppRoute.Main)
+        SettingsStore.TAB_KEY_HOME, SettingsStore.TAB_KEY_SERVICES -> DesktopTarget.App(AppRoute.Main)
         SettingsStore.TAB_KEY_AGENT -> DesktopTarget.App(AppRoute.Agent)
-        SettingsStore.TAB_KEY_SERVICES -> DesktopTarget.Routes
         SettingsStore.TAB_KEY_PROFILE -> DesktopTarget.App(AppRoute.Settings)
         else -> DesktopTarget.App(AppRoute.Schedule)
     }

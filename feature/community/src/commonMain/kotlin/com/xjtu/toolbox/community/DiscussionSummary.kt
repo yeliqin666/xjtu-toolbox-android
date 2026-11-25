@@ -7,6 +7,7 @@ import org.intellij.markdown.MarkdownTokenTypes as Tokens
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.parser.MarkdownParser
+import com.xjtu.toolbox.ui.markdown.githubHtmlToMarkdown
 
 /** A bounded list preview. The original body is always used by the detail reader. */
 fun discussionSummary(markdown: String): String {

@@ -1,6 +1,4 @@
-// 原先这里还有一套 kyant 的液态玻璃胶囊（拖动手势、形变、折射、高光）；Android 早就整条换成
-// COUI `NavigationBar` 了，非 Android 平台又都是经典风格（`glassStyle = false`，走 ClassicBottomBar），
-// 那条回退路径没有任何平台会走到，已删除。
+// 玻璃底栏只有 Android 的 COUI 实现；其它平台由 `glassNavStyle` 判成经典，走 ClassicBottomBar。
 package com.xjtu.toolbox.ui.glass
 
 import androidx.compose.foundation.layout.ColumnScope

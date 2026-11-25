@@ -191,6 +191,7 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 - 提交信息使用 Conventional Commits 风格：`feat(scope): ...`、`fix(scope): ...`、`refactor(scope): ...`、`chore(scope): ...`、`docs: ...`、`test: ...`、`ci: ...`。
 - `scope` 使用模块名或功能名，例如 `home`、`schedule`、`update`、`ci`；没有明确范围时可以省略。
 - 一个提交只做一件事。格式化、重命名与行为修改尽量分开，便于 review 和回滚。
+- 改了带 `schedule` 的 workflow，推到 `main` 的那次提交**不得**带 `[skip ci]`：GitHub 在推送默认分支时登记定时，被跳过的推送不登记，定时就一直不跑。只改 `.github/workflows/**` 不会触发正式版构建（`build.yml` 有 paths-ignore），不需要靠 `[skip ci]` 防重发。
 - PR 描述应当说明：改了什么、为什么改、如何验证（命令、测试结果、必要的截图或录屏）。
 - 涉及 UI 的改动应当附截图或录屏；涉及更新与发版的改动应当说明版本号与升级路径。
 - 不得在提交、Issue、PR 或截图中包含账号、密码、Cookie、API Key、签名口令或其他凭据。
@@ -240,7 +241,6 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 | [`docs/desktop.md`](docs/desktop.md) | 桌面端打包、CI、凭据存储 |
 | [`docs/api-contract.md`](docs/api-contract.md) | serve 模式运行方式与 `/api/*` 契约 |
 | [`docs/archive-format.md`](docs/archive-format.md) | 三端通用的存档格式 |
-| [`docs/agent.md`](docs/agent.md) | 屁岱：中断、结果卡、读文档、MCP |
+| [`docs/agent.md`](docs/agent.md) | 小岱：中断、结果卡、读文档、MCP |
 | [`docs/one-take-sharedview-kit.md`](docs/one-take-sharedview-kit.md) | 首页卡片「一镜到底」转场 |
-| [`docs/dynamic-schedule-notification.md`](docs/dynamic-schedule-notification.md) | 动态课程与日程通知 |
 | [`docs/miuix.md`](docs/miuix.md) | MIUIX 组件用法与本项目约定 |

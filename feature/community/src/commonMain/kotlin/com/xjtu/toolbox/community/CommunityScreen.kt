@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.ui.text.style.TextDecoration
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.showBriefMessage
+import com.xjtu.toolbox.ui.markdown.LocalIssueRefs
 import io.ktor.client.network.sockets.SocketTimeoutException
 import okio.IOException
 import top.yukonga.miuix.kmp.theme.MiuixTheme

@@ -1,26 +1,28 @@
 package com.xjtu.toolbox.library
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightOutcome
 import com.xjtu.toolbox.agent.InsightSpec
 import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.platform.cropImageToJpegDataUri
-import com.xjtu.toolbox.ui.components.AppInsetColor
 import com.xjtu.toolbox.ui.components.InsightState
+import com.xjtu.toolbox.ui.components.PidaiChip
+import com.xjtu.toolbox.ui.components.PidaiChipFlow
+import com.xjtu.toolbox.ui.components.PidaiContextLine
+import com.xjtu.toolbox.ui.components.PidaiFilterChip
+import com.xjtu.toolbox.ui.components.PidaiHero
+import com.xjtu.toolbox.ui.components.PidaiHeroText
+import com.xjtu.toolbox.ui.components.PidaiIconAction
 import com.xjtu.toolbox.ui.components.PidaiInsightCard
+import com.xjtu.toolbox.ui.components.PidaiList
+import com.xjtu.toolbox.ui.components.PidaiListRow
+import com.xjtu.toolbox.ui.components.PidaiSummary
 import com.xjtu.toolbox.util.safeStringOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -129,59 +131,45 @@ internal fun LibrarySeatPicksCard(
         title = "小岱荐座",
         state = state,
         modifier = modifier,
-        subtitle = "看平面图，按你的偏好挑三个座",
-        idleHint = "选几个偏好，小岱对着「$areaName」的平面图帮你挑。",
         idleAction = "让小岱挑座",
+        brief = { json -> seatPicks(json).firstOrNull()?.let { (seat, why) -> "首选 $seat" + why.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty() } },
         askPrompt = { "图书馆「$areaName」你推荐的座位，再说说理由，还有别的区域更合适吗？" },
         controls = {
-            com.xjtu.toolbox.ui.components.PidaiChipRow {
-                SeatPickPrefs.OPTIONS.forEach { p ->
-                    com.xjtu.toolbox.ui.components.PidaiChip(p, selected = p in prefs, onClick = {
-                        onPrefsChange(if (p in prefs) prefs - p else prefs + p)
-                    })
+            PidaiContextLine(
+                lead = if (prefs.isEmpty()) "$areaName · 没选偏好，按常理挑" else "$areaName · 按 ",
+                emphasis = prefs.joinToString(" · "),
+                tail = if (prefs.isEmpty()) "" else " 挑",
+            ) {
+                PidaiChipFlow {
+                    SeatPickPrefs.OPTIONS.forEach { p ->
+                        PidaiFilterChip(p, selected = p in prefs, onClick = { onPrefsChange(if (p in prefs) prefs - p else prefs + p) })
+                    }
                 }
             }
         },
+        primary = { json ->
+            seatPicks(json).firstOrNull()?.let { (seat, _) -> PidaiChip("预约 $seat", emphasized = true, onClick = { onPick(seat) }) }
+        },
     ) { json ->
-        json["summary"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        PidaiSummary(json["summary"].safeStringOrNull())
+        val picks = seatPicks(json)
+        picks.firstOrNull()?.let { (seat, why) ->
+            PidaiHero(title = why.ifBlank { "$seat 号" }, label = "首选", leading = { PidaiHeroText(seat) })
         }
-        ((json["picks"] as? JsonArray).orEmpty()).mapNotNull { runCatching { it.jsonObject }.getOrNull() }
-            .forEachIndexed { i, p -> PickRow(i, p, onPick) }
+        PidaiList(picks.drop(1)) { (seat, why) ->
+            PidaiListRow(
+                title = why.ifBlank { "备选" },
+                leading = { Text(seat, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold, modifier = Modifier.width(52.dp), maxLines = 1) },
+                trailing = { PidaiIconAction(Icons.Filled.EventSeat, "预约 $seat", onClick = { onPick(seat) }) },
+            )
+        }
     }
 }
 
-@Composable
-private fun PickRow(index: Int, pick: JsonObject, onPick: (String) -> Unit) {
-    val seat = pick["seat"].safeStringOrNull().orEmpty().ifBlank { return }
-    val primary = MiuixTheme.colorScheme.primary
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(AppInsetColor)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        androidx.compose.foundation.layout.Box(
-            Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
-                .background(if (index == 0) primary else primary.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                seat,
-                style = MiuixTheme.textStyles.footnote1,
-                fontWeight = FontWeight.Bold,
-                color = if (index == 0) MiuixTheme.colorScheme.onPrimary else primary,
-                maxLines = 1,
-            )
-        }
-        Column(Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(if (index == 0) "首选 · $seat 号" else "备选 · $seat 号", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
-            pick["why"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-                Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            }
-        }
-        com.xjtu.toolbox.ui.components.PidaiChip("预约", emphasized = index == 0, onClick = { onPick(seat) })
-    }
-}
+/** 小岱挑的座位：座位号 to 理由。 */
+private fun seatPicks(json: JsonObject): List<Pair<String, String>> =
+    (json["picks"] as? JsonArray).orEmpty().mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+        .mapNotNull { p -> p["seat"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let { it to p["why"].safeStringOrNull().orEmpty() } }
 
 private const val CANDIDATES = 12
 private const val TILE = 1280

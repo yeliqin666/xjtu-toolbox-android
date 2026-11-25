@@ -6,7 +6,8 @@ name: Announce
 # Gitee，bulletin.json 再传一份到 OSS：App 同时读 OSS 和 Gitee、按 updatedAt 取较新的，都不行再读 GitHub。
 #
 #   讨论区有变动：重建 bulletin.json；首次发布写一行飞书公告表、帖子里回一条解析结果；关帖 = 删除
-#   每 4 天（北京时间 09:00，每月 1、5、9…号）：统计投票、从飞书生成 feedback-qa.json（大家在问），再重建
+#   每 4 天（北京时间 09:17，避开整点；每月 1、5、9…号）：统计投票（最终结果写进帖子后删掉飞书里的票）、
+#   过了截止时间的公告和投票关帖撤下、从飞书生成 feedback-qa.json（大家在问），再重建
 #   手动：workflow_dispatch = 每 4 天那一趟，可选 dry_run（只打印，不提交、不回帖、不写飞书）
 #
 # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce（它会传 OSS），这里自己推 Gitee。
@@ -16,7 +17,7 @@ on:
   discussion:
     types: [created, edited, deleted, closed, reopened, category_changed]
   schedule:
-    - cron: '0 1 */4 * *'
+    - cron: '17 1 */4 * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -88,8 +89,8 @@ jobs:
           bash "$GITHUB_WORKSPACE/.github/scripts/gitee_push.sh" HEAD refs/heads/announce
 
       # 公告也放一份到 OSS：App 同时读 OSS 和 Gitee 取较新的（旧版本只读 OSS）。
-      # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce，所以在这里自己传；
-      # ESA 不认源站缓存头，传完主动刷新（没配 ESA_* secrets 就跳过，要等缓存过期）。
+      # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce，所以在这里自己传。
+      # 清单类对象在 ESA 上是不缓存的（见 docs/release.md），传完不需要刷缓存。
       - name: Upload bulletin to OSS
         if: steps.commit.outputs.pushed == '1'
         continue-on-error: true
@@ -99,15 +100,7 @@ jobs:
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
           OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
           OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
-          ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
-          ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
-          ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
         run: |
           set -euo pipefail
           python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 oss2
           python3 .github/scripts/oss_upload.py announce/bulletin.json "xjtu-toolbox/bulletin.json" "no-cache"
-          if [ -n "$ESA_SITE_ID" ]; then
-            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
-              || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
-          fi
-          python3 .github/scripts/esa_purge.py bulletin.json
