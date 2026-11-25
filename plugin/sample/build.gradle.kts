@@ -19,8 +19,8 @@ android {
         applicationId = "com.xjtu.toolbox.plugin.sample"
         minSdk = 31
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.1.0"
+        versionCode = 5
+        versionName = "1.1.2"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
