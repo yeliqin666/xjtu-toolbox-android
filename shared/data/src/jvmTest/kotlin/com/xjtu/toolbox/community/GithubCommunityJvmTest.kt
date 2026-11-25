@@ -25,9 +25,9 @@ class GithubCommunityJvmTest {
     fun setUp() {
         dataRootOverride = Files.createTempDirectory("xjtu-community-test").toFile()
         store = secureKeyValueStore("github_community")
-        session = SecureGithubSession(store)
         FakeCampusProxy.installFakeUpstreams()
         fake = FakeCampusProxy().start()
+        session = SecureGithubSession(store)
     }
 
     @AfterTest
