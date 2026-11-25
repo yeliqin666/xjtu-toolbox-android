@@ -15,8 +15,12 @@ internal object PluginSettings {
 
     private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
-    /** 在线市场的索引地址；空串表示还没配，市场就是空的。 */
-    fun indexUrl(context: Context): String = prefs(context).getString(KEY_INDEX_URL, "").orEmpty()
+    /** 默认市场索引。留空就用这个。 */
+    const val DEFAULT_INDEX_URL: String = "https://dzhz.top/plugin-market.json"
+
+    /** 生效的索引地址：没配过就用默认市场。 */
+    fun indexUrl(context: Context): String =
+        prefs(context).getString(KEY_INDEX_URL, "").orEmpty().ifBlank { DEFAULT_INDEX_URL }
 
     fun setIndexUrl(context: Context, url: String) {
         prefs(context).edit().putString(KEY_INDEX_URL, url.trim()).apply()

@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -151,6 +152,9 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
 
     BackHandler(enabled = detail != null) { closing = true }
 
+    // 下拉刷新途中切到另一个 tab：那个 PullToRefresh 已经被组掉了，转圈状态得自己收回来
+    LaunchedEffect(tab) { refreshing = false }
+
     // ── 详情页 ────────────────────────────────────────────────────────────
     if (detail != null) {
         ExpandFromCard(
@@ -221,7 +225,7 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
         Crossfade(targetState = tab, animationSpec = tween(200), label = "pluginTab") { current ->
         if (current == 0) {
             val listState = rememberLazyListState()
-            ReportScrollPosition(listState)
+            ReportScrollPosition(listState, scrollBehavior)
             LazyColumn(
                 modifier = base,
                 state = listState,
@@ -400,6 +404,25 @@ private fun ExpandFromCard(
         ) {
             content()
         }
+    }
+}
+
+/** 作者头像：有图就用图，没有就用名字首字画个圆。 */
+@Composable
+private fun AuthorAvatar(name: String) {
+    val initial = name.trim().take(1).ifBlank { "?" }
+    Box(
+        Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(DexBadgeColor.copy(alpha = 0.18f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = initial,
+            style = MiuixTheme.textStyles.footnote1,
+            color = DexBadgeColor,
+        )
     }
 }
 
@@ -616,7 +639,11 @@ private fun MarketTab(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                         ) {
                             items(featured, key = { it.id }) { entry ->
-                                FeaturedCard(entry, Modifier.animateItem())
+                                FeaturedCard(
+                                    entry = entry,
+                                    onClick = { onInstall(entry) },
+                                    modifier = Modifier.animateItem(),
+                                )
                             }
                         }
                     }
@@ -625,7 +652,12 @@ private fun MarketTab(
             }
 
             item(key = "filters") {
-                Column(Modifier.padding(horizontal = 16.dp)) {
+                Column(
+                    Modifier.padding(
+                        horizontal = 16.dp,
+                        vertical = if (featured.isEmpty()) 12.dp else 0.dp,
+                    ),
+                ) {
                     AppSearchBar(
                         query = query,
                         onQueryChange = { query = it },
@@ -748,11 +780,17 @@ private fun ChipArrow() {
 
 /** 横滑精选卡：不自动播放，只占首屏一小条。 */
 @Composable
-private fun FeaturedCard(entry: MarketEntry, modifier: Modifier = Modifier) {
+private fun FeaturedCard(
+    entry: MarketEntry,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Card(
         modifier = modifier
             .width(220.dp)
-            .height(132.dp),
+            .height(132.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(14.dp)) {
@@ -827,11 +865,13 @@ private fun MarketRow(entry: MarketEntry, onClick: () -> Unit, modifier: Modifie
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TypeBadge(isWeb = entry.isWeb)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.weight(1f))
                 Text(
                     text = entry.author,
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.height(6.dp))
@@ -866,8 +906,9 @@ private fun SettingsSheet(demo: Boolean, onDismiss: () -> Unit, onInstallFromFil
                 .navigationBarsPadding()
                 .heightIn(max = 560.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(vertical = 4.dp),
         ) {
+            // 卡片自带 16dp 外边距，输入框补同样的边，两者才左右对齐
             TextField(
                 value = indexUrl,
                 onValueChange = {
@@ -876,14 +917,29 @@ private fun SettingsSheet(demo: Boolean, onDismiss: () -> Unit, onInstallFromFil
                 },
                 label = "索引地址",
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
             )
-            Text(
-                "在线市场从这个地址读插件列表。留空就是空市场。",
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 12.dp),
-            )
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                Text(
+                    text = "在线市场从这个地址读插件列表；留空就用默认市场。",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                Text(
+                    text = "用默认市场（${PluginSettings.DEFAULT_INDEX_URL}）",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            indexUrl = PluginSettings.DEFAULT_INDEX_URL
+                            if (!demo) PluginSettings.setIndexUrl(context, PluginSettings.DEFAULT_INDEX_URL)
+                        }
+                        .padding(vertical = 6.dp),
+                )
+            }
             CouiSettingsCard {
                 SwitchPreference(
                     title = "只在 Wi-Fi 下加载索引",
@@ -1028,6 +1084,7 @@ private fun DetailPage(
                         ArrowPreference(
                             title = "作者",
                             summary = record.manifest.author,
+                            startAction = { AuthorAvatar(record.manifest.author) },
                             enabled = record.manifest.authorUrl.isNotBlank(),
                             onClick = { uriHandler.openUri(record.manifest.authorUrl) },
                         )
