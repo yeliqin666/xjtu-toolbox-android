@@ -114,7 +114,7 @@ object FeedbackStore {
         store.putString(K_REPLY_CACHE, obj.toString())
     }
 
-    /** 「大家在问」每 4 天才生成一次，进页面隔 4 天拉一次就够；下拉刷新照拉（读 Gitee，不碰飞书）。 */
+    /** 「大家在问」读 Gitee 上的静态文件（不碰飞书），进页面每天拉一次：维护者手动重建后隔天就能看到；下拉刷新照拉。 */
     fun shouldFetchPublicQa(manual: Boolean): Boolean {
         val last = store.getString(K_PUBLIC_QA_AT)?.toLongOrNull() ?: 0L
         return manual || now() - last >= PUBLIC_QA_GAP_MS
@@ -148,7 +148,7 @@ object FeedbackStore {
     private const val REPLY_FETCH_GAP_MS = 24L * 60 * 60 * 1000
     private const val REPLY_FETCH_GAP_MANUAL_MS = 60L * 1000
     private const val PENDING_WINDOW_MS = 14L * 24 * 60 * 60 * 1000
-    private const val PUBLIC_QA_GAP_MS = 4L * 24 * 60 * 60 * 1000
+    private const val PUBLIC_QA_GAP_MS = 24L * 60 * 60 * 1000
 
     // ---- 定点弹问卷的节流 ----
 

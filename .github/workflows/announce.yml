@@ -6,7 +6,7 @@ name: Announce
 # Gitee，bulletin.json 再传一份到 OSS：App 同时读 OSS 和 Gitee、按 updatedAt 取较新的，都不行再读 GitHub。
 #
 #   讨论区有变动：重建 bulletin.json；首次发布写一行飞书公告表、帖子里回一条解析结果；关帖 = 删除
-#   每 4 天（北京时间 09:00，每月 1、5、9…号）：统计投票（最终结果写进帖子后删掉飞书里的票）、
+#   每 4 天（北京时间 09:17，避开整点；每月 1、5、9…号）：统计投票（最终结果写进帖子后删掉飞书里的票）、
 #   过了截止时间的公告和投票关帖撤下、从飞书生成 feedback-qa.json（大家在问），再重建
 #   手动：workflow_dispatch = 每 4 天那一趟，可选 dry_run（只打印，不提交、不回帖、不写飞书）
 #
@@ -17,7 +17,7 @@ on:
   discussion:
     types: [created, edited, deleted, closed, reopened, category_changed]
   schedule:
-    - cron: '0 1 */4 * *'
+    - cron: '17 1 */4 * *'
   workflow_dispatch:
     inputs:
       dry_run:
