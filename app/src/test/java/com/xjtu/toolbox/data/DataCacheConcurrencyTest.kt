@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class DataCacheConcurrencyTest {
-    private val app = RuntimeEnvironment.getApplication()
+    private val app: Application = RuntimeEnvironment.getApplication()
     private val account = "cache-concurrency-test"
     private val dir = File(app.cacheDir, "data_cache" + AccountContext.suffixFor(account))
 
