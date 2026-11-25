@@ -102,7 +102,7 @@ class InstanceLockJvmTest {
             assertTrue(child.waitFor(10, TimeUnit.SECONDS))
             val next = InstanceLock.acquire("desktop", root)
             try {
-                assertTrue(next.isOwner, "OS must release the lock after the owner is killed")
+                assertTrue(next.isOwner, "OS must release the lock after the owner is killed: ${next.readOnlyReason}")
             } finally {
                 next.release()
             }

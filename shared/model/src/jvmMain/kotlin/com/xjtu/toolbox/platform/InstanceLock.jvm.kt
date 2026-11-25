@@ -33,11 +33,31 @@ class InstanceLock private constructor(
 
         @Synchronized
         fun acquire(role: String, root: File = keyValueStoreRoot()): InstanceLock {
+            // Windows may still hold a terminated process's file locks during OS cleanup.
+            // Retry only when the recorded owner has exited; never bypass the actual lock.
+            val file = File(root, LOCK_NAME)
+            val deadline = System.nanoTime() + 2_000_000_000L
+            while (true) {
+                val result = acquireOnce(role, root)
+                if (result.isOwner) return result
+                val previous = read(file)
+                if (previous == null || !previous.kernelLock || isProcessAlive(previous.pid) ||
+                    System.nanoTime() >= deadline) return result
+                try {
+                    Thread.sleep(25)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return result
+                }
+            }
+        }
+
+        private fun acquireOnce(role: String, root: File): InstanceLock {
             val pid = ProcessHandle.current().pid()
             val file = try {
                 File(root.canonicalFile, LOCK_NAME)
             } catch (e: IOException) {
-                return unavailable(File(root, LOCK_NAME), role)
+                return unavailable(File(root, LOCK_NAME), role, e)
             }
 
             // 同 JVM 内不再打开第二个 guard 句柄：某些系统关闭任一
@@ -51,7 +71,7 @@ class InstanceLock private constructor(
                 Files.createDirectories(file.parentFile.toPath())
                 FileChannel.open(guard.toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
             } catch (e: IOException) {
-                return unavailable(file, role)
+                return unavailable(file, role, e)
             }
             var acquired: FileLock? = null
             var keep = false
@@ -82,7 +102,7 @@ class InstanceLock private constructor(
                 keep = true
                 return owner
             } catch (e: IOException) {
-                return unavailable(file, role)
+                return unavailable(file, role, e)
             } finally {
                 if (!keep) {
                     try {
@@ -127,9 +147,9 @@ class InstanceLock private constructor(
             )
         }
 
-        private fun unavailable(file: File, role: String) = InstanceLock(
+        private fun unavailable(file: File, role: String, error: IOException) = InstanceLock(
             file, -1L, null, 0L,
-            "无法取得 ${file.path} 的写锁：当前 $role 实例按只读运行。",
+            "无法取得 ${file.path} 的写锁（${error.javaClass.simpleName}: ${error.message}）：当前 $role 实例按只读运行。",
         )
 
         private fun read(file: File): LockOwner? = runCatching {
