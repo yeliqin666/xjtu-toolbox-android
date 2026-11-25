@@ -183,6 +183,7 @@ internal fun PluginUiTree(
     }
 }
 
+@Composable
 private fun UiTextStyle.toMiuixStyle(): TextStyle = when (this) {
     UiTextStyle.Display -> MiuixTheme.textStyles.title1
     UiTextStyle.Title -> MiuixTheme.textStyles.title2
