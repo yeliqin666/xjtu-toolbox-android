@@ -51,6 +51,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -227,7 +228,8 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
             val listState = rememberLazyListState()
             ReportScrollPosition(listState, scrollBehavior)
             LazyColumn(
-                modifier = base,
+                // 大标题要靠 nestedScroll 才收得起来（ReportScrollPosition 只管「压到栏下面」那层状态）
+                modifier = base.nestedScroll(scrollBehavior.nestedScrollConnection),
                 state = listState,
                 contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
             ) {
