@@ -39,12 +39,29 @@ internal object PluginOverlay {
     var current by mutableStateOf<Request?>(null)
         private set
 
+    /** 调试用：整页显示插件列表（设置 → 插件那一页）。 */
+    var listOpen by mutableStateOf(false)
+        private set
+
+    fun openList() {
+        listOpen = true
+    }
+
+    fun closeList() {
+        listOpen = false
+    }
+
     fun open(pluginId: String, pageId: String) {
         current = Request(pluginId, pageId)
     }
 
     fun close() {
         current = null
+    }
+
+    fun closeAll() {
+        current = null
+        listOpen = false
     }
 }
 
@@ -58,6 +75,10 @@ internal object PluginOverlay {
  */
 @Composable
 internal fun PluginPageOverlayHost() {
+    if (PluginOverlay.listOpen) {
+        PluginsPage(onBack = { PluginOverlay.closeList() })
+        return
+    }
     val request = PluginOverlay.current ?: return
     val context = LocalContext.current
     val manager = remember { PluginManager.get(context) }

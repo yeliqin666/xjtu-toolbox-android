@@ -2,8 +2,8 @@
   "apiVersion": 2,
   "id": "com.xjtu.toolbox.plugin.sample",
   "name": "示例插件",
-  "version": "1.1.0",
-  "versionCode": 3,
+  "version": "1.1.1",
+  "versionCode": 4,
   "minAppVersionCode": 101,
   "entryClass": "com.xjtu.toolbox.plugin.sample.SamplePlugin",
   "pages": [
@@ -33,5 +33,6 @@
         }
       }
     }
-  ]
+  ],
+  "summary": "把课程、考试、成绩、图书馆座位和空教室整理到一页，顺手给小岱加两个只读工具，不碰登录会话也不上传数据"
 }

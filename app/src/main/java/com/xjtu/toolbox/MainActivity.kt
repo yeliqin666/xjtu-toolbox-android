@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
         /** 仅 debug 包：启动后直接打开的插件 id / 页面 id。 */
         const val EXTRA_PLUGIN = "extra_plugin"
+        const val EXTRA_PLUGIN_LIST = "extra_plugin_list"
         const val EXTRA_PLUGIN_PAGE = "extra_plugin_page"
     }
 
@@ -213,6 +214,10 @@ class MainActivity : ComponentActivity() {
                     Log.i("NekoPluginDebug", "已安装 ${pending.manifest.id} ${pending.manifest.version}")
                 }.onFailure { Log.e("NekoPluginDebug", "插件安装失败：$path", it) }
             }
+        }
+        if (intent?.getStringExtra(EXTRA_PLUGIN_LIST) != null) {
+            intent.removeExtra(EXTRA_PLUGIN_LIST)
+            com.xjtu.toolbox.plugin.PluginOverlay.openList()
         }
         val pluginId = intent?.getStringExtra(EXTRA_PLUGIN)
         if (!pluginId.isNullOrBlank()) {

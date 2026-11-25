@@ -19,7 +19,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.ArrowPreference
@@ -34,6 +36,7 @@ import com.xjtu.toolbox.ui.glass.withoutTop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -132,6 +135,32 @@ internal fun PluginsPage(onBack: () -> Unit) {
                 val broken = record.id in manager.brokenIds
                 SmallTitle(record.manifest.name + " · " + record.versionName.ifBlank { "v${record.versionCode}" })
                 CouiSettingsCard {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = record.manifest.name,
+                                style = MiuixTheme.textStyles.title3,
+                                color = MiuixTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = record.versionName.ifBlank { "v${record.versionCode}" },
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                        if (record.manifest.summary.isNotBlank()) {
+                            Text(
+                                text = record.manifest.summary,
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
                     SwitchPreference(
                         title = "启用",
                         summary = if (broken) "APK 丢失，请卸载后重装" else "关闭后页面和小岱工具都不可用",

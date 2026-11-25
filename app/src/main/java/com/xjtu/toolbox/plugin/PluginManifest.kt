@@ -14,6 +14,8 @@ internal data class PluginManifest(
     val apiVersion: Int,
     val id: String,
     val name: String,
+    /** 一句话简介，列表页最多两行。空串表示这个插件没写。 */
+    val summary: String = "",
     val version: String = "",
     val versionCode: Int,
     val minAppVersionCode: Int = 0,
