@@ -2,10 +2,11 @@
 //
 // 构建：./gradlew :plugin:sample:assembleDebug
 // 产物：plugin/sample/build/outputs/apk/debug/sample-debug.apk
-// 在 App 的「设置 → 插件」里选这个 APK 安装即可。
+//
+// 注意这里**没有** Compose 依赖：插件只依赖 :plugin:api，界面由宿主渲染。
+// 所以这个 APK 只有几百 KB，而不是带一整套 Compose 的 20 多 MB。
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -18,11 +19,8 @@ android {
         applicationId = "com.xjtu.toolbox.plugin.sample"
         minSdk = 31
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
-    }
-    buildFeatures {
-        compose = true
+        versionCode = 3
+        versionName = "1.1.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -30,22 +28,13 @@ android {
     }
     buildTypes {
         release {
-            // 真插件应该开 R8；样例只用来验证加载流程，debug 包也能被宿主接受。
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
 
-
 dependencies {
-    // 插件作者只需要这一个宿主 API；Compose / lifecycle 等由插件自己打包。
+    // 插件作者唯一需要依赖的东西。Compose / lifecycle / 协程都不用带。
     implementation(project(":plugin:api"))
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.ui)
-    implementation(libs.androidx.foundation)
-    implementation(libs.androidx.lifecycle.runtime)
-    implementation(libs.androidx.lifecycle.viewmodel)
-    implementation(libs.androidx.savedstate)
-    implementation(libs.kotlinx.coroutines.core)
 }

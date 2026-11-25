@@ -16,7 +16,7 @@ import android.view.View
  */
 object PluginApi {
     /** 宿主能接受的插件 API 版本；插件 `plugin.json` 的 `apiVersion` 必须完全相等。 */
-    const val VERSION: Int = 1
+    const val VERSION: Int = 2
 
     /** 插件 APK 里放清单的 asset 路径。 */
     const val MANIFEST_ASSET: String = "plugin.json"
@@ -37,22 +37,52 @@ interface Plugin {
 }
 
 /**
- * 一个可打开的插件页。宿主给一个标准页面壳（顶栏 + 返回），插件只画内容区。
+ * 一个可打开的插件页。宿主给标准页面壳（顶栏 + 返回），插件返回**界面树**，宿主负责渲染。
  *
  * 用 abstract class 而不是 interface，是为了让这些 open 方法在字节码里是普通虚方法，
  * 不依赖 Kotlin 的 `$DefaultImpls`，跨 classloader 更稳。
+ *
+ * 生命周期：宿主在主线程依次调 [onStart]、[onResume]；关页面时 [onPause]、[onStop]、[onDestroy]。
+ * 插件在 [render] 里**不要**做耗时操作——它在主线程、每次 invalidate 都会被调一次。
  */
 abstract class PluginPage {
     abstract fun id(): String
 
-    /** 在宿主主线程调用；返回的 View 会被放进页面的内容区。 */
-    abstract fun createView(context: Context, argsJson: String): View
+    /** 顶栏标题；空串表示用 `plugin.json` 里这个页面的 title。 */
+    open fun title(): String = ""
+
+    /**
+     * 返回这一帧的界面树。宿主在主线程调用，必须快；数据要提前取好放在字段里。
+     * 树里不要放可变状态，插件改完状态调 [invalidate] 让宿主重新要一次。
+     */
+    abstract fun render(): UiNode
+
+    /**
+     * 用户操作的唯一回传口：[actionId] 是节点上声明的那个 id。
+     * 输入框在 `value` 里给整段文本，其它节点为 null。
+     */
+    open fun onAction(actionId: String, value: String?) {}
 
     open fun onStart() {}
     open fun onResume() {}
     open fun onPause() {}
     open fun onStop() {}
     open fun onDestroy() {}
+
+    /** 宿主注入的「该重画了」。插件不要调这个，调 [invalidate]。 */
+    private var invalidator: (() -> Unit)? = null
+
+    fun attachInvalidator(invalidate: (() -> Unit)?) {
+        invalidator = invalidate
+    }
+
+    /**
+     * 告诉宿主界面该重画了。**任意线程都可以调**：宿主会切回主线程再要 [render]。
+     * 插件改完字段记得调一次，否则用户看不到变化。
+     */
+    protected fun invalidate() {
+        invalidator?.invoke()
+    }
 }
 
 /**

@@ -1,31 +1,36 @@
 package com.xjtu.toolbox.plugin
 
-import androidx.compose.foundation.layout.Box
+import android.os.Handler
+import android.os.Looper
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.plugin.api.UiEmptyNode
+import com.xjtu.toolbox.plugin.api.UiLoadingNode
+import com.xjtu.toolbox.plugin.api.UiNode
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
-import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /** 全局"要打开哪个插件页"的信号；设置页写它，[PluginPageOverlayHost] 读它。 */
 internal object PluginOverlay {
@@ -44,7 +49,10 @@ internal object PluginOverlay {
 }
 
 /**
- * 全屏插件页宿主：标准顶栏 + 插件自己的 View。
+ * 全屏插件页宿主：标准顶栏 + 插件返回的界面树。
+ *
+ * 插件那边一个 Compose 类都没有——它只交回数据（[UiNode]），这里用盒子自己的组件画。
+ * 所以不存在跨 classloader 的类型身份问题，插件也不必自带 Compose / lifecycle / 协程。
  *
  * 这里不放导航栈：插件页是覆盖层，返回键先关它；账号切换由 [AppRoot] 调 [PluginOverlay.close]。
  */
@@ -55,9 +63,12 @@ internal fun PluginPageOverlayHost() {
     val manager = remember { PluginManager.get(context) }
     val glass = rememberPageGlass()
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val scroll = rememberScrollState()
 
     var opened by remember(request) { mutableStateOf<OpenedPluginPage?>(null) }
     var error by remember(request) { mutableStateOf<String?>(null) }
+    var tick by remember(request) { mutableIntStateOf(0) }
 
     BackHandler(enabled = true) { PluginOverlay.close() }
 
@@ -73,7 +84,46 @@ internal fun PluginPageOverlayHost() {
         }
     }
 
-    val title = opened?.title ?: manager.records.firstOrNull { it.id == request.pluginId }?.manifest?.name ?: "插件"
+    val page = opened
+
+    // 插件改完状态调 invalidate()，这里切回主线程重要一次树；插件从任意线程调都行
+    DisposableEffect(page) {
+        if (page == null) {
+            onDispose { }
+        } else {
+            page.page.attachInvalidator { mainHandler.post { tick++ } }
+            page.page.onStart()
+            page.page.onResume()
+            onDispose {
+                page.page.attachInvalidator(null)
+                page.page.onPause()
+                page.page.onStop()
+                page.page.onDestroy()
+            }
+        }
+    }
+
+    // 树每帧重新要一次：插件把数据放在自己的字段里，render() 只是把字段组装成节点
+    val tree: UiNode? = remember(page, tick) {
+        page?.let { p ->
+            runCatching { p.page.render() }.getOrElse {
+                UiEmptyNode("插件页面渲染失败", it.message ?: it.javaClass.simpleName)
+            }
+        }
+    }
+
+    val title = page?.page?.title()?.takeIf { it.isNotBlank() }
+        ?: page?.title
+        ?: manager.records.firstOrNull { it.id == request.pluginId }?.manifest?.name
+        ?: "插件"
+
+    val onAction: (String, String?) -> Unit = remember(page) {
+        { actionId, value ->
+            page?.let { p -> runCatching { p.page.onAction(actionId, value) } }
+            Unit
+        }
+    }
+
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -84,50 +134,21 @@ internal fun PluginPageOverlayHost() {
             )
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            val page = opened
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .overScrollVertical()
+                .padding(tabContentPadding(padding))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            val failed = error
             when {
-                error != null -> Message("插件加载失败：$error")
-                page == null -> Message("正在加载插件…")
-                else -> {
-                    val dark = LocalIsDarkTheme.current
-                    val primary = MiuixTheme.colorScheme.primary.toArgb()
-                    // 先创建 View（主线程），再在 effect 里驱动 lifecycle；ComposeView 挂上去时
-                    // 插件自己的 LifecycleOwner 已经在 RESUMED，动画和 rememberCoroutineScope 才正常。
-                    val viewResult = remember(dark, primary, page) {
-                        runCatching {
-                            page.runtime.applyTheme(dark, primary)
-                            page.page.createView(context, "{}")
-                        }
-                    }
-                    val pluginView = viewResult.getOrNull()
-                    if (pluginView == null) {
-                        Message("插件页面创建失败：${viewResult.exceptionOrNull()?.message ?: "unknown"}")
-                    } else {
-                        AndroidView(factory = { pluginView }, modifier = Modifier.fillMaxSize())
-                        DisposableEffect(page) {
-                            page.page.onStart()
-                            page.page.onResume()
-                            onDispose {
-                                page.page.onPause()
-                                page.page.onStop()
-                                page.page.onDestroy()
-                            }
-                        }
-                    }
-                }
+                failed != null -> PluginUiTree(UiEmptyNode("插件加载失败", failed), onAction)
+                tree == null -> PluginUiTree(UiLoadingNode("正在加载插件…"), onAction)
+                else -> PluginUiTree(tree, onAction)
             }
         }
-    }
-}
-
-@Composable
-private fun Message(text: String) {
-    Column(Modifier.fillMaxSize().padding(24.dp)) {
-        Text(
-            text,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
     }
 }
