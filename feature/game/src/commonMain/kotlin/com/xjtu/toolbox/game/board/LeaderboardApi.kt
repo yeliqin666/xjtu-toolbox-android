@@ -42,7 +42,7 @@ data class BoardSnapshot(val rows: List<BoardRow>, val total: Int, val me: Board
 
 /**
  * 全服榜接口。服务端在 dzhz-server 仓库的 `services/leaderboard`（Cloudflare Workers + D1），
- * 新版本直连 `games.dzhz.top/games`；老版本里写死的 `dzhz.zyxf.top/games` 仍走本仓库的旧 Node
+ * 新版本直连 `api.dzhz.top/games`；老版本里写死的 `dzhz.zyxf.top/games` 仍走本仓库的旧 Node
  * 服务（实测客户端不跟随 307，不能靠重定向迁移）。旧 Node 实现在本仓库 `server/leaderboard`，
  * 过渡期需要它把关。
  *
@@ -57,7 +57,7 @@ data class BoardSnapshot(val rows: List<BoardRow>, val total: Int, val me: Board
 object LeaderboardApi {
 
     /** 正式环境。直连 Worker，公开地址、不是密钥。 */
-    const val DEFAULT_BASE_URL = "https://games.dzhz.top/games"
+    const val DEFAULT_BASE_URL = "https://api.dzhz.top/games"
 
     private var host: String = ""
     private var client: HttpClient? = null

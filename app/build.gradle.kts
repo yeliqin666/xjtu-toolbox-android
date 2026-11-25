@@ -60,7 +60,7 @@ android {
             // 小游戏全服榜的服务端地址（服务端见 Guochaoo/dzhz-server 的 services/leaderboard；
             // 旧 Node 实现见本仓库 server/leaderboard）。
             //
-            // 新版本直连 Cloudflare Worker（games.dzhz.top）；老版本里写死的
+            // 新版本直连 Cloudflare Worker（api.dzhz.top/games/*）；老版本里写死的
             // dzhz.zyxf.top/games 仍由老 Node 服务提供——实测客户端 HTTP 栈不跟随 307，
             // 所以不能靠重定向把老版本迁过去。
             //
@@ -75,7 +75,7 @@ android {
             val lbProps = Properties().apply { if (lbFile.exists()) lbFile.inputStream().use { load(it) } }
             val lbUrl = System.getenv("LEADERBOARD_BASE_URL")?.trim()?.takeIf { it.isNotEmpty() }
                 ?: lbProps.getProperty("baseUrl")?.trim()?.takeIf { it.isNotEmpty() }
-                ?: "https://games.dzhz.top/games"
+                ?: "https://api.dzhz.top/games"
             buildConfigField("String", "LEADERBOARD_BASE_URL", "\"$lbUrl\"")
         }
     }
