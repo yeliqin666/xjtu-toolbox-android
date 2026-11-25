@@ -66,4 +66,13 @@ class SharedJvmFileStoreTest {
         assertEquals("first", first.getString("k"))
         assertEquals("second", second.getString("k"))
     }
+    @Test
+    fun `explicit wipe can remove corrupt unopened properties`() = withRoot { root ->
+        val file = File(root, "broken.properties")
+        file.writeText("key=\\uZZZZ")
+        kotlin.test.assertFailsWith<IllegalArgumentException> { secureKeyValueStore("broken") }
+        wipeSecureStore("broken")
+        assertFalse(file.exists())
+        assertNull(secureKeyValueStore("broken").getString("key"))
+    }
 }
