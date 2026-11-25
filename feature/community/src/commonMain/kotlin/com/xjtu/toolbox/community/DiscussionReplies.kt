@@ -4,6 +4,7 @@ package com.xjtu.toolbox.community
 // 改成论坛的「楼中楼」：默认露出前两条，点「查看全部」再拉完整列表；回复框统一走详情页的编辑页。
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -99,7 +100,7 @@ fun DiscussionReplies(
                     if (reason != null && !expanded) {
                         MinimizedNotice(reason) { expanded = true }
                     } else {
-                        MarkdownText(reply.body)
+                        GithubMarkdown(reply.body)
                         ReactionChips(reply.reactions, reply.canReact) { onReact(reply, it, apply) }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {

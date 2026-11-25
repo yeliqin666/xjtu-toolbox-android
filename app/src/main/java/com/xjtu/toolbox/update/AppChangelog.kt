@@ -37,6 +37,7 @@ object AppChangelog {
         "6.2.1" to VersionChangelog(
             items = listOf(
                 "🪶" to "Festina lente.（慢慢地赶快）",
+                "📝" to "公告、投票说明、开发者回复和更新说明与社区帖子排版一致：图片直接显示，链接、@ 提及能点，折叠内容可展开",
             )
         ),
         "6.2.0" to VersionChangelog(

@@ -3,7 +3,7 @@
 """讨论区公告分类（slug announcements）→ App 公告（bulletin.json，工作流提交到 announce 分支、再推 Gitee）。
 
     python3 announce.py event   # 讨论区有变动（新建 / 编辑 / 关闭 / 删除…）：重建公告，不统计
-    python3 announce.py tally   # 每 4 天：统计投票、生成「大家在问」，再重建
+    python3 announce.py tally   # 每 4 天：统计投票、删已截止投票的票、生成「大家在问」，再重建
 
 * 一帖一条公告：标题 = 帖子标题，其余按发帖表单（.github/DISCUSSION_TEMPLATE/announcements.yml）的「### 小标题」解析。
   只认维护者用表单发的帖（有「### 正文」一节）；分类里别的帖子（旧帖、随手发的讨论）不进 App。
@@ -11,7 +11,8 @@
 * 公告 id =「发帖日期-d帖子号」。bulletin.json 每次整份重新生成，只含讨论区的公告；
   一条表单公告都还没有时不生成（announce 分支上手写的旧公告不动）。
 * 投票：票在飞书提交表（类型「投票·<id>」，App 写）。同一设备只算最后一次，截止后投的不算。
-  结果存在机器人在帖子里的结果回复（隐藏 JSON），重建时从那里读回；截止后另发一条最终结果。
+  结果存在机器人在帖子里的结果回复（隐藏 JSON），重建时从那里读回；截止后另发一条最终结果，
+  两条都写进帖子后，下一步把飞书里这次投票的票删掉。
 * 帖子首次发布成功时往飞书公告表（FEEDBACK_TABLE_NOTICE，没配就跳过）写一行；机器人回复一条解析结果。
 * feedback-qa.json（只在 tally 时生成）：「大家在问」，回复表里每个工单取最新一条，勾了「公开」才收。
 文件写进 OUT_DIR（announce 分支的检出），提交推送由工作流做（announce.yml）。
@@ -276,8 +277,8 @@ def fetch_votes(fs: fd.Feishu, polls: list[dict]) -> list[dict]:
 
 
 def update_polls(fs: fd.Feishu, gh: fd.GitHub, ns: list[Notice], now: datetime) -> None:
-    """统计还没出最终结果的投票，写回结果回复（截止的另发最终结果）。"""
-    due = [n for n in ns if n.bulletin and n.bulletin.get("options") and not n.bulletin.get("final")
+    """统计还没出最终结果的投票，写回结果回复（截止的另发最终结果；上次没发出去的这次补发）。"""
+    due = [n for n in ns if n.bulletin and n.bulletin.get("options") and not final_saved(n)
            and (parse_time(n.bulletin.get("startsAt")) or now) <= now]
     if not due:
         return
@@ -321,8 +322,43 @@ def post_results(gh: fd.GitHub, n: Notice) -> None:
             f"<sub>{p.get('voters', 0)} 人参与 · {state}" + (f" · 统计于 {when:%m-%d %H:%M}" if when else "") + "</sub>")
     upsert_comment(gh, n, MARK_RESULT.format(p["id"]), body)
     if p.get("final") and not n.bot_comment(MARK_FINAL.format(p["id"])):
-        gh.gwrite(ADD, d=n.node_id, b=f"{MARK_FINAL.format(p['id'])}\n🗳️ **投票已截止**，"
-                                      f"{p.get('voters', 0)} 人参与：\n\n{result_table(p)}")
+        final = f"{MARK_FINAL.format(p['id'])}\n🗳️ **投票已截止**，{p.get('voters', 0)} 人参与：\n\n{result_table(p)}"
+        got = gh.gwrite(ADD, d=n.node_id, b=final)
+        n.bot_comments.append(((got.get("addDiscussionComment") or {}).get("comment")) or {"id": "", "body": final})
+
+
+def final_saved(n: Notice) -> bool:
+    """最终结果确实写进了帖子：结果回复里存的是最终结果，且「投票已截止」那条也发了。
+    只看这次读到或成功写进去的回复，不看内存里刚算出来的 final。"""
+    pid = n.bulletin["id"]
+    c = n.bot_comment(MARK_RESULT.format(pid))
+    m = DATA_RE.search(c["body"]) if c else None
+    if not m or not n.bot_comment(MARK_FINAL.format(pid)):
+        return False
+    try:
+        return json.loads(m.group(1)).get("final") is True
+    except ValueError:
+        return False
+
+
+def purge_votes(fs: fd.Feishu, ns: list[Notice]) -> None:
+    """最终结果已写进帖子的投票，删掉飞书提交表里它的票：之后只从帖子读结果，票留着只占地方。
+    回帖失败的那次不删，免得结果没存下来票先没了；删失败下一趟再删。"""
+    done = [n.bulletin for n in ns if n.bulletin and n.bulletin.get("options") and final_saved(n)]
+    if not done:
+        return
+    ids = [r["record_id"] for r in fetch_votes(fs, done) if r.get("record_id")]
+    url = f"{fd.FEISHU}/bitable/v1/apps/{fs.base}/tables/{fs.submit_table}/records/batch_delete"
+    for i in range(0, len(ids), 500):  # 飞书一次最多删 500 条
+        batch = ids[i:i + 500]
+        if fd.DRY_RUN:
+            fd.log(f"[dry-run] 提交表 -= {len(batch)} 条投票")
+            continue
+        r = fd.http("POST", url, {"records": batch}, fs.auth)
+        if r.get("code") != 0:
+            raise RuntimeError(f"{r.get('code')} {r.get('msg')}")
+    if ids:
+        fd.log(f"已截止的投票（{'、'.join(p['id'] for p in done)}）：飞书删掉 {len(ids)} 条票")
 
 
 ADD = """mutation($d:ID!,$b:String!){addDiscussionComment(input:{discussionId:$d,body:$b}){comment{id body}}}"""
@@ -452,6 +488,10 @@ def main() -> None:
             save(out / QA_FILE, {"updatedAt": iso(now), "items": items})
         fd.log(f"大家在问：{len(items)} 条" + ("" if old.get("items") != items else "，无变化"))
         update_polls(fs, gh, ns, now)
+        try:
+            purge_votes(fs, ns)
+        except Exception as e:  # noqa: BLE001 —— 删票失败下一趟再删，不该拦住公告重建
+            fd.log(f"::warning::已截止投票的票没从飞书删掉：{e}")
     else:
         number = event_number()
         touched = [n for n in ns if n.number == number]
@@ -513,6 +553,18 @@ def self_test() -> None:
     assert to_bulletin(notice, created, closed) == (None, [])
     bad = {**d, "body": form.replace("2026-12-01 08:00", "下周一")}
     assert to_bulletin(bad, created, None)[0] is None
+
+    class FakeGH:
+        def gwrite(self, query: str, **v: Any) -> dict:
+            return {"addDiscussionComment": {"comment": {"id": "c", "body": v["b"]}}}
+
+    poll = {"id": "p", "options": ["A"], "results": [{"option": "A", "votes": 1}], "voters": 1, "final": True}
+    voted = Notice("D", 1, "u", created, None, True, poll, [])
+    assert not final_saved(voted), "内存里 final 了但还没写进帖子，不能删票"
+    post_results(FakeGH(), voted)
+    assert final_saved(voted), "结果回复和「投票已截止」都写进去了"
+    half = Notice("D", 2, "u", created, None, True, dict(poll), [], [voted.bot_comment(MARK_RESULT.format("p"))])
+    assert not final_saved(half), "「投票已截止」没发出去，不删票"
     print("self-test ok")
 
 

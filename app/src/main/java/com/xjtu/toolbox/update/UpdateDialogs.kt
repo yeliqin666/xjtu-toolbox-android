@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -316,9 +317,8 @@ fun AutoUpdateDialog(
                 )
                 Spacer(Modifier.height(8.dp))
             }
-            // Release body（Markdown changelog）
             if (body.isNotBlank()) {
-                MarkdownReleaseNotes(body)
+                GithubMarkdown(body, textStyle = MiuixTheme.textStyles.body2)
             }
 
             Spacer(Modifier.height(16.dp))
@@ -419,58 +419,6 @@ fun AutoUpdateDialog(
             )
             Spacer(Modifier.height(16.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
-        }
-    }
-}
-
-@Composable
-private fun MarkdownReleaseNotes(markdown: String) {
-    markdown.lineSequence().forEach { rawLine ->
-        val line = rawLine.trim()
-        if (line.isEmpty() || line == "---") return@forEach
-        val headingLevel = line.takeWhile { it == '#' }.length
-        val bullet = line.startsWith("- ") || line.startsWith("* ") || line.startsWith("+ ")
-        val quote = line.startsWith("> ")
-        val cleaned = line
-            .removePrefix("#".repeat(headingLevel)).trim()
-            .removePrefix("- ").removePrefix("* ").removePrefix("+ ")
-            .removePrefix("> ")
-            .replace(Regex("""!\[([^\]]*)]\([^)]+\)"""), "$1")
-            .replace(Regex("""\[([^\]]+)]\([^)]+\)"""), "$1")
-            .replace("**", "")
-            .replace("__", "")
-            .replace("`", "")
-
-        when {
-            headingLevel > 0 -> Text(
-                cleaned,
-                style = if (headingLevel <= 2) MiuixTheme.textStyles.subtitle else MiuixTheme.textStyles.body1,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 10.dp, bottom = 3.dp)
-            )
-            bullet -> Row(Modifier.padding(vertical = 3.dp)) {
-                Text("•", color = MiuixTheme.colorScheme.primary)
-                Spacer(Modifier.width(7.dp))
-                Text(cleaned, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
-            }
-            quote -> Surface(
-                shape = RoundedCornerShape(10.dp),
-                // 抽屉是白底，引用块用半透明压暗才看得出，不用同为白的 surfaceVariant
-                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
-            ) {
-                Text(
-                    cleaned,
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
-                )
-            }
-            else -> Text(
-                cleaned,
-                style = MiuixTheme.textStyles.body2,
-                modifier = Modifier.padding(vertical = 2.dp)
-            )
         }
     }
 }

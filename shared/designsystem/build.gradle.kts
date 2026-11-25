@@ -11,6 +11,10 @@ kotlin {
             implementation(compose.components.resources)
             implementation(libs.latex.renderer)
             implementation(libs.latex.fonts.katex)
+            // GithubMarkdown：GFM 渲染与 Coil 取图（全 KMP）；网络取图组件由各端自己加（Android 在 :app）
+            implementation(libs.coil.compose)
+            implementation(libs.markdown.renderer)
+            implementation(libs.markdown.renderer.coil3)
         }
         androidMain.dependencies {
             implementation(libs.androidx.graphics.shapes)

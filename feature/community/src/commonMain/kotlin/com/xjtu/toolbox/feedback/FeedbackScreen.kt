@@ -59,6 +59,7 @@ import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import kotlin.time.Clock
 import com.xjtu.toolbox.util.campusDateTimeOf
+import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 
 private const val FEEDBACK_GITHUB_ISSUE_URL =
     "https://github.com/yeliqin666/xjtu-toolbox-android/issues/new"
@@ -567,7 +568,7 @@ private fun FoldRow(
                         fontWeight = FontWeight.Medium,
                     )
                     Spacer(Modifier.height(4.dp))
-                    Text(reply, style = MiuixTheme.textStyles.body2)
+                    GithubMarkdown(reply, textStyle = MiuixTheme.textStyles.body2)
                 }
             }
         }

@@ -28,7 +28,7 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import com.xjtu.toolbox.ui.markdown.BulletinMarkdown
+import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -169,7 +169,11 @@ fun BulletinNoticePanel(
                                 .padding(start = 32.dp, end = 14.dp, bottom = 14.dp)
                         ) {
                             if (bulletin.body.isNotBlank()) {
-                                BulletinMarkdown(bulletin.body, bodyStyle = MiuixTheme.textStyles.footnote1)
+                                GithubMarkdown(
+                                    bulletin.body,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    textStyle = MiuixTheme.textStyles.footnote1,
+                                )
                                 Spacer(Modifier.height(12.dp))
                             }
                             if (bulletin.isPoll) {
@@ -336,7 +340,11 @@ fun BulletinLaunchDialog(
             )
             if (bulletin.body.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                BulletinMarkdown(bulletin.body)
+                GithubMarkdown(
+                    bulletin.body,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    textStyle = MiuixTheme.textStyles.body2,
+                )
             }
             Spacer(Modifier.height(16.dp))
             if (bulletin.isPoll) {
