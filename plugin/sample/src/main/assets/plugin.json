@@ -1,0 +1,37 @@
+{
+  "apiVersion": 1,
+  "id": "com.xjtu.toolbox.plugin.sample",
+  "name": "示例插件",
+  "version": "1.0.1",
+  "versionCode": 2,
+  "minAppVersionCode": 101,
+  "entryClass": "com.xjtu.toolbox.plugin.sample.SamplePlugin",
+  "pages": [
+    {
+      "id": "home",
+      "title": "示例页"
+    }
+  ],
+  "tools": [
+    {
+      "name": "demo_course_count",
+      "definition": {
+        "type": "function",
+        "function": {
+          "name": "demo_course_count",
+          "description": "示例插件：统计本周课表里的课程条数，并附上课表原文。",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "description": "yyyy-MM-dd，只统计该日；缺省本周。"
+              }
+            },
+            "required": []
+          }
+        }
+      }
+    }
+  ]
+}
