@@ -225,7 +225,7 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 - `release.jks`、`keystore.properties`；
 - `feedback.properties`；
 - `leaderboard.properties`；
-- `server/leaderboard/aliyun.env`、`server/leaderboard/banned.txt`；
+- `server/leaderboard/aliyun.env`、`server/leaderboard/banned.txt`（旧 Node 版使用；线上 Cloudflare Worker 版在独立仓库 `Guochaoo/dzhz-server` 部署，审核 AK 走 `wrangler secret`，扩展词表走 `BANNED_EXTRA`）；
 - `local.properties`。
 
 需要新增本地配置时，应当同时更新 `.gitignore`，并在文档中说明配置项与获取方式；不要把真实凭据写进示例。
