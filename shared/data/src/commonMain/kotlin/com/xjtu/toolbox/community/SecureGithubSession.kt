@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** 社区的 GitHub 登录态。 */
-class SecureGithubSession private constructor(private val store: KeyValueStore) : GithubSession {
+class SecureGithubSession internal constructor(private val store: KeyValueStore) : GithubSession {
 
     // 键值缝上没有 `getString(key, default)` 那一档（`SharedPreferences` 才有）——键不存在就是 null，
     // 而 `store.getString(KEY_LOGIN, null)` 与 `getString(KEY_LOGIN)` 语义本来就一样，调用方自己给默认值。

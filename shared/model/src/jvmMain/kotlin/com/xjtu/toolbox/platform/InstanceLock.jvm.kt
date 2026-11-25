@@ -9,7 +9,7 @@ import java.util.Properties
 /**
  * 单实例闸门（B-13）：同一个数据根（`keyValueStoreRoot()`）只让**一个进程**写。
  *
- * 为什么要有它：[JvmFileKeyValueStore] 与 `:data` 的 `FileKeyValueStore` 都是「init 时整份读进内存、
+ * 为什么要有它：[JvmFileKeyValueStore] 是「init 时整份读进内存、
  * 每次改动整份回写」。**两个进程**同时开（桌面窗口 + `:server` 的 serve 模式，或者两个桌面窗口）就会
  * 互相覆盖：后写的把先写的那几个 key 整段抹掉（不是合并、是丢）。所以启动时先抢 `<数据根>/.lock`：
  *
@@ -189,9 +189,7 @@ internal fun isProcessAlive(pid: Long): Boolean {
  * 进程级写闸：拿不到单实例锁就把 [readOnlyReason] 设上，之后**所有**键值存储的 `persist()` 都不落盘。
  *
  * 为什么是全局一格而不是给每个 store 传一个只读标志：一个进程只有一种身份（要么是写者、要么是只读
- * 观察者），而写者之间才需要区分 —— 没有「这个 store 可写、那个不可写」这种情形。放在这里还有个好处：
- * `:data` 的 `FileKeyValueStore` 与 `:shared:model` 的 `JvmFileKeyValueStore` 是两份各自独立的实现，
- * 一个全局开关才能同时管住它们（两边都会问一句 [allowsWrites]）。
+ * 观察者），而写者之间才需要区分 —— 没有「这个 store 可写、那个不可写」这种情形。普通存储和安全存储共用文件实现，由同一个写闸控制。
  */
 object StoreWriteGate {
 
