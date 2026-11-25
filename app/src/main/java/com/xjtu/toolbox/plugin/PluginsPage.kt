@@ -280,65 +280,65 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
             )
         }
         }
-    }
 
-    if (showSettings) {
-        SettingsSheet(
-            demo = demo,
-            onDismiss = { showSettings = false },
-            onInstallFromFile = {
-                showSettings = false
-                picker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
-            },
-        )
-    }
+        if (showSettings) {
+            SettingsSheet(
+                demo = demo,
+                onDismiss = { showSettings = false },
+                onInstallFromFile = {
+                    showSettings = false
+                    picker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                },
+            )
+        }
 
-    val market = pendingMarket
-    if (market != null) {
-        com.xjtu.toolbox.community.ConfirmDialog(
-            title = "安装「${market.name}」？",
-            summary = buildString {
-                append("版本 ${market.version} · 作者 ${market.author}\n")
-                append(if (market.isWeb) "web 插件，在内置浏览器里打开网页，与 App 隔离。\n\n" else "dex 插件，与本 App 同权限运行。\n\n")
-                append("（演示数据：确认后这里会去下载并校验插件包。）")
-            },
-            confirm = "安装",
-            onConfirm = {
-                pendingMarket = null
-                message = "演示数据：真装要等索引和包格式接上"
-            },
-            onDismiss = { pendingMarket = null },
-        )
-    }
+        val market = pendingMarket
+        if (market != null) {
+            com.xjtu.toolbox.community.ConfirmDialog(
+                title = "安装「${market.name}」？",
+                summary = buildString {
+                    append("版本 ${market.version} · 作者 ${market.author}\n")
+                    append(if (market.isWeb) "web 插件，在内置浏览器里打开网页，与 App 隔离。\n\n" else "dex 插件，与本 App 同权限运行。\n\n")
+                    append("（演示数据：确认后这里会去下载并校验插件包。）")
+                },
+                confirm = "安装",
+                onConfirm = {
+                    pendingMarket = null
+                    message = "演示数据：真装要等索引和包格式接上"
+                },
+                onDismiss = { pendingMarket = null },
+            )
+        }
 
-    val install = pending
-    if (install != null) {
-        com.xjtu.toolbox.community.ConfirmDialog(
-            title = if (install.isUpdate) "更新「${install.manifest.name}」？" else "安装「${install.manifest.name}」？",
-            summary = buildString {
-                append("版本 ${install.manifest.version}（versionCode ${install.manifest.versionCode}）")
-                append("，页面 ${install.manifest.pages.size} 个、工具 ${install.manifest.tools.size} 个。\n\n")
-                install.oldVersionName?.let { append("已安装 v$it，会替换掉。\n") }
-                append("签名 ${install.certSha256.take(16)}…\n\n")
-                append("dex 插件与本 App 同权限运行，能读账号、登录会话和本机数据；只装你信任来源的插件。")
-            },
-            confirm = if (install.isUpdate) "更新" else "安装",
-            onConfirm = {
-                pending = null
-                busy = true
-                scope.launch {
-                    runCatching { withContext(Dispatchers.IO) { manager.commit(install) } }
-                        .onSuccess { message = "已${if (install.isUpdate) "更新" else "安装"}：${install.manifest.name}" }
-                        .onFailure { message = it.message ?: "安装失败" }
-                    manager.refresh()
-                    busy = false
-                }
-            },
-            onDismiss = {
-                manager.cancel(install)
-                pending = null
-            },
-        )
+        val install = pending
+        if (install != null) {
+            com.xjtu.toolbox.community.ConfirmDialog(
+                title = if (install.isUpdate) "更新「${install.manifest.name}」？" else "安装「${install.manifest.name}」？",
+                summary = buildString {
+                    append("版本 ${install.manifest.version}（versionCode ${install.manifest.versionCode}）")
+                    append("，页面 ${install.manifest.pages.size} 个、工具 ${install.manifest.tools.size} 个。\n\n")
+                    install.oldVersionName?.let { append("已安装 v$it，会替换掉。\n") }
+                    append("签名 ${install.certSha256.take(16)}…\n\n")
+                    append("dex 插件与本 App 同权限运行，能读账号、登录会话和本机数据；只装你信任来源的插件。")
+                },
+                confirm = if (install.isUpdate) "更新" else "安装",
+                onConfirm = {
+                    pending = null
+                    busy = true
+                    scope.launch {
+                        runCatching { withContext(Dispatchers.IO) { manager.commit(install) } }
+                            .onSuccess { message = "已${if (install.isUpdate) "更新" else "安装"}：${install.manifest.name}" }
+                            .onFailure { message = it.message ?: "安装失败" }
+                        manager.refresh()
+                        busy = false
+                    }
+                },
+                onDismiss = {
+                    manager.cancel(install)
+                    pending = null
+                },
+            )
+        }
     }
 }
 
@@ -1183,7 +1183,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         summary = "把一周的校园通知压成五条，睡前推一次。",
         isWeb = false,
         version = "1.4.0",
-        author = "工具",
+        author = "Hz6826",
         tags = listOf("学习", "通知"),
         featured = true,
     ),
@@ -1193,7 +1193,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         summary = "按楼栋画一张热力图，一眼看出哪层还有空教室。",
         isWeb = true,
         version = "0.8.2",
-        author = "学习",
+        author = "Xu Guochao",
         tags = listOf("学习", "课表"),
         featured = true,
     ),
@@ -1203,7 +1203,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         summary = "四个食堂的菜单和排队提示。",
         isWeb = true,
         version = "2.1.0",
-        author = "生活",
+        author = "Triangle-GitHub",
         tags = listOf("生活"),
         featured = true,
     ),
@@ -1213,7 +1213,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         summary = "思源学堂作业截止前一天提醒，已经交过的不吵。",
         isWeb = false,
         version = "1.0.3",
-        author = "学习",
+        author = "Xu Guochao",
         tags = listOf("学习", "通知"),
     ),
     MarketEntry(
@@ -1222,7 +1222,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         summary = "校车开到哪了，还有几分钟到站。",
         isWeb = true,
         version = "1.2.1",
-        author = "生活",
+        author = "Triangle-GitHub",
         tags = listOf("生活"),
     ),
 )
