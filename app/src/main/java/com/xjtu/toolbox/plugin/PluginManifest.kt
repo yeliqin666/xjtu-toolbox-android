@@ -80,6 +80,7 @@ internal fun parsePluginManifest(jsonBytes: ByteArray): PluginManifest {
         "插件 API 版本 ${manifest.apiVersion} 与当前 App 的 ${PluginApi.VERSION} 不一致"
     }
     require(ID_PATTERN.matches(manifest.id)) { "插件 id 不合法（小写字母、数字、_、.，2–32 位）：${manifest.id}" }
+    require(manifest.name.length in 1..14) { "插件名要 1–14 个字（详情页顶栏放不下更长的）：${manifest.name}" }
     require(manifest.versionCode > 0) { "versionCode 必须大于 0" }
     require(manifest.entryClass.isNotBlank()) { "entryClass 不能为空" }
     require(manifest.pages.isNotEmpty() || manifest.tools.isNotEmpty()) { "插件至少要有 1 个页面或 1 个工具" }
