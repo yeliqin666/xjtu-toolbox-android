@@ -7,7 +7,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * 桌面包的版本号（jpackage 的 `--app-version`）。⚠️ 必须与 `:app` 的 `versionName` 逐字相同：
  * 两个手抄本会漂（App 5.2.0 / 安装包 5.1.1 就是这么来的），`DesktopPackageVersionJvmTest` 盯着这件事。
  */
-val desktopPackageVersion = "6.2.2"
+val desktopPackageVersion = "6.2.3"
 
 /** 打包机是不是 Windows：jpackage 不能交叉构建，安装包与 app-image 都在本机系统上产出。 */
 val isWindowsHost = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
