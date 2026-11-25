@@ -12,7 +12,7 @@
 面向西安交通大学学生的校园工具箱（Kotlin Multiplatform：Android 为主，另有桌面端与网页端）。Android 版使用 Kotlin 与 Jetpack Compose 原生开发，便捷使用教务、图书馆、校园卡、思源学堂等学校服务，**不经过任何自建业务中转服务器**——账号凭据与校园数据只在设备和学校系统之间流动。
 
 > [!NOTE]
-> 唯一的例外是**小游戏排行榜**这一自建服务：上榜时会把游戏标识、分数、昵称与设备级匿名 ID 传出设备，不涉校园数据，详见下文「使用须知」；线上服务端已迁至 Cloudflare Workers + D1（独立仓库 `Guochaoo/dzhz-server`），旧的 Node 实现保留在本仓库 [`server/leaderboard/`](server/leaderboard/) 供老版本回滚与兼容。
+> 唯一的例外是**小游戏排行榜**这一自建服务：上榜时会把游戏标识、分数、昵称与设备级匿名 ID 传出设备，不涉校园数据，详见下文「使用须知」；服务端已迁至 Cloudflare Workers + D1（独立仓库 `Guochaoo/dzhz-server`）。
 
 ## 下载安装
 
