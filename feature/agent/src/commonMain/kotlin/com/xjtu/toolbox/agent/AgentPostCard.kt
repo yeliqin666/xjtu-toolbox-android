@@ -15,7 +15,7 @@ object AgentPostCard {
     const val TOOL = "propose_post"
     const val DEFAULT_CATEGORY = "求助与反馈"
 
-    /** 普通用户能发的板块（「通知公告」只有管理员能发，不列）。 */
+    /** 普通用户能发的板块（公告分类 Announcements 只有管理员能发，不列）。 */
     val CATEGORIES = listOf(DEFAULT_CATEGORY, "功能建议", "校园闲聊")
 
     private const val MAX_TITLE = 60

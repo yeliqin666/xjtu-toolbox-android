@@ -3,10 +3,12 @@
 """讨论区公告分类（slug announcements）→ App 公告（bulletin.json，工作流提交到 announce 分支、再推 Gitee）。
 
     python3 announce.py event   # 讨论区有变动（新建 / 编辑 / 关闭 / 删除…）：重建公告，不统计
-    python3 announce.py tally   # 每 4 天：统计投票、删已截止投票的票、生成「大家在问」，再重建
+    python3 announce.py tally   # 每 4 天：统计投票、删已截止投票的票、过期的帖子关掉、生成「大家在问」，再重建
 
 * 一帖一条公告：标题 = 帖子标题，其余按发帖表单（.github/DISCUSSION_TEMPLATE/announcements.yml）的「### 小标题」解析。
-  只认维护者用表单发的帖（有「### 正文」一节）；分类里别的帖子（旧帖、随手发的讨论）不进 App。
+  只认按表单格式写的帖（有「### 正文」一节）；分类里别的帖子（旧帖、随手发的讨论）不进 App。
+  不查作者：公告分类是 GitHub 公告格式，只有维护者能发帖或把 Issue 转进来，帖子在这里就是维护者放行的。
+  「校园系统状态」Issue 的最后一项就叫「正文」，转为讨论后直接生效，标题开头的「[系统]」自动去掉。
   关帖 = 删除（普通公告与投票都从 App 撤下，机器人不再回帖）；要提前结束投票就改「截止时间」。
 * 公告 id =「发帖日期-d帖子号」。bulletin.json 每次整份重新生成，只含讨论区的公告；
   一条表单公告都还没有时不生成（announce 分支上手写的旧公告不动）。
@@ -81,7 +83,7 @@ class Notice:
     url: str
     created: datetime
     closed_at: Optional[datetime]
-    # 维护者用表单发的；只有这种才进 App、才回解析结果
+    # 按表单格式写的；只有这种才进 App、才回解析结果
     managed: bool
     bulletin: Optional[dict]
     errors: list[str]
@@ -141,7 +143,9 @@ def to_bulletin(d: dict, created: datetime, closed_at: Optional[datetime]) -> tu
     errors: list[str] = []
     b: dict[str, Any] = {"id": f"{created:%Y-%m-%d}-d{d['number']}",
                          "level": LEVELS.get(sec.get("等级", "").strip(), sec.get("等级", "").strip() or "info"),
-                         "title": d["title"].strip(), "body": clean(sec.get("正文", ""))}
+                         "title": re.sub(r"^\s*\[系统\]\s*", "", d["title"]).strip(), "body": clean(sec.get("正文", ""))}
+    if not b["body"]:
+        errors.append("「正文」是空的：写上要在 App 里显示的话")
     if b["level"] not in LEVELS.values():
         errors.append(f"等级「{b['level']}」不认识，用：{'、'.join(LEVELS)}")
     if sec.get("链接", "").strip():
@@ -192,14 +196,14 @@ def notices(gh: fd.GitHub) -> list[Notice]:
         raise RuntimeError(f"讨论区没有「{want}」分类")
     got = gh.graphql("""query($o:String!,$n:String!,$c:ID!){repository(owner:$o,name:$n){
         discussions(first:100, categoryId:$c, orderBy:{field:CREATED_AT, direction:DESC}){nodes{
-          id number title body url createdAt closed closedAt authorAssociation
+          id number title body url createdAt closed closedAt
           comments(first:100){nodes{id body author{login}}}}}}}""", o=owner, n=name, c=cat)
     out = []
     for d in got["repository"]["discussions"]["nodes"]:
         created = datetime.fromisoformat(d["createdAt"].replace("Z", "+00:00")).astimezone(fd.BEIJING)
         closed_at = (datetime.fromisoformat(d["closedAt"].replace("Z", "+00:00")) if d["closed"] and d.get("closedAt")
                      else None)
-        managed = d.get("authorAssociation") in fd.TRUSTED and sections(d.get("body") or "") is not None
+        managed = sections(d.get("body") or "") is not None
         b, errors = to_bulletin(d, created, closed_at) if managed else (None, [])
         bots = [c for c in d["comments"]["nodes"] if ((c.get("author") or {}).get("login") or "") in fd.BOT_LOGINS]
         n = Notice(d["id"], d["number"], d["url"], created, closed_at, managed, b, errors, bots)
@@ -361,6 +365,28 @@ def purge_votes(fs: fd.Feishu, ns: list[Notice]) -> None:
         fd.log(f"已截止的投票（{'、'.join(p['id'] for p in done)}）：飞书删掉 {len(ids)} 条票")
 
 
+CLOSE = """mutation($d:ID!){closeDiscussion(input:{discussionId:$d,reason:OUTDATED}){discussion{id}}}"""
+
+
+def close_expired(gh: fd.GitHub, ns: list[Notice], now: datetime) -> None:
+    """过了截止时间的公告关帖（= 撤下，讨论区也清爽）；没设截止时间的不动。
+    投票要等最终结果写进帖子再关：关了的帖子机器人回不了帖。先把回执改成「已撤下」再关。"""
+    for n in ns:
+        b = n.bulletin
+        ends = parse_time(b.get("endsAt")) if b else None
+        if not ends or ends > now or (b.get("options") and not final_saved(n)):
+            continue
+        try:
+            n.bulletin = None
+            upsert_comment(gh, n, MARK_STATUS, status_body(n, bool(n.bot_comment(MARK_FEISHU))))
+            gh.gwrite(CLOSE, d=n.node_id)
+            n.closed_at = now
+            fd.log(f"#{n.number} {b['id']} 已过截止时间，关帖撤下")
+        except Exception as e:  # noqa: BLE001 —— 这一帖关不掉下一趟再关，不拦别的
+            n.bulletin = b
+            fd.log(f"::warning::#{n.number} 到期没关掉：{e}")
+
+
 ADD = """mutation($d:ID!,$b:String!){addDiscussionComment(input:{discussionId:$d,body:$b}){comment{id body}}}"""
 
 
@@ -490,8 +516,12 @@ def main() -> None:
         update_polls(fs, gh, ns, now)
         try:
             purge_votes(fs, ns)
+            expiring = ns
         except Exception as e:  # noqa: BLE001 —— 删票失败下一趟再删，不该拦住公告重建
             fd.log(f"::warning::已截止投票的票没从飞书删掉：{e}")
+            # 关了的帖子不再统计也不再删票，票没删掉的投票这趟先不关
+            expiring = [n for n in ns if not (n.bulletin and n.bulletin.get("options"))]
+        close_expired(gh, expiring, now)
     else:
         number = event_number()
         touched = [n for n in ns if n.number == number]
@@ -551,12 +581,19 @@ def self_test() -> None:
     got = to_bulletin(notice, created, None)[0]
     assert got["level"] == "info" and got["body"] == "停水" and "options" not in got
     assert to_bulletin(notice, created, closed) == (None, [])
+    issue = {"number": 10, "title": "[系统] 统一认证维护", "url": "u",
+             "body": "### 哪个系统\n\n统一认证\n\n### 现在怎样\n\n学校公告维护中\n\n### 你怎么确认的\n\n信息化通知\n\n"
+                     "### 正文\n\n今晚 22:00 前登录不了"}
+    got = to_bulletin(issue, created, None)[0]
+    assert got["title"] == "统一认证维护" and got["body"] == "今晚 22:00 前登录不了" and got["level"] == "info", got
+    blank = {**issue, "body": issue["body"].replace("今晚 22:00 前登录不了", "_No response_")}
+    assert to_bulletin(blank, created, None)[0] is None, "正文没写不发布，等维护者补上"
     bad = {**d, "body": form.replace("2026-12-01 08:00", "下周一")}
     assert to_bulletin(bad, created, None)[0] is None
 
     class FakeGH:
         def gwrite(self, query: str, **v: Any) -> dict:
-            return {"addDiscussionComment": {"comment": {"id": "c", "body": v["b"]}}}
+            return {"addDiscussionComment": {"comment": {"id": "c", "body": v["b"]}}} if "b" in v else {}
 
     poll = {"id": "p", "options": ["A"], "results": [{"option": "A", "votes": 1}], "voters": 1, "final": True}
     voted = Notice("D", 1, "u", created, None, True, poll, [])
@@ -565,6 +602,18 @@ def self_test() -> None:
     assert final_saved(voted), "结果回复和「投票已截止」都写进去了"
     half = Notice("D", 2, "u", created, None, True, dict(poll), [], [voted.bot_comment(MARK_RESULT.format("p"))])
     assert not final_saved(half), "「投票已截止」没发出去，不删票"
+
+    now = datetime(2026, 12, 10, 9, 0, tzinfo=fd.BEIJING)
+    def notice_ending(num: int, ends: str, **extra: Any) -> Notice:
+        return Notice(f"D{num}", num, "u", created, None, True, {"id": f"n{num}", "endsAt": ends, **extra}, [])
+    expired, future, forever = notice_ending(3, "2026-12-01T08:00:00+08:00"), notice_ending(4, "2026-12-31T08:00:00+08:00"), \
+        Notice("D5", 5, "u", created, None, True, {"id": "n5"}, [])
+    open_poll = notice_ending(6, "2026-12-01T08:00:00+08:00", options=["A", "B"])
+    close_expired(FakeGH(), [expired, future, forever, open_poll, voted], now)
+    assert expired.closed_at == now and expired.bulletin is None, "过期公告关帖"
+    assert future.closed_at is None and forever.closed_at is None, "没到期、没设截止的不动"
+    assert open_poll.closed_at is None, "最终结果没写进帖子的投票不关"
+    assert voted.closed_at is None, "结果已存但没设截止时间的投票不关"
     print("self-test ok")
 
 
