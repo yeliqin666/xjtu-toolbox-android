@@ -1,10 +1,17 @@
 package com.xjtu.toolbox.account
 
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
+import java.io.File
+import java.lang.management.ManagementFactory
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -17,20 +24,26 @@ import kotlin.test.assertTrue
 class AccountStoreJvmTest {
 
     /** 按老存储名 `xjtu_accounts` 直接开一份，确认老数据仍读得到。 */
-    private val raw = secureKeyValueStore("xjtu_accounts")
+    private lateinit var raw: KeyValueStore
+    private lateinit var root: File
+    private var previousRoot: File? = null
 
     @BeforeTest
     fun setUp() {
-        dataRootOverride = Files.createTempDirectory("xjtu-account-store-test").toFile()
-        // 存储是**进程级**缓存的（Android 上正是靠这一点让前后台看到同一份账号表）⇒ 前后各清一次
-        raw.clear()
+        previousRoot = dataRootOverride
+        root = Files.createTempDirectory("xjtu-account-store-test").toFile()
+        dataRootOverride = root
+        raw = secureKeyValueStore("xjtu_accounts")
     }
 
     @AfterTest
     fun tearDown() {
-        raw.clear()
-        wipeSecureStore("xjtu_accounts")
-        dataRootOverride = null
+        try {
+            wipeSecureStore("xjtu_accounts")
+        } finally {
+            dataRootOverride = previousRoot
+            root.deleteRecursively()
+        }
     }
 
     @Test
@@ -111,5 +124,58 @@ class AccountStoreJvmTest {
 
         store.clearActive()
         assertNull(AccountStore().activeAccountId())
+    }
+
+    @Test
+    fun concurrentUpdatesFromDifferentInstancesPreserveBothChanges() {
+        val first = AccountStore()
+        val second = AccountStore()
+        first.upsert(Account(accountId = "A"))
+        first.upsert(Account(accountId = "B"))
+        val insideUpdate = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val secondStarted = CountDownLatch(1)
+        val firstThread = AtomicLong()
+        val secondThread = AtomicLong()
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val a = pool.submit {
+                firstThread.set(Thread.currentThread().id)
+                first.update("A") {
+                    insideUpdate.countDown()
+                    check(resume.await(15, TimeUnit.SECONDS))
+                    it.copy(nickname = "first")
+                }
+            }
+            assertTrue(insideUpdate.await(5, TimeUnit.SECONDS))
+            val b = pool.submit {
+                secondThread.set(Thread.currentThread().id)
+                secondStarted.countDown()
+                second.update("B") { it.copy(nickname = "second") }
+            }
+            assertTrue(secondStarted.await(5, TimeUnit.SECONDS))
+            // A 已读出旧表并暂停。等 B 确实完成写入，或确实被 A 的锁挡住，
+            // 不用固定的睡眠时间猜测 B 是否已经执行。
+            try {
+                val threads = ManagementFactory.getThreadMXBean()
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                while (!b.isDone) {
+                    val info = threads.getThreadInfo(secondThread.get())
+                    if (info?.lockOwnerId == firstThread.get()) break
+                    check(System.nanoTime() < deadline) { "第二个修改未完成，也没有等待第一个修改的锁" }
+                    Thread.sleep(1)
+                }
+            } finally {
+                resume.countDown()
+            }
+            a.get(5, TimeUnit.SECONDS)
+            b.get(5, TimeUnit.SECONDS)
+            assertEquals("first", first.get("A")?.nickname)
+            assertEquals("second", first.get("B")?.nickname)
+        } finally {
+            resume.countDown()
+            pool.shutdownNow()
+            pool.awaitTermination(5, TimeUnit.SECONDS)
+        }
     }
 }

@@ -44,11 +44,10 @@ class KeyValueStoreJvmTest {
         val file = File(root, "$name.properties")
         assertTrue(file.exists(), "应当真的在临时根里写出 $name.properties")
         // 0600 只在能读到权限时断言：Windows 上 setPosixFilePermissions 抛 UnsupportedOperationException。
-        runCatching {
-            val perms = Files.getPosixFilePermissions(file.toPath())
+        if (Files.getFileStore(file.toPath()).supportsFileAttributeView("posix")) {
             assertEquals(
                 setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
-                perms,
+                Files.getPosixFilePermissions(file.toPath()),
             )
         }
     }
@@ -68,52 +67,20 @@ class KeyValueStoreJvmTest {
     }
 
     @Test
-    fun `同名 store 不得同时以 plain 与 secure 打开`() {
-        // 两份清单必须无交集：有人把某个 store 换到另一条缝时这里会失败而不是静默覆盖。
-        val plainStoreNames = setOf(
-            "venue_favorites",
-            "library_favorites",
-            "empty_room",
-            "feature_hints",
-            "bulletin_store",
-            "feedback",
-            "games",
-            "haptics_prefs",
-            "jiaocai1_reader_prefs",
-            "score_report",
-            "home_usage",
-            "inbox",
-            "schedule_diff",
-            "course_colors",
-            "course_colors_seen",
-            "schedule_source",
-            "schedule_changes",
-            "attendance_records_ug",
-            "attendance_records_pg",
-        )
-        val secureStoreNames = setOf(
-            "app_settings",
-            "payment_code",
-            "xjtu_accounts",
-            "xjtu_credentials",
-            "github_community",
-            "agent_config",
-            "agent_config_secure",
-            "agent_memory",
-            "schedule_cache",
-            "custom_courses",
-            "download_tasks",
-            "jiaocai1_shelf",
-            "serve",
-            "cookies_normal",
-            "cookies_webvpn",
-            "sites_normal",
-            "sites_webvpn",
-        )
-        val overlap = plainStoreNames.intersect(secureStoreNames)
-        assertTrue(
-            overlap.isEmpty(),
-            "同名 store 同时被 plain 与 secure 打开会互相覆盖同一份 .properties：$overlap",
-        )
+    fun failedReplacementKeepsCommittedMemory() = withTempRoot { root ->
+        val store = keyValueStore("failed_write")
+        store.putString("k", "old")
+        val file = File(root, "failed_write.properties")
+        val backup = File(root, "backup")
+        assertTrue(file.renameTo(backup))
+        assertTrue(file.mkdir())
+        File(file, "sentinel").writeText("keep")
+        kotlin.test.assertFailsWith<java.io.IOException> { store.putString("k", "new") }
+        assertEquals("old", store.getString("k"), "S2_UNCOMMITTED_MEMORY: failed write changed the memory snapshot")
+        assertEquals("keep", File(file, "sentinel").readText())
+        assertTrue(root.listFiles().orEmpty().none { it.name.endsWith(".tmp") })
+        file.deleteRecursively()
+        assertTrue(backup.renameTo(file))
+        assertEquals("old", newJvmFileKeyValueStore("failed_write").getString("k"))
     }
 }

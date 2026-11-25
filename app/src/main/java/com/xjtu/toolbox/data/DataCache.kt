@@ -6,6 +6,8 @@ import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "DataCache"
@@ -24,8 +26,8 @@ private const val TAG = "DataCache"
  * 写回时自然落在发起时的账号下。长期持有实例的地方（页面 remember、ViewModel）
  * 必须在账号变化时重建实例，否则会一直读写旧账号。
  *
- * 线程安全: per-key 锁，不同 key 之间无竞争
- * 原子写入: 先写 .tmp 再 rename，避免写入中途 crash 损坏文件
+ * 进程内按缓存目录共享同一把锁（包括清理），不同账号目录可以并行。
+ * 写入先落同目录临时文件，再原子替换；替换失败时保留旧文件。
  */
 class DataCache(
     context: Context,
@@ -40,8 +42,7 @@ class DataCache(
      */
     private val cacheDir: File = File(appContext.cacheDir, dirName)
 
-    /** per-key 锁对象，不同 key 之间互不阻塞 */
-    private val locks = ConcurrentHashMap<String, Any>()
+    private val lock = directoryLock(cacheDir)
     /** ── [ScheduleCacheStore] 的五个一行转发 ── */
     override fun readJson(key: String, ttlMs: Long): String? = get(key, ttlMs)
 
@@ -57,6 +58,16 @@ class DataCache(
         const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000L
         /** 学期内稳定数据 TTL: 90 天，足以覆盖最长学期；过期后自然重新拉新学期数据。 */
         const val TERM_TTL_MS = 90L * 24 * 60 * 60 * 1000L
+
+        // 不移除锁：已有 DataCache 实例可能仍持有它。
+        private val directoryLocks = ConcurrentHashMap<String, Any>()
+
+        internal fun directoryLock(dir: File): Any =
+            directoryLocks.computeIfAbsent(dir.canonicalPath) { Any() }
+
+        /** 删除账号缓存时与所有 DataCache 实例使用同一把锁。 */
+        internal fun deleteDirectory(dir: File): Boolean =
+            synchronized(directoryLock(dir)) { dir.deleteRecursively() }
 
         private const val META_PREFS = "data_cache_meta"
         private const val KEY_INSTALL_STAMP = "install_stamp"
@@ -92,7 +103,7 @@ class DataCache(
             val dirs = app.cacheDir.listFiles { f -> f.isDirectory && f.name.startsWith("data_cache") }
             // deleteRecursively 失败只返回 false、不一定抛异常，必须看返回值
             val allCleared = dirs != null && dirs.all { dir ->
-                runCatching { dir.deleteRecursively() }
+                runCatching { deleteDirectory(dir) }
                     .onFailure { Log.w(TAG, "clear ${dir.name} failed", it) }
                     .getOrDefault(false)
             }
@@ -106,9 +117,6 @@ class DataCache(
         }
     }
 
-    /** 获取指定 key 的锁对象 */
-    private fun lockFor(key: String): Any = locks.getOrPut(key) { Any() }
-
     /**
      * 读取缓存
      * @param key 缓存键（如 "schedule_2024-2025-2"）
@@ -116,7 +124,7 @@ class DataCache(
      * @return JSON 字符串，或 null（未缓存/已过期）
      */
     fun get(key: String, ttlMs: Long = DEFAULT_TTL_MS): String? {
-        synchronized(lockFor(key)) {
+        synchronized(lock) {
             val file = File(cacheDir, "${key.sanitize()}.json")
             if (!file.exists()) return null
             val age = System.currentTimeMillis() - file.lastModified()
@@ -142,18 +150,17 @@ class DataCache(
      * @param json JSON 字符串
      */
     fun put(key: String, json: String) {
-        synchronized(lockFor(key)) {
+        synchronized(lock) {
             try {
-                val sanitized = key.sanitize()
                 cacheDir.mkdirs()
-                val file = File(cacheDir, "${sanitized}.json")
-                val tmpFile = File(cacheDir, "${sanitized}.json.tmp")
-                // 先写临时文件
-                tmpFile.writeText(json)
-                // 原子重命名（Android/Linux rename 是原子操作）
-                if (!tmpFile.renameTo(file)) {
-                    // renameTo 失败时回退到直接写
-                    file.writeText(json)
+                val file = File(cacheDir, "${key.sanitize()}.json")
+                val tmpFile = File.createTempFile("cache-", ".tmp", cacheDir)
+                try {
+                    tmpFile.writeText(json)
+                    // 不支持原子替换或替换失败时，保留旧文件，不直接覆盖。
+                    Files.move(tmpFile.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING)
+                } finally {
                     tmpFile.delete()
                 }
                 Log.d(TAG, "put($key): written ${json.length} bytes")
@@ -179,7 +186,7 @@ class DataCache(
     inline fun <reified T> write(key: String, value: T) = put(key, AppJson.encodeToString(value))
 
     fun ageMs(key: String): Long? {
-        synchronized(lockFor(key)) {
+        synchronized(lock) {
             val file = File(cacheDir, "${key.sanitize()}.json")
             if (!file.exists()) return null
             return System.currentTimeMillis() - file.lastModified()
@@ -188,7 +195,7 @@ class DataCache(
 
     /** 读取缓存内容，忽略 TTL（只要文件存在就返回）。用于联网失败时的兜底回退。 */
     fun getStale(key: String): String? {
-        synchronized(lockFor(key)) {
+        synchronized(lock) {
             val file = File(cacheDir, "${key.sanitize()}.json")
             if (!file.exists()) return null
             return try {
@@ -204,7 +211,7 @@ class DataCache(
      * 使指定缓存失效
      */
     fun invalidate(key: String) {
-        synchronized(lockFor(key)) {
+        synchronized(lock) {
             val file = File(cacheDir, "${key.sanitize()}.json")
             if (file.exists()) {
                 file.delete()
@@ -217,10 +224,8 @@ class DataCache(
      * 清除所有缓存
      */
     fun clearAll() {
-        // clearAll 需要全局锁，避免与单 key 操作冲突
-        synchronized(this) {
+        synchronized(lock) {
             cacheDir.listFiles()?.forEach { it.delete() }
-            locks.clear()
             Log.d(TAG, "clearAll()")
         }
     }
