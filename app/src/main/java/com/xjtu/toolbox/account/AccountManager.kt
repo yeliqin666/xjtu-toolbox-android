@@ -319,7 +319,7 @@ class AccountManager(
         SessionBackend.wipe(suffix)
         if (cookiesOnly) return
 
-        runCatching { File(app.cacheDir, "data_cache$suffix").deleteRecursively() }
+        runCatching { com.xjtu.toolbox.data.DataCache.deleteDirectory(File(app.cacheDir, "data_cache$suffix")) }
         runCatching { File(app.cacheDir, "avatar$suffix.jpg").delete() }
         runCatching { File(app.cacheDir, "avatar$suffix.url").delete() }
         for (name in listOf("agent_sessions$suffix", "agent_images$suffix", "avatar$suffix.jpg",
