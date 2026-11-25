@@ -6,11 +6,12 @@ import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
 import java.io.File
+import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -134,25 +135,36 @@ class AccountStoreJvmTest {
         val insideUpdate = CountDownLatch(1)
         val resume = CountDownLatch(1)
         val secondStarted = CountDownLatch(1)
+        val firstThread = AtomicLong()
+        val secondThread = AtomicLong()
         val pool = Executors.newFixedThreadPool(2)
         try {
             val a = pool.submit {
+                firstThread.set(Thread.currentThread().id)
                 first.update("A") {
                     insideUpdate.countDown()
-                    check(resume.await(5, TimeUnit.SECONDS))
+                    check(resume.await(15, TimeUnit.SECONDS))
                     it.copy(nickname = "first")
                 }
             }
             assertTrue(insideUpdate.await(5, TimeUnit.SECONDS))
             val b = pool.submit {
+                secondThread.set(Thread.currentThread().id)
                 secondStarted.countDown()
                 second.update("B") { it.copy(nickname = "second") }
             }
             assertTrue(secondStarted.await(5, TimeUnit.SECONDS))
+            // A 已读出旧表并暂停。等 B 确实完成写入，或确实被 A 的锁挡住，
+            // 不用固定的睡眠时间猜测 B 是否已经执行。
             try {
-                b.get(300, TimeUnit.MILLISECONDS)
-            } catch (_: TimeoutException) {
-                // B 等待 A 的整个读改写事务结束。
+                val threads = ManagementFactory.getThreadMXBean()
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                while (!b.isDone) {
+                    val info = threads.getThreadInfo(secondThread.get())
+                    if (info?.lockOwnerId == firstThread.get()) break
+                    check(System.nanoTime() < deadline) { "第二个修改未完成，也没有等待第一个修改的锁" }
+                    Thread.sleep(1)
+                }
             } finally {
                 resume.countDown()
             }
