@@ -22,6 +22,8 @@ internal data class PluginManifest(
     val author: String = "",
     /** 作者主页，详情页可点开。 */
     val authorUrl: String = "",
+    /** 作者头像在包内的路径（可选）；没有就用名字首字画个圆形占位。 */
+    val authorAvatar: String = "",
     /** 项目源码/主页地址。 */
     val projectUrl: String = "",
     val version: String = "",

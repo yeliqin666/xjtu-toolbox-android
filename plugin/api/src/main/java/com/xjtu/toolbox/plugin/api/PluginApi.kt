@@ -15,7 +15,12 @@ import android.view.View
  * - 改任何签名都要同步把 [PluginApi.VERSION] 加一，旧插件会被宿主拒绝加载。
  */
 object PluginApi {
-    /** 宿主能接受的插件 API 版本；插件 `plugin.json` 的 `apiVersion` 必须完全相等。 */
+    /**
+     * 宿主能接受的插件 API 版本；插件清单里的 `apiVersion` 必须完全相等。
+     *
+     * **v2 已冻结**：加字段、加节点类型都不升这个数——插件是编译期绑定的，加东西不会破坏老插件。
+     * 只有在语义变了、老插件跑起来会出错时才升（比如把 `render()` 的返回类型换掉）。
+     */
     const val VERSION: Int = 2
 
     /** 插件 APK 里放清单的 asset 路径。 */

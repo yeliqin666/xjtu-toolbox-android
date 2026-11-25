@@ -3,6 +3,8 @@ package com.xjtu.toolbox.plugin
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -33,6 +36,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,11 +46,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownOption
 import com.xjtu.toolbox.ui.components.AppFilterChip
@@ -117,6 +127,9 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
     var message by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+    var originRect by remember { mutableStateOf<Rect?>(null) }
+    var closing by remember { mutableStateOf(false) }
+    var pendingMarket by remember { mutableStateOf<MarketEntry?>(null) }
 
     val records = if (demo) demoRecords() else manager.records
     val broken = if (demo) DemoBrokenIds else manager.brokenIds
@@ -136,29 +149,40 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
 
     if (!demo) LaunchedEffect(Unit) { manager.refresh() }
 
+    BackHandler(enabled = detail != null) { closing = true }
+
     // ── 详情页 ────────────────────────────────────────────────────────────
     if (detail != null) {
-        DetailPage(
-            record = detail,
-            broken = detail.id in broken,
-            onBack = { detailId = null },
-            onOpenPage = { pageId -> PluginOverlay.open(detail.id, pageId) },
-            onToggleEnabled = { on ->
-                if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setEnabled(detail.id, on) }
-            },
-            onToggleTools = { on ->
-                if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setToolsEnabled(detail.id, on) }
-            },
-            onUninstall = {
+        ExpandFromCard(
+            origin = originRect,
+            closing = closing,
+            onClosed = {
                 detailId = null
-                if (!demo) {
-                    scope.launch {
-                        manager.uninstall(detail.id)
-                        manager.refresh()
-                    }
-                }
+                closing = false
             },
-        )
+        ) {
+            DetailPage(
+                record = detail,
+                broken = detail.id in broken,
+                onBack = { closing = true },
+                onOpenPage = { pageId -> PluginOverlay.open(detail.id, pageId) },
+                onToggleEnabled = { on ->
+                    if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setEnabled(detail.id, on) }
+                },
+                onToggleTools = { on ->
+                    if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setToolsEnabled(detail.id, on) }
+                },
+                onUninstall = {
+                    closing = true
+                    if (!demo) {
+                        scope.launch {
+                            manager.uninstall(detail.id)
+                            manager.refresh()
+                        }
+                    }
+                },
+            )
+        }
         return
     }
 
@@ -225,7 +249,10 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                         PluginRow(
                             record = record,
                             broken = record.id in broken,
-                            onClick = { detailId = record.id },
+                            onClick = { rect ->
+                                originRect = rect
+                                detailId = record.id
+                            },
                             modifier = Modifier
                                 .animateItem()
                                 .padding(horizontal = 16.dp, vertical = 5.dp),
@@ -246,6 +273,7 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                     }
                 },
                 onOpenSettings = { showSettings = true },
+                onInstall = { pendingMarket = it },
                 modifier = base,
                 glassTop = glassTop,
                 scrollBehavior = scrollBehavior,
@@ -262,6 +290,24 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                 showSettings = false
                 picker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
             },
+        )
+    }
+
+    val market = pendingMarket
+    if (market != null) {
+        com.xjtu.toolbox.community.ConfirmDialog(
+            title = "安装「${market.name}」？",
+            summary = buildString {
+                append("版本 ${market.version} · 作者 ${market.author}\n")
+                append(if (market.isWeb) "web 插件，在内置浏览器里打开网页，与 App 隔离。\n\n" else "dex 插件，与本 App 同权限运行。\n\n")
+                append("（演示数据：确认后这里会去下载并校验插件包。）")
+            },
+            confirm = "安装",
+            onConfirm = {
+                pendingMarket = null
+                message = "演示数据：真装要等索引和包格式接上"
+            },
+            onDismiss = { pendingMarket = null },
         )
     }
 
@@ -293,6 +339,67 @@ internal fun PluginsPage(onBack: () -> Unit, demo: Boolean = false) {
                 pending = null
             },
         )
+    }
+}
+
+/**
+ * 从被点的那张卡片放大成整页，返回时缩回卡片。
+ *
+ * 不用共享元素过渡（miuix-nav 那套是给页面路由用的），而是记下卡片的矩形，
+ * 让整页从那个矩形按比例放大：起点对齐卡片的圆角位置，所以看着像卡片自己长开了。
+ */
+@Composable
+private fun ExpandFromCard(
+    origin: Rect?,
+    closing: Boolean,
+    onClosed: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    var progress by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(closing) {
+        if (closing) {
+            animate(progress, 0f, animationSpec = tween(220, easing = FastOutSlowInEasing)) { value, _ ->
+                progress = value
+            }
+            onClosed()
+        } else {
+            animate(0f, 1f, animationSpec = tween(320, easing = FastOutSlowInEasing)) { value, _ ->
+                progress = value
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MiuixTheme.colorScheme.background.copy(alpha = progress)),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val from = origin
+                    if (from != null && from != Rect.Zero && progress < 1f) {
+                        val fullWidth = size.width
+                        val fullHeight = size.height
+                        if (fullWidth > 0f && fullHeight > 0f) {
+                            val startScaleX = from.width / fullWidth
+                            val startScaleY = from.height / fullHeight
+                            scaleX = startScaleX + (1f - startScaleX) * progress
+                            scaleY = startScaleY + (1f - startScaleY) * progress
+                            transformOrigin = TransformOrigin(
+                                pivotFractionX = from.center.x / fullWidth,
+                                pivotFractionY = from.center.y / fullHeight,
+                            )
+                        }
+                    }
+                    alpha = progress.coerceIn(0f, 1f)
+                },
+        ) {
+            content()
+        }
     }
 }
 
@@ -353,9 +460,10 @@ private fun TypeBadge(isWeb: Boolean) {
 private fun PluginRow(
     record: PluginRecord,
     broken: Boolean,
-    onClick: () -> Unit,
+    onClick: (Rect) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var bounds by remember { mutableStateOf(Rect.Zero) }
     val status = when {
         broken -> "插件包丢失，卸载后重装"
         !record.enabled -> "已停用"
@@ -366,7 +474,8 @@ private fun PluginRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick),
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .clickable { onClick(bounds) },
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
@@ -400,6 +509,16 @@ private fun PluginRow(
                         MiuixTheme.colorScheme.onSurfaceVariantSummary
                     },
                 )
+                if (record.manifest.author.isNotBlank()) {
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = record.manifest.author,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             if (record.manifest.summary.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
@@ -437,6 +556,7 @@ private fun MarketTab(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
+    onInstall: (MarketEntry) -> Unit,
     modifier: Modifier,
     glassTop: androidx.compose.ui.unit.Dp,
     scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior?,
@@ -519,7 +639,7 @@ private fun MarketTab(
                             AppFilterChip(
                                 selected = sort != MarketSort.Hot,
                                 onClick = { openMenu = "sort" },
-                                label = sort.label,
+                                label = "排序：${sort.label}",
                                 trailingIcon = { ChipArrow() },
                             )
                             AppDropdownMenu(
@@ -605,6 +725,7 @@ private fun MarketTab(
                 items(shown, key = { it.id }) { entry ->
                     MarketRow(
                         entry = entry,
+                        onClick = { onInstall(entry) },
                         modifier = Modifier
                             .animateItem()
                             .padding(horizontal = 16.dp, vertical = 5.dp),
@@ -631,7 +752,7 @@ private fun FeaturedCard(entry: MarketEntry, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier
             .width(220.dp)
-            .heightIn(min = 104.dp),
+            .height(132.dp),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(14.dp)) {
@@ -654,15 +775,36 @@ private fun FeaturedCard(entry: MarketEntry, modifier: Modifier = Modifier) {
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = entry.version,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = entry.author,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 96.dp),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun MarketRow(entry: MarketEntry, modifier: Modifier = Modifier) {
+private fun MarketRow(entry: MarketEntry, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
