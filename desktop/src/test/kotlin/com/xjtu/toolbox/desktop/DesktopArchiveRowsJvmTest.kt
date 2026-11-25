@@ -27,6 +27,7 @@ import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -328,9 +329,18 @@ class DesktopArchiveRowsJvmTest {
         secureKeyValueStore(DesktopDownloadTaskStore.STORE_NAME)
             .putString(ArchiveRowFamilies.Family.DOWNLOAD_TASKS.key, legacyRows)
 
+        val legacyShelf = rowsText(archiveShelfRow(ssno = "LEGACY", title = "旧名里的教材"))
+        secureKeyValueStore(DesktopJiaocai1ShelfStore.STORE_NAME)
+            .putString(ArchiveRowFamilies.Family.JIAOCAI_SHELF.key, legacyShelf)
+
         AccountContext.activeAccountId = ACCOUNT_ID
         val exported = DesktopArchiveHost.exportArchive(now = { FIXED_NOW })
         assertTrue(ArchivePaths.filePath("", ArchiveRowFamilies.DOWNLOAD_TASKS_REL) !in exported)
+        assertTrue(ArchivePaths.filePath("", ArchiveRowFamilies.JIAOCAI_SHELF_REL) !in exported)
+        assertTrue(ArchivePaths.storePath(DesktopDownloadTaskStore.STORE_NAME, "") !in exported)
+        assertTrue(ArchivePaths.storePath(DesktopJiaocai1ShelfStore.STORE_NAME, "") !in exported)
+        assertEquals(legacyRows, props(root, DesktopDownloadTaskStore.STORE_NAME).getProperty("rows"))
+        assertEquals(legacyShelf, props(root, DesktopJiaocai1ShelfStore.STORE_NAME).getProperty("rows"))
 
         val entries = archiveOf(
             ArchiveRowFamilies.DOWNLOAD_TASKS_REL to
@@ -355,6 +365,12 @@ class DesktopArchiveRowsJvmTest {
             listOf(8L),
             runBlocking { downloads().getAll() }.map { it.id },
         )
+        assertTrue(runBlocking { shelf().observeAll().first().isEmpty() })
+        val exportedAfterImport = DesktopArchiveHost.exportArchive(now = { FIXED_NOW })
+        assertEquals(listOf(8L), rowsOf(exportedAfterImport, ArchiveRowFamilies.DOWNLOAD_TASKS_REL).ids())
+        assertTrue(ArchivePaths.storePath(DesktopDownloadTaskStore.STORE_NAME, "") !in exportedAfterImport)
+        assertTrue(ArchivePaths.storePath(DesktopJiaocai1ShelfStore.STORE_NAME, "") !in exportedAfterImport)
+        assertEquals(legacyShelf, props(root, DesktopJiaocai1ShelfStore.STORE_NAME).getProperty("rows"))
     }
 
     private companion object {

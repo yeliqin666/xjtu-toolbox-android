@@ -21,6 +21,8 @@ import com.xjtu.toolbox.archive.archiveStoreBackend
 import com.xjtu.toolbox.desktop.DesktopBuildConfig
 import com.xjtu.toolbox.desktop.DesktopScheduleHost
 import com.xjtu.toolbox.desktop.accountScopedStoreName
+import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
+import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
@@ -128,7 +130,10 @@ object DesktopArchiveHost {
     ): Map<String, String> {
         val accounts = accountsFrom(AccountStore().list())
         val suffixes = (accounts.map { it.suffix } + ANONYMOUS_SUFFIXES).distinct()
-        val stores = readStores(archiveStoreBackend())
+        // 无账号后缀的旧书架、下载记录没有可靠的归属；保留本地文件，但不随普通 store 导出。
+        val stores = readStores(archiveStoreBackend()).filterNot {
+            it.rawName == DesktopDownloadTaskStore.STORE_NAME || it.rawName == DesktopJiaocai1ShelfStore.STORE_NAME
+        }
         // 以文件为规范表示的两族（成绩缓存 / 课表缓存）：端内那份店不进 `stores/`（理由见上面 KDoc）。
         val fileFamilyBases = setOf(
             ArchiveScoreReport.KEY,
