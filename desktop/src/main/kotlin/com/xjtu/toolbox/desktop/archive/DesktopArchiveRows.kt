@@ -13,7 +13,7 @@ import com.xjtu.toolbox.platform.secureKeyValueStore
 
 /**
  * 三族行数组在桌面的落点：各是一个键值店。自建日程店名不带账号后缀；下载队列和教材书架带，
- * 新名里没有时只读一次无后缀的旧名（与两个 Store 自己的兜底一致，否则导入会丢掉旧名里的行）。
+ * 归属不明的旧名文件保留，但不作为当前账号导入或导出的数据。
  */
 internal object DesktopArchiveRows {
 
@@ -28,21 +28,11 @@ internal object DesktopArchiveRows {
             accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, accountId)
     }
 
-    fun legacyStoreName(family: ArchiveRowFamilies.Family): String? = when (family) {
-        ArchiveRowFamilies.Family.CUSTOM_COURSES -> null
-        ArchiveRowFamilies.Family.DOWNLOAD_TASKS -> DesktopDownloadTaskStore.STORE_NAME
-        ArchiveRowFamilies.Family.JIAOCAI_SHELF -> DesktopJiaocai1ShelfStore.STORE_NAME
-    }
-
     fun rowsOf(
         family: ArchiveRowFamilies.Family,
         storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
         accountId: String? = AccountContext.activeAccountId,
-    ): String? {
-        storeOf(storeName(family, accountId)).getString(family.key)?.let { return it }
-        val legacy = legacyStoreName(family) ?: return null
-        return storeOf(legacy).getString(family.key)
-    }
+    ): String? = storeOf(storeName(family, accountId)).getString(family.key)
 
     /** 导出：有行的族 → `files/` 条目。 */
     fun filesOf(

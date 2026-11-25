@@ -74,7 +74,7 @@ class DesktopArchiveRowsJvmTest {
     private fun courses(): KeyValueCustomCourseStore =
         KeyValueCustomCourseStore(secureKeyValueStore(DesktopScheduleHost.CUSTOM_COURSE_STORE))
 
-    /** 下载队列那一族：与 `DesktopDownloads` 的装配同一套（端内名带后缀 + 旧名只读兜底）。 */
+    /** 下载队列使用当前账号独立的存储。 */
     private fun downloads(): DesktopDownloadTaskStore = DesktopDownloadTaskStore()
 
     /** 教材书架那一族：与桌面 jiaocai1 那一屏同一套装配。 */
@@ -323,14 +323,14 @@ class DesktopArchiveRowsJvmTest {
     }
 
     @Test
-    fun `导入 新名没有行时合并基取旧名 旧文件一个字不动`() = withRoot { root ->
+    fun unownedLegacyRowsAreNotExportedOrMergedIntoAccount() = withRoot { root ->
         val legacyRows = rowsText(archiveDownloadRow(id = 1, title = "旧名里的课", createTime = 1_000))
         secureKeyValueStore(DesktopDownloadTaskStore.STORE_NAME)
             .putString(ArchiveRowFamilies.Family.DOWNLOAD_TASKS.key, legacyRows)
 
-        // 导出侧同一条兜底：新名里没有行 ⇒ 档案里那一族取旧名里那一行
+        AccountContext.activeAccountId = ACCOUNT_ID
         val exported = DesktopArchiveHost.exportArchive(now = { FIXED_NOW })
-        assertEquals(listOf(1L), rowsOf(exported, ArchiveRowFamilies.DOWNLOAD_TASKS_REL).ids())
+        assertTrue(ArchivePaths.filePath("", ArchiveRowFamilies.DOWNLOAD_TASKS_REL) !in exported)
 
         val entries = archiveOf(
             ArchiveRowFamilies.DOWNLOAD_TASKS_REL to
@@ -345,17 +345,15 @@ class DesktopArchiveRowsJvmTest {
                 .getProperty(ArchiveRowFamilies.Family.DOWNLOAD_TASKS.key),
             "旧名那份文件只读：一个字没改",
         )
-        val merged = props(root, DesktopDownloadTaskStore.storeName(null))
+        val merged = props(root, DesktopDownloadTaskStore.storeName(ACCOUNT_ID))
             .getProperty(ArchiveRowFamilies.Family.DOWNLOAD_TASKS.key)
         assertEquals(
-            listOf(1L, 8L),
+            listOf(8L),
             (AppJson.parseToJsonElement(merged) as JsonArray).ids(),
-            "合并基含旧名里那一行（不然旧队列导入时会被当成空的）",
         )
         assertEquals(
-            listOf(8L, 1L),
+            listOf(8L),
             runBlocking { downloads().getAll() }.map { it.id },
-            "业务读法（同一命名空间）两行都在，按 createTime 倒序",
         )
     }
 

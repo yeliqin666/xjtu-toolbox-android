@@ -23,14 +23,11 @@ import kotlinx.serialization.json.put
 class DesktopDownloadTaskStore(
     /** 存储；生产装配给的是那份 0600 的落盘文件（测试可传内存版做隔离）。 */
     private val store: KeyValueStore,
-    /** 旧名（[STORE_NAME]，无账号后缀）的只读兜底：新名里没有时读它一次。 */
-    private val legacyStore: KeyValueStore? = null,
 ) : DownloadTaskStore {
 
-    /** 生产装配：端内名 = `download_tasks<账号后缀>`（[storeName]）+ 旧名的只读兜底。 */
+    /** 按账号打开独立的存储，不读取归属不明的旧文件。 */
     constructor(accountId: String? = AccountContext.activeAccountId) : this(
         store = secureKeyValueStore(storeName(accountId)),
-        legacyStore = secureKeyValueStore(STORE_NAME),
     )
 
     private val lock = Mutex()
@@ -111,7 +108,7 @@ class DesktopDownloadTaskStore(
     }
 
     private fun read(): List<DownloadTask> {
-        val raw = store.getString(KEY_ROWS) ?: legacyStore?.getString(KEY_ROWS) ?: return emptyList()
+        val raw = store.getString(KEY_ROWS) ?: return emptyList()
         val array = runCatching { AppJson.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return emptyList()
         return array.mapNotNull { element ->
             val o = element as? JsonObject ?: return@mapNotNull null

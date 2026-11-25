@@ -6,11 +6,23 @@ import java.util.Base64
 internal class ProtectedKeyValueStore(
     private val delegate: KeyValueStore,
     private val protector: SecretProtector?,
+    private val protectedKeys: Set<String>? = null,
 ) : KeyValueStore {
 
-    override fun getString(key: String): String? = delegate.getString(key)?.let(::open)
+    private fun protects(key: String) = protectedKeys == null || key in protectedKeys
 
-    override fun putString(key: String, value: String?) = delegate.putString(key, value?.let(::seal))
+    /** Convert an existing plaintext value before the store is published. */
+    internal fun migratePlaintext(key: String) {
+        if (protector == null || !protects(key) || !StoreWriteGate.allowsWrites) return
+        val stored = delegate.getString(key) ?: return
+        if (!stored.startsWith(ENVELOPE_PREFIX)) putString(key, stored)
+    }
+
+    override fun getString(key: String): String? =
+        delegate.getString(key)?.let { if (protects(key)) open(it) else it }
+
+    override fun putString(key: String, value: String?) =
+        delegate.putString(key, value?.let { if (protects(key)) seal(it) else it })
 
     override fun getBoolean(key: String, default: Boolean): Boolean =
         getString(key)?.toBooleanStrictOrNull() ?: default
