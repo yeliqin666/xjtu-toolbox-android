@@ -307,7 +307,7 @@ internal fun PluginsPage(
                     append("版本 ${install.manifest.version}（versionCode ${install.manifest.versionCode}）")
                     append("，页面 ${install.manifest.pages.size} 个、工具 ${install.manifest.tools.size} 个。\n\n")
                     install.oldVersionName?.let { append("已安装 v$it，会替换掉。\n") }
-                    append("签名 ${install.certSha256.take(16)}…\n\n")
+                    append("签名者 ${install.inspected.signerSha256.take(16)}…\n\n")
                     append("dex 插件与本 App 同权限运行，能读账号、登录会话和本机数据；只装你信任来源的插件。")
                 },
                 confirm = if (install.isUpdate) "更新" else "安装",
@@ -1091,7 +1091,8 @@ private fun demoRecord(
     versionCode = versionCode,
     versionName = version,
     apk = "$id/$versionCode.apk",
-    certSha256 = "0000000000000000000000000000000000000000000000000000000000000000",
+    root = "$id/1",
+    signerSha256 = "0000000000000000000000000000000000000000000000000000000000000000",
     enabled = enabled,
     toolsEnabled = tools > 0,
     installedAt = 0L,

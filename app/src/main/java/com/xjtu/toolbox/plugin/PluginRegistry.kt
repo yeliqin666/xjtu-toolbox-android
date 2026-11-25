@@ -9,7 +9,12 @@ internal object PluginRegistry {
 
     fun root(context: Context): File = File(context.filesDir, "plugins")
 
-    fun apkFile(context: Context, record: PluginRecord): File = File(root(context), record.apk)
+    /** 一个已安装版本解压后的包目录，例如 `plugins/<id>/<versionCode>`。 */
+    fun packageDir(context: Context, record: PluginRecord): File =
+        if (record.root.isBlank()) File(root(context), record.id) else File(root(context), record.root)
+
+    /** dex 插件的 APK；web 插件没有。 */
+    fun apkFile(context: Context, record: PluginRecord): File = File(packageDir(context, record), record.apk)
 
     fun dataDir(context: Context, pluginId: String): File =
         File(root(context), "data/$pluginId").apply { mkdirs() }

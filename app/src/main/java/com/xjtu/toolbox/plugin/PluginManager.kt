@@ -24,23 +24,23 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.io.File
-import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 private const val TAG = "PluginManager"
-private const val MAX_APK_BYTES = 30L * 1024 * 1024
 private const val MAX_DEX_FILES = 8
 private const val MAX_TOOL_RESULT = 16_000
 
 /** 已验证、等用户确认的一次安装；确认后交给 [PluginManager.commit]，取消调 [PluginManager.cancel]。 */
 internal class PendingPluginInstall(
-    val tempApk: File,
-    val manifest: PluginManifest,
-    val certSha256: String,
+    /** 缓存里的临时 zip，确认后才解压落盘。 */
+    val tempPackage: File,
+    val inspected: InspectedPackage,
     val sizeBytes: Long,
     val oldVersionName: String?,
     val isUpdate: Boolean,
-)
+) {
+    val manifest: PluginManifest get() = inspected.runtime
+}
 
 /** 打开插件页需要的那几样。 */
 internal class OpenedPluginPage(
@@ -73,7 +73,9 @@ internal class PluginManager private constructor(private val appContext: Context
     suspend fun refresh() {
         val list = withContext(Dispatchers.IO) { PluginRegistry.read(appContext) }
         val broken = withContext(Dispatchers.IO) {
-            list.filterNot { PluginRegistry.apkFile(appContext, it).isFile }.map { it.id }.toSet()
+            list.filterNot { record ->
+                record.root.isNotBlank() && PluginRegistry.packageDir(appContext, record).isDirectory
+            }.map { it.id }.toSet()
         }
         withContext(Dispatchers.Main) {
             records = list
@@ -83,42 +85,53 @@ internal class PluginManager private constructor(private val appContext: Context
 
     // ── 安装 ────────────────────────────────────────────────────────────────
 
-    /** 把用户选的 APK 复制到临时文件并完整校验；不执行插件代码，只反射检查入口类存在。 */
+    /**
+     * 把用户选的 zip 复制到缓存、验签、核对包内文件，再检查入口类。
+     *
+     * 这一步不执行插件代码，只把 APK 解到临时目录里反射看一眼入口类。
+     */
     suspend fun inspect(uri: Uri): PendingPluginInstall = withContext(Dispatchers.IO) {
-        val temp = File(appContext.cacheDir, "plugin_import_${System.currentTimeMillis()}.apk")
+        val temp = File(appContext.cacheDir, "plugin_import_${System.currentTimeMillis()}.zip")
         try {
             appContext.contentResolver.openInputStream(uri)?.use { input ->
                 temp.outputStream().use { output -> input.copyTo(output) }
             } ?: throw IllegalArgumentException("读不到这个文件")
-            require(temp.length() in 1..MAX_APK_BYTES) { "插件包为空或超过 30 MB" }
-            // Android 14+ 拒绝从可写文件加载 dex（"Writable dex file is not allowed"）。
-            // 插件 APK 本来就不该被改，装完/验完就置为只读。
-            temp.setReadOnly()
+            require(temp.length() in 1..(MAX_PACKAGE_BYTES + 8L * 1024 * 1024)) {
+                "插件包为空，或者大得离谱"
+            }
 
-            val pkg = appContext.packageManager
-                .getPackageArchiveInfo(temp.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
-                ?: throw IllegalArgumentException("不是可解析的 APK")
-            val signers = pkg.signingInfo?.apkContentsSigners
-            require(!signers.isNullOrEmpty()) { "APK 没有签名" }
-            val cert = sha256(signers[0].toByteArray())
-
-            val manifest = readManifest(temp)
+            val inspected = PluginPackages.inspect(temp)
+            val manifest = inspected.runtime
             require(manifest.minAppVersionCode <= BuildConfig.VERSION_CODE) {
                 "这个插件要求 App 版本 ${manifest.minAppVersionCode}+，当前 ${BuildConfig.VERSION_CODE}"
             }
+
             val existing = currentRecords().firstOrNull { it.id == manifest.id }
             if (existing != null) {
-                require(existing.certSha256 == cert) { "更新必须使用与已安装版本相同的签名" }
+                require(existing.signerSha256.isNotBlank() && existing.signerSha256 == inspected.signerSha256) {
+                    "更新必须使用与已安装版本相同的签名密钥"
+                }
                 require(manifest.versionCode > existing.versionCode) {
                     "新版本 versionCode 必须大于已装的 ${existing.versionCode}"
                 }
             }
-            validateEntryClass(temp, manifest)
+
+            // dex 插件才需要检查入口类；web 插件不加载代码
+            if (!manifest.isWeb) {
+                val apkEntry = inspected.files[manifest.dexApk]
+                    ?: throw IllegalArgumentException("包里没有 ${manifest.dexApk}")
+                val tempApk = File(appContext.cacheDir, "plugin_inspect_${System.nanoTime()}.apk")
+                try {
+                    PluginPackages.extractOne(temp, apkEntry, tempApk)
+                    validateEntryClass(tempApk, manifest)
+                } finally {
+                    runCatching { tempApk.delete() }
+                }
+            }
 
             PendingPluginInstall(
-                tempApk = temp,
-                manifest = manifest,
-                certSha256 = cert,
+                tempPackage = temp,
+                inspected = inspected,
                 sizeBytes = temp.length(),
                 oldVersionName = existing?.versionName,
                 isUpdate = existing != null,
@@ -129,23 +142,35 @@ internal class PluginManager private constructor(private val appContext: Context
         }
     }
 
-    /** 用户确认后落盘并更新 registry。旧版本 APK 删除，但旧 classloader 可能还有页面在用。 */
+    /**
+     * 用户确认后落盘并更新 registry：解压到 `<id>/<versionCode>/`，先写暂存目录再改名，
+     * 半路失败不会留下半个包。旧版本目录随后清掉，但旧 classloader 可能还有页面在用。
+     */
     suspend fun commit(pending: PendingPluginInstall) = withContext(Dispatchers.IO) {
         val manifest = pending.manifest
         val pluginDir = File(PluginRegistry.root(appContext), manifest.id).apply { mkdirs() }
-        val target = File(pluginDir, "${manifest.versionCode}.apk")
-        if (!pending.tempApk.renameTo(target)) {
-            pending.tempApk.copyTo(target, overwrite = true)
-            pending.tempApk.delete()
+        val target = File(pluginDir, manifest.versionCode.toString())
+        val staging = File(pluginDir, ".staging-${manifest.versionCode}")
+        staging.deleteRecursively()
+        staging.mkdirs()
+        try {
+            PluginPackages.extract(pending.tempPackage, pending.inspected.files.values, staging)
+            target.deleteRecursively()
+            check(staging.renameTo(target)) { "插件包落盘失败" }
+        } catch (t: Throwable) {
+            staging.deleteRecursively()
+            throw t
+        } finally {
+            runCatching { pending.tempPackage.delete() }
         }
-        target.setReadOnly()
 
         val record = PluginRecord(
             id = manifest.id,
             versionCode = manifest.versionCode,
             versionName = manifest.version,
-            apk = "${manifest.id}/${manifest.versionCode}.apk",
-            certSha256 = pending.certSha256,
+            root = "${manifest.id}/${manifest.versionCode}",
+            apk = manifest.dexApk,
+            signerSha256 = pending.inspected.signerSha256,
             enabled = true,
             toolsEnabled = false,
             installedAt = System.currentTimeMillis(),
@@ -157,9 +182,10 @@ internal class PluginManager private constructor(private val appContext: Context
             cachedRecords = next
             loaded.remove(record.id)
         }
-        // 新版本落定后再清旧 APK，失败也不影响新版本
-        pluginDir.listFiles { f -> f.isFile && f.name.endsWith(".apk") && f.name != target.name }
-            ?.forEach { runCatching { it.delete() } }
+        // 新版本落定后再清旧版本目录，失败也不影响新版本
+        pluginDir.listFiles { f -> f.isDirectory && f.name != target.name }?.forEach { old ->
+            runCatching { old.deleteRecursively() }
+        }
         if (PluginOverlay.current?.pluginId == record.id) PluginOverlay.close()
         withContext(Dispatchers.Main) {
             records = next
@@ -168,7 +194,7 @@ internal class PluginManager private constructor(private val appContext: Context
     }
 
     fun cancel(pending: PendingPluginInstall) {
-        runCatching { pending.tempApk.delete() }
+        runCatching { pending.tempPackage.delete() }
     }
 
     suspend fun setEnabled(id: String, enabled: Boolean) = updateRecord(id) { it.copy(enabled = enabled) }
@@ -267,6 +293,7 @@ internal class PluginManager private constructor(private val appContext: Context
         if (!record.enabled || id in brokenIds) return null
         loaded[id]?.takeIf { it.record.versionCode == record.versionCode }?.let { return it }
 
+        if (record.manifest.isWeb) return null
         val apk = PluginRegistry.apkFile(appContext, record)
         if (!apk.isFile) return null
         val dexDir = File(appContext.codeCacheDir, "plugin_dex/$id/${record.versionCode}")
@@ -300,12 +327,6 @@ internal class PluginManager private constructor(private val appContext: Context
         cachedRecords ?: PluginRegistry.read(appContext).also { cachedRecords = it }
     }
 
-    private fun readManifest(apk: File): PluginManifest = ZipFile(apk).use { zip ->
-        val entry = zip.getEntry("assets/${PluginApi.MANIFEST_ASSET}")
-            ?: throw IllegalArgumentException("APK 缺少 assets/${PluginApi.MANIFEST_ASSET}")
-        parsePluginManifest(zip.getInputStream(entry).use { it.readBytes() })
-    }
-
     private fun validateEntryClass(apk: File, manifest: PluginManifest) {
         val dexDir = File(appContext.codeCacheDir, "plugin_dex/_inspect/${System.nanoTime()}")
         dexDir.mkdirs()
@@ -334,10 +355,6 @@ internal class PluginManager private constructor(private val appContext: Context
         val id = pluginId.replace(Regex("[^a-zA-Z0-9_]"), "_")
         return "plugin_${id}_$toolName".takeIf { it.length <= 64 }
     }
-
-    private fun sha256(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes)
-            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private class LoadedPlugin(
         val record: PluginRecord,
