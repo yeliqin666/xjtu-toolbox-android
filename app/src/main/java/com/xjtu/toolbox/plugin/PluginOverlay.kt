@@ -116,7 +116,11 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
 
     LaunchedEffect(pluginId, pageId) {
         val result = withContext(Dispatchers.IO) {
-            runCatching { manager.openPage(pluginId, pageId) }
+            runCatching {
+                // 冷启动直接从路由进来时还没人读过 registry，先刷一遍再取页面
+                manager.refresh()
+                manager.openPage(pluginId, pageId)
+            }
         }
         val page = result.getOrNull()
         if (page != null) {
