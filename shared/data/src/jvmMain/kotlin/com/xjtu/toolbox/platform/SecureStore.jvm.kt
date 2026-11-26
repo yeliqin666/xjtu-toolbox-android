@@ -13,8 +13,15 @@ internal fun dataRoot(): File =
 fun dataRootDir(): File = dataRoot()
 
 // 桌面没有 Android 旧明文文件迁移步骤，legacyFallbackName 不使用。
-actual fun secureKeyValueStore(name: String, legacyFallbackName: String?): KeyValueStore =
-    jvmFileKeyValueStore(File(dataRoot(), "$name.properties"))
+actual fun secureKeyValueStore(name: String, legacyFallbackName: String?): KeyValueStore {
+    val raw = jvmFileKeyValueStore(File(dataRoot(), "$name.properties"))
+    if (name != com.xjtu.toolbox.account.AccountStore.FILE_NAME) return raw
+    return ProtectedKeyValueStore(raw, secretProtectorForPlatform(), setOf("accounts")).apply {
+        // 加密失败时保留明文，下次打开再试；不因此打不开账号表
+        runCatching { migratePlaintext("accounts") }
+            .onFailure { Log.w("SecureStore", "账号表明文转密文失败", it) }
+    }
+}
 
 actual fun wipeSecureStore(name: String) =
     wipeJvmFileKeyValueStore(File(dataRoot(), "$name.properties"))

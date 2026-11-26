@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.desktop.archive
 
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.archive.ArchiveCodec
 import com.xjtu.toolbox.archive.ArchiveFileBackend
 import com.xjtu.toolbox.archive.ArchiveImportMode
@@ -49,7 +50,15 @@ class DesktopArchiveImportTarget(
     private val now: () -> Long = { System.currentTimeMillis() },
 ) : ArchiveImportTarget {
 
-    override fun readStore(rawName: String): StoreSnapshot? = storeBackend.readStore(rawName)
+    override fun readStore(rawName: String): StoreSnapshot? {
+        val snapshot = storeBackend.readStore(rawName) ?: return null
+        if (rawName != AccountStore.FILE_NAME || "accounts" !in snapshot.keys) return snapshot
+        // 回滚通过 putKey 写入逻辑值。不能把盘上的 DPAPI 信封再当明文加密一次。
+        val accounts = storeOf(rawName).getString("accounts")
+        val keys = if (accounts == null) snapshot.keys - "accounts"
+            else snapshot.keys + ("accounts" to StoreValue.S(accounts))
+        return snapshot.copy(keys = keys)
+    }
 
     override fun putKey(rawName: String, key: String, value: StoreValue, at: Long?) {
         val store = storeOf(rawName)

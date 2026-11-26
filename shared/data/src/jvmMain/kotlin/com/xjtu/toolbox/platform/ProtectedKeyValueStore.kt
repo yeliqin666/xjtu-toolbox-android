@@ -6,11 +6,24 @@ import java.util.Base64
 internal class ProtectedKeyValueStore(
     private val delegate: KeyValueStore,
     private val protector: SecretProtector?,
+    private val protectedKeys: Set<String>? = null,
 ) : KeyValueStore {
 
-    override fun getString(key: String): String? = delegate.getString(key)?.let(::open)
+    private fun protects(key: String) = protectedKeys == null || key in protectedKeys
 
-    override fun putString(key: String, value: String?) = delegate.putString(key, value?.let(::seal))
+    /** 旧明文只转换一次；多个包装器共用底层存储，迁移与写入不能交错。 */
+    internal fun migratePlaintext(key: String) = synchronized(delegate) {
+        if (protector == null || !protects(key) || !StoreWriteGate.allowsWrites) return@synchronized
+        val stored = delegate.getString(key) ?: return@synchronized
+        if (!stored.startsWith(ENVELOPE_PREFIX)) putString(key, stored)
+    }
+
+    override fun getString(key: String): String? =
+        delegate.getString(key)?.let { if (protects(key)) open(it) else it }
+
+    override fun putString(key: String, value: String?) = synchronized(delegate) {
+        delegate.putString(key, value?.let { if (protects(key)) seal(it) else it })
+    }
 
     override fun getBoolean(key: String, default: Boolean): Boolean =
         getString(key)?.toBooleanStrictOrNull() ?: default
@@ -27,11 +40,11 @@ internal class ProtectedKeyValueStore(
 
     override fun putStringSet(key: String, value: Set<String>) = putString(key, value.joinToString("\u0000"))
 
-    override fun remove(key: String) = delegate.remove(key)
+    override fun remove(key: String) = synchronized(delegate) { delegate.remove(key) }
 
     override fun contains(key: String): Boolean = delegate.contains(key)
 
-    override fun clear() = delegate.clear()
+    override fun clear() = synchronized(delegate) { delegate.clear() }
 
     /** 明文 → 盘上的值。**没有保护器就原样写**（Linux 的现状；见类 KDoc 第二段）。 */
     private fun seal(value: String): String {

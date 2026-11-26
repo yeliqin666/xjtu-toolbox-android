@@ -1,13 +1,14 @@
 package com.xjtu.toolbox.desktop
 
+import com.xjtu.toolbox.account.Account
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
 import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfRecord
 import com.xjtu.toolbox.media.DownloadStatus
 import com.xjtu.toolbox.media.DownloadTask
 import com.xjtu.toolbox.platform.dataRootOverride
-import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.keyValueStoreRootOverride
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
@@ -21,13 +22,14 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
-/** 桌面端「按账号分的落盘」的端内名与旧名一次性读入。 */
+/** 桌面端账号命名空间及旧数据隔离。 */
 class DesktopStoreSuffixJvmTest {
 
     private lateinit var root: File
 
     /** 本类专属的账号（后缀唯一 ⇒ 与别处的 store 名不撞）。 */
     private val account = "2990000001"
+    private val otherAccount = "2990000002"
 
     @BeforeTest
     fun setUp() {
@@ -38,8 +40,11 @@ class DesktopStoreSuffixJvmTest {
         for (name in listOf(
             DesktopDownloadTaskStore.STORE_NAME,
             DesktopDownloadTaskStore.storeName(account),
+            DesktopDownloadTaskStore.storeName(otherAccount),
             DesktopJiaocai1ShelfStore.STORE_NAME,
             DesktopJiaocai1ShelfStore.storeName(account),
+            DesktopJiaocai1ShelfStore.storeName(otherAccount),
+            AccountStore.FILE_NAME,
         )) {
             wipeSecureStore(name)
         }
@@ -47,9 +52,19 @@ class DesktopStoreSuffixJvmTest {
 
     @AfterTest
     fun tearDown() {
+        for (name in listOf(
+            DesktopDownloadTaskStore.STORE_NAME,
+            DesktopDownloadTaskStore.storeName(account),
+            DesktopDownloadTaskStore.storeName(otherAccount),
+            DesktopJiaocai1ShelfStore.STORE_NAME,
+            DesktopJiaocai1ShelfStore.storeName(account),
+            DesktopJiaocai1ShelfStore.storeName(otherAccount),
+            AccountStore.FILE_NAME,
+        )) wipeSecureStore(name)
         dataRootOverride = null
         keyValueStoreRootOverride = null
         AccountContext.activeAccountId = null
+        root.deleteRecursively()
     }
 
     // ── 端内名 ──────────────────────────────────────────────────────────────
@@ -72,45 +87,51 @@ class DesktopStoreSuffixJvmTest {
         assertEquals("jiaocai1_shelf_2990000001", DesktopJiaocai1ShelfStore.storeName())
     }
 
-    // ── 旧名一次性读入 ──────────────────────────────────────────────────────
-
     @Test
-    fun `下载队列：新名里没有行时读旧名那份，且旧名一个字节没变`() = runBlocking {
+    fun unownedDownloadRowsAreNotInheritedByAccounts() = runBlocking {
         val legacy = secureKeyValueStore(DesktopDownloadTaskStore.STORE_NAME)
-        DesktopDownloadTaskStore(store = legacy, legacyStore = null)
-            .insert(task(filePath = "/tmp/old.mp4"))
-        val legacyRaw = legacy.getString(KEY_ROWS)!!
+        DesktopDownloadTaskStore(legacy).insert(task(filePath = "/tmp/old.mp4"))
+        val legacyRaw = legacy.getString(KEY_ROWS)
+        val first = DesktopDownloadTaskStore(account)
+        val second = DesktopDownloadTaskStore(otherAccount)
 
-        val moved = DesktopDownloadTaskStore(
-            store = secureKeyValueStore(DesktopDownloadTaskStore.storeName(account)),
-            legacyStore = secureKeyValueStore(DesktopDownloadTaskStore.STORE_NAME),
-        )
-        assertEquals(listOf("/tmp/old.mp4"), moved.getAll().map { it.filePath }, "新名里没有 ⇒ 读旧名那份")
-
-        // 新名里已经有行之后，旧名仍不参与
-        moved.insert(task(filePath = "/tmp/new.mp4"))
-        assertEquals(setOf("/tmp/old.mp4", "/tmp/new.mp4"), moved.getAll().map { it.filePath }.toSet())
-
-        assertEquals(legacyRaw, legacy.getString(KEY_ROWS), "旧形状只读：不往回写、也不删")
-        assertTrue(File(root, "download_tasks.properties").isFile, "旧文件仍在数据根下")
-        assertTrue(File(root, "download_tasks_2990000001.properties").isFile, "新名那份落在数据根下")
+        assertTrue(first.getAll().isEmpty())
+        assertTrue(second.getAll().isEmpty())
+        first.insert(task(filePath = "/tmp/new.mp4"))
+        assertEquals(listOf("/tmp/new.mp4"), DesktopDownloadTaskStore(account).getAll().map { it.filePath })
+        assertTrue(DesktopDownloadTaskStore(otherAccount).getAll().isEmpty())
+        assertEquals(legacyRaw, legacy.getString(KEY_ROWS))
+        assertTrue(File(root, "download_tasks.properties").isFile)
     }
 
     @Test
-    fun `教材书架：新名里没有行时读旧名那份，且旧名一个字节没变`() = runBlocking {
+    fun unownedShelfRowsAreNotInheritedByAccounts() = runBlocking {
         val legacy = secureKeyValueStore(DesktopJiaocai1ShelfStore.STORE_NAME)
-        DesktopJiaocai1ShelfStore(store = legacy, legacyStore = null).upsert(shelfRow("A", "旧名那本"))
-        val legacyRaw = legacy.getString(KEY_ROWS)!!
+        DesktopJiaocai1ShelfStore(legacy).upsert(shelfRow("A", "旧名那本"))
+        val legacyRaw = legacy.getString(KEY_ROWS)
+        val first = DesktopJiaocai1ShelfStore(account)
+        val second = DesktopJiaocai1ShelfStore(otherAccount)
 
-        val moved = DesktopJiaocai1ShelfStore(
-            store = secureKeyValueStore(DesktopJiaocai1ShelfStore.storeName(account)),
-            legacyStore = secureKeyValueStore(DesktopJiaocai1ShelfStore.STORE_NAME),
-        )
-        assertEquals(listOf("旧名那本"), moved.observeAll().first().map { it.title })
+        assertTrue(first.observeAll().first().isEmpty())
+        assertTrue(second.observeAll().first().isEmpty())
+        first.upsert(shelfRow("B", "新名那本"))
+        assertEquals(listOf("新名那本"), DesktopJiaocai1ShelfStore(account).observeAll().first().map { it.title })
+        assertTrue(DesktopJiaocai1ShelfStore(otherAccount).observeAll().first().isEmpty())
+        assertEquals(legacyRaw, legacy.getString(KEY_ROWS))
+        assertTrue(File(root, "jiaocai1_shelf.properties").isFile)
+    }
 
-        moved.upsert(shelfRow("B", "新名那本"))
-        assertEquals(setOf("旧名那本", "新名那本"), moved.observeAll().first().map { it.title }.toSet())
-        assertEquals(legacyRaw, legacy.getString(KEY_ROWS), "旧形状只读")
+    @Test
+    fun singleAccountAdoptsLegacyRowsOnce() = runBlocking {
+        AccountStore().upsert(Account(accountId = account))
+        val legacy = secureKeyValueStore(DesktopDownloadTaskStore.STORE_NAME)
+        DesktopDownloadTaskStore(legacy).insert(task(filePath = "/tmp/old.mp4"))
+
+        assertEquals(listOf("/tmp/old.mp4"), DesktopDownloadTaskStore(account).getAll().map { it.filePath })
+        // 只接收一次：清掉新名里的行后旧数据不会回来，旧文件仍保留
+        secureKeyValueStore(DesktopDownloadTaskStore.storeName(account)).remove(KEY_ROWS)
+        assertTrue(DesktopDownloadTaskStore(account).getAll().isEmpty())
+        assertTrue(File(root, "download_tasks.properties").isFile)
     }
 
     // ── 夹具 ────────────────────────────────────────────────────────────────

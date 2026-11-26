@@ -152,6 +152,23 @@ class ProtectedKeyValueStoreJvmTest {
         assertNull(store.getString("username"))
     }
 
+    @Test
+    fun legacyAccountRowsAreProtectedWithoutChangingMetadata() {
+        val raw = secureKeyValueStore(name)
+        val legacy = """[{"accountId":"test","password":"legacy-test-password"}]"""
+        raw.putString("accounts", legacy)
+        raw.putString("active_account", "test")
+        val protected = ProtectedKeyValueStore(raw, XorSecretProtector(), setOf("accounts"))
+        protected.migratePlaintext("accounts")
+        assertEquals(legacy, protected.getString("accounts"))
+        assertTrue(raw.getString("accounts")!!.startsWith("xjtu-sealed:1:"))
+        assertFalse(fileText().contains("legacy-test-password"))
+        assertEquals("test", raw.getString("active_account"))
+        protected.putString("accounts", legacy.replace("legacy-test-password", "new-test-password"))
+        assertFalse(fileText().contains("new-test-password"))
+        assertTrue(protected.getString("accounts")!!.contains("new-test-password"))
+    }
+
     private companion object {
         /** 与 `ProtectedKeyValueStore` 里的信封前缀同一个形状（那里是 `private`，测试自己拼一份）。 */
         const val ENVELOPE = "xjtu-sealed:1:"

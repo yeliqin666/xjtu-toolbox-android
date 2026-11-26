@@ -24,14 +24,13 @@ import kotlinx.serialization.json.put
 class DesktopJiaocai1ShelfStore(
     /** 存储；生产装配给的是那份 0600 的落盘文件（测试可传内存版做隔离）。 */
     private val store: KeyValueStore,
-    /** 旧名（[STORE_NAME]，无账号后缀）的只读兜底：新名里没有时读它一次。 */
-    private val legacyStore: KeyValueStore? = null,
 ) : Jiaocai1ShelfStore {
 
-    /** 生产装配：端内名 = `jiaocai1_shelf<账号后缀>` + 旧名的只读兜底。 */
+    /** 按账号打开独立的存储；旧的无后缀文件只在单账号时接收一次（见 [adoptLegacyRows]）。 */
     constructor(accountId: String? = AccountContext.activeAccountId) : this(
-        store = com.xjtu.toolbox.platform.secureKeyValueStore(storeName(accountId)),
-        legacyStore = com.xjtu.toolbox.platform.secureKeyValueStore(STORE_NAME),
+        store = com.xjtu.toolbox.desktop.adoptLegacyRows(
+            com.xjtu.toolbox.platform.secureKeyValueStore(storeName(accountId)), STORE_NAME, KEY_ROWS, accountId,
+        ),
     )
 
     private val rows = MutableStateFlow(read())
@@ -73,7 +72,7 @@ class DesktopJiaocai1ShelfStore(
     }
 
     private fun read(): List<Jiaocai1ShelfRecord> {
-        val raw = store.getString(KEY_ROWS) ?: legacyStore?.getString(KEY_ROWS) ?: return emptyList()
+        val raw = store.getString(KEY_ROWS) ?: return emptyList()
         val array = runCatching { AppJson.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return emptyList()
         return array.mapNotNull { element ->
             val o = element as? JsonObject ?: return@mapNotNull null

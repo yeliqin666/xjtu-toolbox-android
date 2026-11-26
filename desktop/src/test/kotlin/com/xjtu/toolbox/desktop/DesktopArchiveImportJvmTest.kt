@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.desktop
 
+import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.archive.ArchiveCodec
+import com.xjtu.toolbox.archive.ArchiveStoreBackend
 import com.xjtu.toolbox.archive.ArchiveFile
 import com.xjtu.toolbox.archive.ImportResult
 import com.xjtu.toolbox.archive.StoreSnapshot
@@ -8,6 +10,7 @@ import com.xjtu.toolbox.archive.StoreValue
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import com.xjtu.toolbox.desktop.archive.DesktopArchiveHost
 import com.xjtu.toolbox.desktop.archive.DesktopArchiveImport
+import com.xjtu.toolbox.desktop.archive.DesktopArchiveImportTarget
 import com.xjtu.toolbox.desktop.archive.DesktopArchiveIo
 import com.xjtu.toolbox.desktop.archive.DesktopImportOutcome
 import com.xjtu.toolbox.platform.dataRootOverride
@@ -60,6 +63,30 @@ class DesktopArchiveImportJvmTest {
     private fun props(root: File, name: String): Properties =
         Properties().apply { File(root, "$name.properties").inputStream().use { load(it) } }
 
+
+    @Test
+    fun accountArchiveRollbackUsesDecodedValueRatherThanDiskEnvelope() = withRoot { root ->
+        val name = AccountStore.FILE_NAME
+        val logical = """[{"accountId":"fixture","password":"test-password"}]"""
+        val backing = secureKeyValueStore("account_archive_fixture")
+        backing.putString("accounts", logical)
+        val backend = object : ArchiveStoreBackend {
+            override fun storeNames() = listOf(name)
+            override fun readStore(rawName: String) = StoreSnapshot(
+                rawName, mapOf("accounts" to StoreValue.S("xjtu-sealed:1:dpapi:fixture"),
+                    "active_account" to StoreValue.S("fixture")),
+            )
+        }
+        val target = DesktopArchiveImportTarget(
+            storeOf = { backing }, storeBackend = backend, files = null, dataRoot = root,
+        )
+        val before = target.readStore(name)!!
+        assertEquals(StoreValue.S(logical), before.keys.getValue("accounts"))
+        assertEquals(StoreValue.S("fixture"), before.keys.getValue("active_account"))
+        target.putKey(name, "accounts", StoreValue.S("[]"), null)
+        target.putKey(name, "accounts", before.keys.getValue("accounts"), null)
+        assertEquals(logical, backing.getString("accounts"))
+    }
 
     @Test
     fun `A4 导入之后原来的读法读得到档案里那条`() = withRoot { root ->

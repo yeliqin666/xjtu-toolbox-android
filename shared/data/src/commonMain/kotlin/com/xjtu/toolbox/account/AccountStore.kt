@@ -23,7 +23,14 @@ class AccountStore {
     private val prefs: KeyValueStore by lazy { secureKeyValueStore(FILE_NAME) }
     /** 全部账号。 */
     fun list(): List<Account> = synchronized(lock) {
-        decodeAccounts(prefs.getString(KEY_ACCOUNTS) ?: return@synchronized emptyList())
+        val raw = try {
+            prefs.getString(KEY_ACCOUNTS)
+        } catch (e: Exception) {
+            // 解不开的密文（换机器、换系统用户）只能重新登录，不能让应用起不来
+            Log.w(TAG, "list: 账号表读不出来，按空表处理", e)
+            null
+        }
+        decodeAccounts(raw ?: return@synchronized emptyList())
     }
 
     fun get(accountId: String): Account? = synchronized(lock) {
