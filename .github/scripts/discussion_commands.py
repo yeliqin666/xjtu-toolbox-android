@@ -23,6 +23,11 @@ admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正�
 * 楼中楼里 GitHub 自动带上的 `>` 引用块：有 details 时去掉 details 开头的引用块，
   没有 details 且命令正文开头就是引用块时，把引用正文当作附加内容。
 
+    /tally
+
+* 立即统计投票：公告分类的投票帖里发 → 派发 announce.yml 只统计这一帖并更新「📊 投票结果」；
+  #213 新功能投票总楼里回复某一楼 → 派发 vote-tally.yml 只统计那一楼。本脚本只派发，不碰票数。
+
     /reply [私密]   /skip
 
 * 只在「反馈日报」分类的帖子里用：在某条反馈的楼里回复，工单号从那层楼的隐藏标记读；
@@ -220,15 +225,19 @@ class GitHub:
             raise GitHubError("GraphQL 返回错误", data["errors"])
         return data.get("data") or {}
 
-    def rest(self, method: str, path: str) -> tuple[int, dict[str, Any]]:
+    def rest(self, method: str, path: str, body: Optional[dict[str, Any]] = None) -> tuple[int, dict[str, Any]]:
+        headers = {
+            "Authorization": f"bearer {self.token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "xjtu-toolbox-discussion-bot",
+        }
+        if body is not None:
+            headers["Content-Type"] = "application/json"
         request = urllib.request.Request(
             REST_URL + path,
+            data=json.dumps(body).encode("utf-8") if body is not None else None,
             method=method,
-            headers={
-                "Authorization": f"bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "xjtu-toolbox-discussion-bot",
-            },
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
@@ -263,7 +272,7 @@ query($id: ID!) {
         body
         url
         closed
-        category { name }
+        category { name slug }
         author { login }
         repository { id }
       }
@@ -358,6 +367,7 @@ class Discussion:
     repository_id: str
     closed: bool = False
     category: str = ""
+    category_slug: str = ""
 
 
 @dataclass
@@ -475,6 +485,7 @@ def fetch_comment(client: GitHub, node_id: str) -> Comment:
         repository_id=(discussion_data.get("repository") or {}).get("id") or "",
         closed=bool(discussion_data.get("closed")),
         category=(discussion_data.get("category") or {}).get("name") or "",
+        category_slug=(discussion_data.get("category") or {}).get("slug") or "",
     )
     return Comment(
         node_id=node["id"],
@@ -1142,11 +1153,57 @@ class FeedbackHandler(CommandHandler):
         return fd.result_lines(out)
 
 
+VOTE_FLOOR_DISCUSSION = 213  # vote_tally.py 的 DISCUSSION_NUMBER
+
+
+class TallyHandler(CommandHandler):
+    """`/tally`：立即统计投票。只负责派发，统计、回帖、发布都在原有工作流里做：
+    公告分类的投票帖 → announce.yml（poll 模式，只统计这一帖）；#213 某一楼 → vote-tally.yml（只统计那一楼）。"""
+
+    name = "/tally"
+    usage = "在公告分类的投票帖里发 `/tally`；或在 #213 新功能投票总楼的某一楼里回复 `/tally`。"
+
+    def handle(self, ctx: Context, args: list[str]) -> str:
+        c = ctx.comment
+        d = c.discussion
+        if d.number == VOTE_FLOOR_DISCUSSION:
+            if c.reply_to_id is None:
+                raise CommandFailure("在要统计的那一楼里回复 `/tally`")
+            self.dispatch(ctx, "vote-tally.yml", {"comment_id": str(c.reply_to_id)})
+            return "已开始统计这一楼，结论稍后回复在本楼。"
+        if d.category_slug != os.environ.get("ANNOUNCE_CATEGORY", "announcements"):
+            raise CommandFailure(f"只能在公告分类的投票帖或 #{VOTE_FLOOR_DISCUSSION} 投票总楼里用")
+        if d.closed:
+            raise CommandFailure("帖子已关闭，投票已从 App 撤下")
+        import announce  # 用到才加载：复用它的表单解析
+
+        if not (announce.sections(d.body) or {}).get("投票选项", "").strip():
+            raise CommandFailure("这帖不是投票（「投票选项」是空的）")
+        self.dispatch(ctx, "announce.yml", {"poll": str(d.number)})
+        return "已开始统计，约 1 分钟后帖子里「📊 投票结果」那条回复会更新，App 刷新公告后也能看到。"
+
+    @staticmethod
+    def dispatch(ctx: Context, workflow: str, inputs: dict[str, str]) -> None:
+        ref = os.environ.get("GITHUB_REF_NAME") or "main"
+        try:
+            status, data = ctx.client.rest(
+                "POST",
+                f"/repos/{ctx.owner}/{ctx.repo}/actions/workflows/{workflow}/dispatches",
+                {"ref": ref, "inputs": inputs},
+            )
+        except GitHubError as error:
+            raise CommandFailure(f"派发统计失败：{error}") from None
+        if status != 204:
+            raise CommandFailure(f"派发统计失败（HTTP {status}）：{data.get('message') or '未知原因'}")
+        log(f"已派发 {workflow}：{inputs}")
+
+
 HANDLERS: dict[str, CommandHandler] = {
     ToIssueHandler.name: ToIssueHandler(),
     AttachCommentHandler.name: AttachCommentHandler(),
     "/reply": FeedbackHandler("/reply"),
     "/skip": FeedbackHandler("/skip"),
+    TallyHandler.name: TallyHandler(),
 }
 
 
