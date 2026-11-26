@@ -118,7 +118,7 @@ object OnlineController {
             return
         }
         if (!OnlinePermissions.hasAllBlePermissions(context)) {
-            onAttempt(JoinAttempt.Failed("联机要用蓝牙，需要「附近设备」权限。请在系统设置里给本应用开启后重试。"))
+            onAttempt(JoinAttempt.Failed("联机走蓝牙，需要「附近设备」权限"))
             return
         }
         if (!bluetoothReady(context)) {
@@ -161,7 +161,7 @@ class BleOnlineLobbyHost(private val context: Context) : OnlineLobbyHost {
 
     override fun hostFailureReason(): String =
         if (!OnlinePermissions.hasAllBlePermissions(context)) {
-            "联机要用蓝牙，需要「附近设备」权限。请在系统设置里给本应用开启后重试。"
+            "联机走蓝牙，需要「附近设备」权限"
         } else {
             "蓝牙没开。打开蓝牙后再创建房间。"
         }

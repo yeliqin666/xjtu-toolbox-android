@@ -224,11 +224,19 @@ internal fun PluginsPage(
                 }
                 if (records.isEmpty()) {
                     item(key = "empty") {
-                        EmptyState(
-                            title = "还没有装插件",
-                            subtitle = "右上角的设置里可以从文件安装；插件是一个 .zip 包，dex 类型里带 APK，web 类型只是打开一个网页。",
-                            modifier = Modifier.animateItem(),
-                        )
+                        Column(Modifier.animateItem().fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            EmptyState(
+                                title = "还没有装插件",
+                                subtitle = "插件是同学们做的扩展，web 插件打开网页，dex 插件能做原生界面。",
+                            )
+                            Row {
+                                TextLink(text = "去在线市场", onClick = { tab = 1 })
+                                TextLink(
+                                    text = "从文件安装",
+                                    onClick = { picker.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+                                )
+                            }
+                        }
                     }
                 } else {
                     itemsIndexed(records, key = { _, it -> it.id }) { index, record ->
@@ -1068,7 +1076,7 @@ internal fun PluginDetailScreen(
         ) { padding ->
             EmptyState(
                 title = "插件不在了",
-                subtitle = "可能已经卸载，或者列表还没读完；返回上一页看看。",
+                subtitle = "可能已经卸载了",
                 modifier = Modifier.padding(padding),
             )
         }

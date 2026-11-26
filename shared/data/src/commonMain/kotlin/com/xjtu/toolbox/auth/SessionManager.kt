@@ -263,7 +263,7 @@ class SessionManager {
             }
             checkPasswordValid()
             checkLoginCooldown("webvpn", "WebVPN")
-            val creds = credentials ?: throw IOException("还没有登录账号，请先在「我的」页登录")
+            val creds = credentials ?: throw IOException("还没登录校园账号")
             val login = XJTULogin(
                 WebVpnUtil.WEBVPN_LOGIN_URL,
                 existingClient = backend.client,

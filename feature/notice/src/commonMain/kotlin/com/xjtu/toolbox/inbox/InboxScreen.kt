@@ -214,7 +214,7 @@ fun InboxScreen(
     /** 关掉这一类，等同于收纳设置里关开关，那里也能再打开。 */
     fun muteCategory(category: String) {
         InboxStore.setEnabled(category, false)
-        offerUndo("不再接收「${InboxCategories.label(category)}」，可在收纳设置里重新打开") { InboxStore.setEnabled(category, true) }
+        offerUndo("不再接收「${InboxCategories.label(category)}」") { InboxStore.setEnabled(category, true) }
     }
 
     fun refresh() = scope.launch {
@@ -355,7 +355,10 @@ fun InboxScreen(
                     if (page == 0) {
                         if (todos.isEmpty()) {
                             item(key = "empty") {
-                                EmptyState("诸事已毕","点右上角 ＋ 记一笔", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
+                                Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    EmptyState(title = "诸事已毕", icon = Icons.Outlined.TaskAlt)
+                                    com.xjtu.toolbox.ui.components.TextLink(text = "记一笔", onClick = { showAdd = true })
+                                }
                             }
                         }
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->

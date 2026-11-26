@@ -41,14 +41,14 @@ internal fun SystemCalendarPreference() {
         if (ok) {
             commit(true)
         } else {
-            Toast.makeText(context, "未授予日历权限，可在系统的应用设置里允许后再打开", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "没有日历权限，读不到系统日程", Toast.LENGTH_SHORT).show()
         }
     }
     SmallTitle("系统日历")
     CouiSettingsCard {
         SwitchPreference(
             title = "在日程里显示系统日历",
-            summary = if (enabled && !granted) "日历权限已被收回，点一下重新授权"
+            summary = if (enabled && !granted) "日历权限被收回了，打开开关重新授权"
                 else "把手机日历各账户里的日程合进今日时间轴和「接下来」；只读取，不会改动系统日历",
             checked = enabled && granted,
             startAction = { SettingsIcon(Icons.Default.Event, SettingsColors.Teal) },

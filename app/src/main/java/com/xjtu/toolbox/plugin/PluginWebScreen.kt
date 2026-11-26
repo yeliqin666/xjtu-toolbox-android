@@ -89,7 +89,7 @@ internal fun PluginWebScreen(
                 allowSubdomains = true,
             )
         } else {
-            WebState.Error("WebVPN 登录失败。先去「我的 → 账号」登录一次，再回来打开。")
+            WebState.Error("WebVPN 没登录上，校园账号可能过期了")
         }
     }
 

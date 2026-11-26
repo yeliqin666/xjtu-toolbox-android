@@ -826,7 +826,7 @@ private fun NoticeSourceSheet(
             SwitchPreference(
                 title = "小岱给推送加标签",
                 summary = if (agentConfigured) "标出与你相关、要报名、可忽略。每批新通知调用一次你配置的模型，会消耗额度；通知标题和你的身份信息会发给模型"
-                else "先在小岱里配置模型才能开启",
+                else "要用小岱的模型来判断，还没配置",
                 checked = aiTags && agentConfigured,
                 onCheckedChange = { aiTags = it },
                 enabled = agentConfigured,

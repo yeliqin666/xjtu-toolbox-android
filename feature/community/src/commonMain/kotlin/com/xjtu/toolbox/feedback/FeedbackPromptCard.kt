@@ -122,7 +122,7 @@ fun FeedbackPromptSheet(
         ) {
             if (sent) {
                 Text(
-                    "谢了，收到。开发者的回复会显示在「社区 → 反馈与投票」里。",
+                    "谢了，收到。有回复会在「反馈与投票」里看到。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -154,7 +154,7 @@ fun FeedbackPromptSheet(
                     .heightIn(min = 96.dp),
             )
             val warn = privacyNotice
-                ?: if (needDetail) "写一句就能帮我们定位；要附截图或详细描述，可以到「社区 → 反馈与投票」。" else null
+                ?: if (needDetail) "写一句就够我们定位了。" else null
             if (warn != null) {
                 Text(
                     warn,

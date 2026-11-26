@@ -140,7 +140,7 @@ private fun QrLoginContent(
         }
         val mgr = sessionManager
         if (mgr == null) {
-            state = UiState.Error("尚未登录账号，请先在「我的」中登录", canRescan = false)
+            state = UiState.Error("还没登录校园账号", canRescan = false)
             return
         }
         state = UiState.Notifying(scanned)
@@ -155,7 +155,7 @@ private fun QrLoginContent(
     fun runAuthorize(scanned: String) {
         val mgr = sessionManager
         if (mgr == null) {
-            state = UiState.Error("尚未登录账号，请先在「我的」中登录", canRescan = false)
+            state = UiState.Error("还没登录校园账号", canRescan = false)
             return
         }
         state = UiState.Authorizing
@@ -368,12 +368,6 @@ private fun QrLoginContent(
                             "需要相机权限才能扫码",
                             fontWeight = FontWeight.Bold,
                             color = MiuixTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "请在系统设置中授予本应用相机权限后重试。",
-                            textAlign = TextAlign.Center,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                         Spacer(Modifier.height(20.dp))
                         Button(

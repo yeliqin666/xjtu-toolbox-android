@@ -388,11 +388,16 @@ fun JwappScoreScreen(
                                 )
                             }
                             if (allCategories.isNotEmpty() && gpaSelectMode) {
-                                Text(
-                                    "筛选后可用右上角全选",
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    modifier = Modifier.padding(top = 6.dp)
+                                // 直接给按钮，不再提示「去右上角全选」
+                                val filteredIds = filteredScores.map { it.id }.toSet()
+                                val allPicked = filteredIds.isNotEmpty() && filteredIds.all { it in selectedCourseIds }
+                                com.xjtu.toolbox.ui.components.TextLink(
+                                    text = if (allPicked) "取消选中这 ${filteredIds.size} 门" else "选中筛出的 ${filteredIds.size} 门",
+                                    onClick = {
+                                        selectedCourseIds = if (allPicked) selectedCourseIds - filteredIds else selectedCourseIds + filteredIds
+                                    },
+                                    enabled = filteredIds.isNotEmpty(),
+                                    modifier = Modifier.padding(top = 2.dp).offset(x = (-10).dp),
                                 )
                             }
                             if (vm.reportHint != null) {

@@ -146,7 +146,7 @@ internal object PluginMarket {
         }.getOrNull()
         if (PluginSettings.wifiOnly(context) && !onUnmeteredNetwork(context)) {
             diskIndex?.let { return@withContext Loaded(it, stale = true) }
-            throw IOException("当前不是 Wi-Fi。要用流量加载，去插件设置里关掉「只在 Wi-Fi 下加载索引」")
+            throw IOException("现在不是 Wi-Fi，按设置先不加载目录")
         }
         val text = try {
             client.newCall(Request.Builder().url(url).header("Accept", "application/json").build()).execute().use { r ->

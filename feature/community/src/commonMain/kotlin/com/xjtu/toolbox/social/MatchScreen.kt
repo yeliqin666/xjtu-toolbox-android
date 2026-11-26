@@ -144,7 +144,7 @@ fun MatchScreen(
         val read = withContext(host.io) { runCatching { MatchData.read(host, pickedTerm) } }
         read.getOrNull()?.let { local = it }
         loadError = read.exceptionOrNull()?.let {
-            "读本地缓存时出错了，可以先去日程页刷新一次再回来"
+            "本机的课表缓存没读出来"
         }
         loading = false
     }
@@ -286,7 +286,7 @@ fun MatchScreen(
                             item {
                                 SectionCard("还没有可分享的数据") {
                                     Text(
-                                        "先在日程页同步课表；要比较用餐习惯，也请刷新校园卡流水。",
+                                        "匹配只看本机存下的课表和校园卡流水，现在一样都还没有。",
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )

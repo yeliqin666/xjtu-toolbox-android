@@ -86,7 +86,7 @@ internal fun PluginToolsScreen(
         if (record == null) {
             EmptyState(
                 title = "插件不在了",
-                subtitle = "可能已经卸载；返回上一页看看。",
+                subtitle = "可能已经卸载了",
                 modifier = Modifier.padding(padding),
             )
             return@Scaffold

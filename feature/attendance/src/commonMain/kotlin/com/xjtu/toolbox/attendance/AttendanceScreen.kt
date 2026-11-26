@@ -529,7 +529,7 @@ private fun LeaveList(
                 },
                 subtitle = when {
                     error != null -> error
-                    supported -> "点右上角加号提交病假或私事假申请"
+                    supported -> "病假、私事假都能在这里申请"
                     else -> "当前版本暂不支持请假和销假，请使用 App 或桌面版。"
                 },
                 modifier = it,

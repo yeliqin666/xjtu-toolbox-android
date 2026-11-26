@@ -350,7 +350,7 @@ object BulletinRules {
         id = "auto_${channel}_$version",
         level = BulletinLevel.UPDATE,
         title = "发现新版本 v$version",
-        body = "可在首页这条提示或设置里下载更新。",
+        body = "新版本已经发布，可以直接下载安装。",
         mustAck = false,
         block = false,
         synthesized = true,

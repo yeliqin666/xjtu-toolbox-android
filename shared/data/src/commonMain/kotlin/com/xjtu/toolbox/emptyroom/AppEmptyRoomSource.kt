@@ -31,9 +31,9 @@ class AppEmptyRoomSource(
 
     override suspend fun liveSnapshot(campus: String, force: Boolean): LiveSnapshot {
         // 报哪句取决于没登录还是没凭据
-        val live = liveApi ?: throw RuntimeException("实时状态暂不可用，可在右上角切换到课表数据")
+        val live = liveApi ?: throw RuntimeException("实时状态暂不可用，可以换成课表数据")
         val manager = sessionManager ?: throw RuntimeException("实时状态暂不可用")
-        if (manager.credentials == null) throw RuntimeException("实时状态需要先登录统一身份认证，未登录可在右上角切换到 CDN 课表")
+        if (manager.credentials == null) throw RuntimeException("实时状态要登录校园账号才能看；不登录可以换成课表数据")
         return withContext(Dispatchers.IO) {
             manager.ensureSite(JsSession.SITE_KEY, userInitiated = true)
             live.fetchCampus(campus, if (force) 0L else LiveRoomApi.FRESH_MS)

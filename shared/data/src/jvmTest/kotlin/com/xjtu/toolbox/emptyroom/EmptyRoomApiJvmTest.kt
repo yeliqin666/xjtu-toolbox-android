@@ -274,7 +274,7 @@ class EmptyRoomApiJvmTest {
         val e = assertFailsWith<RuntimeException> {
             runBlocking { source.liveSnapshot(LIVE_CAMPUS, force = false) }
         }
-        assertEquals("实时状态暂不可用，可在右上角切换到课表数据", e.message)
+        assertEquals("实时状态暂不可用，可以换成课表数据", e.message)
     }
 
     /** 夹具与生产必须指同一批 URL 与同一批教室名：「实时状态 + 当天课表」在屏上按教室全名对上，两档名字与座位数各写一份，漂了就该有人喊。 */

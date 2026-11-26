@@ -515,7 +515,7 @@ fun ScheduleScreen(
             dndPrompt?.let {
                 AutoDndPromptCard(it, onDismissed = {
                     scope.launch {
-                        snackbarHostState.showSnackbar("以后想开，在右上角「更多」里点「上课、在馆自动勿扰」", duration = SnackbarDuration.Long)
+                        snackbarHostState.showSnackbar("好，不再提醒自动勿扰了")
                     }
                 })
             }

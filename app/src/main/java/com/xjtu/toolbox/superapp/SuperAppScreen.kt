@@ -175,8 +175,7 @@ fun SuperAppScreen(site: SiteSession, onBack: () -> Unit, onOpen: (String) -> Un
                     }
                     item(key = "note") {
                         Text(
-                            "服务在内置浏览器中打开，不会带上 App 的登录状态，需要时按页面提示登录统一身份认证。" +
-                                "学校标为校内的服务在校外会自动经 WebVPN 打开；其余打不开的，在网页右上角选「通过 WebVPN 打开」。",
+                            "服务在内置浏览器里打开，登录状态与 App 分开；校内服务在校外会自动走 WebVPN。",
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),

@@ -555,8 +555,8 @@ internal fun TodoColorField(current: Int?, onPick: (Int?) -> Unit) {
     }
     Spacer(Modifier.height(6.dp))
     Text(
-        if (quickColors.isEmpty()) "日程里还没有课，暂时没有可挑的色片；点右上角「调色盘」直接挑一个（可填 Hex）"
-        else "点一个色片就用它；更细致的选择点右上角「调色盘」（可填 Hex）",
+        if (quickColors.isEmpty()) "色片取自课程颜色，日程里还没有课；调色盘可以自己挑"
+        else "色片取自课程颜色；想要别的颜色用调色盘",
         style = MiuixTheme.textStyles.footnote2,
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
     )
