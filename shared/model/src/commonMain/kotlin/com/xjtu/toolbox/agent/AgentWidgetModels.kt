@@ -15,6 +15,7 @@ import kotlinx.serialization.Serializable
  *
  * 设计：全部是只读展示卡片，数据直接复用各功能模块的公开 data class，避免重复建模。
  */
+@Serializable
 sealed interface AgentWidget
 
 /** 标题与链接只来自通知查询；why/level 是对这些真实条目的推荐说明。 */
