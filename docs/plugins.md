@@ -241,12 +241,64 @@ canteen   bus    doc   download  upload  user  time  star  warning  check
 
 ## 安装与更新
 
-- 装：插件列表右上角「设置」→「从文件安装」，选 zip；
-- 更新：同一个 `id`、同一把钥匙、`versionCode` 更大，直接覆盖安装，旧版本目录会被清掉；
+- 装：插件页「在线市场」点一个插件下载；或者右上角「设置」→「从文件安装」，选 zip；
+- 更新：同一个 `id`、同一把钥匙、`versionCode` 更大，直接覆盖安装，旧版本目录会被清掉；市场里会标「可更新」；
 - 禁用：详情页「启用」关掉，页面与工具都不再加载，但包和设置都留着；
 - 卸载：删掉包目录和 `files/plugins/data/<id>`。
 
 工具可以单独控制：详情页「允许小岱调用」进二级页，上面一个总开关，下面每个工具一行（长按看 `definition`）。总开关关掉时单项设置会留着。
+
+---
+
+## 在线市场
+
+App 从**索引地址**拉一份目录（默认 `https://dzhz.top/plugin-market.json`，源文件在 `xjtu-dzhz/dzhz-server` 的 `services/web/public/plugin-market.json`；插件设置里可以换成别的地址）。
+
+```json
+{
+  "schema": 1,
+  "updatedAt": "2026-11-26T21:30:00+08:00",
+  "tags": ["示例", "模板"],
+  "plugins": [
+    {
+      "id": "top.dzhz.plugin.template",
+      "name": "插件模板",
+      "summary": "一句话简介",
+      "type": "dex",
+      "version": "1.0.1",
+      "versionCode": 13,
+      "minAppVersionCode": 101,
+      "author": "Hz6826",
+      "authorUrl": "https://github.com/Hz6826",
+      "projectUrl": "https://github.com/Hz6826/dzhz-plugin-template",
+      "download": "https://github.com/Hz6826/dzhz-plugin-template/releases/download/v1.0.1/plugin.zip",
+      "mirrors": [],
+      "sha256": "…整包 zip 的 64 位小写十六进制…",
+      "size": 792344,
+      "featured": true,
+      "tags": ["示例"],
+      "iconName": ""
+    }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `schema` | 目录格式版本，现在是 1；比 App 认识的新就整份拒绝，提示更新 App |
+| `tags`（根） | 市场「标签」筛选的选项；不写就从各条目的 `tags` 汇总 |
+| `id` `name` `type` `download` | 必填；`type` 只认 `dex` / `web`，`download` 与 `mirrors[]` 必须是 https，缺一条就跳过这一条 |
+| `versionCode` | 和包里清单一致；大于已装版本时市场标「可更新」，否则点进去直接到详情页 |
+| `minAppVersionCode` | App 版本不够时不下载，提示先更新 App |
+| `sha256` | **整包 zip** 的摘要（可带 `sha256:` 前缀，就是 GitHub Release 资产的 digest）；没有就不让装 |
+| `mirrors` | 同一个包的备用地址，主地址失败按顺序试 |
+| `featured` | 进顶部横滑「精选」 |
+
+安装流程：确认下载 → 下到缓存（`plugin_import_` 前缀，「清空插件缓存」会清）→ 核对整包 sha256 → 走和「从文件安装」相同的验签、`files[]` 核对与 TOFU → 再确认一次 → 落盘。目录只决定「去哪下、下的是不是这个包」，信任仍以包内签名为准。
+
+目录先进内存，再在缓存目录留一份：开着「只在 Wi-Fi 下加载」且不在不计流量的网络上、或者拉取失败时，用上一份并提示「显示的是上次的目录」。
+
+上架 / 更新插件：发 Release 后改 `plugin-market.json` 里那一条的 `version`、`versionCode`、`download`、`sha256`、`size`，推到 dzhz-server 的 main 即自动部署。
 
 ---
 

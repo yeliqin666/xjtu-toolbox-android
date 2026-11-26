@@ -68,6 +68,7 @@ import com.xjtu.toolbox.ui.components.CouiPreferenceSpec
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import com.xjtu.toolbox.ui.components.DockedPageTabs
 import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.MenuMorph
 import com.xjtu.toolbox.ui.components.SwitchPreference
 import com.xjtu.toolbox.ui.components.TextLink
@@ -137,8 +138,8 @@ internal fun PluginsPage(
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    var refreshing by remember { mutableStateOf(false) }
     var pendingMarket by remember { mutableStateOf<MarketEntry?>(null) }
+    var settingsRevision by remember { mutableIntStateOf(0) }
 
     val records = if (demo) demoRecords() else manager.records
     val broken = if (demo) DemoBrokenIds else manager.brokenIds
@@ -156,9 +157,6 @@ internal fun PluginsPage(
     }
 
     if (!demo) LaunchedEffect(Unit) { manager.refresh() }
-
-    // 下拉刷新途中切到另一个 tab：那个 PullToRefresh 已经被组掉了，转圈状态得自己收回来
-    LaunchedEffect(tab) { refreshing = false }
 
     // ── 列表页 ────────────────────────────────────────────────────────────
     Scaffold(
@@ -210,25 +208,7 @@ internal fun PluginsPage(
                 state = listState,
                 contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
             ) {
-                if (busy) {
-                    item(key = "busy") {
-                        Row(
-                            Modifier
-                                .animateItem()
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            InfiniteProgressIndicator()
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                text = "正在处理插件包…",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
-                        }
-                    }
-                }
+                if (busy) item(key = "busy") { BusyRow(Modifier.animateItem()) }
                 // 只放失败原因（要留着看）；成功走 toast
                 message?.let { text ->
                     item(key = "message") {
@@ -267,17 +247,15 @@ internal fun PluginsPage(
         } else {
             MarketTab(
                 demo = demo,
-                refreshing = refreshing,
-                onRefresh = {
-                    refreshing = true
-                    scope.launch {
-                        // 索引还没接：这里以后是拉索引 + 校验，现在只是把转圈走一遍
-                        kotlinx.coroutines.delay(700)
-                        refreshing = false
-                    }
-                },
+                busy = busy,
+                installed = records.associate { it.id to it.versionCode },
+                settingsRevision = settingsRevision,
                 onOpenSettings = { showSettings = true },
-                onInstall = { pendingMarket = it },
+                onInstall = { entry ->
+                    val have = records.firstOrNull { it.id == entry.id }
+                    // 已是最新：直接去详情页，不再问装不装
+                    if (!demo && have != null && entry.versionCode <= have.versionCode) onOpenDetail(entry.id) else pendingMarket = entry
+                },
                 modifier = base,
                 glassTop = glassTop,
                 scrollBehavior = scrollBehavior,
@@ -288,7 +266,11 @@ internal fun PluginsPage(
         if (showSettings) {
             SettingsSheet(
                 demo = demo,
-                onDismiss = { showSettings = false },
+                onDismiss = {
+                    showSettings = false
+                    // 索引地址、Wi-Fi 开关可能改了，市场重拉一次
+                    settingsRevision++
+                },
                 onInstallFromFile = {
                     showSettings = false
                     picker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
@@ -298,17 +280,40 @@ internal fun PluginsPage(
 
         val market = pendingMarket
         if (market != null) {
+            val upgrading = records.any { it.id == market.id }
+            val tooNew = market.minAppVersionCode > com.xjtu.toolbox.BuildConfig.VERSION_CODE
             com.xjtu.toolbox.community.ConfirmDialog(
-                title = "安装「${market.name}」？",
+                title = "${if (upgrading) "更新" else "下载"}「${market.name}」？",
                 summary = buildString {
-                    append("版本 ${market.version} · 作者 ${market.author}\n")
-                    append(if (market.isWeb) "web 插件，在内置浏览器里打开网页，与 App 隔离。\n\n" else "dex 插件，与本 App 同权限运行。\n\n")
-                    append("（演示数据：确认后这里会去下载并校验插件包。）")
+                    append("版本 ${market.version} · 作者 ${market.author}")
+                    if (market.size > 0) append(" · ${formatSize(market.size)}")
+                    append("\n")
+                    append(if (market.isWeb) "web 插件，在内置浏览器里打开网页，与 App 隔离。" else "dex 插件，与本 App 同权限运行。")
+                    if (tooNew) append("\n\n需要更新 App 才能装这个版本。")
+                    else append("\n\n下载并校验后还会再确认一次签名与权限。")
                 },
-                confirm = "安装",
+                confirm = if (tooNew) "知道了" else "下载",
                 onConfirm = {
                     pendingMarket = null
-                    showBriefMessage("演示数据：真装要等索引和包格式接上")
+                    when {
+                        tooNew -> Unit
+                        demo -> showBriefMessage("演示数据，不会真的下载")
+                        else -> {
+                            busy = true
+                            message = null
+                            scope.launch {
+                                runCatching {
+                                    val file = PluginMarket.download(context, market)
+                                    manager.inspectFile(file)
+                                }.onSuccess { pending = it }
+                                    .onFailure {
+                                        message = it.message ?: "下载失败"
+                                        showBriefMessage(message.orEmpty())
+                                    }
+                                busy = false
+                            }
+                        }
+                    }
                 },
                 onDismiss = { pendingMarket = null },
             )
@@ -518,39 +523,53 @@ private fun PluginRow(
 
 // ── 在线市场 ────────────────────────────────────────────────────────────────
 
-/** 市场里的一条。索引接上以后由 JSON 映射过来。 */
-private data class MarketEntry(
-    val id: String,
-    val name: String,
-    val summary: String,
-    val isWeb: Boolean,
-    val version: String,
-    val author: String,
-    /** 索引里带 `featured: true` 的进顶部横滑精选。 */
-    val featured: Boolean = false,
-    /** 标签：索引根下 `tags` 数组里的值。 */
-    val tags: List<String> = emptyList(),
-)
-
 @Composable
 private fun MarketTab(
     demo: Boolean,
-    refreshing: Boolean,
-    onRefresh: () -> Unit,
+    busy: Boolean,
+    /** 已装插件 id → versionCode，用来标「已安装 / 可更新」。 */
+    installed: Map<String, Int>,
+    /** 插件设置面板关一次加一：地址或 Wi-Fi 开关可能变了，重拉目录。 */
+    settingsRevision: Int,
     onOpenSettings: () -> Unit,
     onInstall: (MarketEntry) -> Unit,
     modifier: Modifier,
     glassTop: androidx.compose.ui.unit.Dp,
     scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior?,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf("") }
     var sort by remember { mutableStateOf(MarketSort.Hot) }
     var types by remember { mutableStateOf(setOf("dex", "web")) }
     var tags by remember { mutableStateOf(emptySet<String>()) }
     var openMenu by remember { mutableStateOf<String?>(null) }
 
-    val entries = if (demo) demoMarket() else emptyList()
-    val allTags = if (demo) DemoTags else emptyList()
+    var index by remember { mutableStateOf(if (demo) null else PluginMarket.cached(PluginSettings.indexUrl(context))) }
+    var stale by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var refreshing by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+
+    fun load(force: Boolean) {
+        if (demo) return
+        scope.launch {
+            loading = true
+            runCatching { PluginMarket.load(context, force) }
+                .onSuccess {
+                    index = it.index
+                    stale = it.stale
+                    loadError = null
+                }
+                .onFailure { loadError = it.message ?: "目录加载失败" }
+            loading = false
+            refreshing = false
+        }
+    }
+    LaunchedEffect(settingsRevision) { load(force = settingsRevision > 0) }
+
+    val entries = if (demo) demoMarket() else index?.entries.orEmpty()
+    val allTags = if (demo) DemoTags else index?.tags.orEmpty()
 
     val shown = entries
         .filter { entry -> if (entry.isWeb) "web" in types else "dex" in types }
@@ -574,7 +593,10 @@ private fun MarketTab(
 
     AppPullToRefresh(
         isRefreshing = refreshing,
-        onRefresh = onRefresh,
+        onRefresh = {
+            refreshing = true
+            if (demo) refreshing = false else load(force = true)
+        },
         scrollBehavior = scrollBehavior,
         topPadding = glassTop,
         modifier = modifier,
@@ -584,6 +606,18 @@ private fun MarketTab(
             state = listState,
             contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
         ) {
+            if (busy) item(key = "busy") { BusyRow(Modifier.animateItem()) }
+            // 拿到了目录但不是最新的（非 Wi-Fi 或断网，用的上一份）
+            if (stale && entries.isNotEmpty()) {
+                item(key = "stale") {
+                    Text(
+                        text = loadError ?: "未联网刷新，显示的是上次的目录",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.animateItem().padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+            }
             if (featured.isNotEmpty()) {
                 item(key = "featured") {
                     Column(Modifier.padding(top = 12.dp)) {
@@ -600,6 +634,7 @@ private fun MarketTab(
                             items(featured, key = { it.id }) { entry ->
                                 FeaturedCard(
                                     entry = entry,
+                                    status = marketStatus(entry, installed),
                                     onClick = { onInstall(entry) },
                                     modifier = Modifier.animateItem(),
                                 )
@@ -690,24 +725,37 @@ private fun MarketTab(
                 }
             }
 
-            if (shown.isEmpty()) {
+            if (entries.isEmpty() && loading) {
+                item(key = "loading") { LoadingState(message = "正在加载插件目录…", modifier = Modifier.animateItem()) }
+            } else if (shown.isEmpty()) {
                 item(key = "empty") {
                     Column(Modifier.animateItem().fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        val error = loadError
                         EmptyState(
-                            title = if (entries.isEmpty()) "在线市场还没开张" else "没有符合条件的插件",
-                            subtitle = if (entries.isEmpty()) {
-                                "还没配索引地址，或者索引里还没有内容。"
-                            } else {
-                                "换个关键词，或者放宽筛选条件。"
+                            title = when {
+                                error != null && entries.isEmpty() -> "目录没加载出来"
+                                entries.isEmpty() -> "在线市场还没有插件"
+                                else -> "没有符合条件的插件"
+                            },
+                            subtitle = when {
+                                error != null && entries.isEmpty() -> error
+                                entries.isEmpty() -> "目录里还没有内容。"
+                                else -> "换个关键词，或者放宽筛选条件。"
                             },
                         )
-                        if (entries.isEmpty()) TextLink(text = "去设置里填索引地址", onClick = onOpenSettings, chevron = true)
+                        if (entries.isEmpty()) {
+                            Row {
+                                if (error != null) TextLink(text = "重试", onClick = { load(force = true) })
+                                TextLink(text = "插件设置", onClick = onOpenSettings, chevron = true)
+                            }
+                        }
                     }
                 }
             } else {
                 itemsIndexed(shown, key = { _, it -> it.id }) { index, entry ->
                     MarketRow(
                         entry = entry,
+                        status = marketStatus(entry, installed),
                         onClick = { onInstall(entry) },
                         modifier = Modifier
                             .animateItem()
@@ -753,6 +801,7 @@ private fun ChipArrow() {
 @Composable
 private fun FeaturedCard(
     entry: MarketEntry,
+    status: MarketStatus,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -790,6 +839,7 @@ private fun FeaturedCard(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,
                 )
+                StatusLabel(status, Modifier.padding(start = 6.dp))
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = entry.author,
@@ -805,7 +855,7 @@ private fun FeaturedCard(
 }
 
 @Composable
-private fun MarketRow(entry: MarketEntry, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun MarketRow(entry: MarketEntry, status: MarketStatus, onClick: () -> Unit, modifier: Modifier = Modifier) {
     PressCard(onClick = onClick, modifier = modifier.fillMaxWidth()) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -827,6 +877,7 @@ private fun MarketRow(entry: MarketEntry, onClick: () -> Unit, modifier: Modifie
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TypeBadge(isWeb = entry.isWeb)
+                StatusLabel(status, Modifier.padding(start = 8.dp))
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = entry.author,
@@ -846,6 +897,50 @@ private fun MarketRow(entry: MarketEntry, onClick: () -> Unit, modifier: Modifie
             )
         }
     }
+}
+
+/** 市场条目相对本机的状态。 */
+private enum class MarketStatus { NotInstalled, Installed, Updatable }
+
+private fun marketStatus(entry: MarketEntry, installed: Map<String, Int>): MarketStatus {
+    val have = installed[entry.id] ?: return MarketStatus.NotInstalled
+    return if (entry.versionCode > have) MarketStatus.Updatable else MarketStatus.Installed
+}
+
+/** 「已安装」灰字、「可更新」主色字；没装不显示。 */
+@Composable
+private fun StatusLabel(status: MarketStatus, modifier: Modifier = Modifier) {
+    val (text, color) = when (status) {
+        MarketStatus.NotInstalled -> return
+        MarketStatus.Installed -> "已安装" to MiuixTheme.colorScheme.onSurfaceVariantSummary
+        MarketStatus.Updatable -> "可更新" to MiuixTheme.colorScheme.primary
+    }
+    Text(text = text, style = MiuixTheme.textStyles.footnote2, color = color, maxLines = 1, modifier = modifier)
+}
+
+/** 读包、下载时列表顶上那一行转圈。 */
+@Composable
+private fun BusyRow(modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        InfiniteProgressIndicator()
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "正在处理插件包…",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+    }
+}
+
+private fun formatSize(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+    bytes >= 1024 -> "${bytes / 1024} KB"
+    else -> "$bytes B"
 }
 
 // ── 设置 ────────────────────────────────────────────────────────────────────

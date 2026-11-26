@@ -3,7 +3,7 @@ package com.xjtu.toolbox.plugin
 import android.content.Context
 
 /**
- * 插件页自己的偏好。还没接索引，先只存「索引地址」和「只在 Wi-Fi 下加载」两件事。
+ * 插件页自己的偏好：在线市场的「索引地址」和「只在 Wi-Fi 下加载」。
  *
  * 用独立的 SharedPreferences 而不是 App 的设置存储：插件是可选功能，删掉插件目录
  * 和这份偏好不该牵连到主设置。
@@ -15,7 +15,7 @@ internal object PluginSettings {
 
     private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
-    /** 默认市场索引。留空就用这个。 */
+    /** 默认市场索引（dzhz-server 仓库 services/web/public/plugin-market.json）。留空就用这个。 */
     const val DEFAULT_INDEX_URL: String = "https://dzhz.top/plugin-market.json"
 
     /** 生效的索引地址：没配过就用默认市场。 */

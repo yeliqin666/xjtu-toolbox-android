@@ -106,6 +106,16 @@ internal class PluginManager private constructor(private val appContext: Context
             appContext.contentResolver.openInputStream(uri)?.use { input ->
                 temp.outputStream().use { output -> input.copyTo(output) }
             } ?: throw IllegalArgumentException("读不到这个文件")
+        } catch (t: Throwable) {
+            temp.delete()
+            throw t
+        }
+        inspectFile(temp)
+    }
+
+    /** 校验已经在缓存里的插件包（文件选择器复制来的，或市场下载的）；失败会删掉 [temp]。 */
+    suspend fun inspectFile(temp: File): PendingPluginInstall = withContext(Dispatchers.IO) {
+        try {
             require(temp.length() in 1..(MAX_PACKAGE_BYTES + 8L * 1024 * 1024)) {
                 "插件包为空，或者大得离谱"
             }
