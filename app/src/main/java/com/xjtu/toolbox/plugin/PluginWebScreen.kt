@@ -66,7 +66,11 @@ internal fun PluginWebScreen(
         }
 
         if (!manifest.webUseVpn) {
-            state = WebState.Ready(startUrl)
+            state = WebState.Ready(
+                url = startUrl,
+                origins = manifest.webOrigins,
+                allowSubdomains = manifest.webAllowSubdomains,
+            )
             return@LaunchedEffect
         }
 
@@ -75,7 +79,13 @@ internal fun PluginWebScreen(
             runCatching { loginState.ensureWebVpnClient() }.getOrNull()
         }
         state = if (client != null) {
-            WebState.Ready(WebVpnUtil.getVpnUrl(startUrl))
+            // 走 WebVPN 时页面全在网关域名下，白名单只能按网关放行
+            // （网关本身就是边界，能访问什么由学校决定）
+            WebState.Ready(
+                url = WebVpnUtil.getVpnUrl(startUrl),
+                origins = listOf(WebVpnUtil.GATEWAY_ORIGIN),
+                allowSubdomains = true,
+            )
         } else {
             WebState.Error("WebVPN 登录失败。先去「我的 → 账号」登录一次，再回来打开。")
         }
@@ -105,6 +115,8 @@ internal fun PluginWebScreen(
 
         is WebState.Ready -> BrowserScreen(
             initialUrl = current.url,
+            allowedOrigins = current.origins,
+            allowSubdomains = current.allowSubdomains,
             onBack = onBack,
         )
     }
@@ -114,7 +126,11 @@ internal fun PluginWebScreen(
 private sealed interface WebState {
     data object Loading : WebState
 
-    data class Ready(val url: String) : WebState
+    data class Ready(
+        val url: String,
+        val origins: List<String>,
+        val allowSubdomains: Boolean,
+    ) : WebState
 
     data class Error(val message: String) : WebState
 }

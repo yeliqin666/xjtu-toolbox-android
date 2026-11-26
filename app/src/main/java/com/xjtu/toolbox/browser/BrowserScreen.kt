@@ -159,6 +159,10 @@ fun BrowserScreen(
     extraCookieDomains: List<String> = emptyList(),
     /** 地址还没备好（[initialUrl] 为空）：先出空白页和进度条，等 [initialUrl] 有值再加载。 */
     waiting: Boolean = false,
+    /** 只允许停留的站点（scheme + host）；空 = 不限制。只查主框架导航，子资源不管。 */
+    allowedOrigins: List<String> = emptyList(),
+    /** [allowedOrigins] 是否连子域名一起放行。 */
+    allowSubdomains: Boolean = false,
     /** 「更多」里的「问小岱」。 */
     onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
     onBack: () -> Unit
@@ -467,6 +471,17 @@ fun BrowserScreen(
                                 return true
                             }
                             if (url.startsWith("http://") || url.startsWith("https://")) {
+                                // 主框架跳到白名单外：拦下来，别把用户带出插件声明的站点
+                                if (request.isForMainFrame &&
+                                    !isOriginAllowed(url, allowedOrigins, allowSubdomains)
+                                ) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "这个插件只能待在 ${allowedOrigins.joinToString("、")} 里",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                    return true
+                                }
                                 return false
                             }
                             try {
@@ -750,3 +765,13 @@ internal fun shareWebPage(context: android.content.Context, title: String, url: 
 
 /** 读当前页显示的文字。多取一些留给 [com.xjtu.toolbox.agent.AgentForward.webPage] 判断是否截断。 */
 private const val PAGE_TEXT_JS = "document.body ? document.body.innerText.slice(0, 20000) : ''"
+
+/** [url] 的主机是否在 [origins] 里（[allowSubdomains] 时连子域一起算）。 */
+private fun isOriginAllowed(url: String, origins: List<String>, allowSubdomains: Boolean): Boolean {
+    if (origins.isEmpty()) return true
+    val host = hostOf(url)?.lowercase() ?: return false
+    return origins.any { origin ->
+        val originHost = hostOf(origin)?.lowercase()
+        originHost != null && (host == originHost || (allowSubdomains && host.endsWith(".$originHost")))
+    }
+}
