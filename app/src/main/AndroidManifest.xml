@@ -5,6 +5,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!--
+        插件要对接外部应用（第一个是「校园网络助手」的遥控 Service）：Android 11 起不声明就看不到别人的包，
+        bindService 直接失败。本项目不经 Google Play 分发，用 QUERY_ALL_PACKAGES 而不是一条条写 queries，
+        免得每接一个新应用都要改宿主、再发一次版。
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
