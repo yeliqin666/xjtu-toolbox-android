@@ -24,6 +24,11 @@ on:
         description: '只打印，不提交、不回帖、不写飞书'
         type: boolean
         default: false
+      poll:
+        description: '只统计这一帖的投票（帖子号，评论区 /tally 派发）；留空 = 完整的 tally'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -62,7 +67,13 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
-        run: python3 .github/scripts/announce.py ${{ github.event_name == 'discussion' && 'event' || 'tally' }}
+          # 定时触发时为空串，只有手动 / 评论区 /tally 派发才有值
+          POLL_NUMBER: ${{ github.event.inputs.poll }}
+        run: |
+          if [ "${{ github.event_name }}" = "discussion" ]; then mode=event
+          elif [ -n "$POLL_NUMBER" ]; then mode=poll
+          else mode=tally; fi
+          python3 .github/scripts/announce.py "$mode"
 
       - name: Commit to announce
         id: commit
