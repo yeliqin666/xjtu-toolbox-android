@@ -14,6 +14,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
@@ -87,3 +93,36 @@ fun rememberReportedScrollState(behavior: CouiTopBarScrollBehavior? = LocalCouiS
 @Composable
 fun rememberReportedLazyListState(behavior: CouiTopBarScrollBehavior? = LocalCouiScrollReporter.current): LazyListState =
     androidx.compose.foundation.lazy.rememberLazyListState().also { ReportScrollPosition(it, behavior) }
+
+/**
+ * 把 `verticalScroll` 的滚动量转给折叠顶栏，**只在内容真的能滚时才转**。
+ *
+ * 内容不足一屏时 [ScrollState.maxValue] 是 0，此时上拉/下拉只是回弹；
+ * 直接把 `nestedScrollConnection` 挂上去，大标题会跟着回弹缩起来——页面上明明滚不动。
+ */
+@Composable
+fun Modifier.reportScrollToTopBar(
+    state: ScrollState,
+    behavior: CouiTopBarScrollBehavior?,
+): Modifier {
+    if (behavior == null) return this
+    val connection = remember(state, behavior) {
+        val inner = behavior.nestedScrollConnection
+        object : NestedScrollConnection {
+            private val scrollable: Boolean get() = state.maxValue > 0
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+                if (scrollable) inner.onPreScroll(available, source) else Offset.Zero
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                if (scrollable) inner.onPostScroll(consumed, available, source) else Offset.Zero
+
+            override suspend fun onPreFling(available: Velocity): Velocity =
+                if (scrollable) inner.onPreFling(available) else Velocity.Zero
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                if (scrollable) inner.onPostFling(consumed, available) else Velocity.Zero
+        }
+    }
+    return this.nestedScroll(connection)
+}

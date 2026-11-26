@@ -70,6 +70,7 @@ import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
+import com.xjtu.toolbox.ui.glass.reportScrollToTopBar
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.glass.withoutTop
 import kotlinx.coroutines.Dispatchers
@@ -965,6 +966,7 @@ private fun DetailPage(
     val glass = rememberPageGlass()
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val uriHandler = LocalUriHandler.current
+    val scrollState = rememberScrollState()
     var confirm by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -981,9 +983,9 @@ private fun DetailPage(
         Column(
             Modifier
                 .fillMaxSize()
-                // nestedScroll 要在滚动容器外面，否则收不到滚动量，大标题收不起来
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .verticalScroll(rememberScrollState())
+                // 只在内容真的能滚时才把滚动量报给顶栏：内容不够一屏时上拉只是回弹，不该折叠
+                .reportScrollToTopBar(scrollState, scrollBehavior)
+                .verticalScroll(scrollState)
                 .padding(padding.withoutTop(glass))
                 .padding(horizontal = 16.dp)
                 .padding(top = glassTop, bottom = 24.dp),

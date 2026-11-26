@@ -28,6 +28,7 @@ import com.xjtu.toolbox.plugin.api.UiNode
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
+import com.xjtu.toolbox.ui.glass.reportScrollToTopBar
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -211,6 +212,8 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // 插件页正文也能折叠顶栏；内容不够一屏时不会误折叠
+                .reportScrollToTopBar(scroll, scrollBehavior)
                 .verticalScroll(scroll)
                 .overScrollVertical()
                 .padding(tabContentPadding(padding))
