@@ -381,18 +381,26 @@ internal fun MainScreen(
 
     ProactiveReminderLoop(loginState)
 
-    // 在小岱页时不自动冒泡（会遮输入框）
+    // 小岱球的大半屏和语音是全局一份（子页悬浮球也用，见 PidaiStage）；切 tab 时收起大半屏
+    val pidaiStage = LocalPidaiStage.current
+    LaunchedEffect(Unit) { snapshotFlow { tabs.selectedId }.collect { pidaiStage.hover = false } }
+
+    // 在小岱页（大半屏也算）时不自动冒泡（会遮输入框）
     LaunchedEffect(bar) {
-        snapshotFlow { selectedTab() == BottomTab.PIDAI }.collect { ProactiveBubbleHost.autoSuppressed = it }
+        snapshotFlow { selectedTab() == BottomTab.PIDAI || pidaiStage.hover }.collect { ProactiveBubbleHost.autoSuppressed = it }
     }
 
     // 只有手动点 tab 才震动，程序切 tab 不震
     val haptics = rememberHaptics()
 
-    // 点小岱：切 tab，并让它在首屏说句闲话（底栏上的闲话气泡收掉，正事气泡保留）
+    // 打开小岱：首页进小岱子页，其余页弹出大半屏
+    val openPidai: () -> Unit = {
+        if (selectedTab() == BottomTab.HOME) router.selectTab(BottomTab.PIDAI) else pidaiStage.hover = true
+    }
+    // 点小岱：带上当前页打开；并让它在首屏说句闲话（闲话气泡收掉，正事气泡保留）
     val onPidaiTap: () -> Unit = {
-        if (selectedTab() != BottomTab.PIDAI) haptics.tick()
-        tabs.select(BottomTab.PIDAI)
+        haptics.tick()
+        pidaiStage.tap(openPidai)
         if (ProactiveBubbleHost.message?.id == ProactiveRules.CHATTER_ID) ProactiveBubbleHost.clear()
         ProactiveRules.pickOnTap(context)?.let { line ->
             ProactiveRules.markTapped(context, line)
@@ -400,6 +408,8 @@ internal fun MainScreen(
             ProactiveBubbleHost.heroPokes++
         }
     }
+    // 按住小岱球：开始听；松手转写，识别出的话带着当前页直接交给小岱，打开方式同点击
+    val onPidaiHoldStart: () -> Unit = { pidaiStage.holdStart(openPidai) }
     // 共享壳点某一格只走这一条回调（它不认哪一格是谁）：小岱那一格顺带冒气泡，其余格只切 + 震一下
     val onSelectTab: (ShellTab) -> Unit = { tab ->
         if (tab.id == BottomTab.PIDAI.name) {
@@ -515,6 +525,33 @@ internal fun MainScreen(
                 .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
         },
         tabArt = tabArt,
+        // 小岱球：玻璃 / 悬浮胶囊右边一颗圆盘，经典栏最右一格，侧栏最底下（#557）
+        barAccessory = { form ->
+            // 搜索打开时收起：占位留着，免得底栏胶囊跟着变宽
+            val shown by androidx.compose.animation.core.animateFloatAsState(if (homeSearchExpanded) 0f else 1f, label = "orbShown")
+            com.xjtu.toolbox.agent.PidaiOrb(
+                modifier = Modifier
+                    .graphicsLayer {
+                        alpha = shown
+                        scaleX = 0.6f + 0.4f * shown
+                        scaleY = 0.6f + 0.4f * shown
+                    }
+                    .then(
+                        if (homeSearchExpanded) Modifier.pointerInput(Unit) {
+                            awaitPointerEventScope { while (true) awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial).changes.forEach { it.consume() } }
+                        } else Modifier,
+                    ),
+                form = form,
+                voice = pidaiStage.voice,
+                onTap = onPidaiTap,
+                onHoldStart = onPidaiHoldStart,
+                onHoldEnd = pidaiStage::holdEnd,
+                onBoundsChange = {
+                    pidaiAnchor = it
+                    pidaiStage.barOrb = it
+                },
+            )
+        },
         snackbarHost = { AppSnackbarHost(router.messages) },
         topBar = { shellTab, handles ->
             // 顶栏留在这一端：它有 Android 的扫一扫图标（`R.drawable.ic_scan`）与每格自己的表头槽位。
@@ -560,7 +597,8 @@ internal fun MainScreen(
             val msg = ProactiveBubbleHost.message
             if (msg != null && selectedTab() != BottomTab.PIDAI) {
                 val screenWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
-                BarBubbleSlot(anchorX = pidaiAnchor?.center?.x?.takeIf { pidaiInBar }) {
+                // 气泡对准小岱球（它常驻在底栏右边）
+                BarBubbleSlot(anchorX = pidaiAnchor?.center?.x) {
                     bubbleView(handles, msg, (screenWidth - 32.dp).coerceAtLeast(200.dp))
                 }
             }
@@ -568,7 +606,7 @@ internal fun MainScreen(
         // 宽屏侧栏小岱旁的气泡（侧栏内部会裁掉溢出内容，所以做成并列的覆盖层）
         railOverlay = { handles ->
             RailProactiveBubble(
-                anchor = { pidaiAnchor?.takeIf { pidaiInBar } },
+                anchor = { pidaiAnchor },
                 overlayOrigin = { overlayOrigin },
                 bubbleView = { msg, maxWidth -> bubbleView(handles, msg, maxWidth) },
             )

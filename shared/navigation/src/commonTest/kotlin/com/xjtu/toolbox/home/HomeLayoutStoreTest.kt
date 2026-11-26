@@ -5,9 +5,8 @@ import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.platform.KeyValueStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 
-/** 学业进度、成绩单挪出「我的」页后，改过首页的老用户要补回一次（[HomeLayoutStore.load]）。 */
+/** 每个看得到的功能在首页至少一张卡：删光过的读出来会补回（[HomeLayoutStore.load]）。 */
 class HomeLayoutStoreTest {
 
     private class FakeStore : KeyValueStore {
@@ -56,50 +55,33 @@ class HomeLayoutStoreTest {
     private fun HomeLayout.count(routeId: String) = groups.sumOf { g -> g.tiles.count { it.routeId == routeId } }
 
     @Test
-    fun `改过首页的本科生升级后补回学业进度和成绩单，各一格`() {
+    fun `改过首页、删光过某些功能的人，读出来每个看得到的功能都至少一张卡`() {
         val layout = HomeLayoutStore(oldCustomizedStore()).load(AccountType.UNDERGRADUATE)
+        AppServices.homeFor(AccountType.UNDERGRADUATE).forEach { assertEquals(true, layout.count(it.route.id) >= 1, it.title) }
         assertEquals(1, layout.count(degree))
         assertEquals(1, layout.count(transcript))
     }
 
     @Test
-    fun `只补一次，补完再删就不会长回来`() {
+    fun `删光了再读还会补回，已有的不重复加`() {
         val kv = oldCustomizedStore()
         val store = HomeLayoutStore(kv)
         val first = store.load(AccountType.UNDERGRADUATE)
-        val removed = HomeLayout(first.groups.map { g -> g.copy(tiles = g.tiles.filter { it.routeId != degree && it.routeId != transcript }) })
-        kv.map[KEY_LAYOUT] = HomeLayoutCodec.encode(removed)
+        val removed = HomeLayout(first.groups.map { g -> g.copy(tiles = g.tiles.filter { it.routeId != degree }) })
+        store.save(removed)
         val second = store.load(AccountType.UNDERGRADUATE)
-        assertEquals(0, second.count(degree))
-        assertEquals(0, second.count(transcript))
+        assertEquals(1, second.count(degree))
+        assertEquals(1, second.count(AppRoute.Schedule.id))
     }
 
     @Test
-    fun `研究生看不到这两项，不补也不置标记，换本科账号时再补`() {
-        val kv = oldCustomizedStore()
-        val store = HomeLayoutStore(kv)
-        val grad = store.load(AccountType.POSTGRADUATE)
+    fun `研究生看不到本科专属的功能，不补`() {
+        val grad = HomeLayoutStore(oldCustomizedStore()).load(AccountType.POSTGRADUATE)
         assertEquals(0, grad.count(degree))
-        assertFalse(kv.getBoolean(KEY_ONCE, false))
-        assertEquals(1, store.load(AccountType.UNDERGRADUATE).count(degree))
-    }
-
-    @Test
-    fun `默认布局的人第一次亲手保存时删掉了它们，之后不补回`() {
-        val kv = FakeStore()
-        val store = HomeLayoutStore(kv)
-        val defaults = store.load(AccountType.UNDERGRADUATE)
-        assertEquals(1, defaults.count(degree))
-        assertEquals(1, defaults.count(transcript))
-        store.save(HomeLayout(defaults.groups.map { g -> g.copy(tiles = g.tiles.filter { it.routeId != degree && it.routeId != transcript }) }))
-        val after = store.load(AccountType.UNDERGRADUATE)
-        assertEquals(0, after.count(degree))
-        assertEquals(0, after.count(transcript))
     }
 
     private companion object {
         const val KEY_LAYOUT = "home_cards_layout"
         const val KEY_SEEN = "home_seen_routes"
-        const val KEY_ONCE = "home_profile_moved_routes_v1"
     }
 }

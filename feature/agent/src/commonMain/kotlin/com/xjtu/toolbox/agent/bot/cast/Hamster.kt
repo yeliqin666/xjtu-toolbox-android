@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.agent.bot.cast
 
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.sin
 
@@ -54,6 +55,14 @@ object Hamster : CastCharacter("hamster", "仓鼠") {
         val micro = p.amt(Act.MICRO); val tm = p.t(Act.MICRO)
         val poke = p.amt(Act.POKE); val tp = p.t(Act.POKE)
         val combo = p.amt(Act.COMBO); val tc = p.t(Act.COMBO)
+        // 在听：耳朵竖大，你说的话一句句屯进腮帮，越说越鼓
+        val listen = p.amt(Act.LISTEN); val tl = p.t(Act.LISTEN)
+        val v = p.voice * listen
+        val hoard = listen * (0.45 * ss(tl / 4.0) + 0.15 * p.voice)
+        // 转写：鼓着腮帮猛嚼，把屯的话嚼成字，嚼着嚼着瘪下去
+        val scribe = p.amt(Act.TRANSCRIBE); val ts = p.t(Act.TRANSCRIBE)
+        val digest = scribe * (0.2 + 0.3 * exp(-ts * 0.5))
+        val gnaw = sin(ts * 24)
 
         // 微动：瓜子举到嘴边、塞进一边腮帮
         val lift = micro * window(tm, 0.1, 0.45, 0.6, 0.85)
@@ -74,13 +83,13 @@ object Hamster : CastCharacter("hamster", "仓鼠") {
 
         val spring = alert * wobble(ta, 15.0, 4.5)
         val stride = think * sin(tt * 16)
-        val busy = maxOf(think, alert, poke, combo, micro)
+        val busy = maxOf(think, alert, poke, combo, micro, listen, scribe)
         val chew = (1 - busy) * window(chewAt.since(now), 0.0, 0.15, 1.1, 1.3)
         val munch = sin(now * 19)
 
-        val both = gulp + jiggle + charge * (1.0 + 0.03 * sin(tc * 45)) + 0.5 * again - 0.12 * dazed
-        val puffL = (0.1 * chew * max(0.0, munch) + 0.55 * stuffed + both).coerceAtMost(1.05)
-        val puffR = (0.1 * chew * max(0.0, -munch) + both).coerceAtMost(1.05)
+        val both = gulp + jiggle + charge * (1.0 + 0.03 * sin(tc * 45)) + 0.5 * again - 0.12 * dazed + hoard + digest
+        val puffL = (0.1 * chew * max(0.0, munch) + 0.55 * stuffed + both + 0.14 * scribe * max(0.0, gnaw)).coerceAtMost(1.05)
+        val puffR = (0.1 * chew * max(0.0, -munch) + both + 0.14 * scribe * max(0.0, -gnaw)).coerceAtMost(1.05)
 
         // 怀里那颗瓜子：被吃掉、吞掉、喷光、跑轮子时都没有
         val gone = maxOf(
@@ -110,12 +119,13 @@ object Hamster : CastCharacter("hamster", "仓鼠") {
             scale(size * (1 + (1 - sy) * 0.5), size * sy)
             translate(0.0, -BASE)
 
-            val perk = maxOf(alert, again)
+            val perk = maxOf(alert, again, listen)
             for (side in intArrayOf(-1, 1)) {
-                val tw = 14 * wobble((if (side < 0) twitchL else twitchR).since(now), 30.0, 8.0)
+                val tw = 14 * wobble((if (side < 0) twitchL else twitchR).since(now), 30.0, 8.0) + 10 * v * sin(now * 31)
                 s.group {
                     translate(side * 56.0, -46.0 - 7 * perk)
                     rotate(side * tw)
+                    scale(1 + 0.22 * listen + 0.12 * v)
                     s.circle(0.0, 0.0, 22.0)
                     s.fill(FUR)
                     s.circle(0.0, 3.0, 11.5)
@@ -148,7 +158,7 @@ object Hamster : CastCharacter("hamster", "仓鼠") {
             if (gulp > 0.4 || charge > 0.4) {
                 s.squint(ex, ey, 0.9, EYE_X / 0.9, EYE_DARK)
             } else {
-                val k = 0.82 + 0.12 * perk
+                val k = 0.82 + 0.12 * perk + 0.1 * v
                 // 发懵：眨两下
                 val blank = 1 - combo * max(bump((tc - 1.95) / 0.22), bump((tc - 2.3) / 0.22))
                 val lid = blank * (1 - 0.2 * think)
@@ -164,7 +174,7 @@ object Hamster : CastCharacter("hamster", "仓鼠") {
                 s.ellipse(0.0, 48.0, 6.0, 7.0)
                 s.fill(MOUTH)
             } else {
-                val my = 44 + 1.5 * chew * munch
+                val my = 44 + 1.5 * chew * munch + 2.5 * scribe * gnaw
                 s.moveTo(-8.0, my)
                 s.quadTo(-4.0, my + 6, 0.0, my)
                 s.quadTo(4.0, my + 6, 8.0, my)
@@ -181,6 +191,7 @@ object Hamster : CastCharacter("hamster", "仓鼠") {
         // 喷出去的瓜子：左右交替、一颗颗抛出去
         if (combo > 0.01) for (k in 0 until SHOTS) fly(s, tc - SPRAY_AT - k * SHOT_GAP, k)
         for (k in 0 until POKE_MEMORY) fly(s, p.kickAgo[k] - 0.05, k + 3)
+        if (listen > 0.01) s.soundArcs(80.0, -70.0, -50.0, listen, p.voice, tl)
         s.badge(alert, ta)
     }
 

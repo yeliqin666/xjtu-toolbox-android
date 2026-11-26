@@ -4,7 +4,6 @@ import com.xjtu.toolbox.util.campusEpochMsOf
 import kotlinx.datetime.LocalDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class AgentSessionGroupsTest {
     private fun at(day: Int, hour: Int = 12) = campusEpochMsOf(LocalDateTime(2026, 10, day, hour, 0))
@@ -29,17 +28,10 @@ class AgentSessionGroupsTest {
             session(AgentPushFocus.SESSION_ID, AgentPushFocus.SESSION_TITLE, at(20)),
             session("b", "食堂", at(1)),
         )
-        val model = buildSessionList(list, "", now)
+        val model = buildSessionList(list, now)
         assertEquals(AgentPushFocus.SESSION_ID, model.pinned?.id)
         assertEquals(listOf(SessionGroup.TODAY, SessionGroup.EARLIER), model.sections.map { it.group })
         assertEquals(listOf("a"), model.sections[0].sessions.map { it.id })
-    }
-
-    @Test
-    fun queryFiltersByTitleIgnoringCase() {
-        val list = listOf(session("a", "Kotlin 笔记", at(20)), session("b", "食堂", at(20)))
-        assertEquals(listOf("a"), buildSessionList(list, " kotlin ", now).sections.single().sessions.map { it.id })
-        assertNull(buildSessionList(list, "推送", now).pinned)
-        assertEquals(true, buildSessionList(list, "没有", now).isEmpty)
+        assertEquals(true, buildSessionList(emptyList(), now).isEmpty)
     }
 }

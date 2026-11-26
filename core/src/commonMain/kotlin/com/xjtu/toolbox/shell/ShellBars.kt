@@ -54,6 +54,7 @@ fun ClassicBottomBar(
     colors: NavigationBarItemColors,
     bubble: @Composable () -> Unit,
     tabArt: ShellTabArt = ShellTabArt.None,
+    accessory: (@Composable (ShellBarAccessoryForm) -> Unit)? = null,
 ) {
     Column {
         bubble()
@@ -85,6 +86,8 @@ fun ClassicBottomBar(
                     )
                 }
             }
+            // 经典栏是铺满的一条：附件就是最右边那一格
+            accessory?.invoke(ShellBarAccessoryForm.CLASSIC)
         }
     }
 }
@@ -99,6 +102,7 @@ fun GlassBottomBar(
     bottomPadding: Dp,
     bubble: @Composable () -> Unit,
     tabArt: ShellTabArt = ShellTabArt.None,
+    accessory: (@Composable (ShellBarAccessoryForm) -> Unit)? = null,
 ) {
     // COUI 路径：底栏本体是 COUI NavigationBar 的移植，自带 16dp 外边距与 tappableElement
     // 导航条适配，外层不能再加本机的 20dp 侧距和 bottomPadding；只补 miuix floatingToolbar
@@ -110,6 +114,8 @@ fun GlassBottomBar(
             .then(if (couiBar) Modifier else Modifier.padding(horizontal = 20.dp).padding(bottom = bottomPadding)),
     ) {
         Box(Modifier.then(if (couiBar) Modifier.padding(horizontal = 20.dp) else Modifier)) { bubble() }
+        // 附件（小岱球）贴在胶囊右边、和胶囊同一条中线；COUI 胶囊自带 16dp 外边距，右侧再补同样的边
+        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
         GlassBottomTabs(
             tabs = nav.tabs.tabs.map { tab ->
                 // 自绘那一格（屁岱）免染色：强调色是把整排再画一遍，机器人不能画出第二份
@@ -152,8 +158,15 @@ fun GlassBottomBar(
             onTabSelected = { index ->
                 nav.onSelect(nav.tabs[index])
             },
-            modifier = if (couiBar) Modifier.offset(y = MIUIX_FLOATING_TOOLBAR_SPACING) else Modifier,
+            modifier = Modifier.weight(1f).then(if (couiBar) Modifier.offset(y = MIUIX_FLOATING_TOOLBAR_SPACING) else Modifier),
         )
+        if (accessory != null) {
+            Box(
+                Modifier
+                    .then(if (couiBar) Modifier.offset(y = MIUIX_FLOATING_TOOLBAR_SPACING).padding(end = 16.dp) else Modifier.padding(start = 12.dp)),
+            ) { accessory(ShellBarAccessoryForm.GLASS) }
+        }
+        }
     }
 }
 
@@ -165,9 +178,11 @@ fun FloatingBottomBar(
     offsetY: Dp,
     bubble: @Composable () -> Unit,
     tabArt: ShellTabArt = ShellTabArt.None,
+    accessory: (@Composable (ShellBarAccessoryForm) -> Unit)? = null,
 ) {
     Column(Modifier.offset(y = offsetY)) {
         bubble()
+        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
         FloatingNavigationBar(
             color = MiuixTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.clip(RoundedCornerShape(50)),
@@ -196,6 +211,10 @@ fun FloatingBottomBar(
                 }
             }
         }
+        if (accessory != null) {
+            Box(Modifier.padding(start = 12.dp)) { accessory(ShellBarAccessoryForm.FLOATING) }
+        }
+        }
     }
 }
 
@@ -205,6 +224,7 @@ fun ShellNavigationRail(
     nav: ShellNavState,
     railState: NavigationRailState,
     tabArt: ShellTabArt = ShellTabArt.None,
+    accessory: (@Composable (ShellBarAccessoryForm) -> Unit)? = null,
 ) {
     // 钉死行高：字号随展开进度插值时，文字高度按整像素跳变会让所有格子抖一下
     val railTextStyles = MiuixTheme.textStyles.let { ts ->
@@ -248,6 +268,7 @@ fun ShellNavigationRail(
                     )
                 }
             }
+            accessory?.invoke(ShellBarAccessoryForm.RAIL)
         }
     }
 }

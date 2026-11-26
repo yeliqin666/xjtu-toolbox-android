@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.VpnKey
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -176,6 +177,7 @@ fun BrowserScreen(
     var progress by remember { mutableFloatStateOf(if (waiting) 10f else 0f) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
+    PidaiBrowserReport(webViewRef, { currentUrl }, { pageTitle })
     // 桌面版：只改写 viewport、不换 UA（统一认证登录态绑定 UA）
     var desktop by remember { mutableStateOf(DESKTOP_HOSTS.any { hostOf(initialUrl)?.endsWith(it) == true }) }
     val desktopState = rememberUpdatedState(desktop)
@@ -331,7 +333,8 @@ fun BrowserScreen(
                                 }
                             }
                         }
-                        Box {
+                        // 菜单不采窗口：采样会把 WebView 录进离屏层，网页当场变灰块、闪烁
+                        Box { com.xjtu.toolbox.ui.glass.coui.menu.WithoutCouiMenuBackdrop {
                             com.xjtu.toolbox.ui.glass.CouiIconMenu(
                                 expanded = menuOpen,
                                 onExpandedChange = { menuOpen = it },
@@ -384,7 +387,7 @@ fun BrowserScreen(
                                     }
                                 }
                             }
-                        }
+                        } }
                     }
                     // 进度条贴着顶栏下沿；不加载时留一条同高的空白，网页不会跟着上下跳
                     Box(Modifier.fillMaxWidth().height(2.dp)) {
@@ -825,3 +828,49 @@ private fun isOriginAllowed(url: String, origins: List<String>, allowSubdomains:
         originHost != null && (host == originHost || (allowSubdomains && host.endsWith(".$originHost")))
     }
 }
+
+/**
+ * 把内置浏览器这一页报给小岱：标题、链接、页面上看得见的文字，点小岱球时再附一张截图。
+ *
+ * 隐私：链接去掉查询串和锚点（ticket、token 常在那儿）；登录 / 认证页、页面上有密码框时只报标题和域名，
+ * 不读正文也不截图；正文用 innerText，不含输入框里填的东西。截图只进输入框的待发图片，用户看过才发。
+ */
+@Composable
+private fun PidaiBrowserReport(web: WebView?, url: () -> String, title: () -> String) {
+    var text by remember { mutableStateOf("") }
+    var sensitive by remember { mutableStateOf(false) }
+    val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    // 页面会自己变（单页应用、下拉加载）：显示着的时候隔几秒重读一次
+    LaunchedEffect(web) {
+        val view = web ?: return@LaunchedEffect
+        while (true) {
+            if (visible.value) {
+                view.evaluateJavascript(PIDAI_PAGE_JS) { raw ->
+                    val obj = runCatching { com.xjtu.toolbox.util.AppJson.parseToJsonElement(
+                        com.xjtu.toolbox.util.AppJson.parseToJsonElement(raw).jsonPrimitive.content,
+                    ).jsonObject }.getOrNull() ?: return@evaluateJavascript
+                    text = obj["t"]?.jsonPrimitive?.content.orEmpty()
+                    sensitive = obj["pw"]?.jsonPrimitive?.content == "true"
+                }
+            }
+            // 正文常常晚于标题加载：读得勤一点，点球那一刻拿到的才是眼前这页
+            kotlinx.coroutines.delay(1500)
+        }
+    }
+    com.xjtu.toolbox.ui.components.ReportToPidai(
+        title = "内置浏览器",
+        hint = "要我帮你总结这一页吗？",
+        screenshotAllowed = { !sensitive && !isAuthHop(url()) },
+    ) {
+        val link = shareableUrl(url(), WebVpnUtil).substringBefore('#').substringBefore('?')
+        buildString {
+            append("网页标题：${title()}\n链接：$link\n")
+            if (sensitive || isAuthHop(url())) append("这是登录或认证页面，正文没有读取。")
+            else if (text.isNotBlank()) append("页面上显示的文字（节选）：\n").append(text.take(3000))
+        }
+    }
+}
+
+/** 页面可见文字（前 4000 字）+ 页面上有没有密码框。返回 JSON 字符串。 */
+private const val PIDAI_PAGE_JS = "JSON.stringify({t: document.body ? document.body.innerText.slice(0, 4000) : '', " +
+    "pw: !!document.querySelector('input[type=password]')})"

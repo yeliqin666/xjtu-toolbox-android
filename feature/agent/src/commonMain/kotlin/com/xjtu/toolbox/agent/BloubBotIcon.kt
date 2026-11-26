@@ -69,10 +69,23 @@ fun BloubBotIcon(
     pokeSerial: Int = 0,
     /** 彩蛋播放中又戳的序号（[PidaiPokes.kicks]）：变了就在彩蛋上叠一次反应，不打断它。 */
     kickSerial: Int = 0,
+    /** 倾听（[PidaiBeat.LISTEN]）时的实时音量 0..1，只在帧循环 / 绘制阶段读。 */
+    voiceLevel: () -> Float = { 0f },
 ) {
     if (cast != null) {
-        CastIcon(cast, beat, modifier, frozenAt, gaze, glance, pokeSerial, kickSerial)
+        CastIcon(cast, beat, modifier, frozenAt, gaze, glance, pokeSerial, kickSerial, voiceLevel)
         return
+    }
+    // 经典屁岱在听：姿态见 STATE_LISTEN，音量在这里让整只一鼓一鼓
+    val listening = beat == PidaiBeat.LISTEN
+    val classicModifier = if (listening) {
+        modifier.graphicsLayer {
+            val k = 1.04f + 0.1f * voiceLevel()
+            scaleX = k
+            scaleY = k
+        }
+    } else {
+        modifier
     }
     val engine = remember { BotEngine() }
     val clock = remember { BotClock() }
@@ -109,6 +122,8 @@ fun BloubBotIcon(
         PidaiBeat.ALERT -> "notify"
         PidaiBeat.TAP -> "poke"
         PidaiBeat.COMET -> "dizzy"
+        PidaiBeat.LISTEN -> "listen"
+        PidaiBeat.TRANSCRIBE -> "transcribe"
     }
 
     var frame by remember { mutableStateOf<BotFrame?>(null) }
@@ -156,7 +171,7 @@ fun BloubBotIcon(
     Canvas(
         // 挖空要用 BlendMode.Clear，必须先落到一个离屏层上再合成，否则会直接
         // 挖穿到宿主 Canvas 之外（见类注释）。
-        modifier = modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+        modifier = classicModifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
     ) {
         val f = frame
         if (f == null) {

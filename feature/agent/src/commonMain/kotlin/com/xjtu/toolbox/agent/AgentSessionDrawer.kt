@@ -1,102 +1,129 @@
-@file:OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalFoundationApi::class)
 
 package com.xjtu.toolbox.agent
 
-import com.xjtu.toolbox.util.formatTwoDigits
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
-import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.xjtu.toolbox.util.campusDateTimeOf
+import com.xjtu.toolbox.util.formatTwoDigits
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.time.Clock
 
-/** 窄屏的全高模态抽屉：盖住顶栏和状态栏，宽度为屏宽的 85%（最多 320dp），点遮罩关闭。 */
+/**
+ * 窄屏的历史对话：从顶栏「历史」按钮右下方长出来的一张卡片菜单。放在按钮旁边（同一个父布局里）才锚得住。
+ * 点外面、按返回收起；长按一条交给 [onLongPress]（改名 / 删除）。
+ */
 @Composable
-internal fun SessionDrawer(
-    open: Boolean,
+internal fun SessionMenu(
+    expanded: Boolean,
     sessions: List<AgentSession>,
     currentId: String?,
-    onClose: () -> Unit,
+    onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
     onLongPress: (AgentSession) -> Unit,
+    onNewChat: () -> Unit,
 ) {
-    AnimatedVisibility(
-        visible = open,
-        enter = fadeIn(animationSpec = tween(180)),
-        exit = fadeOut(animationSpec = tween(140)),
-        modifier = Modifier.zIndex(1f)
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.4f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onClose() }
-        )
-    }
-    BoxWithConstraints(Modifier.fillMaxSize().zIndex(2f)) {
-        // 开关按钮在顶栏右边，侧栏也从右边滑出
+    val state = remember { MutableTransitionState(false) }
+    state.targetState = expanded
+    if (!state.currentState && !state.targetState) return
+    val density = LocalDensity.current
+    val provider = remember(density) { with(density) { BelowEnd(gap = 6.dp.roundToPx(), margin = 12.dp.roundToPx()) } }
+    Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         AnimatedVisibility(
-            visible = open,
-            enter = slideInHorizontally(animationSpec = tween(260)) { it },
-            exit = slideOutHorizontally(animationSpec = tween(220)) { it },
-            modifier = Modifier.align(Alignment.CenterEnd),
+            visibleState = state,
+            enter = fadeIn(tween(150)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow), initialScale = 0.8f, transformOrigin = TransformOrigin(1f, 0f)),
+            exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.92f, transformOrigin = TransformOrigin(1f, 0f)),
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(minOf(maxWidth * 0.85f, 320.dp)),
-                shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
-                color = MiuixTheme.colorScheme.surfaceContainer,
+            val shape = RoundedCornerShape(24.dp)
+            val ink = MiuixTheme.colorScheme.onSurface
+            Column(
+                Modifier
+                    .widthIn(max = 304.dp)
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp)
+                    .shadow(22.dp, shape, ambientColor = ink.copy(alpha = 0.16f), spotColor = ink.copy(alpha = 0.22f))
+                    .clip(shape)
+                    .background(MiuixTheme.colorScheme.surfaceContainer)
+                    .border(0.5.dp, ink.copy(alpha = 0.07f), shape),
             ) {
-                SessionListPane(
-                    sessions = sessions,
-                    currentId = currentId,
-                    onSelect = onSelect,
-                    onLongPress = onLongPress,
-                    modifier = Modifier.statusBarsPadding(),
-                )
+                MenuHeader(count = sessions.count { it.id != AgentPushFocus.SESSION_ID }, onNewChat = onNewChat)
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                // 每一行依次淡入上浮，像从按钮那儿一条条落下来
+                val appear = remember { Animatable(0f) }
+                LaunchedEffect(Unit) { appear.animateTo(1f, tween(420)) }
+                LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp)) {
+                    sessionItems(sessions, currentId, onSelect, onLongPress, stagger = { appear.value })
+                }
             }
         }
     }
 }
 
-/**
- * 会话列表本体（头部 + 搜索 + 置顶的推送记录 + 按日期分组的会话），不含容器。
- * 窄屏被 [SessionDrawer] 包在遮罩和滑入动画里，宽屏直接当常驻左栏。
- */
+/** 宽屏常驻左栏：同一份列表，不弹出。 */
 @Composable
 internal fun SessionListPane(
     sessions: List<AgentSession>,
@@ -105,146 +132,159 @@ internal fun SessionListPane(
     onLongPress: (AgentSession) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    val model = buildSessionList(sessions, query, Clock.System.now().toEpochMilliseconds())
-    Column(
-        modifier
-            .fillMaxSize()
-            .navigationBarsPadding()
-            .padding(horizontal = 12.dp)
-            .padding(top = 8.dp, bottom = 12.dp)
-    ) {
-        // 新对话在顶栏右边，这里不再放一份
+    Column(modifier.fillMaxSize().navigationBarsPadding().padding(top = 8.dp)) {
         Text(
             "历史对话",
-            modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 10.dp),
+            modifier = Modifier.padding(start = 18.dp, top = 6.dp, bottom = 8.dp),
             style = MiuixTheme.textStyles.title3,
             fontWeight = FontWeight.Bold,
         )
-
-        TextField(
-            value = query,
-            onValueChange = { query = it },
-            label = "搜索对话",
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        LazyColumn(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            if (model.isEmpty) {
-                item {
-                    EmptyHint(
-                        title = if (sessions.isEmpty()) "还没有任何对话" else "没有匹配的对话",
-                        detail = if (sessions.isEmpty()) "" else "换个关键词试试",
-                    )
-                }
-            }
-            model.pinned?.let { pinned ->
-                item(key = pinned.id) {
-                    SessionRow(
-                        session = pinned,
-                        isCurrent = pinned.id == currentId,
-                        icon = Icons.Default.Notifications,
-                        onSelect = { onSelect(pinned.id) },
-                    )
-                }
-                item(key = "pinned-divider") {
-                    HorizontalDivider(Modifier.padding(horizontal = 6.dp, vertical = 6.dp))
-                }
-            }
-            model.sections.forEach { section ->
-                item(key = "group-${section.group.name}") {
-                    Text(
-                        section.group.label,
-                        modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 4.dp),
-                        style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Medium,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-                items(section.sessions, key = { it.id }) { session ->
-                    SessionRow(
-                        session = session,
-                        isCurrent = session.id == currentId,
-                        onSelect = { onSelect(session.id) },
-                        onLongClick = { onLongPress(session) },
-                    )
-                }
-            }
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+            sessionItems(sessions, currentId, onSelect, onLongPress, stagger = null)
         }
+    }
+}
+
+/** 按顶栏按钮右对齐、贴在它下面；夹在窗口左右 [margin] 以内。 */
+private class BelowEnd(private val gap: Int, private val margin: Int) : PopupPositionProvider {
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+        val x = (anchorBounds.right - popupContentSize.width)
+            .coerceAtMost(windowSize.width - popupContentSize.width - margin)
+            .coerceAtLeast(margin)
+        return IntOffset(x, anchorBounds.bottom + gap)
     }
 }
 
 @Composable
-private fun EmptyHint(title: String, detail: String) {
-    Column(
-        Modifier.fillMaxWidth().padding(vertical = 40.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            Icons.AutoMirrored.Filled.List,
-            contentDescription = null,
-            modifier = Modifier.size(32.dp),
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(title, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        if (detail.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
+private fun MenuHeader(count: Int, onNewChat: () -> Unit) {
+    val accent = MiuixTheme.colorScheme.primary
+    Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 12.dp, top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("历史对话", style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold)
             Text(
-                detail,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+                if (count == 0) "还没有对话" else "$count 个对话",
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
+        }
+        Row(
+            Modifier
+                .clip(CircleShape)
+                .background(accent.copy(alpha = 0.12f))
+                .clickable(onClick = onNewChat)
+                .padding(start = 10.dp, end = 13.dp, top = 7.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null, tint = accent, modifier = Modifier.size(16.dp))
+            Text("新对话", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = accent)
         }
     }
 }
 
+/** 置顶的推送记录 + 按日期分组的会话。[stagger] 给出入场进度时各行错峰淡入，null 不演。 */
+private fun LazyListScope.sessionItems(
+    sessions: List<AgentSession>,
+    currentId: String?,
+    onSelect: (String) -> Unit,
+    onLongPress: (AgentSession) -> Unit,
+    stagger: (() -> Float)?,
+) {
+    val model = buildSessionList(sessions, Clock.System.now().toEpochMilliseconds())
+    if (model.isEmpty) {
+        item(key = "empty") {
+            Column(Modifier.fillMaxWidth().padding(vertical = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.History, contentDescription = null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f), modifier = Modifier.size(30.dp))
+                Spacer(Modifier.height(8.dp))
+                Text("聊过的会出现在这里", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+        }
+        return
+    }
+    var row = 0
+    fun Modifier.enter(i: Int): Modifier = if (stagger == null) this else graphicsLayer {
+        val p = ((stagger() - minOf(i, 8) * 0.07f) / 0.45f).coerceIn(0f, 1f)
+        alpha = p
+        translationY = (1f - p) * 10.dp.toPx()
+    }
+    model.pinned?.let { pinned ->
+        val i = row++
+        item(key = pinned.id) {
+            SessionRow(pinned, pinned.id == currentId, onSelect = { onSelect(pinned.id) }, icon = Icons.Default.Notifications, modifier = Modifier.enter(i))
+        }
+    }
+    model.sections.forEach { section ->
+        val i = row++
+        item(key = "group-${section.group.name}") {
+            Text(
+                section.group.label,
+                modifier = Modifier.enter(i).padding(start = 12.dp, top = 10.dp, bottom = 4.dp),
+                style = MiuixTheme.textStyles.footnote2,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        section.sessions.forEach { session ->
+            val j = row++
+            item(key = session.id) {
+                SessionRow(
+                    session,
+                    session.id == currentId,
+                    onSelect = { onSelect(session.id) },
+                    onLongClick = { onLongPress(session) },
+                    modifier = Modifier.enter(j),
+                )
+            }
+        }
+    }
+}
+
+/** 会话的小方块用的几种颜色，按 id 挑一种，同一条对话每次都是同一个色。 */
+private val SWATCHES = listOf(
+    Color(0xFF3B82F6), Color(0xFF14B8A6), Color(0xFFF59E0B), Color(0xFFEC4899), Color(0xFF8B5CF6), Color(0xFF22C55E),
+)
+
 /**
- * 一条会话。当前会话靠「左侧主色竖条 + 浅色底」区分，其余保持无底；
- * 带 [icon] 的是置顶条目（用图标代替竖条），没有 [onLongClick] 就不弹菜单。
+ * 一条会话：左边是标题首字的彩色圆角方块（推送记录用图标），中间标题和时间，当前这条浅主色底、右边打勾。
+ * 没有 [onLongClick] 就不响应长按。
  */
 @Composable
 private fun SessionRow(
     session: AgentSession,
     isCurrent: Boolean,
     onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     icon: ImageVector? = null,
 ) {
-    val bg by animateColorAsState(
-        targetValue = if (isCurrent) MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)
-        else Color.Transparent,
-        animationSpec = tween(200),
-        label = "sessionRowBg",
-    )
-    val accent = if (isCurrent) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface
+    val accent = MiuixTheme.colorScheme.primary
+    val bg by animateColorAsState(if (isCurrent) accent.copy(alpha = 0.10f) else Color.Transparent, tween(200), label = "sessionRowBg")
+    val swatch = if (icon != null) accent else SWATCHES[(session.id.hashCode() and Int.MAX_VALUE) % SWATCHES.size]
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(bg)
             .combinedClickable(onClick = onSelect, onLongClick = onLongClick)
-            .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
-        } else {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(18.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(if (isCurrent) MiuixTheme.colorScheme.primary else Color.Transparent),
-            )
+        Box(
+            Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(swatch.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = swatch, modifier = Modifier.size(18.dp))
+            } else {
+                Text(
+                    session.title.trim().take(1).ifEmpty { "·" },
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Bold,
+                    color = swatch,
+                )
+            }
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 session.title,
@@ -252,21 +292,20 @@ private fun SessionRow(
                 fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = accent,
+                color = if (isCurrent) accent else MiuixTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                formatSessionTime(session.updatedAt),
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
+            Spacer(Modifier.height(1.dp))
+            Text(formatSessionTime(session.updatedAt), style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
+        if (isCurrent) {
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Default.Check, contentDescription = "当前对话", tint = accent, modifier = Modifier.size(18.dp))
         }
     }
 }
 
 internal fun formatSessionTime(ts: Long): String =
-    // `SimpleDateFormat("MM-dd HH:mm")` 的跨端等价（commonMain 没有 `java.text`）：
-    // 北京时间 + 同样补零，年月日之外的部分本来就是稳定格式。
+    // `SimpleDateFormat("MM-dd HH:mm")` 的跨端等价（commonMain 没有 `java.text`）
     campusDateTimeOf(ts)
         .let { "${formatTwoDigits(it.monthNumber)}-${formatTwoDigits(it.dayOfMonth)} " +
             "${formatTwoDigits(it.hour)}:${formatTwoDigits(it.minute)}" }

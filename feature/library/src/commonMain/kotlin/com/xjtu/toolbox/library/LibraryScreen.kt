@@ -113,6 +113,17 @@ fun LibraryScreen(
     val vm: LibraryViewModel = viewModel(key = "library-${source.hashCode()}") {
         LibraryViewModel(source)
     }
+    com.xjtu.toolbox.ui.components.ReportToPidai("图书馆", hint = "要我帮你找个空座多的区域吗？") {
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("校区", vm.campus.displayName)
+            filter("正在看的区域", vm.selectedAreaCode)
+            vm.myBooking?.let { note("我的预约：${it.area.orEmpty()} ${it.seatId.orEmpty()} ${it.statusText.orEmpty()}") }
+            section("各区域空座", vm.areaStatsMap.entries.filter { it.value.isOpen }.toList(), max = 40) { (area, s) -> "$area｜空 ${s.label}" }
+            if (vm.selectedAreaCode.isNotEmpty() && vm.seats.isNotEmpty()) {
+                section("这个区域的空座号", vm.seats.filter { it.available }, max = 40) { it.seatId }
+            }
+        }
+    }
     LaunchedEffect(vm) {
         vm.events.collect { appAuthExpiry.onAuthExpired(AppRoute.Library, onBack) }
     }

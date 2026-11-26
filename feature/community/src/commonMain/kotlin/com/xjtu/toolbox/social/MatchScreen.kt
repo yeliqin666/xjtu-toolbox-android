@@ -651,7 +651,7 @@ private fun ShareSettingsDialog(
                         title = "学期",
                         summary = termLabel,
                         items = local.availableTerms.map {
-                            (local.termNames[it] ?: it) + if (it == local.currentTerm) "（本学期）" else ""
+                            com.xjtu.toolbox.schedule.compactTermName(local.termNames[it] ?: it) + if (it == local.currentTerm) "（本学期）" else ""
                         },
                         selectedIndex = local.availableTerms.indexOf(local.term).coerceAtLeast(0),
                         onSelectedIndexChange = { onTermPicked(local.availableTerms[it]) },

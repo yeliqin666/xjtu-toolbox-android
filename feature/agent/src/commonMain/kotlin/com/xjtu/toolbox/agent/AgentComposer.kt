@@ -36,6 +36,11 @@ import androidx.compose.material.icons.filled.Mic
 import com.xjtu.toolbox.platform.decodeImageFull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -71,8 +76,20 @@ internal fun AgentComposer(
     onOpenShared: (() -> Unit)? = null,
     /** 语音输入所处阶段；null = 这一端或这份配置没有语音输入，不画麦克风。 */
     voicePhase: VoicePhase? = null,
-    onVoice: () -> Unit = {},
+    /** 按住麦克风：开始录。 */
+    onVoiceStart: () -> Unit = {},
+    /** 松手：结束并识别；[cancel] 为真（上滑取消）丢掉这段。 */
+    onVoiceEnd: (cancel: Boolean) -> Unit = {},
 ) {
+    // 按住说话时手指滑进了取消区；点一下（没按住）时提示一下要按住
+    var voiceArmed by remember { mutableStateOf(false) }
+    var holdHint by remember { mutableStateOf(false) }
+    LaunchedEffect(holdHint) {
+        if (holdHint) {
+            kotlinx.coroutines.delay(1600)
+            holdHint = false
+        }
+    }
     // 只发图不打字是合理的（「这是什么」「帮我看看这张课表」）。
     val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !contextExhausted
     val actionEnabled = isLoading || canSend
@@ -228,39 +245,37 @@ internal fun AgentComposer(
                     Text(
                         when {
                             contextExhausted -> "这轮对话满了，新建一个吧"
-                            voicePhase == VoicePhase.RECORDING -> "正在听，说完再点一下麦克风"
+                            voicePhase == VoicePhase.RECORDING && voiceArmed -> "松手取消"
+                            voicePhase == VoicePhase.RECORDING -> "正在听，松手发送，上滑取消"
                             voicePhase == VoicePhase.TRANSCRIBING -> "正在识别…"
+                            holdHint -> "按住麦克风说话"
                             else -> placeholder
                         },
                         style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        color = if (voicePhase == VoicePhase.RECORDING && voiceArmed) MiuixTheme.colorScheme.error
+                        else if (voicePhase == VoicePhase.RECORDING) MiuixTheme.colorScheme.primary
+                        else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
             if (voicePhase != null) {
-                val recording = voicePhase == VoicePhase.RECORDING
-                Box(
-                    Modifier
-                        .padding(end = 6.dp)
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(if (recording) MiuixTheme.colorScheme.error.copy(alpha = 0.15f) else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable(enabled = !contextExhausted && voicePhase != VoicePhase.TRANSCRIBING) { onVoice() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (voicePhase == VoicePhase.TRANSCRIBING) {
-                        CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            if (recording) Icons.Default.Stop else Icons.Default.Mic,
-                            contentDescription = if (recording) "结束录音" else "语音输入",
-                            tint = if (recording) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
+                HoldToTalkMic(
+                    phase = voicePhase,
+                    armed = voiceArmed,
+                    enabled = !contextExhausted && voicePhase != VoicePhase.TRANSCRIBING,
+                    onTap = { holdHint = true },
+                    onStart = {
+                        voiceArmed = false
+                        onVoiceStart()
+                    },
+                    onMove = { voiceArmed = it },
+                    onEnd = {
+                        onVoiceEnd(voiceArmed)
+                        voiceArmed = false
+                    },
+                )
             }
             if (isLoading && canSend) IconButton(onClick = onStop, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Stop, contentDescription = "停止生成", modifier = Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -357,5 +372,93 @@ internal fun PushLogFooter(bottomReserve: Dp, onNewChat: () -> Unit) {
             modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onNewChat)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         )
+    }
+}
+
+/**
+ * 按住说话的麦克风：长按开始录，松手结束，按着往上滑过 60dp 进入「松手取消」。点一下只提示要按住。
+ * 录音时圆钮放大、主色底，滑进取消区变红。
+ */
+@Composable
+private fun HoldToTalkMic(
+    phase: VoicePhase,
+    armed: Boolean,
+    enabled: Boolean,
+    onTap: () -> Unit,
+    onStart: () -> Unit,
+    onMove: (armed: Boolean) -> Unit,
+    onEnd: () -> Unit,
+) {
+    val recording = phase == VoicePhase.RECORDING
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val accent = if (armed) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary
+    val bg by animateColorAsState(if (recording) accent else androidx.compose.ui.graphics.Color.Transparent, tween(160), label = "micBg")
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        if (recording) 1.22f else 1f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
+        label = "micScale",
+    )
+    val tap by rememberUpdatedState(onTap)
+    val start by rememberUpdatedState(onStart)
+    val move by rememberUpdatedState(onMove)
+    val end by rememberUpdatedState(onEnd)
+    Box(
+        Modifier
+            .padding(end = 6.dp)
+            .size(36.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(CircleShape)
+            .background(bg)
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                val cancelPx = 60.dp.toPx()
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    var finished = false
+                    var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                    withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                        up = waitForUpOrCancellation()
+                        finished = true
+                    }
+                    if (finished) {
+                        up?.let { it.consume(); tap() }
+                        return@awaitEachGesture
+                    }
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    start()
+                    var nowArmed = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
+                        val armedHere = down.position.y - change.position.y > cancelPx
+                        if (armedHere != nowArmed) {
+                            nowArmed = armedHere
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            move(armedHere)
+                        }
+                        change.consume()
+                    }
+                    end()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (phase == VoicePhase.TRANSCRIBING) {
+            CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+        } else {
+            Icon(
+                Icons.Default.Mic,
+                contentDescription = "按住说话",
+                tint = if (recording) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }

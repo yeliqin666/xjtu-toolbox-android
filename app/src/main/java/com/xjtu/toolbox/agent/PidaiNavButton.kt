@@ -42,6 +42,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
 import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -102,6 +106,16 @@ internal fun PidaiNavButton(
     /** 眼神：一直盯着的方向与一次性的瞟眼，见 [BloubBotIcon]。 */
     gaze: () -> Offset? = { null },
     glance: PidaiGlance? = null,
+    /** 语音输入此刻在哪一步：录音中画倾听、转写中画转写，压过其余一切节拍。 */
+    voicePhase: VoicePhase = VoicePhase.IDLE,
+    voiceLevel: () -> Float = { 0f },
+    /**
+     * 非空 = 支持按住说话（小岱球）：按住超过长按时长开始录，松手结束；按住时往上滑过一段距离
+     * 就进入「松手取消」，[onHoldMove] 每次变化报一次。为空时只有点击。
+     */
+    onHoldStart: (() -> Unit)? = null,
+    onHoldMove: (cancelArmed: Boolean) -> Unit = {},
+    onHoldEnd: (cancel: Boolean) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val bounce = remember { Animatable(1f) }
@@ -173,23 +187,88 @@ internal fun PidaiNavButton(
     )
     val accent = MiuixTheme.colorScheme.primary
 
+    val tap: () -> Unit = {
+        beat = pokes.poke(beat)
+        scope.launch {
+            // 身体自己会被按扁，外层只轻轻一缩，免得两层缩放叠成一大下
+            bounce.snapTo(0.9f)
+            bounce.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
+        }
+        onClick()
+    }
+    val holdStart by rememberUpdatedState(onHoldStart)
+    val holdMove by rememberUpdatedState(onHoldMove)
+    val holdEnd by rememberUpdatedState(onHoldEnd)
+    val currentTap by rememberUpdatedState(tap)
+    // 语音压过一切：录音中画倾听、转写中画转写
+    val shownBeat = when (voicePhase) {
+        VoicePhase.RECORDING -> PidaiBeat.LISTEN
+        VoicePhase.TRANSCRIBING -> PidaiBeat.TRANSCRIBE
+        VoicePhase.IDLE -> beat
+    }
+    // 开始录时整只「凑过来」一下：放大再落回，告诉你它在听了
+    LaunchedEffect(voicePhase) {
+        if (voicePhase == VoicePhase.RECORDING) {
+            bounce.animateTo(1.12f, tween(160, easing = FastOutSlowInEasing))
+            bounce.animateTo(1.05f, tween(260, easing = FastOutSlowInEasing))
+        } else if (bounce.value != 1f) {
+            bounce.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
+        }
+    }
+
     Box(
         modifier = modifier
-            .semantics { contentDescription = "小岱助手" }
-            .selectable(
-                selected = false,
-                onClick = {
-                    beat = pokes.poke(beat)
-                    scope.launch {
-                        // 身体自己会被按扁，外层只轻轻一缩，免得两层缩放叠成一大下
-                        bounce.snapTo(0.9f)
-                        bounce.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
+            .semantics { contentDescription = if (onHoldStart != null) "小岱助手，长按说话" else "小岱助手" }
+            .then(
+                if (onHoldStart == null) {
+                    Modifier.selectable(
+                        selected = false,
+                        onClick = tap,
+                        role = Role.Button,
+                        interactionSource = interactionSource,
+                        indication = null,
+                    )
+                } else {
+                    Modifier.pointerInput(Unit) {
+                        val cancelPx = 64.dp.toPx()
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val press = androidx.compose.foundation.interaction.PressInteraction.Press(down.position)
+                            scope.launch { interactionSource.emit(press) }
+                            var finished = false
+                            var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                            withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                up = waitForUpOrCancellation()
+                                finished = true
+                            }
+                            if (finished) {
+                                scope.launch { interactionSource.emit(androidx.compose.foundation.interaction.PressInteraction.Release(press)) }
+                                up?.let { it.consume(); currentTap() }
+                                return@awaitEachGesture
+                            }
+                            // 长按：开始听。按下变淡只管点击，听的时候要看得清，先收掉
+                            scope.launch { interactionSource.emit(androidx.compose.foundation.interaction.PressInteraction.Release(press)) }
+                            // 之后一直跟着这根手指，松手结束；往上滑过 64dp 进入「松手取消」
+                            holdStart?.invoke()
+                            var armed = false
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) {
+                                    change.consume()
+                                    break
+                                }
+                                val nowArmed = down.position.y - change.position.y > cancelPx
+                                if (nowArmed != armed) {
+                                    armed = nowArmed
+                                    holdMove(armed)
+                                }
+                                change.consume()
+                            }
+                            holdEnd(armed)
+                        }
                     }
-                    onClick()
                 },
-                role = Role.Button,
-                interactionSource = interactionSource,
-                indication = null,
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -231,7 +310,7 @@ internal fun PidaiNavButton(
                 // 画布比触摸区大一圈：球和通知点/彩带需要更多作画空间，触摸目标保持 diameter。
                 // 1.5 倍时球径约 1.23 倍触摸区（经典栏 ~46dp），是底栏高度约束下的舒适上限。
                 BloubBotIcon(
-                    beat = beat,
+                    beat = shownBeat,
                     ink = ink,
                     paper = paper,
                     cast = cast,
@@ -240,6 +319,7 @@ internal fun PidaiNavButton(
                     glance = glance,
                     pokeSerial = pokes.serial,
                     kickSerial = pokes.kicks,
+                    voiceLevel = voiceLevel,
                     modifier = Modifier.size(diameter * 1.5f),
                 )
             }

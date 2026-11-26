@@ -296,6 +296,27 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     /** 删组（组里的块一起删；默认组不允许删，见调用方）。 */
     fun removeGroup(groupId: String): HomeLayout = copy(groups = groups.filter { it.id != groupId })
 
+    /** 这一块是不是它那个功能在整页的最后一块。每个功能至少留一块，否则它就从首页消失了。 */
+    fun isLastOf(tileId: String): Boolean {
+        val routeId = tile(tileId)?.routeId ?: return false
+        return groups.sumOf { g -> g.tiles.count { it.routeId == routeId } } <= 1
+    }
+
+    /** [groupId] 组里哪些功能在别的组没有块（删这组会让它们从首页消失），每个功能取一块。 */
+    fun lastTilesIn(groupId: String): List<HomeTile> {
+        val group = group(groupId) ?: return emptyList()
+        val elsewhere = groups.filter { it.id != groupId }.flatMap { it.tiles }.mapTo(mutableSetOf()) { it.routeId }
+        return group.tiles.filter { it.routeId !in elsewhere }.distinctBy { it.routeId }
+    }
+
+    /** 删组，但组里各功能的最后一块挪进 [intoGroupId] 组（保持原尺寸，放不下就摞到最下面）。 */
+    fun removeGroupKeepingLast(groupId: String, intoGroupId: String): HomeLayout {
+        val keep = lastTilesIn(groupId)
+        var next = removeGroup(groupId)
+        keep.forEach { t -> next = next.addTile(intoGroupId, t.routeId, next.nextTileId(intoGroupId, t.routeId), t.w, t.h) }
+        return next
+    }
+
     /** 拖拽卡片组本身调上下顺序。 */
     fun moveGroup(groupId: String, toIndex: Int): HomeLayout {
         val index = groups.indexOfFirst { it.id == groupId }

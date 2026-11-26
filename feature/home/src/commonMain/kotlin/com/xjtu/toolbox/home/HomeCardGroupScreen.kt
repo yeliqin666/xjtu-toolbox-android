@@ -1232,7 +1232,15 @@ fun HomeCardGroupScreen(
                                         },
                                         onDeleteGroup = { editing.confirmDeleteGroup = group },
                                         // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
-                                        onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
+                                        // 每个功能至少留一块：最后一块拦下，不然这个功能就从首页消失了
+                                        onRemoveTile = { tileId ->
+                                            if (layout.isLastOf(tileId)) {
+                                                val name = layout.tile(tileId)?.routeId?.let { faces[it]?.title } ?: "这个功能"
+                                                com.xjtu.toolbox.platform.showBriefMessage("「$name」只剩这一张卡了，每个功能至少留一张")
+                                            } else {
+                                                update { it.removeTile(tileId, grid) }
+                                            }
+                                        },
                                         // 功能卡各自错峰起跳，避免再叠加整组的上浮；按组序整组顺延，全页从上到下连成一串（#424）。
                                         enterIndex = index,
                                         boardWidthPx = boardWidthPx,
@@ -1378,11 +1386,16 @@ fun HomeCardGroupScreen(
         }
         // 组标题行删除按钮点出来的二次确认：默认组不许删（删了就回不来）
         editing.confirmDeleteGroup?.let { group ->
+            // 组里有的功能别处已经没有卡了：删组时把它们各留一张，挪进剩下的第一组
+            val keep = layout.lastTilesIn(group.id)
+            val into = layout.groups.firstOrNull { it.id != group.id }
             DeleteGroupDialog(
                 group = group,
+                kept = keep.mapNotNull { faces[it.routeId]?.title },
+                intoTitle = into?.title?.ifBlank { "未命名分组" },
                 onDismiss = { editing.confirmDeleteGroup = null },
                 onConfirm = {
-                    update { it.removeGroup(group.id) }
+                    update { if (into != null) it.removeGroupKeepingLast(group.id, into.id) else it.removeGroup(group.id) }
                     editing.confirmDeleteGroup = null
                 },
             )
@@ -2093,15 +2106,26 @@ private val RainbowStops = listOf(
     Color(0xFF3F51B5), Color(0xFFE040FB), Color(0xFFFF5252),
 )
 
-/** 删除分组的二次确认：整组连同里面的组件一起删，没法撤销。 */
+/**
+ * 删除分组的二次确认：整组连同里面的组件一起删，没法撤销。[kept] 是只在这组有卡的功能，
+ * 每个各留一张挪进「[intoTitle]」。
+ */
 @Composable
-private fun DeleteGroupDialog(group: HomeGroup, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun DeleteGroupDialog(group: HomeGroup, kept: List<String>, intoTitle: String?, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     WindowDialog(show = true, title = "删除分组", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Text(
                 "「${group.title.ifBlank { "未命名分组" }}」和里面的 ${group.tiles.size} 个组件都会一起删掉，这一步没法撤销。",
                 style = MiuixTheme.textStyles.body2,
             )
+            if (kept.isNotEmpty() && intoTitle != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${kept.joinToString("、") { "「$it」" }}只在这组有卡，每个功能至少留一张，会挪到「$intoTitle」。",
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))

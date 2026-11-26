@@ -138,6 +138,23 @@ fun CampusCardScreen(
     val vm: CampusCardViewModel = viewModel {
         CampusCardViewModel(source, savedState(), onBalanceChanged)
     }
+    com.xjtu.toolbox.ui.components.ReportToPidai("校园卡", hint = "要我帮你分析下这段时间的流水吗？") {
+        val info = vm.cardInfo ?: return@ReportToPidai null
+        val list = vm.transactions
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("流水范围", vm.timeRange.label)
+            note(
+                "余额 ${info.balance} 元" +
+                    (if (info.pendingAmount != 0.0) "，待入账 ${info.pendingAmount} 元" else "") +
+                    (if (info.lostFlag) "，已挂失" else "") + (if (info.frozenFlag) "，已冻结" else "") +
+                    "；这段时间支出 ${kotlin.math.round(-list.filter { it.amount < 0 }.sumOf { it.amount } * 100) / 100} 元",
+            )
+            vm.stats.categories.takeIf { it.isNotEmpty() }?.let { cats ->
+                note("分类：" + cats.entries.sortedByDescending { it.value }.joinToString("，") { (k, v) -> "$k ${kotlin.math.round(v * 100) / 100} 元" })
+            }
+            section("流水", list, max = 30) { "${it.time}｜${it.displayMerchant}｜${it.amount} 元" }
+        }
+    }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
             when (event) {

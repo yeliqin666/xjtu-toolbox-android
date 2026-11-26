@@ -20,7 +20,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
- * 屁岱 `my_location` 的定位：按需申请权限、定位一次。用系统 [LocationManager]，不依赖 Play 服务；
+ * 屁岱 `campus_map` 不给起点时的定位：按需申请权限、定位一次。用系统 [LocationManager]，不依赖 Play 服务；
  * 坐标是 WGS-84，与打包的 OpenStreetMap 校区数据同一套，不用纠偏。
  */
 object AgentLocation {

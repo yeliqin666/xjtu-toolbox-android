@@ -329,6 +329,46 @@ fun EmptyRoomScreen(
         }
     }
 
+    // 报给小岱：读的是上面这些页面上现算的列表和筛选，和用户眼前看到的一致
+    com.xjtu.toolbox.ui.components.ReportToPidai("空闲教室", hint = "要我帮你看看哪个教室适合吗？") {
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            fun periods(from: Int, to: Int) = if (from == 1 && to == PERIOD_TIMES.size) null else if (from == to) "第 $from 节" else "第 $from–$to 节"
+            fun free(r: RoomInfo) = r.status.mapIndexedNotNull { i, s -> (i + 1).takeIf { s == 0 } }.joinToString(",").ifEmpty { "无" }
+            filter("校区", selectedCampus)
+            filter("日期", if (!isToday) selectedDate else if (currentPeriod >= 0) "今天（现在第 ${currentPeriod + 1} 节）" else "今天（现在不在上课时段）")
+            if (isLive) {
+                filter("模式", if (vm.combined) "此刻综合" else "此刻实况")
+                filter("楼", if (liveEffective.isEmpty()) "全部教学楼" else vm.liveBuildings.filter { it in liveEffective }.joinToString("、"))
+                if (vm.combined) {
+                    filter("节次", periods(startPeriod, endPeriod))
+                    filter("教室类型", combinedType)
+                    section("此刻可用", combinedNow) { r ->
+                        "${r.name}｜${seatsOf(r)} 座" + (vm.liveSchedule[r.name]?.let { "｜课表空闲节次 ${free(it)}" } ?: "")
+                    }
+                    section("接下来空闲", combinedLater) { u -> "${u.room.name}｜第 ${u.from + 1} 节起连空 ${u.run} 节｜${seatsOf(u.room)} 座" }
+                } else {
+                    filter("状态", liveFilter)
+                    note(liveCounts.entries.joinToString("，") { (k, v) -> "$k $v 间" })
+                    section("教室", liveGrouped.values.flatten()) { r ->
+                        val state = when {
+                            r.isFree -> "空闲"
+                            r.isInClass -> "上课中${r.course?.let { "（$it）" }.orEmpty()}"
+                            r.isInUse -> "有人使用（${r.people} 人）"
+                            else -> "未知"
+                        }
+                        "${r.name}｜$state｜${r.seats} 座"
+                    }
+                }
+            } else {
+                filter("数据", if (sourceKind == RoomSource.DIRECT) "教务课表" else "课表（CDN）")
+                filter("楼", vm.selectedBuildings.joinToString("、"))
+                filter("快捷筛选", smartFilter)
+                filter("节次", periods(startPeriod, endPeriod))
+                section("教室", displayRooms) { r -> "${r.name}｜${r.size} 座｜空闲节次 ${free(r)}" }
+            }
+        }
+    }
+
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()

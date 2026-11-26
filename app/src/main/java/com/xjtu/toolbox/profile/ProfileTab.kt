@@ -921,7 +921,7 @@ internal fun ProfileTab(
 
                 if (loginState.accountType == AccountType.UNDERGRADUATE) {
                     var showCertificate by remember { mutableStateOf(false) }
-                    // 学业进度、成绩单只放首页（首页保证带上，见 HomeLayoutStore.withProfileMovedRoutes）
+                    // 学业进度、成绩单只放首页（首页保证带上，见 HomeLayoutStore.withEveryService）
                     MenuGroup(Modifier.enterOnce(2)) {
                         ProfileMenuRow(Icons.Default.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
                             onClick = { showCertificate = true })

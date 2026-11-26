@@ -12,7 +12,7 @@ import kotlinx.serialization.json.putJsonObject
 
 /**
  * `propose_plan`：把对话或材料里能排进日程、待办的事列成一张卡，用户逐条点「加入」才写入。
- * 由 [AgentRunner] 直接出卡（不经 present_result）；写入复用 add_schedule_event / add_todo，
+ * 由 [AgentRunner] 直接出卡（不经 present_result）；写入复用 add_schedule_event / add_todo（todo 的旧名，仍可执行），
  * 冲突检测、学期换算都和模型自己调用时一致。
  */
 internal object AgentPlanCard {
@@ -21,8 +21,7 @@ internal object AgentPlanCard {
     private val HHMM = Regex("""([01]?\d|2[0-3]):[0-5]\d""")
 
     fun definition(): JsonObject = agentTool(TOOL,
-        "把可以记下的日程、待办列成卡片，用户逐条点「加入」才写入。适合从材料或对话里理出来、用户还没明确让记的事，代替文字询问「要不要帮你加」。" +
-            "用户已经明确要你记的，直接 add_schedule_event / add_todo。返回后卡片已展示，正文不必逐条复述。",
+        "把日程、待办列成卡片，用户逐条点「加入」才写入。返回时卡片已展示。",
         buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {

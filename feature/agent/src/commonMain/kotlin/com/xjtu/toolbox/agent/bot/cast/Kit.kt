@@ -35,6 +35,23 @@ fun mix(a: Double, b: Double, t: Double): Double = a + (b - a) * t
 const val ALERT_BLUE: Long = NOTIF_BLUE
 
 /**
+ * 倾听时从 ([x], [y]) 朝 [dirDeg] 方向一圈圈扩出去的三道声波弧（0° 朝右、90° 朝下）。
+ * [voice] 越大弧越远越亮，没声音也慢慢往外走。最远约 40 个单位，放的位置要留出这么多余地。
+ */
+fun Sketch.soundArcs(x: Double, y: Double, dirDeg: Double, amount: Double, voice: Double, t: Double, color: Long = ALERT_BLUE) {
+    val c = dirDeg * PI / 180
+    for (k in 0..2) {
+        val ph = (t * 1.3 + k / 3.0) % 1.0
+        val r = 8 + 22 * ph + 8 * voice
+        val a = amount * (1 - ph) * (0.4 + 0.6 * voice)
+        if (a < 0.02) continue
+        moveTo(x + kotlin.math.cos(c - 0.6) * r, y + sin(c - 0.6) * r)
+        quadTo(x + kotlin.math.cos(c) * r * 1.2, y + sin(c) * r * 1.2, x + kotlin.math.cos(c + 0.6) * r, y + sin(c + 0.6) * r)
+        stroke(6.0, color, a)
+    }
+}
+
+/**
  * 偶发小动作的时刻表：间隔在 [minGap, maxGap] 之间随机，预先抽好、确定无状态。
  * 超过 [SPAN] 秒循环，底栏常驻多久都有。
  */

@@ -176,7 +176,9 @@ internal fun MealReportDialog(report: MealReport, exporter: MealReportExport, on
     // 默认浅色那张（与以前一致），想要暗色的自己切；切了存图也是暗色那张
     var darkPoster by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f)).systemBarsPadding()) {
+        // 底色不透明：半透明会把底下的页面（图表、小岱球）透上来；这一层固定深色，按钮和切换条也跟着用深色配色
+        MiuixTheme(colors = top.yukonga.miuix.kmp.theme.darkColorScheme()) {
+        Column(Modifier.fillMaxSize().background(Color(0xFF0C0D10)).systemBarsPadding()) {
             Box(
                 Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
                 contentAlignment = Alignment.TopCenter,
@@ -209,6 +211,7 @@ internal fun MealReportDialog(report: MealReport, exporter: MealReportExport, on
                     modifier = Modifier.weight(1f),
                 ) { Text(exporter.label, color = MiuixTheme.colorScheme.onPrimary) }
             }
+        }
         }
     }
 }

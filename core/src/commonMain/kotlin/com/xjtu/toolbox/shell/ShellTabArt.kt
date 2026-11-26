@@ -35,6 +35,9 @@ interface ShellTabArt {
     }
 }
 
+/** 底栏 / 侧栏旁的附件（Android 是底栏右边那颗小岱球）画在哪种栏上，附件据此定尺寸与底色。 */
+enum class ShellBarAccessoryForm { CLASSIC, GLASS, FLOATING, RAIL }
+
 /** 自绘那一格要跟着底栏变的几样。 */
 class ShellTabVariant(
     val diameter: Dp,

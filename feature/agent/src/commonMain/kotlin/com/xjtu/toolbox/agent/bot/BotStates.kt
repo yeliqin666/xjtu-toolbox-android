@@ -308,7 +308,58 @@ val STATE_THINKING = StateDef(
     },
 )
 
+/**
+ * 按住说话时在听：转过来正对着你，眼睛睁大，脑袋慢慢左右歪、隔一会儿点一下头「嗯嗯」。
+ * 音量由宿主随帧缩放整只表现（见 BloubBotIcon），这里只管姿态。
+ */
+val STATE_LISTEN = StateDef(
+    id = "listen",
+    duration = 3.2,
+    loop = 3.2,
+    morph = 0.35,
+    blinkIn = true,
+    baseBody = true,
+    baseFace = false,
+    pose = { t ->
+        val u = t / 3.2 * TAU
+        // 两下点头：落在周期的 1/4、3/4 处，各 0.3 秒
+        val nod = listOf(0.8, 2.4).sumOf { at -> sin(PI * clamp01((t - at) / 0.3)) }
+        base(
+            gaze = HeadGaze(yaw = 6.0 * sin(u), pitch = 8.0 + 9.0 * nod, roll = 9.0 * sin(u)),
+            split = 16.5,
+            eyes = eyePair(0.215, 0.47),
+        )
+    },
+)
+
+/**
+ * 松手后转文字：低头逐行「读」，眼睛像打字机一样从左扫到右、到头一甩回到左边，一行一点头。
+ * 一个周期扫两行，接缝落在回车上，引擎的眨眼正好盖住。
+ */
+val STATE_TRANSCRIBE = StateDef(
+    id = "transcribe",
+    duration = 1.6,
+    loop = 1.6,
+    morph = 0.4,
+    blinkIn = false,
+    baseBody = true,
+    baseFace = false,
+    pose = { t ->
+        val line = (t % 0.8) / 0.8
+        // 0.85 之前匀速往右扫，之后快速甩回去
+        val sweep = if (line < 0.85) line / 0.85 else 1 - (line - 0.85) / 0.15
+        val dip = if (line >= 0.85) sin(PI * (line - 0.85) / 0.15) else 0.0
+        base(
+            gaze = HeadGaze(yaw = -34.0 + 68.0 * sweep, pitch = -14.0 - 6.0 * dip, roll = -4.0),
+            split = 15.0,
+            eyes = eyePair(0.2, 0.3),
+        )
+    },
+)
+
 val BOT_STATES: Map<String, StateDef> = mapOf(
+    STATE_LISTEN.id to STATE_LISTEN,
+    STATE_TRANSCRIBE.id to STATE_TRANSCRIBE,
     STATE_IDLE.id to STATE_IDLE,
     STATE_WINK.id to STATE_WINK,
     STATE_THINKING.id to STATE_THINKING,

@@ -18,6 +18,12 @@ enum class Act(val persistent: Boolean) {
     ALERT(true),
     POKE(false),
     COMBO(false),
+
+    /** 按住小岱说话：在听。[CastPose.voice] 是此刻的音量。 */
+    LISTEN(true),
+
+    /** 松手后语音转文字中。 */
+    TRANSCRIBE(true),
 }
 
 /** 交给角色作画的一帧输入。对象复用，角色只读。 */
@@ -40,6 +46,9 @@ class CastPose {
 
     /** 呼吸，-1..1，周期 3.4s。 */
     var breath = 0.0
+
+    /** 倾听时的音量 0..1（已平滑）；不在听为 0。 */
+    var voice = 0.0
 
     /** 最近几下戳距今多少秒，0 是最近一下；没戳过是一个很大的数。木鱼连敲时每下各飘一个「+1」。 */
     val pokeAgo = DoubleArray(POKE_MEMORY)
@@ -161,6 +170,14 @@ class CastEngine(private val cast: CastCharacter) {
         lookTY = y
     }
 
+    private var hearTarget = 0.0
+    private var heard = 0.0
+
+    /** 倾听时每帧喂进来的音量 0..1。 */
+    fun hear(level: Double) {
+        hearTarget = level.coerceIn(0.0, 1.0)
+    }
+
     fun wink(eye: Int, now: Double) {
         winkEye = eye
         winkAt = now
@@ -197,6 +214,8 @@ class CastEngine(private val cast: CastCharacter) {
         p.slowX = sx
         p.slowY = sy
         p.breath = sin(now / 3.4 * Sketch.TAU)
+        heard += (hearTarget - heard) * (if (dt >= 1.0) 1.0 else 1.0 - exp(-dt * 14.0))
+        p.voice = heard
         var squash = 0.0
         for (k in 0 until POKE_MEMORY) {
             p.pokeAgo[k] = now - pokeTimes[k]
@@ -209,14 +228,16 @@ class CastEngine(private val cast: CastCharacter) {
             p.time[i] = (now - start[i]).coerceAtLeast(0.0)
         }
         s.reset()
-        if (squash != 0.0) {
-            // 以脚底为支点整只压扁回弹
-            squash = squash.coerceIn(-0.1, 0.2)
-            s.translate(0.0, FLOOR)
-            s.scale(1 + 0.5 * squash, 1 - squash)
-            s.translate(0.0, -FLOOR)
+        s.group {
+            if (squash != 0.0) {
+                // 以脚底为支点整只压扁回弹
+                squash = squash.coerceIn(-0.1, 0.2)
+                translate(0.0, FLOOR)
+                scale(1 + 0.5 * squash, 1 - squash)
+                translate(0.0, -FLOOR)
+            }
+            cast.draw(this, p)
         }
-        cast.draw(s, p)
     }
 
     private companion object {

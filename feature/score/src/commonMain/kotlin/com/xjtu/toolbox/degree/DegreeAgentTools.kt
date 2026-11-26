@@ -13,7 +13,7 @@ class DegreeAgentTools(private val source: DegreeSource) : AgentTools {
 
     override val toolDefinitions: String = """
         [{"type":"function","function":{"name":"$TOOL",
-        "description":"查用户的培养方案和毕业进度：方案树每组的学分要求、按课程重算的已修学分、教务报告原值、没归进方案的课（可能换过课程号）、方案说明文字。用于回答「还差什么」「这门能不能抵」。给 plan 可查别的方案（规划转专业）：用用户的成绩对照该方案，估算能算多少、还差什么、哪些课用不上。抵扣只能给建议，要用户在学业进度页确认并向教务核实。结果以教务为准。",
+        "description":"本人培养方案与毕业进度：各课组学分要求、按课程重算的已修学分、教务原值、没归进方案的课（可能换过课程号）、方案说明。给 plan 用本人成绩对照别的方案（规划转专业），估算能算多少、还差什么。按课程重算的是估算，以教务为准。",
         "parameters":{"type":"object","properties":{
         "group":{"type":"string","description":"课组 id 或名称。给了就返回该组全部原始字段和课程；不给返回总览。"},
         "plan":{"type":"string","description":"别的培养方案名称关键词，如「计算机」。不给就是用户自己的方案。"},

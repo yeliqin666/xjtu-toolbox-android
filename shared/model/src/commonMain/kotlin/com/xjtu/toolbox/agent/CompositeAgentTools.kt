@@ -28,7 +28,7 @@ class CompositeAgentTools(
 
     private val owners: Map<String, AgentTools> by lazy {
         val map = LinkedHashMap<String, AgentTools>()
-        all.forEach { t -> namesOf(t).forEach { map.getOrPut(it) { t } } }
+        all.forEach { t -> (namesOf(t) + t.legacyNames).forEach { map.getOrPut(it) { t } } }
         map
     }
 

@@ -50,6 +50,9 @@ interface AgentTools {
     /** OpenAI function calling 格式的工具描述（JSON 串，送给模型的那一份）。 */
     val toolDefinitions: String
 
+    /** 不再公布给模型、但仍能执行的旧工具名（合并前的名字）：卡片按钮和旧对话里的调用还在用。 */
+    val legacyNames: Set<String> get() = emptySet()
+
     /** 这次调用打的是哪个后端系统（限流用）。null = 纯本地工具，不需要间隔。 */
     fun rateLimitKeyOf(toolName: String): String?
 

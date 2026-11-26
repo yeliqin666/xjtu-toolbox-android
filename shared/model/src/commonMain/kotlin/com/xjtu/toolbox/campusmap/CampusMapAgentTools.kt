@@ -14,10 +14,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 /**
- * 屁岱的 `campus_map`（校内地点、步行时间、附近的食堂/图书馆）与 `my_location`（定位到最近的楼）。
- * 纯本地，数据见 [CampusMaps]；模型给 show 时在回答下面出一张校区简图卡。
+ * 屁岱的 `campus_map`：校内地点、步行时间、附近的食堂/图书馆；能定位的端不给起点就定位到最近的楼
+ * （原先单独的 `my_location` 并了进来，旧名仍可执行）。纯本地，数据见 [CampusMaps]，每次附一张校区简图卡。
  *
- * @param locate 端上定位（返回 WGS-84 的纬度、经度；拿不到 / 没授权返回 null）。没有的端不画 `my_location`。
+ * @param locate 端上定位（返回 WGS-84 的纬度、经度；拿不到 / 没授权返回 null）。没有的端 from 必填。
  */
 class CampusMapAgentTools(
     private val locate: (suspend () -> Pair<Double, Double>?)? = null,
@@ -41,16 +41,17 @@ class CampusMapAgentTools(
                 })
             })
         }
-        val here = if (locate != null) "起点写「我的位置」就从用户当前位置算。" else ""
+        val here = locate != null
         JsonArray(
-            listOfNotNull(
+            listOf(
                 tool(
                     "campus_map",
-                    "校内地图（兴庆、雁塔、曲江、创新港）：查地点在哪；给 to 时算两地步行几分钟和方向；给 near 时列 from 附近最近的食堂/图书馆等。" +
-                        "地点可写楼名或教室（主楼A-403）。$here 地图上没有的地点会如实说找不到。show 时附一张简图卡片。",
+                    "校内地图（兴庆、雁塔、曲江、创新港），附简图卡：查地点在哪；给 to 算步行分钟和方向；给 near 列附近最近的食堂、图书馆等。" +
+                        (if (here) "不给 from 时定位用户此刻位置（首次请求授权）。" else "") +
+                        "地图没有的地点返回找不到。",
                     mapOf(
-                        "from" to prop("string", "起点：楼名、教室、食堂、宿舍、校门。"),
-                        "to" to prop("string", "终点。缺省：不算路线。"),
+                        "from" to prop("string", "起点：楼名、教室（主楼A-403）、食堂、宿舍、校门。" + if (here) "缺省：用户当前位置。" else ""),
+                        "to" to prop("string", "终点。"),
                         "near" to buildJsonObject {
                             put("type", "string")
                             put("description", "列出起点附近最近的这类地点。")
@@ -58,19 +59,13 @@ class CampusMapAgentTools(
                         },
                         "campus" to prop("string", "兴庆/雁塔/曲江/创新港。缺省：按地点名自动找。"),
                     ),
-                    listOf("from"),
+                    if (here) emptyList() else listOf("from"),
                 ),
-                locate?.let {
-                    tool(
-                        "my_location",
-                        "用户此刻在哪：定位一次（第一次会请用户授权），换算成所在校区和最近的楼；show 时附简图。用户问「附近」「我这儿」时先调它。",
-                        emptyMap(),
-                        emptyList(),
-                    )
-                },
             ),
         ).toString()
     }
+
+    override val legacyNames: Set<String> = if (locate != null) setOf("my_location") else emptySet()
 
     override fun rateLimitKeyOf(toolName: String): String? = null
 
@@ -78,7 +73,15 @@ class CampusMapAgentTools(
         val args = runCatching { AppJson.parseToJsonElement(argsJson.ifBlank { "{}" }).jsonObject }.getOrDefault(JsonObject(emptyMap()))
         fun arg(k: String) = args[k].safeStringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
         return when (name) {
-            "campus_map" -> campusMap(arg("from") ?: return ToolReply.missing("from"), arg("to"), arg("near"), arg("campus"))
+            "campus_map" -> {
+                val from = arg("from")
+                when {
+                    from != null -> campusMap(from, arg("to"), arg("near"), arg("campus"))
+                    locate == null -> ToolReply.missing("from")
+                    arg("to") == null && arg("near") == null -> myLocation()
+                    else -> campusMap(HERE_WORDS.first(), arg("to"), arg("near"), arg("campus"))
+                }
+            }
             "my_location" -> myLocation()
             else -> ToolReply.notFound("tool", name)
         }

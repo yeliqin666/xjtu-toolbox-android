@@ -169,8 +169,24 @@ interface AgentVoiceInput {
     /** 输入栏按它画麦克风；实现方要用 Compose 状态，变了才重画。 */
     val phase: VoicePhase
 
+    /** 录音中的实时音量 0..1（倾听动画与波形用）；不在录时为 0。 */
+    val level: Float get() = 0f
+
     /** 录音中则停下、用 [apiKey] 识别，文字交给 [onText]；空闲则开始录。识别中点了不理。 */
     fun toggle(apiKey: String, onText: (String) -> Unit)
+
+    /**
+     * 按住说（小岱球长按）：开始录。还没有麦克风权限时只去申请、不开录——手指早松开了，
+     * 申请回来再自动录会录进一段没人说话的空白。
+     */
+    fun begin(apiKey: String, onText: (String) -> Unit) {
+        if (phase == VoicePhase.IDLE) toggle(apiKey, onText)
+    }
+
+    /** 松手：停下并识别；[cancel] 为真（上滑取消）则丢掉这段，不识别。 */
+    fun end(cancel: Boolean = false) {
+        if (phase == VoicePhase.RECORDING) toggle("") {}
+    }
 }
 
 /** 工具层交给聊天页的导航：工具在后台协程里跑，跳页得由界面来做。 */

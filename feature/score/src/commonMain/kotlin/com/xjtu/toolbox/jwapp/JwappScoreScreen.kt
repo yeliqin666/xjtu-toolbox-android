@@ -187,6 +187,19 @@ fun JwappScoreScreen(
             pair?.second?.ifBlank { pair.first }.orEmpty()
         }
     }
+    val pidaiView = androidx.compose.runtime.rememberUpdatedState(Triple(filterTermLabel, filteredScores, displayGpaInfo to selectedGpaInfo))
+    com.xjtu.toolbox.ui.components.ReportToPidai("成绩查询", hint = "要我帮你看看绩点和拖后腿的课吗？") {
+        val (term, scores, gpa) = pidaiView.value
+        if (scores.isEmpty()) return@ReportToPidai null
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("学期", term)
+            filter("搜索", searchQuery)
+            filter("分组", selectedGroups.joinToString("、"))
+            gpa.first?.let { note("当前筛选：GPA ${it.gpa}，均分 ${it.averageScore}，${it.totalCredits} 学分，${it.courseCount} 门") }
+            gpa.second?.let { note("用户勾选的 ${selectedCourseIds.size} 门：GPA ${it.gpa}，${it.totalCredits} 学分") }
+            section("课程", scores, max = 40) { "${it.termCode}｜${it.courseName}｜${it.score}｜${it.coursePoint} 学分" }
+        }
+    }
     val groupedTerms = remember(filteredScores, termList, selectedTermIndex) {
         val byCode = filteredScores.groupBy { it.termCode }
         if (selectedTermIndex == 0) {

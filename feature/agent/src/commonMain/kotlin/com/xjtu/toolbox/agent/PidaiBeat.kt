@@ -2,8 +2,11 @@ package com.xjtu.toolbox.agent
 
 import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 
-/** 屁岱形象的节拍：互斥的动画状态，优先级 TAP/COMET > THINKING > ALERT > IDLE > REST。 */
-enum class PidaiBeat { REST, IDLE, ALERT, TAP, COMET, THINKING }
+/**
+ * 屁岱形象的节拍：互斥的动画状态，优先级 LISTEN/TRANSCRIBE > TAP/COMET > THINKING > ALERT > IDLE > REST。
+ * LISTEN = 按住小岱说话、在听；TRANSCRIBE = 松手后语音转文字中（#557）。
+ */
+enum class PidaiBeat { REST, IDLE, ALERT, TAP, COMET, THINKING, LISTEN, TRANSCRIBE }
 
 /** 一次性节拍播完后保持多久再落回去；null = 持续态，不自己结束。新角色各有各的时长。 */
 fun PidaiBeat.holdMs(cast: CastCharacter?): Long? {

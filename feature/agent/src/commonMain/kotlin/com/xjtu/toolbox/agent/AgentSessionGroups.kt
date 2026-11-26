@@ -25,11 +25,9 @@ internal fun sessionGroupOf(updatedAt: Long, now: Long): SessionGroup {
     }
 }
 
-/** 按标题过滤（忽略大小写），推送记录单独置顶，其余按 [SessionGroup] 分组、组内保持原顺序，空组不出现。 */
-internal fun buildSessionList(sessions: List<AgentSession>, query: String, now: Long): SessionListModel {
-    val q = query.trim()
-    val matched = if (q.isEmpty()) sessions else sessions.filter { it.title.contains(q, ignoreCase = true) }
-    val (pinned, rest) = matched.partition { it.id == AgentPushFocus.SESSION_ID }
+/** 推送记录单独置顶，其余按 [SessionGroup] 分组、组内保持原顺序，空组不出现。 */
+internal fun buildSessionList(sessions: List<AgentSession>, now: Long): SessionListModel {
+    val (pinned, rest) = sessions.partition { it.id == AgentPushFocus.SESSION_ID }
     val sections = rest.groupBy { sessionGroupOf(it.updatedAt, now) }
         .toList()
         .sortedBy { it.first.ordinal }

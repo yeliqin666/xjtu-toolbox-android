@@ -468,6 +468,9 @@ class AgentToolRegistry(
                 if (key.isBlank() || value.isBlank()) host.readAppSettings() else host.writeAppSetting(key, value)
             }
             "open_page" -> openPage(args.argStr("page"), args.argStr("service"))
+            "read_current_page" -> com.xjtu.toolbox.ui.components.PidaiPageContext.describe()?.let { (title, body) ->
+                "page: $title\n$body"
+            } ?: ToolReply.empty("current_page")
             "calculate" -> agentCalculate(args.argStr("expression") ?: "")
             "app_guide" -> APP_GUIDE
             "search_campus_guide" -> campusGuideText(args.argStr("query"), args.argStr("section"), args.argInt("limit"))

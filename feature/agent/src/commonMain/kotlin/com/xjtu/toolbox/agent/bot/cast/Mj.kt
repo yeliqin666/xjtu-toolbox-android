@@ -60,6 +60,10 @@ object Mj : CastCharacter("mj", "MJ") {
     /** 相邻两个字的中线距离。 */
     private const val ADV = 25.0
 
+    /** 转写时复读一声的间隔、每声飘出来的位置。 */
+    private const val ECHO = 0.45
+    private val ECHO_X = doubleArrayOf(-44.0, 40.0, 0.0)
+
     private val mumbleAt = Beats(0x6d6a, 8.0, 14.0, 4.0)
 
     override fun draw(s: Sketch, p: CastPose) {
@@ -89,16 +93,22 @@ object Mj : CastCharacter("mj", "MJ") {
         val tired = combo * window(tc, 1.9, 2.1, 2.85, 3.1)
         val pant = tired * (0.5 + 0.5 * sin(tc * 18))
         val again = p.kick(0.04, 0.1, 0.4)
+        // 在听：手掌拢在耳边侧过头，闭嘴，声音越大镜片眼瞪得越大
+        val listen = p.amt(Act.LISTEN); val tl = p.t(Act.LISTEN)
+        val v = p.voice * listen
+        // 转写：复读机，嘴一张一合，一声声往外冒「MJ」
+        val scribe = p.amt(Act.TRANSCRIBE); val ts = p.t(Act.TRANSCRIBE)
+        val chant = scribe * bump((ts % ECHO) / ECHO)
         // 待命：偶尔嘟囔一句
-        val busy = maxOf(think, alert, micro, poke, combo)
+        val busy = maxOf(think, alert, micro, poke, combo, listen, scribe)
         val sinceMumble = mumbleAt.since(now)
         val mumble = (1 - busy) * window(sinceMumble, 0.0, 0.08, 0.35, 0.5)
 
-        val open = maxOf(0.35 * mumble, yell, 0.6 * ouch, 0.85 * think, shout, 0.2 * tired + 0.3 * pant, again)
+        val open = maxOf(0.35 * mumble, yell, 0.6 * ouch, 0.85 * think, shout, 0.2 * tired + 0.3 * pant, again, 0.55 * chant)
         val shrink = 1 - THINK_SHRINK * think
         val sx = shrink * (1 + 0.05 * inhale - 0.03 * yell + 0.8 * jelly + 0.05 * tired)
-        val sy = shrink * (1 + 0.012 * p.breath + 0.05 * inhale + 0.08 * yell - jelly + 0.07 * shout - 0.08 * tired)
-        val rot = p.lookX * 3 + alert * 5 * sin(ta * 10) + think * 3 * sin(tt * LICK)
+        val sy = shrink * (1 + 0.012 * p.breath + 0.05 * inhale + 0.08 * yell - jelly + 0.07 * shout - 0.08 * tired + 0.04 * chant + 0.04 * v)
+        val rot = p.lookX * 3 * (1 - listen) + alert * 5 * sin(ta * 10) + think * 3 * sin(tt * LICK) - 8 * listen
         val rise = hop + THINK_RISE * think
 
         s.group {
@@ -133,7 +143,7 @@ object Mj : CastCharacter("mj", "MJ") {
                 s.squint(ex, ey, 0.95, LENS_X / 0.95, WHITE)
             } else {
                 val lid = (1 - 0.45 * think) * (1 - 0.55 * tired)
-                val z = 1 + 0.12 * max(yell, shout)
+                val z = 1 + 0.12 * max(yell, shout) + 0.08 * listen + 0.14 * v
                 for (i in 0..1) lens(s, ex + (2 * i - 1) * LENS_X, ey, 2 * i - 1, p.eye[i] * lid, z)
             }
         }
@@ -178,6 +188,21 @@ object Mj : CastCharacter("mj", "MJ") {
         }
         if (combo > 0.01) for (k in 0 until 3) {
             float(s, "MJ!", SHOUT_X[k], SHOUT_Y[k], SHOUT_Z[k], tc - SHOUT0 - k * SHOUT_GAP - 0.08, combo)
+        }
+        if (scribe > 0.01) {
+            val n = (ts / ECHO).toInt()
+            for (k in 0..minOf(1, n)) float(s, "MJ", ECHO_X[(n - k) % 3], -78.0, 0.6, (ts % ECHO) + k * ECHO - 0.1, scribe)
+        }
+        // 拢在耳边的手掌
+        if (listen > 0.01) {
+            s.group {
+                translate(-98.0, 14.0)
+                rotate(20.0)
+                scale(listen)
+                s.ellipse(0.0, 0.0, 15.0, 21.0)
+                s.fill(CHIN)
+            }
+            s.soundArcs(-84.0, -40.0, -115.0, listen, p.voice, tl)
         }
         s.badge(alert, ta)
     }

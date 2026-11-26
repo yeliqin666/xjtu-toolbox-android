@@ -238,6 +238,24 @@ fun AppRoot(
         val pageDeps = remember(router, loginState, credentialStore) {
             AppPageDeps(router, loginState, credentialStore, viewModel.accountManager) { currentOpenWithWebVpn(it) }
         }
+        // 栈顶子页（栈底主界面为 null）：子页上放悬浮小岱球，小岱也据此知道没登记快照的页叫什么
+        val topRoute by remember(backStack) {
+            androidx.compose.runtime.derivedStateOf { (backStack.lastOrNull() as? AppRoute)?.takeIf { it != AppRoute.Main } }
+        }
+        val pidaiStage = rememberPidaiStage(
+            top = { topRoute },
+            // 首页上点球是直接进小岱页，不挂「首页」这个空标签
+            tabTitle = { tabs.bar.firstOrNull { it.id == tabs.selectedId && it.core != BottomTab.HOME }?.label },
+        )
+        // 在首页以外（子页、别的底栏页）要打开小岱：弹大半屏，不整页跳
+        androidx.compose.runtime.SideEffect {
+            router.pidaiOverlay = {
+                val elsewhere = topRoute != null || tabs.selectedId != BottomTab.HOME.name
+                if (elsewhere) pidaiStage.hover = true
+                elsewhere
+            }
+        }
+        CompositionLocalProvider(LocalPidaiStage provides pidaiStage) {
         // 别在这里套 Scaffold 给弹窗当宿主：SubcomposeLayout 会让整棵导航树被丢弃重建。
         // 外面这层 Box 只喂手指位置给屁岱的眼睛，全 App 所有页面都算
         Box(Modifier.fillMaxSize().feedPidaiTouch()) {
@@ -261,6 +279,9 @@ fun AppRoot(
 
         // 插件页是覆盖层，不进返回栈；账号切换时上面已经关掉
         com.xjtu.toolbox.plugin.PluginPageOverlayHost()
+        // 子页上的悬浮小岱球 + 大半屏小岱：盖在所有页面之上
+        PidaiStageHost(pidaiStage, topRoute, loginState, router::open)
+        }
         // 插件管理页（列表 / 详情）在导航栈里：有人点「插件」就开一层路由
         if (com.xjtu.toolbox.plugin.PluginOverlay.listOpen) {
             LaunchedEffect(Unit) {

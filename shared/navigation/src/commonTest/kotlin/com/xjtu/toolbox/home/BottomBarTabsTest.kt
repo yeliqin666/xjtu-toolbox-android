@@ -11,16 +11,22 @@ class BottomBarTabsTest {
     private val ug = AccountType.UNDERGRADUATE
 
     @Test
-    fun `没设置过就是原来的五格`() {
-        assertEquals(listOf("HOME", "COURSES", "PIDAI", "TOOLS", "PROFILE"), BottomBarTabs.barIds(null, ug))
+    fun `没设置过是四格，小岱在底栏外的球上`() {
+        assertEquals(listOf("HOME", "COURSES", "TOOLS", "PROFILE"), BottomBarTabs.barIds(null, ug))
     }
 
     @Test
-    fun `候选是首页上的一级功能，付款码这种弹层除外`() {
+    fun `候选是首页上的一级功能，付款码这种弹层和小岱除外`() {
         val routes = BottomBarTabs.candidates(ug).map { it.route }
-        assertEquals(AppServices.homeFor(ug).map { it.route } - AppRoute.PaymentCode, routes)
+        assertEquals(AppServices.homeFor(ug).map { it.route } - AppRoute.PaymentCode - AppRoute.Agent, routes)
         assertTrue(AppRoute.Library in routes && AppRoute.Games in routes)
         assertFalse(AppRoute.Settings in routes, "设置不在首页上")
+    }
+
+    @Test
+    fun `老设置里存着小岱的，升级后滤掉；只剩小岱的回默认`() {
+        assertEquals(listOf(AppRoute.Schedule, AppRoute.Zyxf), BottomBarTabs.middleOf("schedule,agent,zyxf", ug))
+        assertEquals(BottomBarTabs.DEFAULT_MIDDLE, BottomBarTabs.middleOf("agent", ug))
     }
 
     @Test
@@ -30,7 +36,7 @@ class BottomBarTabsTest {
             BottomBarTabs.barIds("empty_room, schedule,empty_room,settings,payment_code,???", ug),
         )
         assertEquals(
-            listOf(AppRoute.Notification, AppRoute.Agent, AppRoute.Library),
+            listOf(AppRoute.Notification, AppRoute.Library, AppRoute.Zyxf),
             BottomBarTabs.middleOf("notification,agent,library,zyxf", ug),
         )
         assertEquals(BottomBarTabs.DEFAULT_MIDDLE, BottomBarTabs.middleOf(",,", ug))

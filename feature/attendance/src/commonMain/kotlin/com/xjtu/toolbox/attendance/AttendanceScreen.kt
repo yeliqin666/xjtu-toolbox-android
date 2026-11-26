@@ -115,6 +115,12 @@ fun AttendanceScreen(
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showForm by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<LeaveRecord?>(null) }
+    // 只报请假详情这一层：考勤流水有 get_attendance
+    com.xjtu.toolbox.ui.components.ReportToPidai("考勤") {
+        detail?.let { d ->
+            "正在看一条请假：${d.leaveType}｜${d.startTime} ~ ${d.endTime}｜${d.displayStatus}｜审批 ${d.approvalStatus}\n事由：${d.reason}"
+        }
+    }
     var pendingAction by remember { mutableStateOf<Pair<LeaveAction, LeaveRecord>?>(null) }
 
     fun expired() = authExpiry.onAuthExpired(AppRoute.Attendance, onBack)

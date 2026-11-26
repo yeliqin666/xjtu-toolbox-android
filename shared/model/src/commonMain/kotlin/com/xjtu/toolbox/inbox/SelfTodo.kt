@@ -53,7 +53,7 @@ import kotlin.time.Instant
  * 暂时没做的（留好了字段，没写逻辑）：重复规则展开、子任务界面、滴答同步。
  * 截止提醒由 [SelfTodoRules.reminderAt] 推算（截止前 48 小时，撞上 0–7 点顺延到 7 点），
  * 宿主经 [SelfTodoHooks] 接排期（Android 是 WorkManager 的一条待办一个任务）；屁岱的
- * `add_todo` / `get_todos` / `complete_todo` 走 [SelfTodoStore]（工具本体在 `:feature:notice`
+ * `todo` 工具走 [SelfTodoStore]（工具本体在 `:feature:notice`
  * 的 `SelfTodoAgentTools`）。
  */
 @Serializable

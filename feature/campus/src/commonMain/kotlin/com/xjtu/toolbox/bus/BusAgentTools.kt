@@ -29,11 +29,11 @@ class BusAgentTools(
 
     override val toolDefinitions: String = """
         [{"type":"function","function":{"name":"$TOOL",
-        "description":"查校车（创新港班车、兴庆班车）某天的班次、途经站点和座位余量。查今天时默认不列已发车的班次。学生坐校车无需预约，排队上车，别叫学生去预约。站点可写站名或校区名（兴庆、雁塔、创新港）。",
+        "description":"校车（创新港班车、兴庆班车）某天的班次、途经站点和余座；查今天默认不列已发车的。学生坐校车不用预约，排队上车。",
         "parameters":{"type":"object","properties":{
         "date":{"type":"string","description":"今天、明天、后天或 yyyy-MM-dd。缺省：今天。"},
-        "from":{"type":"string","description":"上车站或校区。"},
-        "to":{"type":"string","description":"下车站或校区。"},
+        "from":{"type":"string","description":"上车站，或校区名（兴庆、雁塔、创新港）。"},
+        "to":{"type":"string","description":"下车站或校区名。"},
         "line":{"type":"string","description":"线路名关键词，如「7A」「兴庆B2」。"},
         "include_departed":{"type":"boolean","description":"查今天时也列出已发车的班次。缺省：false。"}
         },"required":[]}}}]

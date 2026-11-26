@@ -71,6 +71,15 @@ fun NotificationScreen(
         val shown = candidates.filter(vm::passesRules)
         shown to candidates.size - shown.size
     }
+    val shownState = androidx.compose.runtime.rememberUpdatedState(filteredNotifications)
+    com.xjtu.toolbox.ui.components.ReportToPidai("通知公告", hint = "要我帮你挑出和你有关的通知吗？") {
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("来源", vm.focusedSource?.displayName ?: "全部（${vm.selectedSources.joinToString("、") { it.displayName }}）")
+            filter("标签", vm.selectedTag)
+            if (searching) filter("搜索", vm.searchQuery)
+            section("通知", shownState.value) { "${it.date}｜${it.source.displayName}｜${it.title}｜${it.link}" }
+        }
+    }
 
     // 换来源 / 模式后的内容回来了：滚回顶部
     LaunchedEffect(vm.reloadGeneration) {

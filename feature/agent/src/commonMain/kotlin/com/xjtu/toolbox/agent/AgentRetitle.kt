@@ -13,12 +13,10 @@ internal object AgentRetitle {
     const val TOOL = "rename_conversation"
 
     fun definition(): JsonObject = agentTool(TOOL,
-        "改本对话的标题。用户明确要求改标题时调用，requested_by_user 传 true；" +
-            "或者最近连续几轮的话题已和当前标题明显不同（换了一件事，而不是同一话题的追问或细化）时自己调用，传 false，" +
-            "每次换话题最多调一次，话题没变不要调。自己改的调用后正文不必提及。",
+        "改本对话标题。",
         agentParams(
-            "title" to agentStrProp("新标题：不超过 8 个字的名词短语，写主题，不转述提问，不加标点；用户指定了就用用户的原话。"),
-            "requested_by_user" to agentBoolProp("用户这条消息里明确要求改标题时为 true。"),
+            "title" to agentStrProp("新标题，8 字以内。"),
+            "requested_by_user" to agentBoolProp("用户要求改的为 true，自己改的为 false。"),
             required = listOf("title"),
         ))
 

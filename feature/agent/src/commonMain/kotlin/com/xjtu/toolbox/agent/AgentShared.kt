@@ -30,7 +30,9 @@ fun agentToolLabel(name: String): String = when (name) {
     "campus_map"            -> "查校园地图…"
     "set_alarm"             -> "打开系统闹钟…"
     "add_schedule_event"    -> "添加日程…"
-    "add_todo"              -> "记待办…"
+    "todo", "add_todo"      -> "整理待办…"
+    "task", "schedule_task" -> "管理定时任务…"
+    "read_current_page"     -> "看这一页…"
     "propose_plan"          -> "列出可加的安排…"
     "propose_post"          -> "起草社区帖子…"
     "get_todos"             -> "查看待办…"
@@ -45,7 +47,6 @@ fun agentToolLabel(name: String): String = when (name) {
     "read_zyxf_file"        -> "读取学辅资料…"
     "save_file"             -> "存进下载…"
     "my_location"           -> "定位…"
-    "schedule_task"         -> "设定时任务…"
     "find_faculty"          -> "查询教师…"
     "preference"            -> "记下偏好…"
     "app_setting"           -> "读取 / 修改设置…"
@@ -82,7 +83,7 @@ fun agentNavSuggestions(shownTools: List<String>): List<Pair<String, String>> =
     shownTools.mapNotNull { toolName ->
         when (toolName) {
             "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to AppRoute.Schedule
-            "add_todo", "get_todos", "complete_todo" -> "查看待办" to AppRoute.Inbox
+            "todo", "add_todo", "get_todos", "complete_todo" -> "查看待办" to AppRoute.Inbox
             "get_calendar"                      -> "查看校历"   to AppRoute.SchoolCalendar
             "search_school_courses"             -> "全校课程"   to AppRoute.SchoolCourse
             "get_empty_rooms"                   -> "空闲教室"   to AppRoute.EmptyRoom

@@ -82,6 +82,16 @@ fun SchoolCourseScreen(
 
     var showAdvancedFilter by rememberSaveable { mutableStateOf(false) }
     var detailCourse by remember { mutableStateOf<SchoolCourse?>(null) }
+    com.xjtu.toolbox.ui.components.ReportToPidai("全校课程", hint = "要我帮你从这些课里挑一挑吗？") {
+        fun line(c: SchoolCourse) = "${c.courseName}（${c.courseCode}-${c.sectionNumber}）｜${c.teacher}｜${c.credit} 学分｜${c.scheduleLocation}｜${c.campus}" +
+            (c.capacity?.let { "｜${c.enrollCount ?: "?"}/$it 人" } ?: "")
+        detailCourse?.let { return@ReportToPidai "正在看：${line(it)}\n上课班级：${it.className}｜开课单位：${it.department}" }
+        val r = vm.result ?: return@ReportToPidai null
+        buildString {
+            append("学期 ${vm.currentTermCode}｜共 ${r.totalSize} 门，第 ${r.pageNumber} 页\n")
+            r.courses.take(25).forEach { append("- ${line(it)}\n") }
+        }
+    }
     val snackbarState = remember { SnackbarHostState() }
 
     fun currentQuery() = SchoolCourseQuery(
@@ -161,7 +171,7 @@ fun SchoolCourseScreen(
         ) {
             // ── 学期选择 ──
             fullLineItem(key = "term_selector") {
-                val termEntries = vm.termList.map { it.name }
+                val termEntries = vm.termList.map { compactTermName(it.name) }
                 val selectedIdx = vm.termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
 
                 Card(Modifier.readableWidth().fillMaxWidth(), cornerRadius = 16.dp) {

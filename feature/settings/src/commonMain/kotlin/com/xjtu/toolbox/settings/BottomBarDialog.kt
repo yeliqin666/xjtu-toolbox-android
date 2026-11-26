@@ -99,7 +99,7 @@ internal fun BottomBarDialog(
     WindowDialog(
         show = true,
         title = "底栏",
-        summary = "首页、我的固定在两端，中间选 ${BottomBarTabs.MIN_MIDDLE}–${BottomBarTabs.MAX_MIDDLE} 个，拖动排序",
+        summary = "首页、我的固定在两端，中间选 ${BottomBarTabs.MIN_MIDDLE}–${BottomBarTabs.MAX_MIDDLE} 个，拖动排序；小岱在底栏右边的球上",
         onDismissRequest = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -44,8 +44,10 @@ internal fun CastIcon(
     glance: PidaiGlance?,
     pokeSerial: Int,
     kickSerial: Int,
+    voiceLevel: () -> Float = { 0f },
 ) {
     val engine = remember(cast) { CastEngine(cast) }
+    val currentVoice by rememberUpdatedState(voiceLevel)
     val sketch = remember { Sketch() }
     val paths = remember { ArrayList<Path>() }
     val clock = remember { BotClock() }
@@ -84,6 +86,8 @@ internal fun CastIcon(
         PidaiBeat.ALERT -> Act.ALERT
         PidaiBeat.TAP -> Act.POKE
         PidaiBeat.COMET -> Act.COMBO
+        PidaiBeat.LISTEN -> Act.LISTEN
+        PidaiBeat.TRANSCRIBE -> Act.TRANSCRIBE
     }
 
     if (frozenAt != null) {
@@ -104,6 +108,7 @@ internal fun CastIcon(
         LaunchedEffect(engine, pageVisible) {
             while (pageVisible) {
                 val t = clock.now()
+                engine.hear(if (currentBeat == PidaiBeat.LISTEN) currentVoice().toDouble() else 0.0)
                 val looking = steer(t)
                 val resting = currentBeat == PidaiBeat.REST && t - clock.stateChangedAt > 0.6 &&
                     !looking && t - glanceAt[0] > GLANCE_SECONDS + 0.6

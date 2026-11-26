@@ -76,26 +76,41 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
         val nudge = p.kick(0.06, 0.45, 0.65)
         val jolt = alert * wobble(ta, 20.0, 5.0)
         val startle = alert * bump(ta / 0.3)
-        val awake = max(max(think, alert), called)
+        // 在听：像上课突然听到重点，醒过来一手拢在耳边、脑袋歪过去，声音越大眼睛瞪得越圆、呆毛抖得越凶
+        val listen = p.amt(Act.LISTEN); val tl = p.t(Act.LISTEN)
+        val v = p.voice * listen
+        // 转写：低头在本子上奋笔疾书，一行写完笔一甩回到行首
+        val scribe = p.amt(Act.TRANSCRIBE); val ts = p.t(Act.TRANSCRIBE)
+        val line = (ts % 0.9) / 0.9
+        val pen = if (line < 0.82) line / 0.82 else 1 - (line - 0.82) / 0.18
+        val awake = maxOf(think, alert, called, listen, scribe)
         val nod = droop * (1 - awake) * (1 - dead)
 
         // 整颗头的形变：以下巴为支点
-        val ty = 8 + 8 * nod + 6 * sink - 9 * air + 2 * fall - 9 * startle
-        val sy = 1 - 0.2 * crouch + 0.03 * air - 0.14 * thud + 0.1 * snap - 0.06 * sink + 0.04 * yawn + 0.08 * jolt
+        val ty = 8 + 8 * nod + 6 * sink - 9 * air + 2 * fall - 9 * startle - 5 * v + 7 * scribe
+        val sy = 1 - 0.2 * crouch + 0.03 * air - 0.14 * thud + 0.1 * snap - 0.06 * sink + 0.04 * yawn + 0.08 * jolt + 0.05 * v
         val sx = 1 + (1 - sy) * 0.6
         val rot = 6 * nod + 16 * sink - 10 * snap - 9 * yawn + 9 * lookAround - 6 * jolt +
-            think * sin(now * 23) * 0.6
+            think * sin(now * 23) * 0.6 + 10 * listen + scribe * (-5 + 6 * (pen - 0.5) + 1.5 * sin(ts * 31))
         // 侧倒：绕脸中心转，不然整颗头会甩出画布
         val topple = -78 * fall + 6 * fallBounce
 
         // 被戳时的眼皮：全睁，越到后面越困
         val tph = if (c < 0.72) mix(0.95, 0.35, ss(c / 0.72)) else 0.95
         var open = mix(0.12 + 0.35 * jerk, tph, think)
-        open = max(open, max(alert, called))
+        open = maxOf(open, alert, called, listen * (0.8 + 0.2 * p.voice),0.5 * scribe)
         open *= p.blink * (1 - dead) * (1 - yawn)
 
         val glance = poke * (if (tp in 0.55..0.8) -1.0 else if (tp in 0.8..1.05) 1.0 else 0.0)
-        val lookX = p.lookX * 0.6 + glance
+        val lookX = mix(p.lookX * 0.6 + glance, pen * 2 - 1, scribe)
+
+        // 记笔记的本子：摊在下巴底下，被低下来的头压住一截
+        if (scribe > 0.01) {
+            s.rrect(0.0, 112.0, 128.0 * scribe, 16.0, 4.0)
+            s.fill(PAGES)
+            s.line(-50.0, 109.0, mix(-50.0, 50.0, pen), 109.0 + 1.5 * sin(ts * 40))
+            s.stroke(3.5, EYE_DARK, scribe * 0.7)
+        }
 
         // 课本：趴着睡的那本
         if (book > 0.01) {
@@ -134,7 +149,7 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
             }
 
             // 呆毛：吓到时「啵」地弹
-            val boing = 24 * wobble(tp - 0.08, 22.0, 5.0) * poke + 20 * jolt + 14 * snap
+            val boing = 24 * wobble(tp - 0.08, 22.0, 5.0) * poke + 20 * jolt + 14 * snap + 14 * v * sin(now * 38)
             s.group {
                 translate(4.0, -70.0)
                 rotate(boing - 8 * nod)
@@ -172,7 +187,21 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
                 nudge > 0.5 -> for (side in intArrayOf(-1, 1)) droopyEye(s, ex + side * EYE_GAP, EY, 0.42, 0.0)
                 dead > 0.2 || yawn > 0.3 -> s.asleep(ex, EY + 2, 1.0, EYE_GAP, EYE_DARK)
                 open < 0.18 -> s.asleep(ex, EY, 1.0, EYE_GAP, EYE_DARK)
-                else -> for (side in intArrayOf(-1, 1)) droopyEye(s, ex + side * EYE_GAP, EY, open, max(called, alert))
+                else -> for (side in intArrayOf(-1, 1)) droopyEye(s, ex + side * EYE_GAP, EY + 4 * scribe, open, maxOf(called, alert, v))
+            }
+
+            // 拢在右耳边的手：手掌半握成「C」，掌心朝着你
+            if (listen > 0.01) {
+                s.group {
+                    translate(86.0, 30.0)
+                    rotate(-14.0)
+                    scale(listen)
+                    s.rrect(0.0, 0.0, 28.0, 40.0, 13.0)
+                    s.fill(SKIN)
+                    s.moveTo(-6.0, -12.0)
+                    s.quadTo(-12.0, 0.0, -6.0, 12.0)
+                    s.stroke(4.0, BLUSH)
+                }
             }
 
             // 火柴棍：一端红头，竖着卡在眼皮之间
@@ -194,7 +223,8 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
 
             // 鼻涕泡：跟着点头胀缩；醒着就没有，被吓醒时啪地破，睡回去再慢慢吹起来
             val regrow = 1 - poke * (1 - ss(ramp(tp, 1.5, 2.3)))
-            val br = (6 + 16 * droop + 10 * dead) * (1 - think) * (1 - alert) * regrow * (1 - yawn) * (1 - nudge)
+            val br = (6 + 16 * droop + 10 * dead) * (1 - think) * (1 - alert) * regrow * (1 - yawn) * (1 - nudge) *
+                (1 - max(listen, scribe))
             val bx = 12.0 + br * 0.7
             val by = 70.0 + br * 0.15
             if (br > 1.5) {
@@ -225,6 +255,15 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
                 zLetter(s, 40 + 40 * ph + 6 * sin(ph * 6), -10 - 80 * ph, zs, dead * bump(ph))
             }
         }
+        // 笔：压在本子上来回写
+        if (scribe > 0.01) {
+            val px = mix(-50.0, 50.0, pen)
+            val py = 108.0 + 1.5 * sin(ts * 40)
+            s.line(px, py, px + 18, py - 26)
+            s.stroke(7.0, STICK, scribe)
+            s.dot(px, py, 3.5, Tone.COLOR, scribe, EYE_DARK)
+        }
+        if (listen > 0.01) s.soundArcs(74.0, -36.0, -60.0, listen, p.voice, tl)
         s.badge(alert, ta)
     }
 

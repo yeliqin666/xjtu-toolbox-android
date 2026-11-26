@@ -15,7 +15,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * 小岱的待办工具：`add_todo` / `get_todos` / `complete_todo`，本体是 [SelfTodoStore]。
+ * 小岱的待办工具 `todo`（add / list / done），本体是 [SelfTodoStore]。
+ * 合并前的 `add_todo` / `get_todos` / `complete_todo` 仍可执行：计划卡片的「加入」走 `add_todo`。
  *
  * 只实现 `:shared:model` 的 [AgentTools]，不依赖 `:feature:agent`：端的入口（`AgentHost.tools`）用
  * [com.xjtu.toolbox.agent.CompositeAgentTools] 把它和主工具层并在一起。和 `add_schedule_event` 的分界写在描述里：
@@ -23,7 +24,7 @@ import kotlinx.serialization.json.put
  */
 object SelfTodoAgentTools : AgentTools {
 
-    val NAMES = listOf("add_todo", "get_todos", "complete_todo")
+    override val legacyNames = setOf("add_todo", "get_todos", "complete_todo")
 
     private fun prop(type: String, description: String) = buildJsonObject {
         put("type", type)
@@ -57,27 +58,17 @@ object SelfTodoAgentTools : AgentTools {
             JsonArray(
                 listOf(
                     tool(
-                        "add_todo",
-                        "往待办里记一件事：有截止或没有具体时间、不占课表时段的事（交报告、买票、回邮件）。出现在「消息 → 待办」，临近截止会推送一条提醒。" +
-                            "要占一段具体时间的（开会、自习、约饭）用 add_schedule_event，别用这个。用户没说截止就不设，不必追问。",
+                        "todo",
+                        "用户自己的待办（「消息 → 待办」，临近截止推送提醒）：add 记一条，list 列出未完成的，done 标完成。不含作业截止等学校事务。",
                         params(
-                            "title" to prop("string", "要做的事，一句话。"),
-                            "due" to prop("string", "截止：yyyy-MM-dd（只到天，记成当天 23:59）或 yyyy-MM-dd HH:mm。缺省：不设截止。"),
-                            "note" to prop("string", "备注。"),
-                            "priority" to enumProp("重要程度，只在列表标题旁标一下，不改变排序。缺省：none。", "none", "low", "medium", "high"),
-                            "color" to prop("string", "这条待办在列表里的图标色，#RRGGBB。缺省：默认绿。"),
-                            required = listOf("title"),
+                            "action" to enumProp("add / list / done。", "add", "list", "done"),
+                            "title" to prop("string", "add：要做的事；done：标题关键词，多条匹配时返回候选。"),
+                            "due" to prop("string", "add 的截止：yyyy-MM-dd（当天 23:59）或 yyyy-MM-dd HH:mm。缺省：无截止。"),
+                            "note" to prop("string", "add 的备注。"),
+                            "priority" to enumProp("add 的重要程度，只做标注。缺省：none。", "none", "low", "medium", "high"),
+                            "color" to prop("string", "add 的图标色 #RRGGBB。缺省：绿。"),
+                            required = listOf("action"),
                         ),
-                    ),
-                    tool(
-                        "get_todos",
-                        "用户自己记的、还没办完的待办（含小岱代记的）。不含学校事务、作业截止、评教等，那些在各自工具里。",
-                        params(),
-                    ),
-                    tool(
-                        "complete_todo",
-                        "把用户自己的一条待办标为已完成。title 模糊匹配；匹配到多条时返回候选，让用户选。",
-                        params("title" to prop("string", "待办标题或其中的关键词。"), required = listOf("title")),
                     ),
                 ),
             ),
@@ -92,11 +83,13 @@ object SelfTodoAgentTools : AgentTools {
 
     override suspend fun execute(name: String, argsJson: String): String {
         val args = runCatching { AppJson.parseToJsonElement(argsJson.ifBlank { "{}" }).jsonObject }.getOrElse { JsonObject(emptyMap()) }
-        return when (name) {
-            "add_todo" -> addTodo(args.str("title"), args.str("due"), args.str("priority"), args.str("note"), args.str("color"))
-            "get_todos" -> getTodos()
-            "complete_todo" -> completeTodo(args.str("title"))
-            else -> ToolReply.notFound("tool", name)
+        val action = if (name == "todo") args.str("action") else name
+        return when (action) {
+            "add", "add_todo" -> addTodo(args.str("title"), args.str("due"), args.str("priority"), args.str("note"), args.str("color"))
+            "list", "get_todos" -> getTodos()
+            "done", "complete_todo" -> completeTodo(args.str("title"))
+            null -> ToolReply.missing("action")
+            else -> if (name == "todo") ToolReply.badValue("action", "add/list/done") else ToolReply.notFound("tool", name)
         }
     }
 

@@ -15,6 +15,15 @@ internal val LocalCouiMenuBackdrop = staticCompositionLocalOf<CouiBackdrop?> { n
 @Composable
 fun rememberCouiWindowBackdrop(): CouiBackdrop? = LocalCouiMenuBackdrop.current
 
+/**
+ * 里面的菜单不采窗口：退回实色面板。页面里有 WebView、视频这类自己出帧的内容时用——
+ * 采样要把整窗录进离屏层，WebView 被这样录会画成灰块、闪烁。
+ */
+@Composable
+fun WithoutCouiMenuBackdrop(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalCouiMenuBackdrop provides null, content = content)
+}
+
 /** 内容修饰符挂到所属窗口的内容根节点; Popup 菜单自身不进入采样树。 */
 @Composable
 fun ProvideCouiMenuBackdrop(content: @Composable (Modifier) -> Unit) {

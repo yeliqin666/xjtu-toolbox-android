@@ -92,7 +92,7 @@ object AppServices {
             listOf("在读证明", "英文证明", "学生证明"), showOnHome = false, audience = AccountType.UNDERGRADUATE,
             features = listOf("中英文在读证明：打开学校工作流申请与下载")),
         AppService(AppRoute.Notification, "通知公告", "教务与学院通知", ServiceCategory.LIFE, listOf("通知", "公告", "教务"),
-            features = listOf("小岱通知精选：从多个来源里挑出和你相关的")),
+            features = listOf("小岱通知精选：从多个来源里挑出和你相关的", "按来源看：顶部来源条点一个只看这一个来源，右上角「更多」里管理通知来源、设通知规则")),
         AppService(AppRoute.Faculty, "教师主页", "教师与研究方向", ServiceCategory.STUDY, listOf("教师", "老师", "导师", "博导", "硕导", "研究方向", "teacher", "faculty")),
 
         AppService(AppRoute.CampusCard, "校园卡", "余额与今日消费", ServiceCategory.LIFE, listOf("一卡通", "余额"),

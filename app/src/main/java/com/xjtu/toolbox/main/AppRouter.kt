@@ -122,7 +122,14 @@ class AppRouter(
         open(route)
     }
 
+    /**
+     * 打开小岱时能不能就地弹出大半屏（不在首页时都能）：能就弹并返回 true。由 AppRoot 接上。
+     * 各页的小岱卡片、「问小岱」都走 [open]，统一在这里改成从悬浮球弹出，不整页跳走。
+     */
+    var pidaiOverlay: (() -> Boolean)? = null
+
     fun open(route: AppRoute) {
+        if (route is AppRoute.Agent && pidaiOverlay?.invoke() == true) return
         maintenanceRoutes[route]?.let { label ->
             notify("$label 学校系统维护中，暂不可用")
             return

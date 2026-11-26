@@ -55,6 +55,8 @@ fun AppShell(
     snackbarHost: @Composable () -> Unit = {},
     topBar: (@Composable (ShellTab?, ShellHandles) -> Unit)? = null,
     barBubble: (@Composable (ShellHandles) -> Unit)? = null,
+    /** 底栏 / 侧栏旁的常驻附件（Android：小岱球），见 [ShellBarAccessoryForm]。 */
+    barAccessory: (@Composable (ShellBarAccessoryForm) -> Unit)? = null,
     railOverlay: (@Composable (ShellHandles) -> Unit)? = null,
     overlays: (@Composable (ShellHandles) -> Unit)? = null,
     sheets: (@Composable () -> Unit)? = null,
@@ -111,7 +113,7 @@ fun AppShell(
         // Row 包 Scaffold：侧栏放在 Scaffold 外面，才不会随各 tab 顶栏高度变化上下跳
         Row(Modifier.fillMaxSize()) {
             if (isWide) {
-                ShellNavigationRail(nav, railState, tabArt)
+                ShellNavigationRail(nav, railState, tabArt, barAccessory)
             }
             Scaffold(
                 modifier = Modifier
@@ -122,7 +124,7 @@ fun AppShell(
                 contentWindowInsets = contentWindowInsets,
                 snackbarHost = snackbarHost,
                 bottomBar = {
-                    if (!isWide && !glassStyle) ClassicBottomBar(nav, navItemColors, bubble, tabArt)
+                    if (!isWide && !glassStyle) ClassicBottomBar(nav, navItemColors, bubble, tabArt, barAccessory)
                 },
                 floatingToolbar = {
                     when (form) {
@@ -136,6 +138,7 @@ fun AppShell(
                                 bottomPadding = layout.glassBarSlotBottomPadding,
                                 bubble = bubble,
                                 tabArt = tabArt,
+                                accessory = barAccessory,
                             )
                         }
 
@@ -145,6 +148,7 @@ fun AppShell(
                             offsetY = layout.bottomBarSlotOffsetY,
                             bubble = bubble,
                             tabArt = tabArt,
+                            accessory = barAccessory,
                         )
 
                         ShellForm.CLASSIC_BAR, ShellForm.RAIL -> Unit

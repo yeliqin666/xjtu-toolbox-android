@@ -33,6 +33,8 @@ class CastPreviewTest {
         Clip("alert", "提醒", Act.ALERT, 3.0),
         Clip("poke", "被戳", Act.POKE, c.pokeSec + 0.3),
         Clip("combo", "连戳彩蛋", Act.COMBO, c.comboSec + 0.3),
+        Clip("listen", "倾听", Act.LISTEN, 4.0),
+        Clip("transcribe", "转写", Act.TRANSCRIBE, 3.0),
         Clip("left", "看左边", null, 2.0, -1.0),
         Clip("right", "看右边", null, 2.0, 1.0),
     )
@@ -51,7 +53,12 @@ class CastPreviewTest {
         now = t0
         while (next <= n) {
             val target = t0 + next / fps
-            while (now < target - 1e-9) { now = minOf(now + 1 / 30.0, target); engine.sample(now, s) }
+            while (now < target - 1e-9) {
+                now = minOf(now + 1 / 30.0, target)
+                // 倾听时喂一段忽大忽小的「说话声」
+                if (clip.act == Act.LISTEN) engine.hear(0.5 + 0.5 * kotlin.math.sin(now * 6) * kotlin.math.sin(now * 2.3))
+                engine.sample(now, s)
+            }
             engine.sample(target, s)
             each(next / fps, s)
             next++
@@ -120,6 +127,7 @@ class CastPreviewTest {
         var now = 9.0
         while (now < 10.0) { engine.sample(now, s); now += 1 / 30.0 }
         engine.play(act, 10.0)
+        if (act == Act.LISTEN) engine.hear(0.8)
         while (now < 10.0 + after) { engine.sample(now, s); now += 1 / 30.0 }
         engine.sample(10.0 + after, s)
         return s
@@ -177,7 +185,7 @@ class CastPreviewTest {
     /** 真实尺寸对比：底栏 60 点、聊天头像 26 点（按 3 倍屏），浅色 / 深色底各一份。 */
     @Test
     fun `导出真实尺寸对比`() {
-        val shots = listOf(null to 0.5, Act.THINK to 1.2, Act.ALERT to 1.0, Act.POKE to 0.15, Act.COMBO to 1.2)
+        val shots = listOf(null to 0.5, Act.THINK to 1.2, Act.ALERT to 1.0, Act.POKE to 0.15, Act.COMBO to 1.2, Act.LISTEN to 1.5, Act.TRANSCRIBE to 1.0)
         val sizes = intArrayOf(180, 78)
         val grounds = listOf(Color(0xf6, 0xf3, 0xf7), Color(0x1d, 0x1b, 0x20))
         val colW = sizes.sum() + 12

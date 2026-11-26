@@ -93,6 +93,18 @@ fun FacultyScreen(
     avatar: @Composable (FacultyMember, Int) -> Unit = { member, size -> InitialsFacultyAvatar(member, size) },
 ) {
     val vm: FacultyViewModel = viewModel { FacultyViewModel(source) }
+    com.xjtu.toolbox.ui.components.ReportToPidai("教师主页", hint = "要我帮你看看哪位老师的方向合适吗？") {
+        vm.detail?.let { m ->
+            return@ReportToPidai "正在看：${m.name}｜${m.collegeName}｜${m.proRank}｜${m.discipline}\n主页：${m.homepageUrl}"
+        }
+        buildString {
+            append("筛选：${vm.college?.let { "学院 ${it.name}" } ?: "全部学院"}")
+            vm.discipline?.let { append("｜学科 ${it.name}") }
+            if (vm.proRank.isNotEmpty()) append("｜职称 ${vm.proRank}")
+            append("｜共 ${vm.total} 位\n")
+            vm.members.take(30).forEach { append("- ${it.name}｜${it.collegeName}｜${it.proRank}\n") }
+        }
+    }
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val listState = rememberRetainedLazyListState("faculty_results")
     var picker by remember { mutableStateOf<PickerTarget?>(null) }

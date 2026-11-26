@@ -36,6 +36,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -165,7 +168,13 @@ internal fun GlobalSearchBody(
     val results = remember(query, accountType, extraServices) {
         GlobalSearchIndex.search(query, accountType, extraServices)
     }
-    Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    // 整层都要算命中：空白处没有指针处理的话，手指会落到底下的首页卡片板上，长按就进了编辑态
+    Column(
+        modifier
+            .fillMaxSize()
+            .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false) } }
+            .padding(horizontal = 16.dp),
+    ) {
         AnimatedContent(
             targetState = query.isBlank(),
             transitionSpec = {

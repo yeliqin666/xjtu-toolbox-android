@@ -1221,19 +1221,19 @@ internal fun HomeTileFaceBox(
                     ExpressiveIcon(
                         icon = face.icon,
                         color = iconColor,
-                        size = (if (liveSpan == null) (minOf(w, h) * 34f).coerceIn(28f, 38f) else 34f).dp,
-                        iconSize = (if (liveSpan == null) (minOf(w, h) * 19f).coerceIn(15f, 21f) else 19f).dp,
+                        size = (if (liveSpan == null) (minOf(w, h) * 42f).coerceIn(36f, 46f) else 42f).dp,
+                        iconSize = (if (liveSpan == null) (minOf(w, h) * 24f).coerceIn(20f, 26f) else 24f).dp,
                         modifier = if (liveSpan == null) Modifier else Modifier.graphicsLayer {
                             val span = liveSpan()
-                            val scale = (minOf(span.x, span.y) * 34f).coerceIn(28f, 38f) / 34f
+                            val scale = (minOf(span.x, span.y) * 42f).coerceIn(36f, 46f) / 42f
                             scaleX = scale
                             scaleY = scale
                         },
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(5.dp))
                     Text(
                         face.title,
-                        fontSize = 10.5.sp,
+                        fontSize = 11.sp,
                         lineHeight = 13.sp,
                         color = ink,
                         maxLines = 1,
@@ -1248,7 +1248,7 @@ internal fun HomeTileFaceBox(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
+                    ExpressiveIcon(icon = face.icon, color = iconColor, size = 40.dp, iconSize = 22.dp)
                     Column(Modifier.weight(1f)) {
                         Text(
                             face.labelText,
@@ -1294,7 +1294,7 @@ internal fun HomeTileFaceBox(
                     HomeTileEntry(face, iconColor, ink, muted, count = lines.size)
                 } else {
                     Column(Modifier.fillMaxSize().padding(10.dp)) {
-                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 25.dp, iconSize = 14.dp)
+                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 34.dp, iconSize = 19.dp)
                         Spacer(Modifier.height(7.dp))
                         Text(
                             face.title,
@@ -1336,27 +1336,13 @@ internal fun HomeTileFaceBox(
                     }
                 }
 
-                // 大方块（2×2 起）：右上角压一枚几乎看不见的水印图标，数据放大一档，剩下的高度列明细
+                // 大方块（2×2 起）：图标 + 名称抬头，数据放大一档，剩下的高度列明细
                 HomeTileShape.Large -> if (stat == null && lines.isEmpty()) {
-                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 42.dp, iconGlyph = 24.dp)
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 54.dp, iconGlyph = 30.dp)
                 } else {
                     Box(Modifier.fillMaxSize()) {
-                        Icon(
-                            face.icon,
-                            contentDescription = null,
-                            tint = ink.copy(alpha = 0.055f),
-                            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).size(64.dp),
-                        )
                         Column(Modifier.fillMaxSize().padding(14.dp)) {
-                            Text(
-                                face.title,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = muted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            TileHeader(face, iconColor, muted)
                             if (stat != null) {
                                 Spacer(Modifier.height(7.dp))
                                 Text(
@@ -1397,9 +1383,9 @@ internal fun HomeTileFaceBox(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
+                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 38.dp, iconSize = 21.dp)
                         Spacer(Modifier.height(4.dp))
-                        Text(face.title, fontSize = 10.sp, lineHeight = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(face.title, fontSize = 10.5.sp, lineHeight = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Spacer(Modifier.width(10.dp))
                     TileLines(lines, ink, muted, onLine, compact = false, modifier = Modifier.weight(1f).fillMaxHeight())
@@ -1407,8 +1393,8 @@ internal fun HomeTileFaceBox(
                     Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ExpressiveIcon(icon = face.icon, color = iconColor, size = 32.dp, iconSize = 18.dp)
-                    Spacer(Modifier.width(10.dp))
+                    ExpressiveIcon(icon = face.icon, color = iconColor, size = 42.dp, iconSize = 23.dp)
+                    Spacer(Modifier.width(12.dp))
                     TileHero(face, stat ?: face.heroText.takeIf { it.isNotBlank() }, figure, statColor, muted, figureSize = 20, bodySize = 12.5f, bodyLines = 2, detailLines = 1, modifier = Modifier.weight(1f))
                     if (lines.isNotEmpty()) {
                         TileDivider(vertical = true, color = muted)
@@ -1418,7 +1404,7 @@ internal fun HomeTileFaceBox(
 
                 // 宽卡（3×2 起）：左半边大字数据 + 说明，右半边明细带说明
                 HomeTileShape.Panorama -> if (stat == null && lines.isEmpty()) {
-                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 46.dp, iconGlyph = 26.dp)
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 58.dp, iconGlyph = 32.dp)
                 } else {
                     Row(Modifier.fillMaxSize().padding(16.dp)) {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -1435,7 +1421,7 @@ internal fun HomeTileFaceBox(
 
                 // 高卡（2×3 起）：数据再大一号，下面两行一条的明细铺满剩下的高度
                 HomeTileShape.Tower -> if (stat == null && lines.isEmpty()) {
-                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 52.dp, iconGlyph = 28.dp)
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 62.dp, iconGlyph = 34.dp)
                 } else {
                     Column(Modifier.fillMaxSize().padding(16.dp)) {
                         TileHeader(face, iconColor, muted)
@@ -1450,7 +1436,7 @@ internal fun HomeTileFaceBox(
 
                 // 大板（3×3 起）：数据最大，明细收在内嵌底色里；四格宽时分两栏
                 HomeTileShape.Board -> if (stat == null && lines.isEmpty()) {
-                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 60.dp, iconGlyph = 32.dp)
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 70.dp, iconGlyph = 38.dp)
                 } else {
                     // 按落定的格数分栏（拖动缩放时不逐帧重组）
                     val wideBoard = w >= 3.5f
@@ -1574,16 +1560,16 @@ private fun FitRows(rowHeight: Dp, modifier: Modifier = Modifier, content: @Comp
     }
 }
 
-/** 大卡的抬头：小图标 + 名称。 */
+/** 大卡的抬头：图标 + 名称。 */
 @Composable
 private fun TileHeader(face: HomeServiceRow, iconColor: Color, muted: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        ExpressiveIcon(icon = face.icon, color = iconColor, size = 26.dp, iconSize = 15.dp)
-        Spacer(Modifier.width(8.dp))
+        ExpressiveIcon(icon = face.icon, color = iconColor, size = 34.dp, iconSize = 19.dp)
+        Spacer(Modifier.width(9.dp))
         Text(
             face.title,
-            fontSize = 12.sp,
-            lineHeight = 15.sp,
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
             fontWeight = FontWeight.Medium,
             color = muted,
             maxLines = 1,
@@ -1863,11 +1849,11 @@ private fun HomeTileEntry(face: HomeServiceRow, iconColor: Color, ink: Color, mu
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        ExpressiveIcon(icon = face.icon, color = iconColor, size = 40.dp, iconSize = 22.dp)
+        ExpressiveIcon(icon = face.icon, color = iconColor, size = 48.dp, iconSize = 26.dp)
         Spacer(Modifier.height(8.dp))
         Text(
             face.title,
-            fontSize = 11.sp,
+            fontSize = 11.5.sp,
             lineHeight = 14.sp,
             fontWeight = FontWeight.Medium,
             color = ink,

@@ -108,6 +108,15 @@ fun BusScreen(source: BusSource, onBack: () -> Unit) {
     val nextKey = if (isToday) upcoming.firstOrNull()?.let(::runKey) else null
     val groups = upcoming.groupBy { BusRules.periodOf(it.time) }.toList()
     val toggle = { key: String -> expanded = if (expanded == key) null else key }
+    com.xjtu.toolbox.ui.components.ReportToPidai("校车查询", hint = "要我帮你快速筛选车次吗？") {
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("日期", if (isToday) "今天（现在 $nowHhmm）" else vm.date)
+            filter("线路", vm.category)
+            filter("搜索", vm.query)
+            section(if (isToday) "还没发车" else "班次", upcoming) { r -> "${r.time}｜${r.lineName}｜${r.from} → ${r.to}｜余座 ${r.seats - r.usedSeats}/${r.seats}" }
+            if (departed.isNotEmpty()) note("今天已发车 ${departed.size} 班")
+        }
+    }
 
     Scaffold(
         topBar = { GlassTopAppBar(title = "校车查询", glass = glass, scrollBehavior = scrollBehavior, onBack = onBack) },

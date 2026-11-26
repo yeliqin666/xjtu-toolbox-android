@@ -128,20 +128,38 @@ fun AgentScreen(
         androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
         val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
         showConfig = false
-        vm.newSession()
+        val page = pending.label.takeIf { pending.fromPage }
+        val context = pending.snapshot?.let {
+            AgentDraftContext(pending.label ?: "页面内容", it, pending.fromPage, if (pending.attachOnly) pending.images else emptyList())
+        }
+        if (page != null) {
+            // 小岱球带进来的页面：这页 1 小时内聊过就接着那段（提示词缓存还热），否则开新的；当前是空对话就不另开
+            val reuse = AgentPageSessions.recent(page, vm.sessions, kotlin.time.Clock.System.now().toEpochMilliseconds())
+            when {
+                reuse != null -> if (vm.currentSessionId != reuse) vm.switchSession(reuse)
+                vm.messages.isNotEmpty() -> vm.newSession()
+            }
+        }
+        if (pending.attachOnly) {
+            // 点小岱球：只把这一页挂到输入框上方（截图进待发图片），用户发下一句时一起带上
+            vm.draftContext = context
+            return@LaunchedEffect
+        }
+        if (page == null) vm.newSession()
         if (pending.draftOnly) {
             // 只填进输入框等用户自己发；带进来的页面内容挂成输入框上方的标签，发送时一起带上
             vm.draft = pending.text
-            vm.draftContext = pending.snapshot?.let { AgentDraftContext(pending.label ?: "页面内容", it) }
+            vm.draftContext = context
             return@LaunchedEffect
         }
         vm.sendMessage(
             pending.text,
             config,
-            llmAnnex = pending.snapshot?.let(AgentAnnex::snapshot),
+            llmAnnex = context?.let(AgentAnnex::of),
             images = pending.images,
             contextLabel = pending.label,
         )
+        if (page != null) AgentPageSessions.remember(page, vm.currentSessionId)
     }
 
     // 从小贴士「去试试」进来：直接打开设置页（同样等这一页真显示着再取）
@@ -172,7 +190,7 @@ fun AgentScreen(
     }
     // 宽屏下会话列表是常驻左栏，根本没有「抽屉开没开」这回事。
     val isWide = com.xjtu.toolbox.ui.isWideLayout()
-    var drawerOpen by rememberSaveable { mutableStateOf(false) }
+    var drawerOpen by remember { mutableStateOf(false) }
     // 长按会话 → 操作菜单 → 改名 / 删除确认
     var actionTarget by remember { mutableStateOf<AgentSession?>(null) }
     var renameTarget by remember { mutableStateOf<AgentSession?>(null) }
@@ -186,11 +204,10 @@ fun AgentScreen(
     // 以前这里会自己建一个没有顶栏在用的 MIUIX 行为，列表照样挂着它，手指上滑会被它吃掉，
     // 小岱的列表于是只能下滑。
     val effectiveScrollBehavior = scrollBehavior
-    // 宽屏不拦抽屉：没有抽屉可关，再拦就是吃掉一次返回。
-    BackHandler(enabled = showConfig || (drawerOpen && !isWide) || showContextExhaustedDialog) {
+    // 历史对话菜单是弹窗，返回键它自己收
+    BackHandler(enabled = showConfig || showContextExhaustedDialog) {
         when {
             showContextExhaustedDialog -> showContextExhaustedDialog = false
-            drawerOpen && !isWide -> drawerOpen = false
             else -> showConfig = false
         }
     }
@@ -201,7 +218,7 @@ fun AgentScreen(
         drawerOpen = false
     }
 
-    // 顶栏按钮都在右边：历史对话、新对话、设置；历史侧栏也从右边展开。两种宿主形态共用同一份，
+    // 顶栏按钮都在右边：历史对话、新对话、设置；历史对话从按钮下方弹出菜单。两种宿主形态共用同一份，
     // tab 模式下交给 MainScreen 的顶栏。lambda 捕获的是委托属性，状态变化时宿主自己重组。
     // 设置页打开时宿主顶栏被盖住（没有 [overlays] 的端盖不住，所以回调里也要拦）。
     // 宽屏的历史对话常驻左栏，不送开关按钮。
@@ -211,8 +228,20 @@ fun AgentScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!isWide) {
-                CouiToolbarActionButton(onClick = { if (!showConfig) drawerOpen = !drawerOpen }) {
-                    Icon(Icons.Default.History, contentDescription = if (drawerOpen) "收起历史对话" else "历史对话")
+                // 菜单和按钮在同一个 Box 里：弹窗锚在按钮上
+                Box {
+                    CouiToolbarActionButton(onClick = { if (!showConfig) drawerOpen = !drawerOpen }) {
+                        Icon(Icons.Default.History, contentDescription = if (drawerOpen) "收起历史对话" else "历史对话")
+                    }
+                    SessionMenu(
+                        expanded = drawerOpen,
+                        sessions = vm.sessions,
+                        currentId = vm.currentSessionId,
+                        onDismiss = { drawerOpen = false },
+                        onSelect = { vm.switchSession(it); drawerOpen = false },
+                        onLongPress = { actionTarget = it; drawerOpen = false },
+                        onNewChat = { startNewChat() },
+                    )
                 }
             }
             CouiToolbarActionButton(onClick = { if (!showConfig) startNewChat() }) {
@@ -237,18 +266,9 @@ fun AgentScreen(
         }
     }
 
-    // 全屏层：窄屏的历史对话侧栏 + 设置二级页。
+    // 全屏层：设置二级页。
     val overlayContent: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize()) {
-            if (!isWide) SessionDrawer(
-                open = drawerOpen,
-                sessions = vm.sessions,
-                currentId = vm.currentSessionId,
-                onClose = { drawerOpen = false },
-                onSelect = { vm.switchSession(it); drawerOpen = false },
-                // 对话框在 Scaffold 的弹窗宿主里，侧栏盖在它上面，先收起来
-                onLongPress = { actionTarget = it; drawerOpen = false },
-            )
             AnimatedVisibility(
                 visible = showConfig,
                 enter = slideInHorizontally(tween(260)) { it } + fadeIn(tween(200)),

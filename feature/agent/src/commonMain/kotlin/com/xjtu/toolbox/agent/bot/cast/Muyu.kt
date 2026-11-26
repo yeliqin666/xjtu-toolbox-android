@@ -38,6 +38,8 @@ object Muyu : CastCharacter("muyu", "木鱼") {
     private const val PIVOT_Y = -22.0
     /** 念经的节拍。 */
     private const val BEAT = 0.55
+    /** 转写时快敲的节拍。 */
+    private const val FAST = 0.24
 
     private val peekAt = Beats(0x3a2, 6.0, 11.0, 3.5)
 
@@ -54,11 +56,17 @@ object Muyu : CastCharacter("muyu", "木鱼") {
         val micro = p.amt(Act.MICRO); val tm = p.t(Act.MICRO)
         val poke = p.amt(Act.POKE); val tp = p.t(Act.POKE)
         val combo = p.amt(Act.COMBO); val tc = p.t(Act.COMBO)
+        // 在听：两眼睁开、木槌举着不敢敲，声音大了整只往上一拔
+        val listen = p.amt(Act.LISTEN); val tl = p.t(Act.LISTEN)
+        val v = p.voice * listen
+        // 转写：闭眼快敲，你说的每个字都记一份功德
+        val scribe = p.amt(Act.TRANSCRIBE); val ts = p.t(Act.TRANSCRIBE)
 
         val comboKnock = (0 until 3).maxOf { strike((tc - it * 0.28) / 0.5) }
         val knock = maxOf(
             micro * 0.6 * strike(tm / 1.0),
             think * strike((tt % BEAT) / BEAT),
+            scribe * 0.7 * strike((ts % FAST) / FAST),
             poke * strike(tp / 1.0),
             combo * comboKnock * (if (tc < 0.9) 1.0 else 0.0),
             // 功德圆满时再戳：木槌补一下
@@ -66,7 +74,8 @@ object Muyu : CastCharacter("muyu", "木鱼") {
         )
 
         // 挨敲的压扁：越敲越狠
-        var sq = micro * hit(tm - 0.16, 0.12) + think * hit((tt % BEAT) - 0.08, 0.2) + poke * hit(tp - 0.08, 0.3)
+        var sq = micro * hit(tm - 0.16, 0.12) + think * hit((tt % BEAT) - 0.08, 0.2) + poke * hit(tp - 0.08, 0.3) +
+            scribe * hit((ts % FAST) - 0.04, 0.08) - 0.08 * v
         if (combo > 0.01 && tc < 0.9) for (k in 0..2) sq += combo * hit(tc - k * 0.28 - 0.08, 0.1 + 0.05 * k)
         // 落地那一墩
         sq += combo * hit(tc - 2.55, 0.25)
@@ -124,17 +133,17 @@ object Muyu : CastCharacter("muyu", "木鱼") {
             s.stroke(10.0, SHEEN)
             // 开口：一道横贯的细长缝，木鱼最认人的地方
             s.moveTo(-66.0, 26.0)
-            s.quadTo(0.0, 40.0, 66.0, 26.0)
-            s.stroke(11.0, SLOT)
+            s.quadTo(0.0, 40.0 + 10 * v, 66.0, 26.0)
+            s.stroke(11.0 + 6 * v, SLOT)
 
-            // 眼睛：平时佛系闭着，隔一阵偷偷睁一只看一眼；提醒才两只都睁开
+            // 眼睛：平时佛系闭着，隔一阵偷偷睁一只看一眼；提醒、在听才两只都睁开
             val ex = p.lookX * 8
             val ey = -14.0
-            val peek = (1 - think) * (1 - alert) * window(peekAt.since(now), 0.0, 0.12, 0.9, 1.05)
+            val peek = (1 - think) * (1 - alert) * (1 - scribe) * window(peekAt.since(now), 0.0, 0.12, 0.9, 1.05)
             when {
                 happy > 0.4 -> s.joy(ex, ey - 2, 0.9, EYE_GAP, EYE_INK)
-                alert > 0.4 -> for (side in intArrayOf(-1, 1)) {
-                    s.circle(ex + side * 25 + p.lookX * 4, ey, 10.5 * p.eye[(side + 1) / 2].coerceAtLeast(0.3))
+                alert > 0.4 || listen > 0.4 -> for (side in intArrayOf(-1, 1)) {
+                    s.circle(ex + side * 25 + p.lookX * 4, ey, (10.5 + 3 * v) * p.eye[(side + 1) / 2].coerceAtLeast(0.3))
                     s.fill(EYE_INK)
                 }
                 else -> {
@@ -162,7 +171,7 @@ object Muyu : CastCharacter("muyu", "木鱼") {
         }
 
         // 木槌：提醒时举着抖
-        val ready = alert * (16 + 5 * sin(ta * 26))
+        val ready = alert * (16 + 5 * sin(ta * 26)) + 22 * listen
         val angle = -128 + 2 * sin(now * 1.2) - 38 * knock + ready
         s.group {
             translate(PIVOT_X, PIVOT_Y + fy * 0.5 - hop * 0.5)
@@ -181,6 +190,8 @@ object Muyu : CastCharacter("muyu", "木鱼") {
         if (micro > 0.01) plusOne(s, tm - 0.16, 0)
         if (think > 0.01) for (k in 0..1) plusOne(s, (tt % BEAT) + k * BEAT - 0.08, k)
         if (combo > 0.01) for (k in 0..2) plusOne(s, tc - k * 0.28 - 0.08, k)
+        if (scribe > 0.01) for (k in 0..minOf(3, (ts / FAST).toInt())) plusOne(s, (ts % FAST) + k * FAST - 0.04, (ts / FAST).toInt() - k)
+        if (listen > 0.01) s.soundArcs(-78.0, -40.0, -130.0, listen, p.voice, tl, GOLD)
         s.badge(alert, ta)
     }
 

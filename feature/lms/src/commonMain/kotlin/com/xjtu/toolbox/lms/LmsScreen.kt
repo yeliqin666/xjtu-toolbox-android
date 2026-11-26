@@ -267,6 +267,8 @@ fun LmsScreen(
     // 不能跟着 pendingCourseId 一起清：清掉它和切到活动页是同一帧，AnimatedContent 里淡出中的
     // 旧页会用新状态重组一次——占位变成完整课程列表，用户就看到「中间闪过思源学堂主页」。
     var listPlaceholder by remember { mutableStateOf(initialCourseId != null) }
+    // 报给小岱的是页内此刻那一层（课程列表 / 某课的活动 / 某个活动 / 公告 / 讨论帖），不是思源首页
+    com.xjtu.toolbox.ui.components.ReportToPidai("思源学堂", hint = "要我帮你理一理快截止的作业吗？") { lmsSnapshot(currentPage, cache, listPlaceholder) }
     // 深链落地的那一页：从它返回直接退出思源，回到来处（日程、消息），不掉进用户没进过的上一层
     var entryPage by remember { mutableStateOf<LmsPage?>(null) }
     LaunchedEffect(Unit) {
@@ -638,4 +640,55 @@ fun formatLmsTime(raw: String): String {
         ?: return text.take(16).replace('T', ' ')
     fun pad(value: Int) = value.toString().padStart(2, '0')
     return "${campus.year}/${pad(campus.month.ordinal + 1)}/${pad(campus.day)} ${pad(campus.hour)}:${pad(campus.minute)}"
+}
+
+/** 思源此刻那一层给小岱看的内容。 */
+private fun lmsSnapshot(page: LmsPage, cache: LmsPageCache, opening: Boolean): String = buildString {
+    fun plain(html: String?, max: Int) = html.orEmpty().replace(Regex("<[^>]+>"), " ").replace(Regex("""\s+"""), " ").trim().take(max)
+    fun courseLine(c: LmsCourseSummary) = "课程：${c.name}（id ${c.id}）"
+    when (page) {
+        LmsPage.CourseList -> {
+            if (opening) {
+                append("正在打开一门课（深链），还没落到课程页")
+                return@buildString
+            }
+            append("课程列表")
+            cache.selectedSemester?.let { append("｜学期：$it") }
+            append('\n')
+            cache.courses.take(30).forEach { append("- ${it.name}（id ${it.id}）\n") }
+        }
+        is LmsPage.ActivityList -> {
+            append(courseLine(page.course)).append("｜活动列表")
+            cache.selectedTypes[page.course.id]?.let { append("｜筛选：${it.value}") }
+            append('\n')
+            cache.activities[page.course.id].orEmpty().take(30).forEach { a ->
+                append("- [${a.type.value}] ${a.title}")
+                a.endTime?.let { append("｜截止 $it") }
+                cache.submitted(a)?.let { append(if (it) "｜已交" else "｜未交") }
+                append('\n')
+            }
+            cache.bulletins[page.course.id].orEmpty().take(5).forEach { append("- [公告] ${it.title}｜${it.createdAt}\n") }
+        }
+        is LmsPage.ActivityDetail -> {
+            val a = cache.details[page.activity.id] ?: page.activity
+            append(courseLine(page.course)).append('\n')
+            append("活动：[${a.type.value}] ${a.title}（id ${a.id}）\n")
+            a.endTime?.let { append("截止：$it\n") }
+            cache.submitted(a)?.let { append(if (it) "已提交\n" else "未提交\n") }
+            if (a.uploads.isNotEmpty()) append("附件：${a.uploads.joinToString("、") { it.name }}\n")
+            plain(a.description, 800).takeIf { it.isNotEmpty() }?.let { append("说明：$it\n") }
+        }
+        is LmsPage.BulletinDetail -> {
+            append(courseLine(page.course)).append('\n')
+            append("公告：${page.bulletin.title}｜${page.bulletin.createdBy.name}｜${page.bulletin.createdAt}\n")
+            append(plain(page.bulletin.content, 800))
+        }
+        is LmsPage.ForumTopicDetail -> {
+            append(courseLine(page.course)).append('\n')
+            append("讨论帖：${page.topic.title}｜${page.topic.createdBy.name}｜${page.topic.replyCount} 条回复\n")
+            append(plain(page.topic.content, 600)).append('\n')
+            cache.topicReplies[page.topic.id].orEmpty().take(10).forEach { append("- 回复：${plain(it.content, 120)}\n") }
+        }
+        is LmsPage.VideoPlayer -> append("正在看视频：${page.title}${if (page.isLive) "（直播）" else ""}")
+    }
 }

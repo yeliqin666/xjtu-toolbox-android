@@ -22,11 +22,10 @@ object AgentPostCard {
     private const val MAX_BODY = 4000
 
     fun definition(): JsonObject = agentTool(TOOL,
-        "把用户要发到 App 社区（GitHub Discussions）的反馈、建议或求助整理成帖子预览卡，用户核对后点「发布」才用他的社区账号发出。" +
-            "返回后卡片已展示，正文不必复述，提醒他检查后点发布即可。",
+        "给 App 社区（GitHub Discussions）起草帖子预览卡，用户点「发布」才用他的社区账号发出。返回时卡片已展示。",
         agentParams(
-            "title" to agentStrProp("标题，一句话说清问题或建议，不超过 30 字。"),
-            "body" to agentStrProp("正文，Markdown。Bug 写清现象、复现步骤、期望；建议写清场景与想要的效果。只写用户说过或工具查到的事实。"),
+            "title" to agentStrProp("标题，30 字以内。"),
+            "body" to agentStrProp("正文，Markdown。"),
             "category" to agentEnumProp("板块。缺省：$DEFAULT_CATEGORY。", *CATEGORIES.toTypedArray()),
             "caption" to agentStrProp("卡片上方一句说明，可空。"),
             required = listOf("title", "body"),

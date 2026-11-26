@@ -6,145 +6,141 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 // read_zyxf_file 与 get_lms_activity 读附件共用的参数说明
-private const val DOC_READ_NOTE = "auto 文字优先，扫描页有联网搜索 Key 时 OCR 成文字，否则转页面图；同一附件复用缓存。" +
-    "doc(x)/ppt(x)/xlsx 取正文，图片直接看。"
-private const val DOC_PAGES_PROP = "PDF/ppt 实际页码，从 1 起。5 只读第5页；可用 3-5 或 1,3,7-8。缺省前2页。PDF 文字最多20页，页面图最多4页；其他长文本是段号。"
-private const val DOC_MODE_PROP = "PDF：info=每页首行；search=按 query 找页；text=只取文字；images=页面图（公式/图表）；auto=文字优先，默认。"
+private const val DOC_READ_NOTE = "auto 文字优先，扫描页能 OCR 就转文字、否则给页面图；doc(x)/ppt(x)/xlsx 取正文，图片直接看。读过的有缓存。"
+private const val DOC_PAGES_PROP = "页码从 1 起：5、3-5、1,3,7-8。缺省：前 2 页。PDF 文字最多 20 页、页面图最多 4 页；其他长文本按段号。"
+private const val DOC_MODE_PROP = "PDF：info=每页首行；search=按 query 找页；text=只要文字；images=页面图（公式、图表）；auto=默认。"
 private const val DOC_QUERY_PROP = "mode=search 的检索词。"
-private const val DOC_OFFSET_PROP = "PDF 单页文字过长时，按返回的 next 从此字符偏移续读；默认0。"
+private const val DOC_OFFSET_PROP = "单页文字太长时，按上次返回的 next 从这个字符偏移续读。"
 private val DOC_MODES = arrayOf("auto", "info", "search", "text", "images")
 
 /** 送给模型的工具清单（OpenAI function calling 的那一份 JSON 串）。 */
 fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     val arr = mutableListOf<JsonObject>()
-    // 描述只写「返回什么、参数怎么填、前置条件」。何时该调、怎么答由系统提示和模型自己定，
-    // 不在这里举例、劝说或解释。
+    // 描述只写事实：返回什么、参数含义、前置条件与限制。不教模型何时调、怎么答，也不叮嘱。
     arr.add(agentTool("get_calendar",
-        "第几周、放假、考试周、开学：教学周、当前与下一节次、今天的作息表、开学至今天数，以及学期校历。",
-        agentParams("term" to agentStrProp("学年或学期关键词，如 2025-2026、第一学期。缺省：当前学期。"))))
+        "校历与作息：当前教学周、当前和下一节次、今天的作息时间、开学天数、放假与考试周。",
+        agentParams("term" to agentStrProp("学年或学期，如 2025-2026、第一学期。缺省：当前学期。"))))
     arr.add(agentTool("get_schedule",
-        "课表，含用户自建日程。无缓存时联网拉取。",
+        "课表，含用户自建日程。",
         agentParams(
-            "date" to agentStrProp("yyyy-MM-dd，只返回该日。缺省：本周；给了 term 则整学期。"),
+            "date" to agentStrProp("yyyy-MM-dd，只看这一天。缺省：本周；给了 term 则整学期。"),
             "term" to agentStrProp("学期代码，如 2024-2025-1。缺省：当前学期。"),
         )))
     arr.add(agentTool("get_exam_schedule",
-        "考试安排：日期、时间、地点、座位号。需教务登录。",
+        "本人考试安排：日期、时间、地点、座位号。需教务登录。",
         agentParams()))
     arr.add(agentTool("search_school_courses",
-        "全校开课查询，返回教师、学分、容量、班级、时间地点。至少给一个筛选条件。需教务登录。",
+        "全校开课查询：教师、学分、容量、班级、时间地点。至少给一个筛选条件。需教务登录。",
         agentParams(
             "course_name" to agentStrProp("课程名，模糊。"),
-            "teacher" to agentStrProp("教师姓名，模糊。"),
+            "teacher" to agentStrProp("教师，模糊。"),
             "course_code" to agentStrProp("课程号，模糊。"),
             "class_name" to agentStrProp("上课班级，模糊。"),
             "department" to agentStrProp("开课单位，如 数学学院。"),
             "campus" to agentStrProp("兴庆/雁塔/曲江/苏州/创新港。"),
             "term" to agentStrProp("学期代码，如 2025-2026-2。缺省：当前学期。"),
             "weekday" to agentIntProp("星期 1–7。"),
-            "section" to agentIntProp("节次 1–11，匹配覆盖该节的课。"),
-            "start_section" to agentIntProp("起始节次 1–11，与 end_section 组成区间。"),
-            "end_section" to agentIntProp("结束节次 1–11。"),
-            "public_elective" to agentBoolProp("仅校公选课。"),
+            "section" to agentIntProp("覆盖这一节的课，1–11。"),
+            "start_section" to agentIntProp("节次区间起点 1–11，配 end_section。"),
+            "end_section" to agentIntProp("节次区间终点 1–11。"),
+            "public_elective" to agentBoolProp("只看校公选课。"),
             "elective_category" to agentStrProp("基础通识类选修课/基础通识类核心课/钱学森学院特色课。"),
             "limit" to agentIntProp("条数，默认 10，上限 20。"),
         )))
     arr.add(agentTool("get_empty_rooms",
-        "空闲教室。status 返回此刻状态，slots 返回全天课表节次，both 合并两者；节次条件自动查询课表。",
+        "空闲教室，可按楼、日期、节次筛。",
         agentParams(
-            "campus"   to agentEnumProp("缺省：兴庆校区。实时状态只有兴庆、雁塔、创新港。", "兴庆校区", "雁塔校区", "曲江校区", "创新港校区"),
+            "campus"   to agentEnumProp("缺省：兴庆校区。", "兴庆校区", "雁塔校区", "曲江校区", "创新港校区"),
             "building" to agentStrProp("楼名，如 主楼A、1号巨构。缺省：全校区。"),
-            "section"  to agentIntProp("按课表筛选该节空闲的教室，1–11。"),
             "date"     to agentStrProp("今天/明天/yyyy-MM-dd。缺省：今天。"),
-            "view" to agentEnumProp("auto 自动选择；slots 全天课表空闲条；status 此刻实时状态；both 同时查询。未来日期仅支持 slots。", "auto", "slots", "status", "both"),
-            "sections" to buildJsonObject { put("type", "array"); put("description", "要求全部空闲的节次 1–11；自动查询课表。明确要坐到晚上时传覆盖该时段的节次。"); put("items", buildJsonObject { put("type", "integer") }) },
-            "min_free_sections" to agentIntProp("至少连续空闲几节，1–11；不代表从现在一直空到晚上，需要具体时段时用 sections。"),
+            "view" to agentEnumProp("slots=按课表的全天各节空闲，可查未来；status=此刻实时占用，仅今天且仅兴庆、雁塔、创新港；both=两者；auto=自动。", "auto", "slots", "status", "both"),
+            "section"  to agentIntProp("只看这一节空闲的，1–11。"),
+            "sections" to buildJsonObject { put("type", "array"); put("description", "这些节次都要空闲，1–11。"); put("items", buildJsonObject { put("type", "integer") }) },
+            "min_free_sections" to agentIntProp("至少连续空闲几节，1–11。"),
         )))
     arr.add(agentTool("get_attendance",
-        "本学期考勤记录（正常/迟到/缺勤/请假）。需考勤登录。",
+        "本学期考勤记录：正常、迟到、缺勤、请假。需考勤登录。",
         agentParams("limit" to agentIntProp("条数，默认 20，上限 200。"))))
     arr.add(agentTool("get_grades",
         "成绩与加权 GPA。需教务登录。",
         agentParams("term" to agentStrProp("学期代码，如 2024-2025-1。缺省：全部学期。"))))
     arr.add(agentTool("get_card_info",
-        "校园卡余额、消费流水与收支汇总（给 days 时）。需校园卡登录。",
+        "校园卡余额；给 days 再附这段时间的消费流水和收支汇总。需校园卡登录。",
         agentParams("days" to agentIntProp("流水天数 1–180。缺省：不查流水。"))))
     arr.add(agentTool("get_notifications",
-        "校内通知：标题、来源、日期、链接。给 keyword 时用各站自己的站内搜索查全站（含往年），否则列最新。",
+        "校内通知：标题、来源、日期、链接。给 keyword 用各站站内搜索查全站（含往年），否则列最新。",
         agentParams(
-            "keyword" to agentStrProp("关键词，如 推免、放假、奖学金、选课。缺省：不搜，列最新。"),
-            "source" to agentStrProp("来源名，如 教务处、OA 通知、仲英书院、电信学部。缺省：按用户身份自动选（本科生：教务处、学生处、实践教学中心、所在书院；研究生：研究生院；都含 OA 与所在学院）。"),
+            "keyword" to agentStrProp("关键词，如 推免、放假、奖学金。"),
+            "source" to agentStrProp("来源名，如 教务处、OA 通知、仲英书院、电信学部。缺省：按用户身份选常用来源。"),
             "limit" to agentIntProp("条数，默认 10，上限 20。"),
         )))
     arr.add(agentTool("search_yellow_page",
-        "校园黄页：机构总机电话，不含个人号码。",
+        "校园黄页：机构办公电话，没有个人号码。",
         agentParams(
             "query" to agentStrProp("机构名或号码片段。可空，配合 category 列出。"),
             "category" to agentStrProp("党群机构/行政机构/直属单位/附属单位/其它。"),
             "limit" to agentIntProp("条数，默认 10，上限 20。"),
         )))
     arr.add(agentTool("preference",
-        "在本机长期保存、修改、删除或列出用户偏好与个人信息，返回改后的完整清单。只存可复用的信息，不存一次性事项。" +
-            "用户纠正校区、学院、专业、年级、书院时用固定键名（校区/学院/专业/年级/书院）记下，会压过学校系统里的旧信息。",
+        "本机长期记住的用户偏好与个人信息：列出、写入、改名或删除，返回改后的完整清单。" +
+            "键名为校区、学院、专业、年级、书院的条目会覆盖学校系统里的信息。",
         agentParams(
-            "action" to agentEnumProp("list 只列出当前偏好；缺省：按 key/value 写入或删除。", "list"),
-            "key" to agentStrProp("偏好名。同名或与已有键互相包含（如 所在校区/校区）时覆盖那一条。"),
-            "value" to agentStrProp("内容，一句。缺省：删除该偏好。"),
-            "old_key" to agentStrProp("改名时的旧键名，写入后删掉它。"),
+            "action" to agentEnumProp("list=只列出。缺省：按 key/value 写入或删除。", "list"),
+            "key" to agentStrProp("偏好名。与已有键相同或互相包含（所在校区/校区）时覆盖那一条。"),
+            "value" to agentStrProp("内容，一句。缺省：删除这一条。"),
+            "old_key" to agentStrProp("改名时的旧键名。"),
         )))
     arr.add(agentTool("find_faculty",
-        "本校在职教师主页：学院、职称、研究方向、办公地点、邮箱、主页地址。不含学生、行政人员、校外人士。",
+        "本校在职教师主页：学院、职称、研究方向、办公地点、邮箱、主页链接。",
         agentParams(
             "name" to agentStrProp("姓名，模糊。"),
-            "college" to agentStrProp("学院名，用于重名。"),
+            "college" to agentStrProp("学院，重名时用。"),
             "limit" to agentIntProp("条数，默认 3，上限 8。"),
             required = listOf("name"),
         )))
     // web_search / web_fetch 在 `:data` 的 DeepSeekWebTools 里，配了 DeepSeek Key 的端由 AgentHost.tools 并进来
     if (AgentCapability.ALARM in honored) {
         arr.add(agentTool("set_alarm",
-            "打开系统闹钟设定闹钟。",
+            "用系统闹钟定一个闹钟。",
             agentParams(
                 "hour" to agentIntProp("0–23。"),
                 "minute" to agentIntProp("0–59。缺省：0。"),
                 "message" to agentStrProp("标签。"),
-                "days" to agentStrProp("重复星期，逗号分隔：MON,TUE,WED,THU,FRI,SAT,SUN。缺省：单次。"),
+                "days" to agentStrProp("重复：MON,TUE,WED,THU,FRI,SAT,SUN 逗号分隔。缺省：只响一次。"),
                 required = listOf("hour"),
             )))
     }
     if (AgentCapability.SCHEDULE_EVENT_WRITE in honored) {
         arr.add(agentTool("add_schedule_event",
-            "往本 App 的日程里添加一条（占课表里的一段具体时间），只限当前学期。与课程或已有日程时间重叠时不添加，返回冲突；用户确认后带 force=true 重试。" +
-                "只写用户明确要求的事项，不额外安排活动；不占时段、只需在某个时刻前办完的事用 add_todo。没说地点、结束时间就不填。",
+            "往日程里加一段占时间的安排，仅限当前学期。和课程或已有日程冲突时不加、返回冲突；force=true 强制加。",
             agentParams(
                 "title" to agentStrProp("标题。"),
-                "date" to agentStrProp("yyyy-MM-dd；星期取这一天。"),
-                "start" to agentStrProp("开始时间 HH:mm。"),
-                "end" to agentStrProp("结束时间 HH:mm。缺省：开始后 1 小时。"),
+                "date" to agentStrProp("yyyy-MM-dd。"),
+                "start" to agentStrProp("开始 HH:mm。"),
+                "end" to agentStrProp("结束 HH:mm。缺省：开始后 1 小时。"),
                 "location" to agentStrProp("地点。"),
                 "note" to agentStrProp("备注。"),
-                "weeks" to agentStrProp("每周重复的教学周，如 3-5,8。缺省：只加 date 所在的那一周。"),
-                "force" to agentBoolProp("冲突时仍然添加。"),
-                    required = listOf("title", "date", "start"),
+                "weeks" to agentStrProp("每周重复的教学周，如 3-5,8。缺省：只加 date 那一周。"),
+                "force" to agentBoolProp("冲突也加。"),
+                required = listOf("title", "date", "start"),
             )))
     }
     arr.add(agentTool("get_library",
-        "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座和平面图快照。需图书馆登录。" +
-            "推荐去哪自习时按用户所在校区选 campus，用户点名别的校区就用那个。",
+        "图书馆：本人当前座位预约和各区域空座；给 area 返回该区域的空座和平面图。需图书馆登录。",
         agentParams(
-            "campus" to agentEnumProp("校区。缺省：账号在图书馆系统里当前的校区。", "兴庆", "雁塔", "创新港"),
-            "area" to agentStrProp("区域名，模糊，如 北楼二层外文库。缺省：列出该校区全部区域及空座数。"),
+            "campus" to agentEnumProp("缺省：账号在图书馆系统里的当前校区。", "兴庆", "雁塔", "创新港"),
+            "area" to agentStrProp("区域名，模糊，如 北楼二层外文库。缺省：列出全部区域和空座数。"),
         )))
     arr.add(agentTool("list_zyxf",
-        "历年卷、复习资料、课件、笔记（仲英学辅资料站，同学共享）：给 keyword 按文件名、目录名检索，否则列出目录。",
+        "仲英学辅资料站（同学共享的历年卷、复习资料、课件、笔记）：给 keyword 按文件名、目录名搜，否则浏览目录。返回的文件 ID 交给 read_zyxf_file。",
         agentParams(
             "keyword" to agentStrProp("关键词，宜用课程名。"),
-            "folder_id" to agentIntProp("目录 ID。缺省或 0：根目录。"),
+            "folder_id" to agentIntProp("目录 ID。缺省：根目录。"),
         )))
     arr.add(agentTool("read_zyxf_file",
-        "读学辅文件。PDF 先用 mode=info 看每页首行定位，或 mode=search 按关键词找页，再按页取文字或页面图。$DOC_READ_NOTE",
+        "读学辅文件。长 PDF 先用 info 看每页首行或 search 找页，再按页读。$DOC_READ_NOTE",
         agentParams(
-            "file_id" to agentIntProp("文件 ID，来自 list_zyxf。"),
+            "file_id" to agentIntProp("来自 list_zyxf。"),
             "pages" to agentStrProp(DOC_PAGES_PROP),
             "mode" to agentEnumProp(DOC_MODE_PROP, *DOC_MODES),
             "query" to agentStrProp(DOC_QUERY_PROP),
@@ -153,9 +149,9 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
         )))
     if (AgentCapability.FILE_SAVE in honored) {
         arr.add(agentTool("save_file",
-            "把学辅资料或思源附件存进手机「下载」（我的 → 下载管理里能看到）。用户说要下载、要存时用。",
+            "把学辅文件或思源附件存进手机「下载」（我的 → 下载管理）。",
             agentParams(
-                "source" to agentEnumProp("zyxf=学辅资料站；lms=思源附件。", "zyxf", "lms"),
+                "source" to agentEnumProp("zyxf=学辅；lms=思源附件。", "zyxf", "lms"),
                 "file_id" to agentIntProp("学辅文件 ID。"),
                 "course" to agentStrProp("思源课程名，模糊。"),
                 "activity" to agentStrProp("思源活动标题，模糊。"),
@@ -164,26 +160,27 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             )))
     }
     arr.add(agentTool("get_textbooks",
-        "本人课程教材（教务教材报表）。需教务登录。",
+        "本人各课程的教材。需教务登录。",
         agentParams(
             "course" to agentStrProp("课程名关键词。缺省：全部。"),
             "term" to agentStrProp("学期代码，如 2025-2026-2。缺省：当前学期。"),
         )))
     arr.add(agentTool("get_coupons",
         "本人加餐券：可领取、可使用、余额、有效期。需加餐券登录。",
-        agentParams("status" to agentEnumProp("all=可领取+可使用；available=可领取；usable=可使用。缺省：all。", "all", "available", "usable"))))
+        agentParams("status" to agentEnumProp("all=全部；available=可领取；usable=可使用。缺省：all。", "all", "available", "usable"))))
     arr.add(agentTool("get_lms",
-        "思源学堂：不给 course 列出本人课程；给 course 列出该课的作业、课件、回放等活动；scope=assignments 汇总全部课程的作业（逐课查询，较慢）。需思源学堂登录。",
+        "思源学堂：不给 course 列本人课程；给 course 列该课的作业、课件、回放等活动；scope=assignments 汇总全部课程的作业（较慢）。需思源登录。",
         agentParams(
             "course" to agentStrProp("课程名，模糊。"),
-            "scope" to agentEnumProp("assignments：全部作业汇总。", "assignments"),
+            "scope" to agentEnumProp("assignments=全部作业汇总。", "assignments"),
         )))
     arr.add(agentTool("get_lms_activity",
-        "思源活动详情、截止时间、提交状态、分数、教师评语，以及用户自己已提交的内容和附件（结果里的「我的提交附件」）。这些都是用户本人的数据，直接查，不用先问。给 file 读取附件，老师发的和用户自己交的都能读，参数同 read_zyxf_file。${DOC_READ_NOTE}需思源登录。",
+        "思源某个活动的详情：截止时间、提交状态、分数、评语，以及本人已交的内容和附件。给 file 读附件（老师发的、本人交的都行），参数同 read_zyxf_file。" +
+            "${DOC_READ_NOTE}需思源登录。",
         agentParams(
             "course" to agentStrProp("课程名，模糊。"),
             "activity" to agentStrProp("活动标题，模糊。"),
-            "file" to agentStrProp("附件ID或完整名称优先，也可用唯一关键词；多项匹配会返回候选。"),
+            "file" to agentStrProp("附件 ID 或完整名称，也可用唯一关键词；多个匹配时返回候选。"),
             "pages" to agentStrProp(DOC_PAGES_PROP),
             "mode" to agentEnumProp(DOC_MODE_PROP, *DOC_MODES),
             "query" to agentStrProp(DOC_QUERY_PROP),
@@ -192,51 +189,56 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
         )))
     if (AgentCapability.SS_ACTIVITY in honored) {
         arr.add(agentTool("activity",
-            "学校智慧社区的活动报名，是集体活动证明和课外学分（第二课堂，本科共需 8 学分）的主要来源。" +
-                "活动描述几乎不写「集体活动证明」，但讲座、报告会、分享会、宣讲会（如高数讲座、保研分享会）通常都能开；" +
-                "用户要集体活动证明时用 group_proof，它按这类关键词合并搜出未结束的活动。结果里的课程性质、素养能力、积分是课外学分的参考，能否认定以学院、书院规定为准。" +
-                "search 按名称搜（keyword 缺省列近期活动）；detail 看详情（报名起止、名额、是否已报、地点、积分构成）；mine 本人报名记录。" +
-                "apply 一键报名、cancel 取消报名：先 detail 核对仍在报名时间内且未报过，并经用户明确同意。需智慧社区登录。",
+            "智慧社区活动报名，集体活动证明和课外学分（本科共需 8 分）的主要来源。讲座、报告会、分享会通常能开集体活动证明，但描述里很少写明；" +
+                "积分能否认定以学院、书院规定为准。apply / cancel 会真实报名或取消，须用户明确同意。需智慧社区登录。",
             agentParams(
-                "action" to agentEnumProp("group_proof / search / detail / apply / cancel / mine。", "group_proof", "search", "detail", "apply", "cancel", "mine"),
-                "keyword" to agentStrProp("search 的活动名称关键词。"),
+                "action" to agentEnumProp(
+                    "search=按名称搜，不给 keyword 列近期；group_proof=搜还没结束、通常能开集体活动证明的活动；detail=详情（报名时间、名额、是否已报、地点、积分）；mine=本人报名记录；apply=报名；cancel=取消报名。",
+                    "group_proof", "search", "detail", "apply", "cancel", "mine",
+                ),
+                "keyword" to agentStrProp("search 的活动名关键词。"),
                 "id" to agentStrProp("活动 ID（HDDM），来自 search 或 mine。detail / apply / cancel 必填。"),
-                "order" to agentEnumProp("search 排序：time 时间（默认）、hot 热度、points 积分。", "time", "hot", "points"),
+                "order" to agentEnumProp("search 排序：time（默认）、hot 热度、points 积分。", "time", "hot", "points"),
                 required = listOf("action"),
             )))
     }
     arr.add(agentTool("get_fitness_score",
-        "本人体测成绩：总分、等级、分项。按学年计。需体测登录。",
-        agentParams("year" to agentStrProp("学年起始年，2025=2025-2026 学年。缺省：当前已开测学年。"))))
+        "本人体测成绩：总分、等级、各项。需体测登录。",
+        agentParams("year" to agentStrProp("学年起始年，2025 即 2025-2026 学年。缺省：最近已开测的学年。"))))
     if (AgentCapability.APP_SETTINGS in honored) {
         arr.add(agentTool("app_setting",
-            "本应用设置：不给 value 时列出全部设置的当前值与可选值；给 key 和 value 时修改该项。",
+            "本 App 的设置：不给 value 列出全部当前值和可选值；给 key 和 value 修改。",
             agentParams(
                 "key" to agentEnumProp("设置项。", "dark_mode", "dynamic_color", "nav_bar_style", "show_quick_actions",
                     "default_tab", "network_mode", "account_type", "update_channel", "receive_preview_updates"),
-                "value" to agentStrProp("新取值。"),
-                )))
+                "value" to agentStrProp("新值。"),
+            )))
     }
     arr.add(agentTool("app_guide",
-        "查询本 App 的完整功能与操作入口，包括小岱配置、MCP 扩展工具、日程、下载与隐私。回答 App 能力或设置问题时先查此工具。",
+        "本 App 的功能目录、各功能入口、设置项和小贴士。",
         agentParams()))
     arr.add(agentTool("search_campus_guide",
-        "校园指南：食堂与开放时间、入学、学籍学分、选课、考试补考、转专业辅修、特色项目、奖助贷、就业升学、交流、医疗医保心理、住宿后勤、校园卡网络、图书馆自习、体育场馆、党团社团、安全纪律、证件用印、毕业、校历作息、校园文化的规定、流程与常识，含电话、地点、时间、金额，条末标出处和年份。",
+        "校园指南：规章、办事流程和生活常识（选课、考试、转专业、奖助、医保、住宿、校园卡、网络、图书馆、场馆、毕业等），含电话、地点、时间、金额，每条注出处和年份。",
         agentParams(
-            "query" to agentStrProp("关键词，如 转专业、缓考、校园网流量、医保报销、跑操。"),
-            "section" to agentStrProp("节名片段，如 选课、奖助。只给它不给 query 时列出整节。都不给：列分节目录。"),
+            "query" to agentStrProp("关键词，如 缓考、校园网流量、医保报销。"),
+            "section" to agentStrProp("节名片段，如 选课。只给它时列出整节；都不给列目录。"),
             "limit" to agentIntProp("条数，默认 5，上限 10。"),
         )))
     if (AgentCapability.OPEN_PAGE in honored) {
         arr.add(agentTool("open_page",
-            "打开本 App 的功能页，或移动交大里的一项服务，界面随即跳转。page 与 service 二选一。",
+            "跳到本 App 的功能页，或打开移动交大里的一项服务。page 与 service 二选一。",
             agentParams(
                 "page" to agentEnumProp("本 App 的功能页。", *agentOpenablePages.map { it.title }.distinct().toTypedArray()),
-                "service" to agentStrProp("移动交大里的服务名，模糊匹配，如 校医院、宿舍报修、请假。"),
+                "service" to agentStrProp("移动交大服务名，模糊，如 校医院、宿舍报修、请假。"),
             )))
     }
+    if (AgentCapability.PAGE_CONTEXT in honored) {
+        arr.add(agentTool("read_current_page",
+            "用户此刻正在看的 App 页面上显示的内容：页名、筛选条件、列表和数字，现读现取。没有页面在显示时返回空。",
+            agentParams()))
+    }
     arr.add(agentTool("calculate",
-        "计算表达式：+ - * / ^ 与括号。",
+        "算一个表达式：+ - * / ^ 和括号。",
         agentParams("expression" to agentStrProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))
     return JsonArray(arr.map(AgentWidgetPresentation::queryDefinition)).toString()
 }

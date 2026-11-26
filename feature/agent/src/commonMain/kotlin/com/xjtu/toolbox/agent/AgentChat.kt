@@ -133,6 +133,13 @@ internal fun ChatPanel(
     LaunchedEffect(visionEnabled) {
         if (!visionEnabled && attachments.isNotEmpty()) attachments = emptyList()
     }
+    // 小岱球带来的页面截图：放进待发图片，用户看得到、能删，发不发由他
+    LaunchedEffect(vm.draftContext) {
+        val shots = vm.draftContext?.images.orEmpty()
+        if (shots.isNotEmpty() && visionEnabled) {
+            attachments = (attachments + shots).distinct().take(AgentVision.MAX_IMAGES_PER_MESSAGE)
+        }
+    }
 
     fun send() {
         val text = input.trim()
@@ -152,10 +159,12 @@ internal fun ChatPanel(
             vm.sendMessage(
                 text,
                 config,
-                llmAnnex = context?.snapshot?.let(AgentAnnex::snapshot),
+                llmAnnex = context?.let(AgentAnnex::of),
                 images = images,
                 contextLabel = context?.label,
             )
+            // 带着某一页发出的：记下这页对应这段对话，1 小时内在这页再叫小岱就接着聊
+            if (context?.fromPage == true) AgentPageSessions.remember(context.label, vm.currentSessionId)
         }
     }
 
@@ -446,10 +455,15 @@ internal fun ChatPanel(
             pageBackdrop = if (glass) couiChatBackdrop else null,
             onOpenShared = if (sharedMaterials != null) ({ showSharedMaterials = true }) else null,
             voicePhase = voice?.phase,
-            onVoice = {
+            onVoiceStart = {
                 keyboard?.hide()
-                voice?.toggle(config.deepSeekToolKey) { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text" }
+                // 松手识别完直接发出去；输入框里已经打了字的，接在后面一起发
+                voice?.begin(config.deepSeekToolKey) { text ->
+                    input = if (input.isBlank()) text else "${input.trimEnd()} $text"
+                    send()
+                }
             },
+            onVoiceEnd = { cancel -> voice?.end(cancel) },
         )
         }
     }

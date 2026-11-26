@@ -72,10 +72,12 @@ object PidaiTaskStore {
     }
 }
 
-/** 小岱管定时任务的三件工具：`schedule_task` / `list_tasks` / `cancel_task`。 */
+/** 小岱管定时任务的工具 `task`（add / list / cancel）；合并前的三个旧名仍可执行。 */
 object PidaiTaskAgentTools : AgentTools {
 
     private val DAY_CODES = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+    override val legacyNames = setOf("schedule_task", "list_tasks", "cancel_task")
 
     override val toolDefinitions: String by lazy {
         fun prop(d: String) = buildJsonObject { put("type", "string"); put("description", d) }
@@ -94,18 +96,22 @@ object PidaiTaskAgentTools : AgentTools {
         JsonArray(
             listOf(
                 tool(
-                    "schedule_task",
-                    "让小岱在后台定时做一件事（查公开通知、联网搜、看校园地图），到点把结果发到通知和「消息收纳」。" +
-                        "后台不登录学校系统，课表、成绩这类要登录的查不了。最多 ${PidaiTaskStore.MAX_TASKS} 个。",
+                    "task",
+                    "小岱的后台定时任务，到点把结果推送到通知和「消息收纳」：add 新建，list 列出，cancel 取消。" +
+                        "后台只能查公开通知、联网搜索、校园地图，查不了要登录的课表、成绩。最多 ${PidaiTaskStore.MAX_TASKS} 个。",
                     mapOf(
-                        "prompt" to prop("到点要做的事，写成给自己的指令，如「看教务处和学生处有没有奖学金评选通知，有就列出来」。"),
-                        "time" to prop("每天几点，HH:mm。"),
-                        "days" to prop("哪几天，逗号分隔：MON,TUE,WED,THU,FRI,SAT,SUN。缺省：每天。"),
+                        "action" to buildJsonObject {
+                            put("type", "string")
+                            put("description", "add / list / cancel。")
+                            put("enum", JsonArray(listOf("add", "list", "cancel").map { JsonPrimitive(it) }))
+                        },
+                        "prompt" to prop("add：到点要做的事，写成给自己的指令，如「看教务处有没有奖学金通知，有就列出来」。"),
+                        "time" to prop("add：每天几点，HH:mm。"),
+                        "days" to prop("add：MON,TUE,WED,THU,FRI,SAT,SUN 逗号分隔。缺省：每天。"),
+                        "keyword" to prop("cancel：任务内容里的关键词。"),
                     ),
-                    listOf("prompt", "time"),
+                    listOf("action"),
                 ),
-                tool("list_tasks", "列出用户让小岱定时做的任务。", emptyMap(), emptyList()),
-                tool("cancel_task", "取消一个定时任务。", mapOf("keyword" to prop("任务内容里的关键词。")), listOf("keyword")),
             ),
         ).toString()
     }
@@ -115,8 +121,9 @@ object PidaiTaskAgentTools : AgentTools {
     override suspend fun execute(name: String, argsJson: String): String {
         val args = runCatching { AppJson.parseToJsonElement(argsJson.ifBlank { "{}" }).jsonObject }.getOrDefault(JsonObject(emptyMap()))
         fun arg(k: String) = args[k].safeStringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-        return when (name) {
-            "schedule_task" -> {
+        val action = if (name == "task") arg("action") ?: return ToolReply.missing("action") else name
+        return when (action) {
+            "add", "schedule_task" -> {
                 val prompt = arg("prompt") ?: return ToolReply.missing("prompt")
                 val time = arg("time") ?: return ToolReply.missing("time")
                 val (h, m) = Regex("""^(\d{1,2}):(\d{2})$""").find(time)?.destructured?.let { (a, b) -> a.toInt() to b.toInt() }
@@ -133,11 +140,11 @@ object PidaiTaskAgentTools : AgentTools {
                 if (!PidaiTaskStore.add(task)) return "error: limit_reached; max: ${PidaiTaskStore.MAX_TASKS}"
                 "ok: scheduled; time: $time; days: ${arg("days") ?: "every_day"}; prompt: $prompt"
             }
-            "list_tasks" -> PidaiTaskStore.all().takeIf { it.isNotEmpty() }?.joinToString("\n") { t ->
+            "list", "list_tasks" -> PidaiTaskStore.all().takeIf { it.isNotEmpty() }?.joinToString("\n") { t ->
                 val days = if (t.days.isEmpty()) "每天" else t.days.joinToString(",") { DAY_CODES[it - 1] }
                 "- ${t.hour.toString().padStart(2, '0')}:${t.minute.toString().padStart(2, '0')} $days｜${t.prompt}"
             } ?: ToolReply.empty("tasks")
-            "cancel_task" -> {
+            "cancel", "cancel_task" -> {
                 val kw = arg("keyword") ?: return ToolReply.missing("keyword")
                 val hits = PidaiTaskStore.all().filter { it.prompt.contains(kw) }
                 when {
@@ -146,7 +153,7 @@ object PidaiTaskAgentTools : AgentTools {
                     else -> { PidaiTaskStore.remove(hits.single().id); "ok: cancelled; prompt: ${hits.single().prompt}" }
                 }
             }
-            else -> ToolReply.notFound("tool", name)
+            else -> if (name == "task") ToolReply.badValue("action", "add/list/cancel") else ToolReply.notFound("tool", name)
         }
     }
 }

@@ -15,10 +15,13 @@ import com.xjtu.toolbox.settings.SettingsStore
 object BottomBarTabs {
     const val MIN_MIDDLE = 1
     const val MAX_MIDDLE = 3
-    val DEFAULT_MIDDLE: List<AppRoute> = listOf(AppRoute.Schedule, AppRoute.Agent, AppRoute.Zyxf)
+    val DEFAULT_MIDDLE: List<AppRoute> = listOf(AppRoute.Schedule, AppRoute.Zyxf)
 
-    /** 不能当底栏格的：付款码是盖在当前页上的弹层，没有自己的页面。 */
-    private val EXCLUDED: Set<AppRoute> = setOf(AppRoute.PaymentCode)
+    /**
+     * 不能当底栏格的：付款码是盖在当前页上的弹层，没有自己的页面；小岱已经从底栏里拿出来，
+     * 成了底栏右边那颗常驻的球（#557），老设置里存着它的会在 [middleOf] 里被滤掉。
+     */
+    private val EXCLUDED: Set<AppRoute> = setOf(AppRoute.PaymentCode, AppRoute.Agent)
 
     /** 能放进底栏的功能：首页上显示的一级功能，按首页目录的顺序。 */
     fun candidates(accountType: AccountType): List<AppService> =

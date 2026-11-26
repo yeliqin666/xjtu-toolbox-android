@@ -4,6 +4,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -42,6 +43,11 @@ object Cat : CastCharacter("cat", "喵") {
         val micro = p.amt(Act.MICRO); val tm = p.t(Act.MICRO)
         val poke = p.amt(Act.POKE); val tp = p.t(Act.POKE)
         val combo = p.amt(Act.COMBO); val tc = p.t(Act.COMBO)
+        // 在听：耳朵竖起来跟着声音抖，歪头盯着你，声音越大瞳孔越圆
+        val listen = p.amt(Act.LISTEN); val tl = p.t(Act.LISTEN)
+        val v = p.voice * listen
+        // 转写：猫猫敲键盘，低头两只爪子噼里啪啦
+        val scribe = p.amt(Act.TRANSCRIBE); val ts = p.t(Act.TRANSCRIBE)
 
         // 震惊：蹦起来、炸毛，定住，再慢慢松下来
         val shock = poke * window(tp, 0.0, 0.06, 0.6, 0.85)
@@ -57,7 +63,7 @@ object Cat : CastCharacter("cat", "喵") {
         val spring = alert * wobble(ta, 15.0, 4.5)
         // 出拳时又被戳：耳朵一竖、眼睛瞪圆一下，接着打
         val startle = p.kick(0.05, 0.3, 0.5)
-        val perk = maxOf(alert, shock, startle)
+        val perk = maxOf(alert, shock, startle, listen)
         val tilt = micro * bump(tm / 1.5)
 
         // 毛线球绕头转；转到前面时伸爪拍它
@@ -65,8 +71,8 @@ object Cat : CastCharacter("cat", "喵") {
         val ballX = cos(ang) * 94
         val ballY = 24 + 34 * sin(ang)
         val swipe = think * (if (sin(ang) > 0.55) bump((sin(ang) - 0.55) / 0.45) else 0.0)
-        val lookX = mix(p.lookX, cos(ang), think) * (1 - fist)
-        val lookY = mix(mix(p.lookY, 0.5 * sin(ang), think), 0.3, fist)
+        val lookX = mix(mix(p.lookX, cos(ang), think) * (1 - fist), 0.0, max(listen, scribe))
+        val lookY = mix(mix(mix(p.lookY, 0.5 * sin(ang), think), 0.3, fist), 1.0, scribe)
 
         val rx = 97.0
         val ry = 78.0 * (1 + 0.012 * p.breath)
@@ -77,13 +83,14 @@ object Cat : CastCharacter("cat", "喵") {
         s.group {
             // 以下巴为支点
             // 出拳时整颗头跟着左右晃
-            translate(think * cos(ang) * 8 + 6 * jab, cy + ry - hop)
-            scale(1 + 0.05 * shock - 0.06 * spring, 1 + 0.04 * shock + 0.1 * spring)
-            rotate(p.lookX * 4 * (1 - shock) + think * 11 * cos(ang) + 14 * tilt - 7 * jab)
+            translate(think * cos(ang) * 8 + 6 * jab, cy + ry - hop + 6 * scribe)
+            scale(1 + 0.05 * shock - 0.06 * spring, 1 + 0.04 * shock + 0.1 * spring + 0.04 * v)
+            rotate(p.lookX * 4 * (1 - shock) + think * 11 * cos(ang) + 14 * tilt - 7 * jab - 12 * listen + 2 * scribe * sin(ts * 18))
             translate(0.0, -ry)
 
-            val twL = 16 * wobble(twitchL.since(now), 30.0, 8.0)
-            val twR = 16 * wobble(twitchR.since(now), 30.0, 8.0)
+            val buzz = 12 * v * sin(now * 33)
+            val twL = 16 * wobble(twitchL.since(now), 30.0, 8.0) + buzz
+            val twR = 16 * wobble(twitchR.since(now), 30.0, 8.0) - buzz
             ear(s, -1, rx, ry, twL, perk)
             ear(s, 1, rx, ry, twR, perk)
             // 轮廓：两腮各两撮小毛尖；炸毛时整圈变成尖刺
@@ -132,7 +139,7 @@ object Cat : CastCharacter("cat", "喵") {
                     // 慢眨眼：慢慢闭上、停一下、慢慢睁开
                     val slow = micro * window(tm, 0.0, 0.5, 0.9, 1.4)
                     // 瞳孔：平时竖椭圆，兴奋（思考盯球、提醒、出拳）放大到撑满，震惊缩成一点；出拳时眯眼较劲
-                    val dilate = maxOf(think, alert, squint, startle) * (1 - shock)
+                    val dilate = maxOf(think, alert, squint, startle, scribe, listen * (0.3 + 0.7 * p.voice)) * (1 - shock)
                     val narrow = 0.5 * squint * (1 - startle)
                     for (i in 0..1) {
                         val side = if (i == 0) -1 else 1
@@ -164,8 +171,32 @@ object Cat : CastCharacter("cat", "喵") {
                 }
             }
         }
+        // 键盘摆在下巴前，两只奶白爪子轮流敲，敲下去的那颗键亮一下
+        if (scribe > 0.01) {
+            s.rrect(0.0, 108.0, 156.0 * scribe, 26.0, 7.0)
+            s.fill(KEYBOARD)
+            for (row in 0..1) for (col in -4..4) {
+                s.rrect(col * 15.0 + row * 7.0 - 3.5, 102.0 + row * 11, 11.0 * scribe, 7.0, 2.0)
+                s.fill(KEYCAP, scribe)
+            }
+            for (side in intArrayOf(-1, 1)) {
+                val beat = ts * 7 + (if (side < 0) 0.0 else 0.5)
+                val down = bump(beat % 1.0)
+                val col = ((beat.toInt() * 5 + side * 3) % 4 + 4) % 4
+                val px = side * (18.0 + col * 11)
+                if (down > 0.7) {
+                    s.rrect(px, 102.0, 13.0, 9.0, 2.0)
+                    s.fill(ALERT_BLUE, scribe)
+                }
+                paw(s, px, 90.0 + 10 * down, 0.95 * scribe, MUZZLE)
+            }
+        }
+        if (listen > 0.01) s.soundArcs(-80.0, -72.0, -120.0, listen, p.voice, tl)
         s.badge(alert, ta)
     }
+
+    private const val KEYBOARD = 0xFF7D8796
+    private const val KEYCAP = 0xFFE9EDF3
 
     private fun paw(s: Sketch, x: Double, y: Double, k: Double = 1.0, fur: Long = FUR) {
         s.circle(x, y, 19.0 * k)

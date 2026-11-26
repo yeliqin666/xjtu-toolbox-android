@@ -41,8 +41,7 @@ class DeepSeekWebTools(
                     params(
                         "query" to prop(
                             "string",
-                            "关键词，最长 128 字。支持 site:（多个用 OR）、-site:、\"精确短语\"、-排除词、after:/before:（年或日期）。" +
-                                "学校政策、办事流程加 site:xjtu.edu.cn 优先查官网。",
+                            "关键词，最长 128 字。支持 site:（多个用 OR）、-site:、\"精确短语\"、-排除词、after:/before:（年或日期）。学校官网是 xjtu.edu.cn。",
                         ),
                         "limit" to prop("integer", "条数，默认 8，上限 $MAX_RESULTS。"),
                         required = listOf("query"),

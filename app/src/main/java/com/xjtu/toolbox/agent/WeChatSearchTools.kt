@@ -21,9 +21,7 @@ internal class WeChatSearchTools : AgentTools {
         listOf(
             agentTool(
                 "wechat_search",
-                "检索微信公众号文章（经搜狗微信搜索），返回标题、链接和摘要；需要正文时用 web_fetch 读取链接。" +
-                    "收录不完整且有延迟，近几天的推文可能检索不到；结果仅作线索，发布日期以原文为准。" +
-                    "书院、学院的通知和活动（讲座、志愿、晚会、报名）检索不到或无法确认时，如实告知用户，并建议在微信中直接搜索对应公众号，不要用过期结果作答。",
+                "搜微信公众号文章（搜狗微信），返回标题、链接、摘要，正文用 web_fetch 读。收录不全且有延迟，近几天的常搜不到。",
                 agentParams(
                     "query" to agentStrProp("关键词。"),
                     "limit" to agentIntProp("条数，默认 8，上限 $MAX_RESULTS。"),

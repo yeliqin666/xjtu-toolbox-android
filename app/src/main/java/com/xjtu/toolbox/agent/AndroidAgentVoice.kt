@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,10 +44,32 @@ private class AndroidAgentVoice(private val context: Context, private val scope:
     override var phase by mutableStateOf(VoicePhase.IDLE)
         private set
 
+    override var level by mutableFloatStateOf(0f)
+        private set
+
     var requestPermission: () -> Unit = {}
     private var pending: Pair<String, (String) -> Unit>? = null
+    /** 按住说时没权限：申请回来不自动开录，只提示再按一次。 */
+    private var holdAsked = false
     private var recording: Job? = null
     @Volatile private var stopRequested = false
+    @Volatile private var cancelRequested = false
+
+    override fun begin(apiKey: String, onText: (String) -> Unit) {
+        if (phase != VoicePhase.IDLE) return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            start(apiKey, onText)
+        } else {
+            holdAsked = true
+            requestPermission()
+        }
+    }
+
+    override fun end(cancel: Boolean) {
+        if (phase != VoicePhase.RECORDING) return
+        cancelRequested = cancel
+        stopRequested = true
+    }
 
     override fun toggle(apiKey: String, onText: (String) -> Unit) {
         when (phase) {
@@ -64,11 +87,17 @@ private class AndroidAgentVoice(private val context: Context, private val scope:
     }
 
     fun resumePending() {
+        if (holdAsked) {
+            holdAsked = false
+            toast("可以了，按住小岱说话")
+            return
+        }
         pending?.let { (key, onText) -> start(key, onText) }
         pending = null
     }
 
     fun dropPending(message: String) {
+        holdAsked = false
         pending = null
         toast(message)
     }
@@ -77,12 +106,18 @@ private class AndroidAgentVoice(private val context: Context, private val scope:
     private fun start(apiKey: String, onText: (String) -> Unit) {
         if (recording?.isActive == true) return
         stopRequested = false
+        cancelRequested = false
         phase = VoicePhase.RECORDING
         recording = scope.launch {
             val pcm = record()
+            level = 0f
             if (pcm == null) {
                 phase = VoicePhase.IDLE
                 toast("麦克风被占用或不可用")
+                return@launch
+            }
+            if (cancelRequested) {
+                phase = VoicePhase.IDLE
                 return@launch
             }
             // 不到半秒多半是误触
@@ -116,10 +151,24 @@ private class AndroidAgentVoice(private val context: Context, private val scope:
         try {
             recorder.startRecording()
             if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) return@withContext null
+            var smooth = 0f
             while (isActive && !stopRequested && out.size() < maxBytes) {
                 val n = recorder.read(buffer, 0, buffer.size)
                 if (n < 0) break
                 out.write(buffer, 0, n)
+                // 音量：这一块 16 位样本的均方根，按对数压到 0..1（底噪约 150 为 0，大声约 6000 为 1，
+                // 平常说话落在中间），再做一点平滑免得一跳一跳
+                var sum = 0.0
+                var i = 0
+                while (i + 1 < n) {
+                    val s = ((buffer[i + 1].toInt() shl 8) or (buffer[i].toInt() and 0xFF)).toShort().toDouble()
+                    sum += s * s
+                    i += 2
+                }
+                val rms = if (n >= 2) kotlin.math.sqrt(sum / (n / 2)) else 0.0
+                val target = (kotlin.math.ln(rms.coerceAtLeast(1.0) / 150.0) / kotlin.math.ln(40.0)).coerceIn(0.0, 1.0).toFloat()
+                smooth += (target - smooth) * (if (target > smooth) 0.6f else 0.25f)
+                level = smooth
             }
         } finally {
             runCatching { recorder.stop() }

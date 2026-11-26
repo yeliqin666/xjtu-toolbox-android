@@ -31,6 +31,9 @@ enum class AgentCapability(val tool: String?, val label: String) {
     /** 替用户打开功能页或移动交大里的服务（`:app` 经 [AgentNavigator] 交给聊天页导航）。 */
     OPEN_PAGE("open_page", "打开功能页"),
 
+    /** 读用户正在看的那一页（`:app` = 页面经 `ReportToPidai` 登记的快照）。 */
+    PAGE_CONTEXT("read_current_page", "读当前页面"),
+
     /** 按住说话转文字（`:app` = 录音 + DeepSeek 语音识别）。 */
     VOICE_INPUT(null, "语音输入"),
 

@@ -8,6 +8,16 @@ data class TermOption(
     val name: String    // e.g. "2025-2026学年 第二学期"
 )
 
+/**
+ * 学期名的短写，下拉、胶囊这类窄处用：「2026-2027学年 第一学期」→「2026-27 第一学期」，
+ * 学年、学期都还在，一行放得下。认不出的格式原样返回。
+ */
+fun compactTermName(name: String): String {
+    val m = Regex("""^(\d{4})-\d{2}(\d{2})\s*学年\s*(.+)$""").find(name.trim()) ?: return name
+    val (first, tail, rest) = m.destructured
+    return "$first-$tail ${rest.trim()}"
+}
+
 /** 开课单位（院系）选项 */
 data class DepartmentOption(
     val code: String,   // e.g. "13028000"
