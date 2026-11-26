@@ -2,13 +2,6 @@ package com.xjtu.toolbox.plugin
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,6 +48,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
@@ -62,6 +56,7 @@ import com.xjtu.toolbox.ui.components.AppDropdownOption
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.AppSearchBar
+import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import com.xjtu.toolbox.ui.components.DockedPageTabs
@@ -184,17 +179,14 @@ internal fun PluginsPage(
             .padding(padding.withoutTop(glass))
             .glassSource(glass)
 
-        AnimatedContent(
-            targetState = tab,
-            transitionSpec = {
-                // 往右边切就往左推，往左切就往右推；四分之一屏宽，轻一点
-                val direction = if (targetState > initialState) 1 else -1
-                (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { width -> width * direction / 4 } +
-                    fadeIn(tween(220))) togetherWith
-                    (slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { width -> -width * direction / 4 } +
-                        fadeOut(tween(180)))
-            },
-            label = "pluginTab",
+        // 用翻页器而不是 AnimatedContent：两页各自保留滚动状态，切换时顶栏
+        // 和右上角按钮不会跟着内容重建（消息界面也是这套）。左右滑关掉——市场里有横滑的精选行
+        AppTabPager(
+            pageCount = 2,
+            selectedTabIndex = tab,
+            onTabSelected = { tab = it },
+            modifier = Modifier.fillMaxSize(),
+            swipeEnabled = false,
         ) { current ->
         if (current == 0) {
             val listState = rememberLazyListState()
@@ -402,6 +394,8 @@ private fun PluginRow(
         record.toolsEnabled -> "已启用 · 允许小岱调用"
         else -> "已启用"
     }
+    // 停用的插件标题置灰加删除线，扫一眼就知道它现在不工作
+    val dimmed = !record.enabled
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -414,7 +408,12 @@ private fun PluginRow(
                 Text(
                     text = record.manifest.name,
                     style = MiuixTheme.textStyles.title3,
-                    color = MiuixTheme.colorScheme.onSurface,
+                    color = if (dimmed) {
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    } else {
+                        MiuixTheme.colorScheme.onSurface
+                    },
+                    textDecoration = if (dimmed) TextDecoration.LineThrough else null,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -983,6 +982,7 @@ private fun DetailPage(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .padding(padding.withoutTop(glass))
                 .padding(horizontal = 16.dp)
                 .padding(top = glassTop, bottom = 24.dp),
