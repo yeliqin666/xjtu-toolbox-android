@@ -13,7 +13,9 @@ import com.xjtu.toolbox.plugin.api.Plugin
 import com.xjtu.toolbox.plugin.api.PluginApi
 import com.xjtu.toolbox.plugin.api.PluginEntry
 import com.xjtu.toolbox.plugin.api.PluginPage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -27,6 +29,14 @@ import java.io.File
 import java.util.zip.ZipFile
 
 private const val TAG = "PluginManager"
+
+/**
+ * 插件相关的后台活。
+ *
+ * 卸载必须跑在这里：详情页点完「卸载」马上 `onBack()` 把页面拆掉，用
+ * `rememberCoroutineScope()` 的话协程会跟着取消——表现就是**卸载按钮点了没反应**。
+ */
+internal val PluginWork = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 private const val MAX_DEX_FILES = 8
 private const val MAX_TOOL_RESULT = 16_000
 

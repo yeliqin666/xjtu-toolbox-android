@@ -92,6 +92,20 @@ internal data class PluginPageManifest(
      * 宿主按页面顺序生成目录，一级分组可折叠。
      */
     val group: String = "",
+    /**
+     * 图标名：宿主图标白名单里的语义名（`calendar`、`grade`、`book` …，见 `HomeIcons.semantic`）。
+     * 空 = 按插件类型给默认图标（dex 拼图 / web 地球）；认不出来也退回默认，不报错。
+     */
+    val icon: String = "",
+    /** 图标颜色 `#RRGGBB`。空 = 按类型给默认色（dex 橙 / web 蓝，与列表里的类型徽章同色）。 */
+    val iconColor: String = "",
+    /**
+     * 能不能放到首页当快捷方式（默认能）。
+     *
+     * 关掉之后：管理页那一页的「加到主页」按钮不出现，首页编辑态的添加面板里也没有它。
+     * 「关于」「设置」这种页可以关掉。
+     */
+    val shortcut: Boolean = true,
 )
 
 @Serializable

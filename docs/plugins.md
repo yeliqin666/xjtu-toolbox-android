@@ -41,8 +41,8 @@ plugin.zip
     "apk": "plugin.apk",
     "entryClass": "top.dzhz.plugin.sample.TemplatePlugin",
     "pages": [
-      { "id": "home", "title": "组件一览", "group": "基础" },
-      { "id": "about", "title": "关于" }
+      { "id": "home", "title": "组件一览", "group": "基础", "icon": "calendar", "iconColor": "#315FD4" },
+      { "id": "about", "title": "关于", "shortcut": false }
     ],
     "tools": [
       { "name": "echo", "definition": { "type": "function", "function": { "name": "echo", "description": "原样返回" } } }
@@ -163,6 +163,32 @@ canteen   bus    doc   download  upload  user  time  star  warning  check
 - 目录底部是插件信息（版本 + 包名、作者、项目地址 / 插件设置）。
 
 深链：`plugin/<id>` 打开第一页，`plugin/<id>/<pageId>` 直接打开指定页。
+
+### 上首页与搜索（`pages[]` 的三项）
+
+`pages[]` 里每一项还能带三个字段，决定这一页在首页长什么样、能不能放上去：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `icon` | 按类型 | 图标名，从宿主白名单里挑：`calendar` `grade` `book` `card` `bell` `school` `exam` `task` `classroom` `seat` `canteen` `bus` `doc` `download` `upload` `user` `time` `star` `warning` `check`。dex 默认拼图、web 默认地球 |
+| `iconColor` | 按类型 | `#RRGGBB`。dex 默认 `#F97316`（橙）、web 默认 `#3B82F6`（蓝），和列表里的类型徽章同一色 |
+| `shortcut` | `true` | 允不允许放到首页当快捷方式。`false` 时这一页不出现在添加面板、也没有「加到主页」按钮，只能从侧栏进——适合「关于」「设置」 |
+
+**每个页面默认都能上首页**。已安装且启用的插件，页面会进盒子的服务目录：
+
+- 首页最后一组「插件」（2×1 卡片，**大字是页面标题、小字是插件名**）；
+- 首页编辑态的「添加卡片」面板——**一个插件一段，段名就是插件名**，内置功能那段不加标题；
+- 全局搜索、经典版首页的服务列表（那里插件页单独起一段「插件」）；
+- 停用或卸载的插件不进目录；装回去又会回来。
+
+两种加法：
+
+- 插件页右上角，菜单按钮左边有个 **加号**：点一下确认，首页就多一格；已经有了就变成 **对号**，点一下确认移除。只是去掉首页那一格，插件本身和数据都不动。
+- 首页编辑态里自己拖 / 从添加面板挑。
+
+**自动只补一次**：第一次遇到能上首页的插件页时，宿主给改过布局的人补一组「插件」（补过记一个标记，用户删掉或搬空都不会再长回来）；之后再装插件就得自己加。
+
+底栏候选暂时不含插件页（设置页那份候选还是静态目录）。
 
 ### 后端能力（`PluginContext`）
 

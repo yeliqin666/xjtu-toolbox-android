@@ -104,6 +104,7 @@ import com.xjtu.toolbox.home.HomeTab
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.plugin.rememberPluginServices
 import com.xjtu.toolbox.nav.AppPageAsTab
 import com.xjtu.toolbox.nav.AppPageDeps
 import com.xjtu.toolbox.nav.LocalSeamlessOpener
@@ -279,6 +280,7 @@ internal fun MainScreen(
             query = homeSearchQuery,
             onQueryChange = { homeSearchQuery = it },
             accountType = loginState.accountType,
+            extraServices = rememberPluginServices(),
             onNavigate = { route ->
                 homeSearchExpanded = false
                 router.open(route)

@@ -124,6 +124,14 @@ interface HomeHost {
     val quickEditable: Boolean get() = false
     fun onQuickRoutesChange(routes: List<AppRoute>) {}
 
+    /**
+     * 目录（[AppServices]）之外的附加入口，目前只有插件公开页。
+     *
+     * 首页宫格、编辑态的添加面板、经典版的服务列表都把它接在目录**末尾**，按
+     * [AppService.pluginPage] 单独归一组 / 单独起一段小标题。默认空 ⇒ 桌面、Web 行为不变。
+     */
+    val extraServices: List<AppService> get() = emptyList()
+
     /** 各功能此刻的状态表（键 = [AppRoute.id]；空表 = 只有入口、没有状态）。 */
     val stats: Map<String, HomeStat> get() = emptyMap()
 
