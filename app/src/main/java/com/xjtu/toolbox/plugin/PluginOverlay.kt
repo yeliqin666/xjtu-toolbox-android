@@ -427,16 +427,17 @@ private fun PluginNavDrawer(
                         textAlign = TextAlign.End,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        // 两个链接用主题主色（跟「可点击文本」一致），不用次要灰
                         Text(
                             text = "项目地址",
                             style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            color = MiuixTheme.colorScheme.primary,
                             modifier = Modifier.clickable(enabled = projectUrl.isNotBlank(), onClick = onOpenProject),
                         )
                         Text(
                             text = "插件设置",
                             style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            color = MiuixTheme.colorScheme.primary,
                             modifier = Modifier.clickable(onClick = onOpenSettings),
                         )
                     }
