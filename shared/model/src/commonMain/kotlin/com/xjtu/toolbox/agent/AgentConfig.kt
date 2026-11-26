@@ -61,6 +61,10 @@ data class AgentConfig(
             else -> searchApiKey
         }.trim()
 
+    /** 语音识别用的 DeepSeek Key：聊天走 DeepSeek 就复用，否则用单独填的那个；不受联网搜索开关影响。 */
+    val deepSeekToolKey: String
+        get() = (if (provider == PROVIDER_DEEPSEEK) apiKey else searchApiKey).trim()
+
     /**
      * 实际走哪种接口：OpenAI 官方默认走 Responses（o1-pro、o3-pro、codex 系列只在这上面提供，
      * 也只有它返回推理摘要），可以手动切回 Chat；DeepSeek 只有 Chat Completions；

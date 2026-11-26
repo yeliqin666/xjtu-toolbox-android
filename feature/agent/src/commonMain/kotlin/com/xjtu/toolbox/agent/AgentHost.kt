@@ -162,6 +162,27 @@ fun interface AgentImagePicker {
     }
 }
 
+enum class VoicePhase { IDLE, RECORDING, TRANSCRIBING }
+
+/** 语音输入（[AgentCapability.VOICE_INPUT]）：点一下开始录，再点一下停下转成文字。 */
+interface AgentVoiceInput {
+    /** 输入栏按它画麦克风；实现方要用 Compose 状态，变了才重画。 */
+    val phase: VoicePhase
+
+    /** 录音中则停下、用 [apiKey] 识别，文字交给 [onText]；空闲则开始录。识别中点了不理。 */
+    fun toggle(apiKey: String, onText: (String) -> Unit)
+}
+
+/** 工具层交给聊天页的导航：工具在后台协程里跑，跳页得由界面来做。 */
+object AgentNavigator {
+    private val requests = kotlinx.coroutines.flow.MutableSharedFlow<com.xjtu.toolbox.nav.AppRoute>(extraBufferCapacity = 1)
+
+    /** 聊天页没在收（不在前台）返回 false，免得工具报「已打开」实际没动。 */
+    fun open(route: com.xjtu.toolbox.nav.AppRoute): Boolean = requests.subscriptionCount.value > 0 && requests.tryEmit(route)
+
+    suspend fun collect(onRoute: (com.xjtu.toolbox.nav.AppRoute) -> Unit): Nothing = requests.collect { onRoute(it) }
+}
+
 /** 设置项取值那几句人话的解析（`true/1/on/yes/开/开启` …），`app_setting` 的写入方共用。 */
 fun agentParseBoolSetting(value: String): Boolean? {
     return when (value.trim().lowercase()) {

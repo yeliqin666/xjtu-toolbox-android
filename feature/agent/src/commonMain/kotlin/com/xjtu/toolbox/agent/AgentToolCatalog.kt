@@ -227,6 +227,14 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "section" to agentStrProp("节名片段，如 选课、奖助。只给它不给 query 时列出整节。都不给：列分节目录。"),
             "limit" to agentIntProp("条数，默认 5，上限 10。"),
         )))
+    if (AgentCapability.OPEN_PAGE in honored) {
+        arr.add(agentTool("open_page",
+            "打开本 App 的功能页，或移动交大里的一项服务，界面随即跳转。page 与 service 二选一。",
+            agentParams(
+                "page" to agentEnumProp("本 App 的功能页。", *agentOpenablePages.map { it.title }.distinct().toTypedArray()),
+                "service" to agentStrProp("移动交大里的服务名，模糊匹配，如 校医院、宿舍报修、请假。"),
+            )))
+    }
     arr.add(agentTool("calculate",
         "计算表达式：+ - * / ^ 与括号。",
         agentParams("expression" to agentStrProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))

@@ -467,6 +467,7 @@ class AgentToolRegistry(
                 val value = (args.argStr("value")).orEmpty()
                 if (key.isBlank() || value.isBlank()) host.readAppSettings() else host.writeAppSetting(key, value)
             }
+            "open_page" -> openPage(args.argStr("page"), args.argStr("service"))
             "calculate" -> agentCalculate(args.argStr("expression") ?: "")
             "app_guide" -> APP_GUIDE
             "search_campus_guide" -> campusGuideText(args.argStr("query"), args.argStr("section"), args.argInt("limit"))
@@ -475,6 +476,36 @@ class AgentToolRegistry(
     }
 
     // ── 实现 ──────────────────────────────────────────────────────────────
+
+    /** 跳页只在用户正对着聊天时做；后台任务、自动卡片走的是非交互那份工具表。 */
+    private suspend fun openPage(page: String?, service: String?): String {
+        if (!allowInteractiveLogin) return ToolReply.failed("open_page", "not_in_chat")
+        val (label, route) = when {
+            !service.isNullOrBlank() -> {
+                val hit = findSuperAppService(service.trim()) ?: return ToolReply.notFound("service", service)
+                val offCampus = loginState.sessionManager?.currentAccessMode?.value == com.xjtu.toolbox.auth.AccessMode.WEBVPN
+                val url = if (hit.campusOnly && offCampus) com.xjtu.toolbox.webvpn.WebVpnUtil.toVpnUrl(hit.url) else hit.url
+                "移动交大·${hit.name}" to com.xjtu.toolbox.nav.AppRoute.Browser(url, bare = true)
+            }
+            !page.isNullOrBlank() -> agentFindPage(page)?.let { it.title to it.route }
+                ?: return ToolReply.notFound("page", page, agentOpenablePages.map { it.title })
+            else -> return ToolReply.missing("page")
+        }
+        return if (AgentNavigator.open(route)) "ok: opened; page: $label" else ToolReply.failed("open_page", "chat_not_visible")
+    }
+
+    /** 先用服务页留下的缓存，没有再现拉一次；精确同名优先，其次点击量最高的模糊匹配。 */
+    private suspend fun findSuperAppService(query: String): com.xjtu.toolbox.superapp.SuperAppService? {
+        val api = com.xjtu.toolbox.superapp.SuperAppApi
+        val raw = dataCache.getStale(api.CACHE_KEY)
+            ?: ensureSiteKey(com.xjtu.toolbox.auth.YwtbSession.SITE_KEY)?.let { site ->
+                runCatching { com.xjtu.toolbox.superapp.SuperAppApi(site).fetchRaw() }.getOrNull()
+                    ?.also { if (api.parse(it).isNotEmpty()) dataCache.put(api.CACHE_KEY, it) }
+            }
+            ?: return null
+        val all = api.parse(raw).flatMap { c -> c.services.flatMap { listOf(it) + it.children } }.filter { !it.isZone && it.url.isNotBlank() }
+        return all.firstOrNull { it.name == query } ?: all.filter { it.matches(query) }.maxByOrNull { it.clicks }
+    }
 
     /**
      * 查教师主页。

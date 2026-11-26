@@ -154,10 +154,19 @@ sealed interface AppRoute : NavKey {
         override val id get() = "iclassface"
         override val loginType get() = LoginType.ICLASSFACE
     }
-    /** [then] 非空时，[url] 先加载完并走完登录，再自动跳到 [then]（支付页要先过一遍登录）。 */
-    @Serializable data class Browser(val url: String = "", val then: String = "") : AppRoute {
-        override val id get() = "browser?url=${encode(url)}" + if (then.isEmpty()) "" else "&then=${encode(then)}"
-        override val loginType get() = LoginType.DZPZ.takeIf { url.startsWith("https://dzpz.xjtu.edu.cn/") }
+    /**
+     * [then] 非空时，[url] 先加载完并走完登录，再自动跳到 [then]（支付页要先过一遍登录）。
+     * [bare]：不注入 App 的任何登录态，网页自己走统一认证与回调（移动交大的子服务）。
+     */
+    @Serializable data class Browser(val url: String = "", val then: String = "", val bare: Boolean = false) : AppRoute {
+        override val id get() = "browser?url=${encode(url)}" +
+            (if (then.isEmpty()) "" else "&then=${encode(then)}") + (if (bare) "&bare=1" else "")
+        override val loginType get() = LoginType.DZPZ.takeIf { !bare && url.startsWith("https://dzpz.xjtu.edu.cn/") }
+    }
+    /** 移动交大：学校服务大厅的分类与服务列表（一网通办 `portal-api`）。 */
+    @Serializable data object SuperApp : AppRoute {
+        override val id get() = "superapp"
+        override val loginType get() = LoginType.YWTB
     }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 小贴士与常见问题（`com.xjtu.toolbox.tips.Tips` 全集）。 */
@@ -231,7 +240,7 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.Zyxf, AppRoute.PaymentCode,
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity, AppRoute.TermReport,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
-    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
+    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.SuperApp,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
     AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox, AppRoute.QrScan,
     AppRoute.Feedback, AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
@@ -257,7 +266,7 @@ fun appRouteOf(id: String): AppRoute? {
             param("courseId")?.toIntOrNull()?.takeIf { it > 0 },
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
-        path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
+        path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty(), bare = param("bare") == "1")
         path.startsWith("community/") -> path.removePrefix("community/").toIntOrNull()?.takeIf { it > 0 }?.let(AppRoute::CommunityPost)
         path.startsWith("notice_detail/") -> {
             val noticeId = path.removePrefix("notice_detail/")

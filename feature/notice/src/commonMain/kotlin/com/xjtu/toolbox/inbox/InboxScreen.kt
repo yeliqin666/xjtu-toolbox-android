@@ -137,6 +137,7 @@ fun InboxScreen(
     val todos = remember(data, now) { InboxRules.todos(data, now) }
     val finished = remember(data, now) { InboxRules.finished(data, now) }
     val groups = remember(data, now) { InboxRules.groups(data, now) }
+    val (pinnedGroups, otherGroups) = groups.partition { it.latest.category in data.pinned }
     val unread = groups.count { it.unread }
     // 作业按科目取课表里那门课的颜色，和课表、思源学堂一致
     val courseNames = remember(data) { (todos + finished.map { it.item }).mapNotNull { it.colorCourse }.distinct() }
@@ -208,6 +209,12 @@ fun InboxScreen(
             InboxSwipeAction.READ -> InboxStore.markRead(ids)
             else -> Unit
         }
+    }
+
+    /** 关掉这一类，等同于收纳设置里关开关，那里也能再打开。 */
+    fun muteCategory(category: String) {
+        InboxStore.setEnabled(category, false)
+        offerUndo("不再接收「${InboxCategories.label(category)}」，可在收纳设置里重新打开") { InboxStore.setEnabled(category, true) }
     }
 
     fun refresh() = scope.launch {
@@ -328,6 +335,8 @@ fun InboxScreen(
                 // 顶栏按钮轮廓按列表实际位置来（滚动事件里混着回弹的距离，不能当位置用）
                 val listState = androidx.compose.foundation.lazy.rememberLazyListState()
                 com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
+                // 报错条、「置顶」组都插在最前面
+                com.xjtu.toolbox.ui.components.KeepTopOnInsert(listState, (error != null) to (page == 1 && pinnedGroups.isNotEmpty()))
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
                     state = listState,
@@ -393,28 +402,32 @@ fun InboxScreen(
                                 EmptyState("没有消息", icon = Icons.Outlined.NotificationsNone, modifier = Modifier.padding(top = 48.dp))
                             }
                         }
-                        groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
-                            section(title, list.map { g ->
-                                val rowActions = buildList {
-                                    if (g.unread) add(RowAction("标为已读") { InboxStore.markRead(g.ids) })
-                                    if (onForwardToAgent != null && g.latest.category == InboxCategories.NOTICE) {
-                                        add(RowAction("问小岱") {
-                                            InboxStore.markRead(g.ids)
-                                            onForwardToAgent(com.xjtu.toolbox.agent.AgentForward.inboxNotice(g.latest))
-                                        })
-                                    }
+                        fun messageEntry(g: InboxGroup): Entry {
+                            val category = g.latest.category
+                            val pinned = category in data.pinned
+                            val rowActions = buildList {
+                                if (g.unread) add(RowAction("标为已读") { InboxStore.markRead(g.ids) })
+                                if (onForwardToAgent != null && category == InboxCategories.NOTICE) {
+                                    add(RowAction("问小岱") {
+                                        InboxStore.markRead(g.ids)
+                                        onForwardToAgent(com.xjtu.toolbox.agent.AgentForward.inboxNotice(g.latest))
+                                    })
                                 }
-                                Entry(
-                                    g.latest, g.latest.id, g.unread, g.count, dimmed = !g.unread,
-                                    // 已读的再「标为已读」没有意义，这一边就不让滑
-                                    swipeLeft = swipe.actionOf(InboxSwipeKind.MESSAGE, left = true).takeUnless { it == InboxSwipeAction.READ && !g.unread } ?: InboxSwipeAction.NONE,
-                                    swipeRight = swipe.actionOf(InboxSwipeKind.MESSAGE, left = false).takeUnless { it == InboxSwipeAction.READ && !g.unread } ?: InboxSwipeAction.NONE,
-                                    onSwipe = { action -> swipeMessage(g.ids, action) },
-                                    onLongClick = if (rowActions.isNotEmpty()) {
-                                        { actions = RowActions(g.latest, rowActions) }
-                                    } else null,
-                                ) { open(g.latest, g.ids) }
-                            })
+                                add(RowAction(if (pinned) "取消置顶此类消息" else "置顶此类消息") { InboxStore.setPinned(category, !pinned) })
+                                add(RowAction("不再接收此类消息", danger = true) { muteCategory(category) })
+                            }
+                            return Entry(
+                                g.latest, g.latest.id, g.unread, g.count, dimmed = !g.unread,
+                                // 已读的再「标为已读」没有意义，这一边就不让滑
+                                swipeLeft = swipe.actionOf(InboxSwipeKind.MESSAGE, left = true).takeUnless { it == InboxSwipeAction.READ && !g.unread } ?: InboxSwipeAction.NONE,
+                                swipeRight = swipe.actionOf(InboxSwipeKind.MESSAGE, left = false).takeUnless { it == InboxSwipeAction.READ && !g.unread } ?: InboxSwipeAction.NONE,
+                                onSwipe = { action -> swipeMessage(g.ids, action) },
+                                onLongClick = { actions = RowActions(g.latest, rowActions, category = category) },
+                            ) { open(g.latest, g.ids) }
+                        }
+                        if (pinnedGroups.isNotEmpty()) section("置顶", pinnedGroups.map(::messageEntry))
+                        otherGroups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
+                            section(title, list.map(::messageEntry))
                         }
                     }
                 }
@@ -483,6 +496,8 @@ private class RowActions(
     val actions: List<RowAction>,
     /** 自建待办在 `SelfTodoStore` 里的 id：只有这一种条目能在长按抽屉里改颜色。 */
     val todoId: String? = null,
+    /** 消息所属分类：长按的是消息时抽屉标题下写明「此类」指哪一类，也不出重要程度（那是给待办的）。 */
+    val category: String? = null,
 )
 
 /**
@@ -493,7 +508,8 @@ private class RowActions(
  */
 @Composable
 private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
-    WindowDialog(show = true, title = a.item.title, summary = a.item.source, onDismissRequest = onDismiss) {
+    val summary = a.category?.let { "此类：${InboxCategories.label(it)}" } ?: a.item.source
+    WindowDialog(show = true, title = a.item.title, summary = summary, onDismissRequest = onDismiss) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
             val todoId = a.todoId
             // 自建作业的颜色跟课，不单独挑
@@ -505,10 +521,12 @@ private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
                 })
                 Spacer(Modifier.height(12.dp))
             }
-            ImportanceRow(level = InboxRules.importanceOf(InboxStore.snapshot(), a.item.id)) {
-                InboxStore.setImportance(a.item.id, it)
+            if (a.category == null) {
+                ImportanceRow(level = InboxRules.importanceOf(InboxStore.snapshot(), a.item.id)) {
+                    InboxStore.setImportance(a.item.id, it)
+                }
+                Spacer(Modifier.height(12.dp))
             }
-            Spacer(Modifier.height(12.dp))
             a.actions.forEach { action ->
                 TextButton(
                     text = action.label,

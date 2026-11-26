@@ -754,8 +754,12 @@ fun EmptyRoomScreen(
                     }
                 }
             }
+            val roomGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+            // 查询失败退回缓存时，黄条插在筛选卡前面，不处理会藏到顶栏底下
+            com.xjtu.toolbox.ui.components.KeepTopOnInsert(roomGridState, vm.staleNote != null)
             com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid(
                 modifier = Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
+                state = roomGridState,
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = glassTop + 4.dp, bottom = 16.dp),
                 spacing = 7.dp,
                 minColumnWidth = 320.dp,

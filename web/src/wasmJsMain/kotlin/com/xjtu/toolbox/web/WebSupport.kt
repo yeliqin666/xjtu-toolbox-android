@@ -19,6 +19,7 @@ import kotlin.reflect.KClass
  * - `NoticeDetail`：公告详情在 App 里是独立一屏（还带一镜到底），web 端在列表里内联展开，没有这一屏；
  * - `QrScan`：扫一扫是 Android 顶栏的相机浮层（金标联盟一镜到底的独立宿主），本端没有这一屏。
  * - `SsActivity`：活动报名的屏与智慧社区登录都在 `:app`（安卓专属），本端没有对应屏，落 `NotPortedScreen`；
+ * - `SuperApp`：移动交大的屏在 `:app`（安卓专属），子服务靠内置浏览器走各自的统一认证回调，本端没有对应屏，落 `NotPortedScreen`；
  * - `TermReport`：学期总结在 `:app` 里按本机数据现算（课表、成绩、校园卡、小游戏时长），本端没有这些本地数据，也没有这一屏。
  */
 internal object WebSupport {

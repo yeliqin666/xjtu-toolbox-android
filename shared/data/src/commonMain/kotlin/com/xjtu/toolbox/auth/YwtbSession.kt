@@ -24,7 +24,8 @@ class YwtbSession : CasSiteSession(SITE_KEY, "一网通办", mustUseWebVpn = fal
     override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
         if (super.isAuthFailureResponse(response, bodyPreview)) return true
         val body = bodyPreview ?: return false
-        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
+        // portal-api 的 token 失效回 `"code":-1001,"message":"无效 token"`
+        return """"code"\s*:\s*(401|-1001)\b""".toRegex().containsMatchIn(body) ||
             body.contains("未登录") || body.contains("登录过期")
     }
 
