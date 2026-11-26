@@ -41,10 +41,9 @@ data class BoardSnapshot(val rows: List<BoardRow>, val total: Int, val me: Board
 }
 
 /**
- * 全服榜接口。服务端在 dzhz-server 仓库的 `services/leaderboard`（Cloudflare Workers + D1），
- * 新版本直连 `api.dzhz.top/games`；老版本里写死的 `dzhz.zyxf.top/games` 仍走本仓库的旧 Node
- * 服务（实测客户端不跟随 307，不能靠重定向迁移）。旧 Node 实现在本仓库 `server/leaderboard`，
- * 过渡期需要它把关。
+ * 全服榜接口。服务端在 `Guochaoo/dzhz-server` 仓库的 `services/leaderboard`（Cloudflare Workers + D1），
+ * 新版本直连 `api.dzhz.top/games`；老版本里写死的 `dzhz.zyxf.top/games` 已返回 410 提示升级
+ * （实测客户端不跟随 307，不能靠重定向迁移）。
  *
  * 分数**不做任何校验**：整局游戏都在客户端跑，谁都能伪造一个分数传上来。所以这里只做
  * 「别把明显荒唐的值写进库」的粗筛，不做防作弊——按信任制设计，发现脏数据手工清。

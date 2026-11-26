@@ -71,3 +71,16 @@ CDN（`dzhz.zyxf.top`，阿里云 ESA）的缓存以线上规则为准（2026-11
 |---|---|
 | `ESA_SITE_ID` | 站点 ID，`zyxf.top` 为 `190304393599084` |
 | `ESA_ACCESS_KEY_ID` / `ESA_ACCESS_KEY_SECRET` | RAM 用户 `xjtu-toolbox-esa` 的 AK，只授 `esa:PurgeCaches`、`esa:DescribePurgeTasks`；没配时 [`esa_purge.py`](../.github/scripts/esa_purge.py) 只打 notice 跳过，不会让发版失败 |
+
+## Cloudflare R2 更新渠道
+
+客户端更新渠道可选 `阿里云`（默认）、`Cloudflare`、`GitHub`、`Gitee`。其中 `Cloudflare` 渠道读取 R2 自定义域名 `https://dl.dzhz.top`（桶 `dzhz-releases`，对象路径不带 `xjtu-toolbox/` 前缀，直接为 `stable.json`、`preview.json`、`apk/...`、`history/...`）。
+
+CI 通过 [`.github/scripts/r2_publish.py`](../.github/scripts/r2_publish.py) 同步正式版与预览版，预览版同样仅保留最近 5 个版本目录；以下 secrets 任一未配置时自动跳过、不影响发版：
+
+| Secret | 用途 |
+|---|---|
+| `R2_ACCOUNT_ID` | Cloudflare Account ID |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | 仅授桶 `dzhz-releases` Object Read & Write 的 R2 API Token（S3 凭据） |
+| `R2_BUCKET` | 桶名，当前为 `dzhz-releases` |
+| `R2_PUBLIC_BASE` | 可选，自定义下载基址，默认 `https://dl.dzhz.top` |

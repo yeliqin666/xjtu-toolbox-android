@@ -49,6 +49,15 @@ class AppRouteTest {
     }
 
     @Test
+    fun `不带登录态的浏览器来回一致，也不触发电子凭证预登录`() {
+        val route = AppRoute.Browser("https://dzpz.xjtu.edu.cn/wui/cas-entrance.jsp?path=%2Fspa", bare = true)
+        assertEquals(route, appRouteOf(route.id))
+        assertNull(route.loginType)
+        // 老 id 没有 bare，解析回来仍是带登录态的
+        assertEquals(false, (appRouteOf(AppRoute.Browser("https://a.b/").id) as AppRoute.Browser).bare)
+    }
+
+    @Test
     fun `教材阅读器的书号和书名`() {
         val id = AppRoute.Jiaocai1Reader("12345", "高等数学（第七版）上册").id
         assertEquals(AppRoute.Jiaocai1Reader("12345", "高等数学（第七版）上册"), appRouteOf(id))

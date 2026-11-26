@@ -31,9 +31,6 @@ keystore.properties
 feedback.properties
 # 小游戏全服榜的服务端地址覆盖，只在本地联调时用
 leaderboard.properties
-# 榜单禁止词表与内容安全凭据，只放在服务器上（公开词表等于给绕过者一张清单）
-server/leaderboard/banned.txt
-server/leaderboard/aliyun.env
 
 # ── AI 代理与工作区的本地文件 ──
 /AGENTS.md

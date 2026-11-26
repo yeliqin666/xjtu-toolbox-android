@@ -81,6 +81,8 @@ internal fun ChatPanel(
     host: AgentHost,
     /** 系统相册挑图（`:app` 实现；没有相册的端那一档不画，见 [AgentCapability.IMAGE_INPUT]）。 */
     imagePicker: AgentImagePicker,
+    /** 语音输入（`:app` 实现）；null = 不画麦克风，见 [AgentCapability.VOICE_INPUT]。 */
+    voiceInput: AgentVoiceInput? = null,
     /** 「这一端的屁岱比手机朴素在哪」那段话（见 [AgentHost.gapNote]）：给文案就画在对话最上面，默认不画。 */
     gapNote: String? = null,
     padding: PaddingValues,
@@ -113,6 +115,9 @@ internal fun ChatPanel(
     }
     var editingLast by rememberSaveable { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
+    // open_page 工具要跳的页
+    val navigate by rememberUpdatedState(onNavigate)
+    LaunchedEffect(Unit) { AgentNavigator.collect { navigate(it) } }
 
     // ── 图片附件 ──
     //
@@ -409,6 +414,8 @@ internal fun ChatPanel(
             )
         }
         val composerHint = remember { COMPOSER_HINTS.random() }
+        // 识别走 DeepSeek，没有 Key 就不给麦克风
+        val voice = voiceInput?.takeIf { AgentCapability.VOICE_INPUT in host.honored && config.deepSeekToolKey.isNotBlank() }
         // 推送记录只收小岱推来的消息，不在这里对话：换成一行说明和开新对话的入口
         if (vm.currentSessionId == AgentPushFocus.SESSION_ID) {
             PushLogFooter(bottomReserve = bottomReserve, onNewChat = { vm.newSession() })
@@ -438,6 +445,11 @@ internal fun ChatPanel(
             },
             pageBackdrop = if (glass) couiChatBackdrop else null,
             onOpenShared = if (sharedMaterials != null) ({ showSharedMaterials = true }) else null,
+            voicePhase = voice?.phase,
+            onVoice = {
+                keyboard?.hide()
+                voice?.toggle(config.deepSeekToolKey) { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text" }
+            },
         )
         }
     }

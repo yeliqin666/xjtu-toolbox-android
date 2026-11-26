@@ -47,6 +47,8 @@ fun AgentScreen(
     session: AgentChatSession? = null,
     /** 系统相册挑图的适配器（`:app` 用 `rememberLauncherForActivityResult` 实现，见那个模块的 `rememberAndroidAgentImagePicker`）。 */
     imagePicker: AgentImagePicker = AgentImagePicker.None,
+    /** 语音输入（`:app` 的 `rememberAndroidAgentVoiceInput`）；null = 不画麦克风。 */
+    voiceInput: AgentVoiceInput? = null,
     contentModifier: Modifier = Modifier,
     onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
@@ -285,6 +287,7 @@ fun AgentScreen(
                 config = config,
                 host = host,
                 imagePicker = imagePicker,
+                voiceInput = voiceInput,
                 gapNote = host.gapNote,
                 hero = hero,
                 pokeWhisper = pokeWhisper,

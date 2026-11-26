@@ -36,6 +36,8 @@ permissions:
   contents: read
   discussions: write
   issues: write
+  # /tally 派发 announce.yml / vote-tally.yml（GITHUB_TOKEN 能触发 workflow_dispatch）
+  actions: write
 
 # 同一讨论内的命令串行处理，避免同一来源并发创建两个 issue。
 concurrency:
@@ -61,4 +63,5 @@ jobs:
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
           FEEDBACK_DISCUSSION_CATEGORY: ${{ vars.FEEDBACK_DISCUSSION_CATEGORY || '反馈日报' }}
+          ANNOUNCE_CATEGORY: ${{ vars.ANNOUNCE_CATEGORY || 'announcements' }}
         run: python3 .github/scripts/discussion_commands.py

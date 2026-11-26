@@ -27,22 +27,21 @@ class AgentToolCatalogTest {
         "get_lms", "get_lms_activity", "get_fitness_score", "app_guide", "search_campus_guide", "calculate",
     )
 
-    /** 进工具表的那五档（[AgentCapability.toolGated]）；剩下一档（相册）只管屏。 */
+    /** 进工具表的那六档（[AgentCapability.toolGated]）；剩下两档（相册、语音）只管屏。 */
     private val gated = AgentCapability.toolGated.map { it.tool!! }
 
     @Test
-    fun `进工具表的端能力就是清单里那五个工具名`() {
-        assertEquals(listOf("set_alarm", "app_setting", "add_schedule_event", "save_file", "activity"), gated)
-        // 六档总数与「只管屏的那一档」也一并钉住：加减一档要两边一起改
-        assertEquals(6, AgentCapability.entries.size)
-        // 只剩相册那一档没有工具名：`save_file` 现在由 FILE_SAVE 一并把门（见那一档的 KDoc）。
-        assertEquals(listOf(AgentCapability.IMAGE_INPUT), AgentCapability.entries.filter { it.tool == null })
+    fun `进工具表的端能力就是清单里那六个工具名`() {
+        assertEquals(listOf("set_alarm", "app_setting", "add_schedule_event", "save_file", "activity", "open_page"), gated)
+        // 八档总数与「只管屏的那两档」也一并钉住：加减一档要两边一起改
+        assertEquals(8, AgentCapability.entries.size)
+        assertEquals(listOf(AgentCapability.IMAGE_INPUT, AgentCapability.VOICE_INPUT), AgentCapability.entries.filter { it.tool == null })
     }
 
     @Test
-    fun `全 honored 的端画全 28 档`() {
+    fun `全 honored 的端画全 29 档`() {
         val drawn = tools(AgentCapability.entries.toSet())
-        assertEquals(28, drawn.size)
+        assertEquals(29, drawn.size)
         assertEquals((alwaysDrawn + gated).sorted(), drawn.sorted())
         assertEquals(drawn.size, drawn.distinct().size, "工具名不能重复")
     }

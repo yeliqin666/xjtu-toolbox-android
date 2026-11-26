@@ -88,6 +88,16 @@ data class Bulletin(
 
     /** 投票截止就是公告的 [endsAt]（关闭投票帖 = 改成关帖时刻），旧版 App 到点同样不再提示。 */
     fun isClosedAt(now: Instant): Boolean = endsAt != null && now >= endsAt
+
+    /** 截止倒计时：「还剩 3 天」「还剩 5 小时」「即将截止」；没有截止时间返回 null。 */
+    fun remainingText(now: Instant): String? {
+        val left = (endsAt ?: return null) - now
+        return when {
+            left.inWholeDays >= 1 -> "还剩 ${left.inWholeDays} 天"
+            left.inWholeHours >= 1 -> "还剩 ${left.inWholeHours} 小时"
+            else -> "即将截止"
+        }
+    }
 }
 
 /** 投票的一个选项拿到几票。 */

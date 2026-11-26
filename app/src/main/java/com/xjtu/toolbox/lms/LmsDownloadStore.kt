@@ -7,6 +7,8 @@ import android.provider.MediaStore
 import org.json.JSONArray
 import org.json.JSONObject
 import com.xjtu.toolbox.media.DownloadedFile
+import java.io.IOException
+import java.io.OutputStream
 /** 「文件类下载」的一条记录。 */
 typealias LmsDownloadRecord = DownloadedFile
 
@@ -82,6 +84,21 @@ object LmsDownloadStore {
         mimeType: String,
         bytes: ByteArray,
         category: String = CATEGORY_OTHER,
+    ): String? = saveStream(context, fileName, mimeType, category) { out ->
+        out.write(bytes)
+        bytes.size.toLong()
+    }
+
+    /**
+     * 由 [write] 把内容写进公共 Downloads 并登记，返回写入的字节数。
+     * 网络下载走这里边收边写，大文件整包进内存会 OOM。
+     */
+    fun saveStream(
+        context: Context,
+        fileName: String,
+        mimeType: String,
+        category: String = CATEGORY_OTHER,
+        write: (OutputStream) -> Long,
     ): String? {
         val mime = mimeType.ifBlank { "application/octet-stream" }
         val cv = android.content.ContentValues().apply {
@@ -93,7 +110,8 @@ object LmsDownloadStore {
         val resolver = context.contentResolver
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv) ?: return null
         return try {
-            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return null
+            val size = resolver.openOutputStream(uri)?.use(write)
+                ?: throw IOException("openOutputStream returned null")
             cv.clear()
             cv.put(MediaStore.Downloads.IS_PENDING, 0)
             resolver.update(uri, cv, null, null)
@@ -105,7 +123,7 @@ object LmsDownloadStore {
                     uri = uri.toString(),
                     savedAt = System.currentTimeMillis(),
                     category = category,
-                    size = bytes.size.toLong(),
+                    size = size,
                 )
             )
             uri.toString()

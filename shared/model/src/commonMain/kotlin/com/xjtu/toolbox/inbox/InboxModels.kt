@@ -83,6 +83,8 @@ data class InboxData(
     val cleared: Set<String> = emptySet(),
     /** 列表项左右滑做什么。 */
     val swipe: InboxSwipeSettings = InboxSwipeSettings(),
+    /** 用户置顶的消息分类：这几类单列一组排在最前面。 */
+    val pinned: Set<String> = emptySet(),
 )
 
 /** 列表项滑动可选的动作。存的是 [key]：改字面、加动作都不影响老数据。 */
@@ -184,6 +186,10 @@ object InboxCategories {
     fun school(label: String) = SCHOOL_PREFIX + label
     fun isSchool(key: String) = key.startsWith(SCHOOL_PREFIX)
     fun schoolLabel(key: String) = key.removePrefix(SCHOOL_PREFIX)
+
+    /** 分类的显示名，和收纳设置里的开关同名。 */
+    fun label(key: String): String =
+        if (isSchool(key)) schoolLabel(key) else (todos + messages).firstOrNull { it.key == key }?.label ?: key
 
     /** 每类一个颜色（ARGB），收纳页图标和桌面小组件的色条共用。 */
     fun argb(category: String): Int = when (category) {
@@ -509,6 +515,9 @@ object InboxStore {
 
     fun setEnabled(category: String, enabled: Boolean) =
         update(AccountContext.activeAccountId) { it.copy(off = if (enabled) it.off - category else it.off + category) }
+
+    fun setPinned(category: String, pinned: Boolean) =
+        update(AccountContext.activeAccountId) { it.copy(pinned = if (pinned) it.pinned + category else it.pinned - category) }
 
     fun setSchoolFetchedAt(at: Long, account: String?) = update(account) { it.copy(schoolFetchedAt = at) }
 
