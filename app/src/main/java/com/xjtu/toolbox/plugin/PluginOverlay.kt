@@ -27,6 +27,7 @@ import com.xjtu.toolbox.plugin.api.UiLoadingNode
 import com.xjtu.toolbox.plugin.api.UiNode
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
+import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.reportScrollToTopBar
 import com.xjtu.toolbox.ui.glass.tabContentPadding
@@ -217,6 +218,8 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
                 .verticalScroll(scroll)
                 .overScrollVertical()
                 .padding(tabContentPadding(padding))
+                // 顶栏毛玻璃采样正文
+                .glassSource(glass)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

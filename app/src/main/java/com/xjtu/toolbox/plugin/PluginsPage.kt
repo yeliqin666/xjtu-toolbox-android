@@ -987,6 +987,8 @@ private fun DetailPage(
                 .reportScrollToTopBar(scrollState, scrollBehavior)
                 .verticalScroll(scrollState)
                 .padding(padding.withoutTop(glass))
+                // 顶栏的毛玻璃要采样正文，不挂这个就只有实色底
+                .glassSource(glass)
                 .padding(horizontal = 16.dp)
                 .padding(top = glassTop, bottom = 24.dp),
         ) {
