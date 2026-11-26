@@ -981,8 +981,9 @@ private fun DetailPage(
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                // nestedScroll 要在滚动容器外面，否则收不到滚动量，大标题收不起来
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .verticalScroll(rememberScrollState())
                 .padding(padding.withoutTop(glass))
                 .padding(horizontal = 16.dp)
                 .padding(top = glassTop, bottom = 24.dp),
