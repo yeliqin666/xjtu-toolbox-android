@@ -129,9 +129,11 @@ internal class PluginRuntime(
         target.readBytes()
     }.getOrNull()
 
-    override fun notify(title: String, text: String) {
+    override fun notify(title: String, text: String) = notify(title, text, headsUp = false)
+
+    override fun notify(title: String, text: String, headsUp: Boolean) {
         val manager = appContext.getSystemService(NotificationManager::class.java) ?: return
-        ensureChannel(manager)
+        val channel = ensureChannel(manager, headsUp)
         val launch = appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)
         val pending = launch?.let {
             PendingIntent.getActivity(
@@ -141,25 +143,51 @@ internal class PluginRuntime(
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
         }
-        val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(appContext, channel)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(
+                if (headsUp) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT,
+            )
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
             .apply { if (pending != null) setContentIntent(pending) }
             .build()
         runCatching { manager.notify(pluginId.hashCode(), notification) }
     }
 
-    private fun ensureChannel(manager: NotificationManager) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+    /** 建渠道并返回它的 id。渠道建过之后重要级别就改不动了，所以要按需重建。 */
+    private fun ensureChannel(manager: NotificationManager, headsUp: Boolean): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return CHANNEL_ID
+        val id = if (headsUp) CHANNEL_ID_ALERTS else CHANNEL_ID
+        val wanted = if (headsUp) {
+            NotificationManager.IMPORTANCE_HIGH
+        } else {
+            NotificationManager.IMPORTANCE_DEFAULT
+        }
+        val existing = manager.getNotificationChannel(id)
+        if (existing != null) {
+            if (existing.importance >= wanted) return id
+            // 重要级别建的时候定死，想升只能删了重建（用户改过的设置会跟着重置）
+            manager.deleteNotificationChannel(id)
+        }
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "插件通知", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "插件给你的提醒"
+            NotificationChannel(
+                id,
+                if (headsUp) "插件提醒（悬浮）" else "插件通知",
+                wanted,
+            ).apply {
+                description = if (headsUp) {
+                    "需要你马上看一眼的插件提醒，会弹在屏幕上"
+                } else {
+                    "插件给你的普通提醒，不弹窗"
+                }
+                if (headsUp) enableVibration(true)
             },
         )
+        return id
     }
 
     override fun dataDir(): String = PluginRegistry.dataDir(appContext, pluginId).absolutePath
@@ -175,8 +203,11 @@ internal class PluginRuntime(
     }
 
     companion object {
-        /** 插件通知识别用的渠道 id。 */
+        /** 普通插件通知的渠道 id。 */
         private const val CHANNEL_ID = "plugin_notifications"
+
+        /** 会悬浮的插件通知渠道 id（重要级别 HIGH）。 */
+        private const val CHANNEL_ID_ALERTS = "plugin_alerts"
 
         /**
          * 只读学校工具白名单。写入类（add_schedule_event / set_alarm / preference /

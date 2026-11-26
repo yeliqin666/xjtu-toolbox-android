@@ -151,8 +151,19 @@ interface PluginContext {
      *
      * 同一个插件用同一个通知 id，后一条会盖掉前一条，适合"状态更新"；
      * 要同时留多条就自己再区分标题。别刷屏——用户会关掉整个 App 的通知。
+     *
+     * 这一条**不悬浮**（状态栏 + 声音）。要弹出来提醒用户，用三参那个。
      */
     fun notify(title: String, text: String)
+
+    /**
+     * 发一条**会悬浮**（heads-up）的通知，用于真正需要用户马上看一眼的事：
+     * 抢到课了、余额不足、考试改了时间。
+     *
+     * 走的是另一个重要性更高的渠道，用户可以在系统设置里单独关掉它。
+     * 别拿它发"同步完成"这种——会被关通知。
+     */
+    fun notify(title: String, text: String, headsUp: Boolean)
 
     /** 插件自己的可写目录（`filesDir/plugins/data/<id>`），已创建。 */
     fun dataDir(): String
