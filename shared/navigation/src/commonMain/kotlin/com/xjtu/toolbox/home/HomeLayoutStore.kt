@@ -179,7 +179,7 @@ class HomeLayoutStore(
         }
         val stored = saved ?: migrateFromWidgetLayout(accountType)
         return (
-            stored?.let { withPluginGroup(withNewServices(it, accountType), extra) }
+            stored?.let { withPluginGroup(withProfileMovedRoutes(withNewServices(it, accountType), accountType), extra) }
                 ?: HomeLayoutDefaults.of(accountType, quickRoutes, extra)
             ).compactGaps(grid)
     }
@@ -235,6 +235,32 @@ class HomeLayoutStore(
         return placed
     }
 
+    /**
+     * 学业进度、成绩单从「我的」页挪到只在首页（2026-11）。摆过首页又删掉过它们的人，
+     * 升级后补回一次，否则只剩全局搜索能进；补完置 [KEY_PROFILE_MOVED_ONCE]，之后再删就是真不要了。
+     * 两项只给本科生：账号看不到它们时不置标记，换成本科账号再补。
+     */
+    private fun withProfileMovedRoutes(layout: HomeLayout, accountType: AccountType): HomeLayout {
+        if (store.getBoolean(KEY_PROFILE_MOVED_ONCE, false)) return layout
+        val visible = AppServices.homeFor(accountType).mapTo(mutableSetOf()) { it.route.id }
+        val routes = PROFILE_MOVED_ROUTES.filter { it in visible }
+        if (routes.isEmpty()) return layout
+        store.putBoolean(KEY_PROFILE_MOVED_ONCE, true)
+        val present = layout.groups.flatMap { g -> g.tiles.map { it.routeId } }.toSet()
+        val missing = routes.filter { it !in present }
+        if (missing.isEmpty()) return layout
+        val category = ServiceCategory.CLASS
+        var next = layout
+        val groupId = next.group(category.name)?.id
+            ?: next.groups.lastOrNull { it.id != HomeLayoutDefaults.QUICK_GROUP && it.id != HomeLayoutDefaults.PLUGIN_GROUP }?.id
+            ?: category.name.also { next = next.addGroup(HomeGroup(id = it, title = category.title)) }
+        missing.forEach { routeId ->
+            next = next.addTile(groupId, routeId, next.nextTileId(groupId, routeId), 1f, 1f)
+        }
+        store.putString(KEY_LAYOUT, HomeLayoutCodec.encode(next))
+        return next
+    }
+
     private fun catalogIds(): Set<String> = AppServices.home.mapTo(mutableSetOf()) { it.route.id }
 
     /**
@@ -260,6 +286,8 @@ class HomeLayoutStore(
         saved = layout.withoutEmptyGroups()
         // 存的这一刻用户看得到整份目录：之后才进目录的才算新功能
         store.putString(KEY_SEEN_ROUTES, catalogIds().joinToString(","))
+        // 亲手摆过的布局里删掉学业进度 / 成绩单就是不要了，不再补回
+        store.putBoolean(KEY_PROFILE_MOVED_ONCE, true)
     }
 
     /** 「恢复默认分组和布局」：清掉整页快照，回到 [HomeLayoutDefaults]。 */
@@ -416,7 +444,12 @@ private const val KEY_CARD_CORNER = "home_card_corner"
          * 开始记「见过的功能」之后才进目录的功能。老存档没有见过记录时，
          * 按「当前目录减去这些」当作见过，于是这些会补进去，其余的（用户删过的）不会。
          */
-        private val INTRODUCED_AFTER_SEEN_TRACKING = setOf(AppRoute.SsActivity.id, AppRoute.SuperApp.id)
+        private val INTRODUCED_AFTER_SEEN_TRACKING = setOf(AppRoute.SsActivity.id, AppRoute.SuperApp.id, AppRoute.Transcript.id)
+
+        /** 「学业进度、成绩单已补回首页」的标记，见 [withProfileMovedRoutes]。 */
+        private const val KEY_PROFILE_MOVED_ONCE = "home_profile_moved_routes_v1"
+
+        private val PROFILE_MOVED_ROUTES = listOf(AppRoute.DegreeProgress.id, AppRoute.Transcript.id)
     }
 }
 

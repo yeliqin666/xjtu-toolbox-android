@@ -921,12 +921,8 @@ internal fun ProfileTab(
 
                 if (loginState.accountType == AccountType.UNDERGRADUATE) {
                     var showCertificate by remember { mutableStateOf(false) }
-                    // 不再单起「学业材料」小标题：和上面几张卡一样，靠大卡片本身分组
+                    // 学业进度、成绩单只放首页（首页保证带上，见 HomeLayoutStore.withProfileMovedRoutes）
                     MenuGroup(Modifier.enterOnce(2)) {
-                        ProfileMenuRow(Icons.Default.School, TINT_TEAL, "学业进度", subtitle = "培养方案与毕业要求", onClick = { onNavigate(AppRoute.DegreeProgress) }, route = AppRoute.DegreeProgress)
-                        MenuDivider()
-                        ProfileMenuRow(Icons.Default.Description, TINT_TEAL, "电子成绩单", onClick = { onNavigate(AppRoute.Transcript) }, route = AppRoute.Transcript)
-                        MenuDivider()
                         ProfileMenuRow(Icons.Default.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
                             onClick = { showCertificate = true })
                     }
