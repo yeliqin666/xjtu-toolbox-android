@@ -76,6 +76,8 @@ class SuperAppApi(private val site: SiteSession) {
     }
 
     companion object {
+        /** DataCache 里原始响应的键，服务页和小岱 open_page 共用。 */
+        const val CACHE_KEY = "superapp_services"
         private const val ORIGIN = "https://superapp.xjtu.edu.cn"
         private const val LIST_URL = "https://ywtb.xjtu.edu.cn/portal-api/v1/service/list"
 

@@ -49,6 +49,7 @@ fun agentToolLabel(name: String): String = when (name) {
     "find_faculty"          -> "查询教师…"
     "preference"            -> "记下偏好…"
     "app_setting"           -> "读取 / 修改设置…"
+    "open_page"             -> "打开页面…"
     "calculate"             -> "计算…"
     AgentRetitle.TOOL       -> "改对话标题…"
     "app_guide"             -> "查看 App 指南…"
@@ -60,6 +61,20 @@ fun agentToolLabel(name: String): String = when (name) {
 fun agentCompleteToolLabel(running: String): String {
     val base = running.trimEnd('…', '.', '。', ' ')
     return if (base.startsWith("已")) base else "已$base"
+}
+
+/** open_page 能打开的功能页：首页服务目录里除小岱自己以外的全部。 */
+val agentOpenablePages: List<com.xjtu.toolbox.home.AppService>
+    get() = com.xjtu.toolbox.home.AppServices.all.filter { it.route != AppRoute.Agent }
+
+/** 按标题、别名找功能页，最后退到互相包含。 */
+fun agentFindPage(name: String): com.xjtu.toolbox.home.AppService? {
+    val q = name.trim()
+    if (q.isEmpty()) return null
+    val pages = agentOpenablePages
+    return pages.firstOrNull { it.title == q }
+        ?: pages.firstOrNull { a -> a.aliases.any { it.equals(q, ignoreCase = true) } }
+        ?: pages.firstOrNull { it.title in q || q in it.title }
 }
 
 /** 选中的查询结果对应的页面入口。 */

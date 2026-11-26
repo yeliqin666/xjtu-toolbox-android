@@ -30,7 +30,7 @@ internal class SuperAppViewModel(site: SiteSession, private val cache: DataCache
 
     init {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { cache.getStale(CACHE_KEY)?.let { runCatching { SuperAppApi.parse(it) }.getOrNull() } }
+            withContext(Dispatchers.IO) { cache.getStale(SuperAppApi.CACHE_KEY)?.let { runCatching { SuperAppApi.parse(it) }.getOrNull() } }
                 ?.takeIf { it.isNotEmpty() }
                 ?.let { categories = it }
             refresh()
@@ -46,7 +46,7 @@ internal class SuperAppViewModel(site: SiteSession, private val cache: DataCache
             runCatching {
                 withContext(Dispatchers.IO) {
                     val raw = api.fetchRaw()
-                    SuperAppApi.parse(raw).also { if (it.isNotEmpty()) cache.put(CACHE_KEY, raw) }
+                    SuperAppApi.parse(raw).also { if (it.isNotEmpty()) cache.put(SuperAppApi.CACHE_KEY, raw) }
                 }
             }.onSuccess { categories = it }.onFailure { e ->
                 if (e is AuthExpiredException) expired.trySend(Unit)
@@ -55,9 +55,5 @@ internal class SuperAppViewModel(site: SiteSession, private val cache: DataCache
             }
             refreshing = false
         }
-    }
-
-    private companion object {
-        const val CACHE_KEY = "superapp_services"
     }
 }

@@ -28,6 +28,12 @@ enum class AgentCapability(val tool: String?, val label: String) {
     /** 智慧社区活动的查询与一键报名（`:app` = `SsActivityApi`）。 */
     SS_ACTIVITY("activity", "活动报名"),
 
+    /** 替用户打开功能页或移动交大里的服务（`:app` 经 [AgentNavigator] 交给聊天页导航）。 */
+    OPEN_PAGE("open_page", "打开功能页"),
+
+    /** 按住说话转文字（`:app` = 录音 + DeepSeek 语音识别）。 */
+    VOICE_INPUT(null, "语音输入"),
+
     ;
     companion object {
 

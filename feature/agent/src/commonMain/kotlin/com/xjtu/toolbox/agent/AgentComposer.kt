@@ -32,6 +32,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Mic
 import com.xjtu.toolbox.platform.decodeImageFull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +69,9 @@ internal fun AgentComposer(
     /** 玻璃模式下的采样源：聊天内容那层 COUI 采样；null（经典风格 / 非 Android）时纯白/黑实底。 */
     pageBackdrop: com.xjtu.toolbox.ui.glass.CouiPageBackdrop? = null,
     onOpenShared: (() -> Unit)? = null,
+    /** 语音输入所处阶段；null = 这一端或这份配置没有语音输入，不画麦克风。 */
+    voicePhase: VoicePhase? = null,
+    onVoice: () -> Unit = {},
 ) {
     // 只发图不打字是合理的（「这是什么」「帮我看看这张课表」）。
     val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !contextExhausted
@@ -222,12 +226,40 @@ internal fun AgentComposer(
                 )
                 if (input.isEmpty()) {
                     Text(
-                        if (contextExhausted) "这轮对话满了，新建一个吧" else placeholder,
+                        when {
+                            contextExhausted -> "这轮对话满了，新建一个吧"
+                            voicePhase == VoicePhase.RECORDING -> "正在听，说完再点一下麦克风"
+                            voicePhase == VoicePhase.TRANSCRIBING -> "正在识别…"
+                            else -> placeholder
+                        },
                         style = MiuixTheme.textStyles.body1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+            }
+            if (voicePhase != null) {
+                val recording = voicePhase == VoicePhase.RECORDING
+                Box(
+                    Modifier
+                        .padding(end = 6.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(if (recording) MiuixTheme.colorScheme.error.copy(alpha = 0.15f) else androidx.compose.ui.graphics.Color.Transparent)
+                        .clickable(enabled = !contextExhausted && voicePhase != VoicePhase.TRANSCRIBING) { onVoice() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (voicePhase == VoicePhase.TRANSCRIBING) {
+                        CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            if (recording) Icons.Default.Stop else Icons.Default.Mic,
+                            contentDescription = if (recording) "结束录音" else "语音输入",
+                            tint = if (recording) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
             if (isLoading && canSend) IconButton(onClick = onStop, modifier = Modifier.size(32.dp)) {
