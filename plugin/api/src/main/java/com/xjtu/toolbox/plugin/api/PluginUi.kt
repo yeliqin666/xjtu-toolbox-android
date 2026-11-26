@@ -8,7 +8,8 @@ package com.xjtu.toolbox.plugin.api
  * 也就不会出现「两边的 `ProvidedValue` 是两个类」这类崩溃。
  *
  * 约定：
- * - 节点都是普通类，字段只增不改；加节点要升 [PluginApi.VERSION]。
+ * - 节点都是普通类，字段只增不改；**加节点不升** [PluginApi.VERSION]（旧插件用不到新节点，
+ *   老宿主也看不懂新节点）。但插件用了新节点，要自己把清单里的 `minAppVersionCode` 提上去。
  * - 树的深度不要超过 24 层，单个节点子树不超过 2000 个节点（宿主会拦，超了显示错误）。
  * - 文字是纯文本，v0 不解析 Markdown。
  */
@@ -82,6 +83,34 @@ class UiFieldNode(
 class UiImageNode(
     val url: String,
     val heightDp: Int = 160,
+) : UiNode()
+
+/**
+ * 一个图标。名字取自宿主的白名单——语义名（`calendar`、`card`、`library`…），不是图标库的类名，
+ * 这样宿主换图标集时插件不用改。不认识的名字会画成占位图标，不会崩也不会空白。
+ *
+ * 颜色跟随所在行的文字色，插件不要指定。
+ */
+class UiIconNode(
+    val name: String,
+    val sizeDp: Int = 24,
+) : UiNode()
+
+/** 下拉里的一个选项。[key] 会原样回传给插件，别用下标——排序一变下标就错位了。 */
+class UiOption(val key: String, val label: String)
+
+/**
+ * 下拉单选，画成设置页那种「标题 + 当前值 + 箭头」的行，点开是宿主的菜单。
+ *
+ * [options] 最多 8 个：再多就该插件自己开一页列表了（浮层里滚动很难用）。
+ * 选中后回传 `onAction(actionId, key)`；[value] 不在 [options] 里时照原样显示，不报错。
+ */
+class UiSelectNode(
+    val label: String,
+    val value: String,
+    val options: List<UiOption>,
+    val actionId: String,
+    val summary: String = "",
 ) : UiNode()
 
 /** 分隔线。 */
