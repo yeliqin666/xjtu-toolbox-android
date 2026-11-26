@@ -1093,7 +1093,7 @@ private fun DetailPage(
                         title = "打开网页",
                         summary = buildString {
                             append(webHostOf(record.manifest.webStartUrl))
-                            if (record.manifest.webUseVpn) append(" · 经 WebVPN")
+                            if (record.webVpnEnabled()) append(" · 经 WebVPN")
                         },
                         enabled = record.enabled && !broken,
                         onClick = { onOpenPage("") },
@@ -1231,7 +1231,7 @@ private fun demoRecord(
     ),
 )
 
-private fun demoRecords(): List<PluginRecord> = listOf(
+internal fun demoRecords(): List<PluginRecord> = listOf(
     demoRecord(
         id = "top.dzhz.plugin.sample",
         name = "示例插件",

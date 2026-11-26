@@ -26,7 +26,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import com.xjtu.toolbox.plugin.api.PluginToolManifest
 import com.xjtu.toolbox.ui.components.CouiPreferenceItem
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import com.xjtu.toolbox.ui.components.SwitchPreference
