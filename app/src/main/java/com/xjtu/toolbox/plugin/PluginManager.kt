@@ -310,6 +310,7 @@ internal class PluginManager private constructor(private val appContext: Context
                 pluginId = id,
                 loginState = ProcessLoginState.get(appContext).loginState,
                 apkFile = apk,
+                packageDir = PluginRegistry.packageDir(appContext, record),
             )
             val plugin: Plugin = entry.create(runtime)
             LoadedPlugin(record, loader, plugin, runtime).also { loaded[id] = it }

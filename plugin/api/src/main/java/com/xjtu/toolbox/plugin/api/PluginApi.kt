@@ -137,6 +137,23 @@ interface PluginContext {
     /** 读插件 APK 里的 assets 文件；不存在返回 null。 */
     fun openAsset(name: String): ByteArray?
 
+    /**
+     * 读插件包里的文件（相对包根目录的路径，比如 `data.json`、`icon.png`）。
+     *
+     * 只能读自己包里的东西，路径不许跳出包目录；读不到返回 null。
+     * 装包时整个包已经验过签，所以这里不再逐文件核 sha256。
+     * 在 IO 线程调用，别在主线程读大文件。
+     */
+    fun openPackageFile(path: String): ByteArray?
+
+    /**
+     * 发一条通知，走宿主统一的渠道（不用自己建 NotificationChannel）。
+     *
+     * 同一个插件用同一个通知 id，后一条会盖掉前一条，适合"状态更新"；
+     * 要同时留多条就自己再区分标题。别刷屏——用户会关掉整个 App 的通知。
+     */
+    fun notify(title: String, text: String)
+
     /** 插件自己的可写目录（`filesDir/plugins/data/<id>`），已创建。 */
     fun dataDir(): String
 

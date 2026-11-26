@@ -1,5 +1,10 @@
 package com.xjtu.toolbox.plugin
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import androidx.core.app.NotificationCompat
+import com.xjtu.toolbox.util.AppJson
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -31,6 +36,8 @@ internal class PluginRuntime(
     override val pluginId: String,
     private val loginState: AppLoginState,
     private val apkFile: File,
+    /** 插件包解压后的目录（`files/plugins/<id>/<versionCode>`），[openPackageFile] 从这里读。 */
+    private val packageDir: File,
 ) : PluginContext {
 
     @Volatile override var isDarkTheme: Boolean = false
@@ -60,12 +67,14 @@ internal class PluginRuntime(
         return try {
             val registry = registry()
             val text = runBlocking { registry.execute(tool, argsJson.ifBlank { "{}" }) }
-            // 工具会往 registry 里塞卡片；插件桥不展示卡片，取走丢弃，避免攒到下一轮。
-            runCatching { registry.drainWidgets() }
+            // 工具会往 registry 里塞结构化卡片（课表、成绩、空教室……）。给小岱用的时候这些被丢掉，
+            // 但插件要拿它们画界面——所以取出来一并回给插件。没有卡片的工具这里就是空数组。
+            val widgets = runCatching { registry.drainWidgets() }.getOrDefault(emptyList())
             buildJsonObject {
                 put("ok", true)
                 put("tool", tool)
                 put("text", text)
+                put("widgets", AppJson.encodeToJsonElement(widgets))
             }.toString()
         } catch (e: CancellationException) {
             throw e
@@ -103,6 +112,50 @@ internal class PluginRuntime(
         }
     }.getOrNull()
 
+    override fun openPackageFile(path: String): ByteArray? = runCatching {
+        val relative = path.trimStart('/')
+        if (!PluginPackages.isSafePath(relative)) return null
+        val root = packageDir.canonicalFile
+        val target = File(root, relative).canonicalFile
+        // 防 ../ 跳出包目录：解析完的真实路径必须还在包里
+        if (!target.path.startsWith(root.path + File.separator)) return null
+        if (!target.isFile) return null
+        target.readBytes()
+    }.getOrNull()
+
+    override fun notify(title: String, text: String) {
+        val manager = appContext.getSystemService(NotificationManager::class.java) ?: return
+        ensureChannel(manager)
+        val launch = appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)
+        val pending = launch?.let {
+            PendingIntent.getActivity(
+                appContext,
+                0,
+                it,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        }
+        val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .apply { if (pending != null) setContentIntent(pending) }
+            .build()
+        runCatching { manager.notify(pluginId.hashCode(), notification) }
+    }
+
+    private fun ensureChannel(manager: NotificationManager) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "插件通知", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "插件给你的提醒"
+            },
+        )
+    }
+
     override fun dataDir(): String = PluginRegistry.dataDir(appContext, pluginId).absolutePath
 
     override fun toast(message: String) {
@@ -116,6 +169,9 @@ internal class PluginRuntime(
     }
 
     companion object {
+        /** 插件通知识别用的渠道 id。 */
+        private const val CHANNEL_ID = "plugin_notifications"
+
         /**
          * 只读学校工具白名单。写入类（add_schedule_event / set_alarm / preference /
          * app_setting / save_file / activity）刻意不在这里，插件硬调会回 not_allowed。

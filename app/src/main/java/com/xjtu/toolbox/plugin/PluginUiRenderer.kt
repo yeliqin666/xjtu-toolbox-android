@@ -112,7 +112,14 @@ internal fun PluginUiTree(
                 modifier
             },
             style = node.style.toMiuixStyle(),
-            color = resolveTextColor(node.color, node.argb, node.secondary),
+            color = resolveTextColor(
+                color = node.color,
+                argb = node.argb,
+                secondary = node.secondary,
+                // 可点但没指定颜色：默认主色，用户才看得出能点
+                fallbackPrimary = node.actionId.isNotEmpty() &&
+                    node.color == null && node.argb == null && !node.secondary,
+            ),
             fontWeight = if (node.bold) FontWeight.Bold else null,
             fontStyle = if (node.italic) FontStyle.Italic else null,
             textDecoration = textDecorationOf(node.underline, node.strikeThrough),
@@ -124,7 +131,13 @@ internal fun PluginUiTree(
             text = buildAnnotatedString {
                 node.spans.forEach { span ->
                     val spanStyle = SpanStyle(
-                        color = resolveTextColor(span.color, span.argb, secondary = false),
+                        color = resolveTextColor(
+                            color = span.color,
+                            argb = span.argb,
+                            secondary = false,
+                            fallbackPrimary = span.actionId.isNotEmpty() &&
+                                span.color == null && span.argb == null,
+                        ),
                         fontWeight = if (span.bold) FontWeight.Bold else null,
                         fontStyle = if (span.italic) FontStyle.Italic else null,
                         textDecoration = textDecorationOf(span.underline, span.strikeThrough),
@@ -425,8 +438,14 @@ private val WarningColor = Color(0xFFE08A00)
 
 /** 按插件给的颜色枚举/ARGB 解析出实际颜色；都没给就跟主题走。 */
 @Composable
-private fun resolveTextColor(color: UiTextColor?, argb: Int?, secondary: Boolean): Color {
+private fun resolveTextColor(
+    color: UiTextColor?,
+    argb: Int?,
+    secondary: Boolean,
+    fallbackPrimary: Boolean = false,
+): Color {
     if (argb != null) return Color(argb)
+    if (color == null && fallbackPrimary) return MiuixTheme.colorScheme.primary
     return when (color) {
         UiTextColor.Default -> MiuixTheme.colorScheme.onSurface
         UiTextColor.Secondary -> MiuixTheme.colorScheme.onSurfaceVariantSummary
