@@ -99,7 +99,16 @@ internal fun PluginUiTree(
                 enabled = node.enabled,
                 modifier = modifier,
                 colors = ButtonDefaults.buttonColorsPrimary(),
-            ) { Text(node.label, color = MiuixTheme.colorScheme.onPrimary) }
+            ) {
+                Text(
+                    node.label,
+                    color = if (node.enabled) {
+                        MiuixTheme.colorScheme.onPrimary
+                    } else {
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    },
+                )
+            }
 
             UiButtonStyle.Tonal -> Button(
                 onClick = { onAction(node.actionId, null) },

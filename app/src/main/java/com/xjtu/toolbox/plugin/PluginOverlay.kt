@@ -17,9 +17,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.plugin.api.UiEmptyNode
 import com.xjtu.toolbox.plugin.api.UiLoadingNode
 import com.xjtu.toolbox.plugin.api.UiNode
@@ -30,6 +32,7 @@ import com.xjtu.toolbox.ui.glass.tabContentPadding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /** 全局"要打开哪个插件页"的信号；设置页写它，[PluginPageOverlayHost] 读它。 */
@@ -143,6 +146,13 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
     }
 
     val page = opened
+
+    // 插件画图时要用宿主主题（isDarkTheme / primaryColor）；没注入就一直是 false + 0
+    val darkTheme = LocalIsDarkTheme.current
+    val primaryArgb = MiuixTheme.colorScheme.primary.toArgb()
+    LaunchedEffect(page, darkTheme, primaryArgb) {
+        page?.runtime?.applyTheme(darkTheme, primaryArgb)
+    }
 
     // 插件改完状态调 invalidate()，这里切回主线程重要一次树；插件从任意线程调都行
     DisposableEffect(page) {
