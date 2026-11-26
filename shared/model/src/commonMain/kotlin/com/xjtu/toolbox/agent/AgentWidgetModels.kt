@@ -7,6 +7,7 @@ import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -26,6 +27,7 @@ data class NoticeWidgetItem(
 )
 
 @Serializable
+@SerialName("notice")
 data class NoticeWidget(
     val items: List<NoticeWidgetItem> = emptyList(), val query: String = "",
     val caption: String = "", val display: WidgetDisplay = WidgetDisplay(limit = 6),
@@ -46,14 +48,17 @@ data class WidgetDisplay(
 
 /** 课表：courses 已按目标日期/本周过滤好，控件内部按星期分组展示。 */
 @Serializable
+@SerialName("schedule")
 data class ScheduleWidget(val title: String = "", val courses: List<CourseItem> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 /** 考试安排。 */
 @Serializable
+@SerialName("exam")
 data class ExamWidget(val exams: List<ExamItem> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 /** 空闲教室。currentPeriod 为 0 基节次索引，-1 表示无"当前节次"语境。 */
 @Serializable
+@SerialName("rooms")
 data class RoomWidget(
     val condition: String = "", val rooms: List<RoomInfo> = emptyList(), val currentPeriod: Int = -1,
     val display: WidgetDisplay = WidgetDisplay(),
@@ -63,6 +68,7 @@ data class RoomWidget(
 
 /** 空闲教室的实时状态（智慧教室平台）：只放空闲和"没排课但有人"的教室。 */
 @Serializable
+@SerialName("live_rooms")
 data class LiveRoomWidget(
     val condition: String = "",
     val rooms: List<com.xjtu.toolbox.emptyroom.LiveRoom> = emptyList(),
@@ -72,14 +78,17 @@ data class LiveRoomWidget(
 
 /** 考勤记录。 */
 @Serializable
+@SerialName("attendance")
 data class AttendanceWidget(val records: List<AttendanceWaterRecord> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 /** 成绩 + 加权 GPA 汇总。 */
 @Serializable
+@SerialName("grades")
 data class GradeWidget(val grades: List<ReportedGrade> = emptyList(), val gpa: Double? = null, val totalPoints: Double = 0.0, val display: WidgetDisplay = WidgetDisplay(limit = 15)) : AgentWidget
 
 /** 校园卡信息。 */
 @Serializable
+@SerialName("card")
 data class CardWidget(
     val info: CardInfo,
     val transactions: List<com.xjtu.toolbox.card.Transaction> = emptyList(),
@@ -98,10 +107,12 @@ data class CardWidget(
  * 复述给屁岱，中间那几步毫无意义。
  */
 @Serializable
+@SerialName("zyxf")
 data class ZyxfWidget(val query: String = "", val items: List<ZyxfEntryRef> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 /** 校车结果。点一下进校车页。 */
 @Serializable
+@SerialName("bus")
 data class BusWidget(val title: String = "", val items: List<BusWidgetItem> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 @Serializable
@@ -120,6 +131,7 @@ data class BusWidgetItem(
  * 也不接受模型写的链接，只能选工具真正查到的文件。
  */
 @Serializable
+@SerialName("lms_files")
 data class LmsFileWidget(
     val courseName: String = "",
     val activityTitle: String = "",
@@ -153,6 +165,7 @@ data class ZyxfEntryRef(
  * 有人的座位压暗，空座就亮出来。点一下打开图书馆页并定位到这个区域。
  */
 @Serializable
+@SerialName("library")
 data class LibraryWidget(
     val campusId: String = "",
     val campusName: String = "",
@@ -171,6 +184,7 @@ data class LibraryAreaRef(val code: String = "", val name: String = "", val free
 
 /** 校区简图：标出几个地点（按名字回查打包的地图数据），[route] 为 true 时按顺序连成路线。 */
 @Serializable
+@SerialName("campus_map")
 data class CampusMapWidget(
     val campus: String = "",
     val places: List<String> = emptyList(),
@@ -198,10 +212,12 @@ data class PlanProposal(
 )
 
 @Serializable
+@SerialName("plan")
 data class PlanWidget(val items: List<PlanProposal> = emptyList(), val caption: String = "") : AgentWidget
 
 /** 小岱起草的社区帖子：用户在卡片上核对、可改，点「发布」才用他的社区账号发出。 */
 @Serializable
+@SerialName("posts")
 data class PostWidget(
     val title: String = "",
     val body: String = "",
