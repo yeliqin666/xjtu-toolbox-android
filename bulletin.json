@@ -1,6 +1,15 @@
 {
-  "updatedAt": "2026-11-27T00:10:39+08:00",
+  "updatedAt": "2026-11-27T00:55:55+08:00",
   "bulletins": [
+    {
+      "id": "2026-11-27-d576",
+      "level": "critical",
+      "title": "项目迁移及招贤纳士！",
+      "body": "热烈祝贺GitHub org: [xjtu-dzhz](https://github.com/xjtu-dzhz)正式成立！首先十分感谢大家的支持，以及各开源项目提供的参考，正是因为你们岱宗盒子才能做的越来越好。正因为项目规模的扩大，我们也随之做出如下调整：\n\n1. 为更多人的加入贡献准备，仓库已经由**个人账户（yeliqin666/xjtu-toolbox-android）**迁移到了**组织账户（xjtu-dzhz/dzhz）**；\n2. 我们注册了独属于我们的域名[dzhz.top](https://dzhz.top/) ，主页目前还在完善中，欢迎大家关注；\n3. 即将上新插件系统，分为**原生dex**和**浏览器web**两种，欢迎任何想接入自己系统、提供一站式服务，或者仅仅是想提供轻便的小功能的开发者们，关注两个模板仓库[DEX](https://github.com/xjtu-dzhz/dzhz-plugin-template)和[WEB](https://github.com/xjtu-dzhz/dzhz-plugin-web-template)，并向对应仓库发送issue以咨询详情；\n4. 由于盒子接到的反馈越来越多，欢迎各位同学加入我们的 @xjtu-dzhz/dzhz-dev 以及 @xjtu-dzhz/dzhz-mod 两个小组：\n   - **dzhz-dev**：岱宗盒子的开发团队，只需要基础的计算机知识，以及对agentic coding的基本了解就可以来接issue帮忙！（当然我们也热烈欢迎Kotlin领域的大佬加入！）\n   - **dzhz-mod**：岱宗盒子的斑竹们，不需要计算机知识，只要有一颗热心，肯于学习新的事物（肯定不难的！）就能来帮忙；平常工作包括辅助巡查社区，回复反馈，以及整理意见并用命令创建规范issue表单\n   来这里帮忙完全自愿、自由，无论你是攻坚动画优化，还是巡查小游戏排行榜，我们都热烈欢迎！如果有意愿的话，欢迎**在GitHub discussion上【招贤纳士】帖子下进行申请，或是发送邮件到hz_2007@qq.com**，我们会尽快审核并邀请通过的成员\n\n> Per aspera ad astra.\n> 历经风雨，终见繁星\n\n愿盒子不止于百颗星辰\n更愿它历久弥新，行稳致远\n前路有光，星河长明\n期待下一次仰望时\n已有更多繁星相伴！！！\n\n岱宗盒子协作者\nHz6826",
+      "mustAck": false,
+      "block": false,
+      "discussionUrl": "https://github.com/xjtu-dzhz/dzhz/discussions/576"
+    },
     {
       "id": "2026-11-26-d558",
       "level": "warn",
@@ -32,23 +41,23 @@
       "results": [
         {
           "option": "接入高频使用的服务（如校园体育、缴电费），由盒子走登录——登录链路常变动，可能解析异常",
-          "votes": 25
+          "votes": 12
         },
         {
           "option": "接入移动交大功能列表，但不接入任何登录，用户每次自行跳转、手动登录——每次、每个功能都要手动登录，仅作为学校app异常的备用",
-          "votes": 4
+          "votes": 2
         },
         {
           "option": "我有所担忧，不愿在第三方App使用涉及考核与缴费的功能",
-          "votes": 3
+          "votes": 1
         },
         {
           "option": "其他想法（请另发送一条反馈建议）",
           "votes": 0
         }
       ],
-      "voters": 32,
-      "resultsAt": "2026-11-27T00:10:39+08:00"
+      "voters": 15,
+      "resultsAt": "2026-11-26T16:53:13+08:00"
     },
     {
       "id": "2026-11-25-d524",
