@@ -1,5 +1,33 @@
 package com.xjtu.toolbox.plugin
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextAlign
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.layout.Arrangement
@@ -118,24 +146,37 @@ internal fun PluginPageOverlayHost() {
 internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val manager = remember { PluginManager.get(context) }
+    val uriHandler = LocalUriHandler.current
     val glass = rememberPageGlass()
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val scroll = rememberScrollState()
 
-    var opened by remember(pluginId, pageId) { mutableStateOf<OpenedPluginPage?>(null) }
-    var error by remember(pluginId, pageId) { mutableStateOf<String?>(null) }
-    var tick by remember(pluginId, pageId) { mutableIntStateOf(0) }
+    val record = manager.records.firstOrNull { it.id == pluginId }
+    val pages = record?.manifest?.pages.orEmpty()
 
-    BackHandler(enabled = true) { onBack() }
+    // 侧栏切页只改这个 id，不动路由；路由带进来的 page 是初始值
+    var currentPageId by remember(pluginId, pageId) {
+        mutableStateOf(pageId.ifBlank { pages.firstOrNull()?.id.orEmpty() })
+    }
+    var navOpen by remember { mutableStateOf(false) }
 
-    LaunchedEffect(pluginId, pageId) {
+    var opened by remember(pluginId, currentPageId) { mutableStateOf<OpenedPluginPage?>(null) }
+    var error by remember(pluginId, currentPageId) { mutableStateOf<String?>(null) }
+    var tick by remember(pluginId, currentPageId) { mutableIntStateOf(0) }
+
+    BackHandler(enabled = true) {
+        // 侧栏开着时返回先收侧栏
+        if (navOpen) navOpen = false else onBack()
+    }
+
+    LaunchedEffect(pluginId, currentPageId) {
         val result = withContext(Dispatchers.IO) {
             runCatching {
                 // 冷启动直接从路由进来时还没人读过 registry，先刷一遍再取页面
                 manager.refresh()
                 // 路由没带 page（插件的一级公开页）：用它清单里的第一页
-                val target = pageId.ifBlank {
+                val target = currentPageId.ifBlank {
                     manager.records.firstOrNull { it.id == pluginId }
                         ?.manifest?.pages?.firstOrNull()?.id.orEmpty()
                 }
@@ -145,6 +186,11 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
         val page = result.getOrNull()
         if (page != null) {
             opened = page
+            // 第一次冷启动补上实际页面 id，侧栏才有选中项（会再触发一次本 effect，无所谓）
+            if (currentPageId.isEmpty()) {
+                currentPageId = manager.records.firstOrNull { it.id == pluginId }
+                    ?.manifest?.pages?.firstOrNull()?.id.orEmpty()
+            }
         } else {
             error = result.exceptionOrNull()?.message ?: "插件未启用，或页面不存在"
         }
@@ -190,7 +236,7 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
 
     val title = page?.page?.title()?.takeIf { it.isNotBlank() }
         ?: page?.title
-        ?: manager.records.firstOrNull { it.id == pluginId }?.manifest?.name
+        ?: record?.manifest?.name
         ?: "插件"
 
     val onAction: (String, String?) -> Unit = remember(page) {
@@ -200,35 +246,225 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
         }
     }
 
-    Scaffold(
-        topBar = {
-            GlassTopAppBar(
-                title = title,
-                glass = glass,
-                scrollBehavior = scrollBehavior,
-                onBack = onBack,
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                // 插件页正文也能折叠顶栏；内容不够一屏时不会误折叠
-                .reportScrollToTopBar(scroll, scrollBehavior)
-                .verticalScroll(scroll)
-                .overScrollVertical()
-                .padding(tabContentPadding(padding))
-                // 顶栏毛玻璃采样正文
-                .glassSource(glass)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                GlassTopAppBar(
+                    title = title,
+                    glass = glass,
+                    scrollBehavior = scrollBehavior,
+                    onBack = onBack,
+                    actions = {
+                        // 只有一个页面的插件没什么可导航的，不显示目录按钮
+                        if (pages.size > 1) {
+                            CouiToolbarActionButton(onClick = { navOpen = true }) {
+                                Icon(Icons.Default.Menu, contentDescription = "目录")
+                            }
+                        }
+                    },
+                )
+            },
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    // 插件页正文也能折叠顶栏；内容不够一屏时不会误折叠
+                    .reportScrollToTopBar(scroll, scrollBehavior)
+                    .verticalScroll(scroll)
+                    .overScrollVertical()
+                    .padding(tabContentPadding(padding))
+                    // 顶栏毛玻璃采样正文
+                    .glassSource(glass)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val failed = error
+                when {
+                    failed != null -> PluginUiTree(UiEmptyNode("插件加载失败", failed), onAction)
+                    tree == null -> PluginUiTree(UiLoadingNode("正在加载插件…"), onAction)
+                    else -> PluginUiTree(tree, onAction)
+                }
+            }
+        }
+
+        PluginNavDrawer(
+            open = navOpen,
+            pages = pages,
+            selectedPageId = currentPageId,
+            version = record?.versionName.orEmpty(),
+            pluginId = pluginId,
+            author = record?.manifest?.author.orEmpty(),
+            projectUrl = record?.manifest?.projectUrl.orEmpty(),
+            onSelect = { id ->
+                navOpen = false
+                if (id != currentPageId) currentPageId = id
+            },
+            onOpenProject = {
+                navOpen = false
+                runCatching { uriHandler.openUri(projectUrl) }
+            },
+            onOpenSettings = {
+                navOpen = false
+                PluginLauncher.openDetail?.invoke(pluginId)
+            },
+            onDismiss = { navOpen = false },
+        )
+    }
+}
+
+/**
+ * 插件自己的导航目录：从右侧滑进来，占屏幕 72%。
+ *
+ * 目录来自清单里的 `pages[]`：有 `group` 的页面归到同名的一级里（可折叠），
+ * 没有 `group` 的是顶级条目。底部是插件信息，三行都靠右。
+ */
+@Composable
+private fun PluginNavDrawer(
+    open: Boolean,
+    pages: List<PluginPageManifest>,
+    selectedPageId: String,
+    version: String,
+    pluginId: String,
+    author: String,
+    projectUrl: String,
+    onSelect: (String) -> Unit,
+    onOpenProject: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // 一级分组默认展开；记住用户收起了哪几个
+    val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    val interaction = remember { MutableInteractionSource() }
+
+    Box(Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = open,
+            enter = fadeIn(tween(180)),
+            exit = fadeOut(tween(150)),
         ) {
-            val failed = error
-            when {
-                failed != null -> PluginUiTree(UiEmptyNode("插件加载失败", failed), onAction)
-                tree == null -> PluginUiTree(UiLoadingNode("正在加载插件…"), onAction)
-                else -> PluginUiTree(tree, onAction)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.42f))
+                    .clickable(interactionSource = interaction, indication = null, onClick = onDismiss),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = open,
+            enter = slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { width -> width },
+            exit = slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { width -> width },
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.72f)
+                    .background(MiuixTheme.colorScheme.surface)
+                    .padding(start = 20.dp, end = 20.dp, top = 56.dp, bottom = 28.dp),
+            ) {
+                Text(
+                    text = "目录",
+                    style = MiuixTheme.textStyles.title1,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(18.dp))
+
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                    pages.filter { it.group.isNotBlank() }
+                        .groupBy { it.group }
+                        .forEach { (group, items) ->
+                            val isCollapsed = collapsed[group] == true
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { collapsed[group] = !isCollapsed }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = group,
+                                    style = MiuixTheme.textStyles.title2,
+                                    color = MiuixTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (isCollapsed) "展开" else "收起",
+                                    modifier = Modifier.rotate(if (isCollapsed) -90f else 0f),
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                            }
+                            if (!isCollapsed) {
+                                items.forEach { item ->
+                                    NavPageRow(item, item.id == selectedPageId, indent = true) { onSelect(item.id) }
+                                }
+                            }
+                        }
+
+                    pages.filter { it.group.isBlank() }.forEach { item ->
+                        NavPageRow(item, item.id == selectedPageId, indent = false) { onSelect(item.id) }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // 插件信息：三行都靠右，body + 次要色
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    Text(
+                        text = "v$version · $pluginId",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        textAlign = TextAlign.End,
+                    )
+                    Text(
+                        text = "作者：$author",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        textAlign = TextAlign.End,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            text = "项目地址",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.clickable(enabled = projectUrl.isNotBlank(), onClick = onOpenProject),
+                        )
+                        Text(
+                            text = "插件设置",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.clickable(onClick = onOpenSettings),
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+/** 目录里的一个页面条目。二级条目缩进，选中项用主色。 */
+@Composable
+private fun NavPageRow(
+    page: PluginPageManifest,
+    selected: Boolean,
+    indent: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = page.title.ifBlank { page.id },
+        style = MiuixTheme.textStyles.title3,
+        color = if (selected) {
+            MiuixTheme.colorScheme.primary
+        } else {
+            MiuixTheme.colorScheme.onSurfaceVariantSummary
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = if (indent) 14.dp else 0.dp, top = 8.dp, bottom = 8.dp),
+    )
 }

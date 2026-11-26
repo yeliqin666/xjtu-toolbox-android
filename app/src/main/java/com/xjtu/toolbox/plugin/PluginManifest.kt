@@ -79,6 +79,11 @@ internal data class PluginFileEntry(
 internal data class PluginPageManifest(
     val id: String,
     val title: String = "",
+    /**
+     * 侧栏目录里的一级分组名。同样的名字归到一组；空串表示这是个顶级条目，不挂在任何分类下。
+     * 宿主按页面顺序生成目录，一级分组可折叠。
+     */
+    val group: String = "",
 )
 
 @Serializable

@@ -1,5 +1,25 @@
 package com.xjtu.toolbox.plugin
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
+import com.xjtu.toolbox.plugin.api.UiBadgeNode
+import com.xjtu.toolbox.plugin.api.UiBadgeTone
+import com.xjtu.toolbox.plugin.api.UiGridNode
+import com.xjtu.toolbox.plugin.api.UiKeyValueNode
+import com.xjtu.toolbox.plugin.api.UiProgressNode
+import com.xjtu.toolbox.plugin.api.UiRichTextNode
+import com.xjtu.toolbox.plugin.api.UiSwitchNode
+import com.xjtu.toolbox.plugin.api.UiTextColor
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import com.xjtu.toolbox.ui.components.AppDropdownPreference
 import com.xjtu.toolbox.plugin.api.UiSelectNode
 import com.xjtu.toolbox.plugin.api.UiIconNode
@@ -83,19 +103,53 @@ internal fun PluginUiTree(
 
         is UiTextNode -> Text(
             text = node.text,
-            modifier = modifier,
-            style = node.style.toMiuixStyle(),
-            color = if (node.secondary) {
-                MiuixTheme.colorScheme.onSurfaceVariantSummary
+            modifier = if (node.actionId.isNotEmpty()) {
+                modifier.clickable { onAction(node.actionId, null) }
             } else {
-                MiuixTheme.colorScheme.onSurface
+                modifier
             },
+            style = node.style.toMiuixStyle(),
+            color = resolveTextColor(node.color, node.argb, node.secondary),
+            fontWeight = if (node.bold) FontWeight.Bold else null,
+            fontStyle = if (node.italic) FontStyle.Italic else null,
+            textDecoration = textDecorationOf(node.underline, node.strikeThrough),
             maxLines = node.maxLines.takeIf { it > 0 } ?: Int.MAX_VALUE,
             overflow = TextOverflow.Ellipsis,
         )
 
+        is UiRichTextNode -> Text(
+            text = buildAnnotatedString {
+                node.spans.forEach { span ->
+                    val spanStyle = SpanStyle(
+                        color = resolveTextColor(span.color, span.argb, secondary = false),
+                        fontWeight = if (span.bold) FontWeight.Bold else null,
+                        fontStyle = if (span.italic) FontStyle.Italic else null,
+                        textDecoration = textDecorationOf(span.underline, span.strikeThrough),
+                    )
+                    if (span.actionId.isEmpty()) {
+                        withStyle(spanStyle) { append(span.text) }
+                    } else {
+                        withLink(
+                            LinkAnnotation.Clickable(
+                                tag = span.actionId,
+                                linkInteractionListener = { onAction(span.actionId, null) },
+                            ),
+                        ) {
+                            withStyle(spanStyle) { append(span.text) }
+                        }
+                    }
+                }
+            },
+            modifier = modifier,
+            style = node.style.toMiuixStyle(),
+        )
+
         is UiCardNode -> Card(
-            modifier = modifier.fillMaxWidth(),
+            modifier = if (node.actionId.isEmpty()) {
+                modifier.fillMaxWidth()
+            } else {
+                modifier.fillMaxWidth().clickable { onAction(node.actionId, null) }
+            },
             colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
         ) {
             Column(Modifier.padding(16.dp)) { PluginUiTree(node.child, onAction) }
@@ -130,6 +184,106 @@ internal fun PluginUiTree(
                 enabled = node.enabled,
                 modifier = modifier,
             )
+        }
+
+        is UiSwitchNode -> SwitchPreference(
+            title = node.label,
+            summary = node.summary.takeIf { it.isNotBlank() },
+            checked = node.checked,
+            enabled = node.enabled,
+            modifier = modifier.fillMaxWidth(),
+            onCheckedChange = { checked -> onAction(node.actionId, if (checked) "true" else "false") },
+        )
+
+        is UiKeyValueNode -> Row(
+            modifier = modifier.fillMaxWidth().padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = node.label,
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = node.value,
+                style = MiuixTheme.textStyles.body2,
+                color = if (node.secondary) {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                } else {
+                    MiuixTheme.colorScheme.onSurface
+                },
+            )
+        }
+
+        is UiProgressNode -> {
+            val fraction = node.value.coerceIn(0f, 1f)
+            Column(modifier.fillMaxWidth()) {
+                if (node.label.isNotEmpty()) {
+                    Text(
+                        text = node.label,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.10f)),
+                ) {
+                    if (fraction > 0f) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(fraction)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MiuixTheme.colorScheme.primary),
+                        )
+                    }
+                }
+            }
+        }
+
+        is UiGridNode -> {
+            val columns = node.columns.coerceIn(1, 4)
+            Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                node.children.chunked(columns).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        row.forEach { child ->
+                            Box(Modifier.weight(1f)) { PluginUiTree(child, onAction) }
+                        }
+                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        }
+
+        is UiBadgeNode -> {
+            val background = when (node.tone) {
+                UiBadgeTone.Accent -> MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)
+                UiBadgeTone.Warning -> WarningColor.copy(alpha = 0.18f)
+                UiBadgeTone.Neutral -> MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+            }
+            val foreground = when (node.tone) {
+                UiBadgeTone.Accent -> MiuixTheme.colorScheme.primary
+                UiBadgeTone.Warning -> WarningColor
+                UiBadgeTone.Neutral -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+            }
+            Box(
+                modifier = modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(background)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            ) {
+                Text(text = node.text, style = MiuixTheme.textStyles.footnote2, color = foreground)
+            }
         }
 
         is UiListItemNode -> {
@@ -259,6 +413,40 @@ private val PluginIconSet: Map<String, ImageVector> = mapOf(
 
 /** 名字不在白名单里时画的占位图标（灰色），不是错误也不报警。 */
 private val PluginIconFallback: ImageVector = Icons.Outlined.Extension
+
+/** 提示色（徽章、进度条、警告文字共用）。 */
+private val SuccessColor = Color(0xFF3FA45B)
+
+/** 警告色。 */
+private val WarningColor = Color(0xFFE08A00)
+
+/** 按插件给的颜色枚举/ARGB 解析出实际颜色；都没给就跟主题走。 */
+@Composable
+private fun resolveTextColor(color: UiTextColor?, argb: Int?, secondary: Boolean): Color {
+    if (argb != null) return Color(argb)
+    return when (color) {
+        UiTextColor.Default -> MiuixTheme.colorScheme.onSurface
+        UiTextColor.Secondary -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+        UiTextColor.Primary -> MiuixTheme.colorScheme.primary
+        UiTextColor.Success -> SuccessColor
+        UiTextColor.Warning -> WarningColor
+        UiTextColor.Error -> MiuixTheme.colorScheme.error
+        null -> if (secondary) {
+            MiuixTheme.colorScheme.onSurfaceVariantSummary
+        } else {
+            MiuixTheme.colorScheme.onSurface
+        }
+    }
+}
+
+private fun textDecorationOf(underline: Boolean, strikeThrough: Boolean): TextDecoration? = when {
+    underline && strikeThrough -> TextDecoration.combine(
+        listOf(TextDecoration.Underline, TextDecoration.LineThrough),
+    )
+    underline -> TextDecoration.Underline
+    strikeThrough -> TextDecoration.LineThrough
+    else -> null
+}
 
 @Composable
 private fun UiTextStyle.toMiuixStyle(): TextStyle = when (this) {
