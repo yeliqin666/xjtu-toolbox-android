@@ -301,7 +301,7 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
             },
             onOpenProject = {
                 navOpen = false
-                runCatching { uriHandler.openUri(projectUrl) }
+                runCatching { uriHandler.openUri(record?.manifest?.projectUrl.orEmpty()) }
             },
             onOpenSettings = {
                 navOpen = false
