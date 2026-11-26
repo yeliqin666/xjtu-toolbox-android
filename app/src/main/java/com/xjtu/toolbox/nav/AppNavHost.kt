@@ -673,12 +673,17 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
-        // 插件管理：列表和某个插件的详情各占一层返回栈，返回键自然回列表
-        page<AppRoute.Plugins>(transition = expand(AppRoute.Plugins::class)) { plugins ->
+        // 插件管理：列表和详情是两个路由类型，各占一层返回栈
+        page<AppRoute.Plugins>(transition = expand(AppRoute.Plugins::class)) {
             com.xjtu.toolbox.plugin.PluginsPage(
                 onBack = back,
-                detailId = plugins.detailId,
-                onOpenDetail = { id -> router.open(AppRoute.Plugins(id)) },
+                onOpenDetail = { id -> router.open(AppRoute.PluginDetail(id)) },
+            )
+        }
+        page<AppRoute.PluginDetail>(transition = expand(AppRoute.PluginDetail::class)) { detail ->
+            com.xjtu.toolbox.plugin.PluginDetailScreen(
+                pluginId = detail.pluginId,
+                onBack = back,
             )
         }
         // 插件自己的一级公开页：和普通页面一样进返回栈、能深链、能断言来源

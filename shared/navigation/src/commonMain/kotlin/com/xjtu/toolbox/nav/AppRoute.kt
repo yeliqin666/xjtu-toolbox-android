@@ -169,12 +169,16 @@ sealed interface AppRoute : NavKey {
         override val id get() = "plugin/${encode(pluginId)}" + if (page.isEmpty()) "" else "/${encode(page)}"
     }
     /**
-     * 插件管理页：`detailId` 为空是列表，非空是某个插件的详情。
+     * 插件管理列表。
      *
-     * 列表和详情各占一层返回栈，所以从详情按返回是回列表，不是退出应用。
+     * 和 [PluginDetail] 是两个不同的路由类型——miuix-nav 按类型复用 entry，
+     * 同一个类里用参数区分列表/详情会让两条路由撞在一起（点第二个插件时显示的还是第一个）。
      */
-    @Serializable data class Plugins(val detailId: String = "") : AppRoute {
-        override val id get() = "plugins" + if (detailId.isEmpty()) "" else "/${encode(detailId)}"
+    @Serializable data object Plugins : AppRoute { override val id get() = "plugins" }
+
+    /** 某个插件的详情页。 */
+    @Serializable data class PluginDetail(val pluginId: String) : AppRoute {
+        override val id get() = "plugin-detail/${encode(pluginId)}"
     }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 小贴士与常见问题（`com.xjtu.toolbox.tips.Tips` 全集）。 */
@@ -275,11 +279,10 @@ fun appRouteOf(id: String): AppRoute? {
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
-        path == "plugins" -> AppRoute.Plugins()
-        path.startsWith("plugins/") -> path.removePrefix("plugins/")
+        path == "plugins" -> AppRoute.Plugins
+        path.startsWith("plugin-detail/") -> path.removePrefix("plugin-detail/")
             .takeIf { it.isNotBlank() }
-            ?.let(AppRoute::Plugins)
-            ?: AppRoute.Plugins()
+            ?.let(AppRoute::PluginDetail)
         path.startsWith("plugin/") -> {
             val rest = path.removePrefix("plugin/")
             val id = rest.substringBefore('/')

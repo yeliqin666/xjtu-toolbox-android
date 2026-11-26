@@ -2,7 +2,12 @@ package com.xjtu.toolbox.plugin
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -109,8 +114,7 @@ private enum class MarketSort(val label: String) {
 @Composable
 internal fun PluginsPage(
     onBack: () -> Unit,
-    detailId: String = "",
-    onOpenDetail: (String) -> Unit = {},
+    onOpenDetail: (String) -> Unit,
     demo: Boolean = PluginOverlay.listDemo,
 ) {
     val context = LocalContext.current
@@ -129,7 +133,6 @@ internal fun PluginsPage(
 
     val records = if (demo) demoRecords() else manager.records
     val broken = if (demo) DemoBrokenIds else manager.brokenIds
-    val detail = records.firstOrNull { it.id == detailId }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -147,35 +150,6 @@ internal fun PluginsPage(
 
     // 下拉刷新途中切到另一个 tab：那个 PullToRefresh 已经被组掉了，转圈状态得自己收回来
     LaunchedEffect(tab) { refreshing = false }
-
-    // ── 详情页：自己占一层路由，返回交给导航栈 ──────────────────────────────
-    if (detail != null) {
-        DetailPage(
-            record = detail,
-            broken = detail.id in broken,
-            onBack = onBack,
-            onOpenPage = { pageId ->
-                val launch = PluginLauncher.openRoute
-                if (launch != null) launch(detail.id, pageId) else PluginOverlay.open(detail.id, pageId)
-            },
-            onToggleEnabled = { on ->
-                if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setEnabled(detail.id, on) }
-            },
-            onToggleTools = { on ->
-                if (demo) message = "演示数据，不会真的改" else scope.launch { manager.setToolsEnabled(detail.id, on) }
-            },
-            onUninstall = {
-                if (!demo) {
-                    scope.launch {
-                        manager.uninstall(detail.id)
-                        manager.refresh()
-                    }
-                }
-                onBack()
-            },
-        )
-        return
-    }
 
     // ── 列表页 ────────────────────────────────────────────────────────────
     Scaffold(
@@ -209,7 +183,18 @@ internal fun PluginsPage(
             .padding(padding.withoutTop(glass))
             .glassSource(glass)
 
-        Crossfade(targetState = tab, animationSpec = tween(200), label = "pluginTab") { current ->
+        AnimatedContent(
+            targetState = tab,
+            transitionSpec = {
+                // 往右边切就往左推，往左切就往右推；四分之一屏宽，轻一点
+                val direction = if (targetState > initialState) 1 else -1
+                (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { width -> width * direction / 4 } +
+                    fadeIn(tween(220))) togetherWith
+                    (slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { width -> -width * direction / 4 } +
+                        fadeOut(tween(180)))
+            },
+            label = "pluginTab",
+        ) { current ->
         if (current == 0) {
             val listState = rememberLazyListState()
             ReportScrollPosition(listState, scrollBehavior)
@@ -897,6 +882,76 @@ private fun SettingsSheet(demo: Boolean, onDismiss: () -> Unit, onInstallFromFil
  * 开关和页面分开放两个卡：一个是「这个插件有没有被允许运行」，一个是「它能从哪里进去」，
  * 混在一起时用户点开关会以为在控制页面。
  */
+/**
+ * 插件详情单独一页（路由 `AppRoute.PluginDetail`）。
+ *
+ * 列表和详情必须是两个路由类型：miuix-nav 按类型复用 entry，
+ * 用同一个类的参数区分列表/详情的话，第二条路由会显示成第一条的内容。
+ */
+@Composable
+internal fun PluginDetailScreen(
+    pluginId: String,
+    onBack: () -> Unit,
+    demo: Boolean = PluginOverlay.listDemo,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val manager = remember { PluginManager.get(context) }
+    val glass = rememberPageGlass()
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+
+    val records = if (demo) demoRecords() else manager.records
+    val broken = if (demo) DemoBrokenIds else manager.brokenIds
+
+    if (!demo) LaunchedEffect(Unit) { manager.refresh() }
+
+    val record = records.firstOrNull { it.id == pluginId }
+    if (record == null) {
+        // 冷启动直接深链进来时列表还没读完，先给一屏「不在」，读完会自己重组出来
+        Scaffold(
+            topBar = {
+                GlassTopAppBar(
+                    title = "插件",
+                    glass = glass,
+                    scrollBehavior = scrollBehavior,
+                    onBack = onBack,
+                )
+            },
+        ) { _ ->
+            EmptyState(
+                title = "插件不在了",
+                subtitle = "可能已经卸载，或者列表还没读完；返回上一页看看。",
+            )
+        }
+        return
+    }
+
+    DetailPage(
+        record = record,
+        broken = record.id in broken,
+        onBack = onBack,
+        onOpenPage = { pageId ->
+            val launch = PluginLauncher.openRoute
+            if (launch != null) launch(record.id, pageId) else PluginOverlay.open(record.id, pageId)
+        },
+        onToggleEnabled = { on ->
+            if (!demo) scope.launch { manager.setEnabled(record.id, on) }
+        },
+        onToggleTools = { on ->
+            if (!demo) scope.launch { manager.setToolsEnabled(record.id, on) }
+        },
+        onUninstall = {
+            if (!demo) {
+                scope.launch {
+                    manager.uninstall(record.id)
+                    manager.refresh()
+                }
+            }
+            onBack()
+        },
+    )
+}
+
 @Composable
 private fun DetailPage(
     record: PluginRecord,
