@@ -1,5 +1,10 @@
 package com.xjtu.toolbox.plugin
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -359,10 +364,23 @@ internal fun PluginsPage(
     }
 }
 
-/** 作者头像：有图就用图，没有就用名字首字画个圆。 */
+/** 作者头像：清单里有 `authorAvatar` 就画包内那张图，没有就用名字首字画个圆。 */
 @Composable
-private fun AuthorAvatar(name: String) {
+private fun AuthorAvatar(record: PluginRecord) {
+    val context = LocalContext.current
+    val name = record.manifest.author
     val initial = name.trim().take(1).ifBlank { "?" }
+    val bitmap = remember(record.id, record.versionCode) {
+        val path = record.manifest.authorAvatar
+        if (path.isBlank()) {
+            null
+        } else {
+            runCatching {
+                val file = File(PluginRegistry.packageDir(context, record), path)
+                if (file.isFile) BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() else null
+            }.getOrNull()
+        }
+    }
     Box(
         Modifier
             .size(30.dp)
@@ -370,11 +388,20 @@ private fun AuthorAvatar(name: String) {
             .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = initial,
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.primary,
-        )
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(
+                text = initial,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.primary,
+            )
+        }
     }
 }
 
@@ -1264,7 +1291,7 @@ private fun DetailPage(
                             summary = record.manifest.author,
                             startAction = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    AuthorAvatar(record.manifest.author)
+                                    AuthorAvatar(record)
                                     Spacer(Modifier.width(12.dp))
                                 }
                             },
