@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.plugin
 
+import android.os.Build
+import com.xjtu.toolbox.agent.AgentWidget
+import kotlinx.serialization.builtins.ListSerializer
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -74,7 +77,10 @@ internal class PluginRuntime(
                 put("ok", true)
                 put("tool", tool)
                 put("text", text)
-                put("widgets", AppJson.encodeToJsonElement(widgets))
+                put(
+                    "widgets",
+                    AppJson.encodeToJsonElement(ListSerializer(AgentWidget.serializer()), widgets),
+                )
             }.toString()
         } catch (e: CancellationException) {
             throw e
