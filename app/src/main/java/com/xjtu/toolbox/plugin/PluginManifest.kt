@@ -240,7 +240,8 @@ internal fun validatePackageManifest(manifest: PluginPackageManifest) {
     }
     require(manifest.versionCode > 0) { "versionCode 必须大于 0" }
     require(manifest.pubkey.isNotBlank()) { "清单里没有公钥 pubkey" }
-    require(manifest.files.isNotEmpty()) { "files 不能为空" }
+    // web 插件可以一个文件都不带（只声明一个网址）
+    require(manifest.files.isNotEmpty() || manifest.type == "web") { "files 不能为空" }
 
     manifest.files.forEach { file ->
         require(PluginPackages.isSafePath(file.path)) { "包内路径不合法：${file.path}" }
