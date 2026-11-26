@@ -1,5 +1,11 @@
 # 插件系统进度（WIP）
 
+> ⚠️ **本文档已过时**：写的是早期"插件自带 Compose"的方案，那条路已废弃。
+> 现在的插件是 **zip 包 + `dzhz.plugin.json` + ECDSA 签名**，界面由宿主渲染；
+> 写法看模板仓库：<https://github.com/Hz6826/dzhz-plugin-template>（dex）、
+> <https://github.com/Hz6826/dzhz-plugin-web-template>（web）。本仓库不再自带示例插件。
+
+
 > **状态：未完成，不要合并。** 安装、管理、工具清单、页面加载已跑通；**打开示例页的 Compose 渲染仍会崩**。
 > 本文只记录当前进度、已修问题和下一步；设计说明见 [`docs/plugins.md`](plugins.md)。
 

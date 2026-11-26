@@ -349,32 +349,3 @@ tasks.withType<Test>().configureEach {
     systemProperty("robolectric.offline", "true")
     systemProperty("robolectric.dependency.dir", robolectricJars.get().asFile.absolutePath)
 }
-
-// 插件系统设备测试用的样例 APK：把 :plugin:sample 的 debug 产物塞进 androidTest assets。
-// AGP 9 不允许把 Provider 塞进 sourceSets，必须走 Variant API 的 generated source directory。
-abstract class CopyPluginTestAsset : DefaultTask() {
-    @get:InputFile abstract val pluginApk: RegularFileProperty
-    @get:OutputDirectory abstract val outputDir: DirectoryProperty
-
-    @TaskAction
-    fun copyAsset() {
-        val target = outputDir.get().asFile.resolve("sample-plugin.apk")
-        target.parentFile?.mkdirs()
-        pluginApk.get().asFile.copyTo(target, overwrite = true)
-    }
-}
-
-val preparePluginTestAssets = tasks.register<CopyPluginTestAsset>("preparePluginTestAssets") {
-    dependsOn(":plugin:sample:assembleDebug")
-    pluginApk.set(rootProject.layout.projectDirectory.file("plugin/sample/build/outputs/apk/debug/sample-debug.apk"))
-    outputDir.set(layout.buildDirectory.dir("generated/pluginTestAssets"))
-}
-
-androidComponents {
-    onVariants { variant ->
-        variant.androidTest?.sources?.assets?.addGeneratedSourceDirectory(
-            preparePluginTestAssets,
-            CopyPluginTestAsset::outputDir,
-        )
-    }
-}

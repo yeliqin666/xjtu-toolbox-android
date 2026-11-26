@@ -1,5 +1,11 @@
 # 插件（Android）
 
+> ⚠️ **本文档已过时**：写的是早期"插件自带 Compose"的方案，那条路已废弃。
+> 现在的插件是 **zip 包 + `dzhz.plugin.json` + ECDSA 签名**，界面由宿主渲染；
+> 写法看模板仓库：<https://github.com/Hz6826/dzhz-plugin-template>（dex）、
+> <https://github.com/Hz6826/dzhz-plugin-web-template>（web）。本仓库不再自带示例插件。
+
+
 Android 端支持**进程内 dex 插件**：插件是带签名的 APK，但不会被系统安装，只由本 App 用
 `DexClassLoader` 加载。插件可以加页面、给小岱加工具，并通过宿主提供的只读接口取学校数据。
 
