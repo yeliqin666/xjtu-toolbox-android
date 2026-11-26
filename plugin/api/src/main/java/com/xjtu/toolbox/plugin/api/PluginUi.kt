@@ -26,19 +26,31 @@ enum class UiTextStyle { Display, Title, Section, Body, Caption }
  */
 enum class UiTextColor { Default, Secondary, Primary, Success, Warning, Error }
 
+/**
+ * 对齐方式。Column 用它做水平对齐；Row 用它做水平排布和垂直对齐
+ * （Row 的 Start/End 在垂直方向对应顶部/底部）。
+ */
+enum class UiAlign { Start, Center, End }
+
 /** 按钮外观。 */
 enum class UiButtonStyle { Filled, Tonal, Plain }
 
-/** 竖向排列。[spacingDp] 是子节点间距。 */
-class UiColumnNode(
+/** 竖向排列。[spacingDp] 是子节点间距，[alignment] 是水平对齐。 */
+class UiColumnNode @JvmOverloads constructor(
     val children: List<UiNode>,
     val spacingDp: Int = 12,
+    val alignment: UiAlign = UiAlign.Start,
 ) : UiNode()
 
-/** 横向排列，子节点按顺序排，垂直居中。 */
-class UiRowNode(
+/**
+ * 横向排列。[horizontal] 决定子节点挨左边、居中还是靠右；
+ * [vertical] 决定高矮不一时怎么对齐（Start = 顶部，End = 底部）。
+ */
+class UiRowNode @JvmOverloads constructor(
     val children: List<UiNode>,
     val spacingDp: Int = 8,
+    val horizontal: UiAlign = UiAlign.Start,
+    val vertical: UiAlign = UiAlign.Center,
 ) : UiNode()
 
 /**
@@ -89,6 +101,8 @@ class UiRichTextNode(
 class UiCardNode @JvmOverloads constructor(
     val child: UiNode,
     val actionId: String = "",
+    /** 内容内边距，默认 16dp；放图标网格、贴边设计时调小。 */
+    val paddingDp: Int = 16,
 ) : UiNode()
 
 /**
@@ -129,6 +143,30 @@ class UiProgressNode(
 class UiGridNode(
     val columns: Int,
     val children: List<UiNode>,
+) : UiNode()
+
+/**
+ * 在 [UiRowNode] 里按权重分宽度（像 `Modifier.weight`），比如 1:2 两栏。
+ * 放在别的容器里会被忽略，当成普通节点直接渲染。
+ */
+class UiWeightNode(
+    val weight: Float,
+    val child: UiNode,
+) : UiNode()
+
+/**
+ * 横向滚动的一行：子节点按自身宽度排成一排，放不下左右滑。
+ * 适合一排卡片、一排徽章——**别把需要撑满宽度的东西塞进来**，横滑里没有"撑满"这回事。
+ */
+class UiScrollRowNode(
+    val children: List<UiNode>,
+    val spacingDp: Int = 8,
+) : UiNode()
+
+/** 流式换行：放不下就换到下一行。徽章、标签、按钮组用它。 */
+class UiFlowRowNode(
+    val children: List<UiNode>,
+    val spacingDp: Int = 8,
 ) : UiNode()
 
 /** 徽章的色调。 */

@@ -1,5 +1,18 @@
 package com.xjtu.toolbox.plugin
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import com.xjtu.toolbox.plugin.api.UiAlign
+import com.xjtu.toolbox.plugin.api.UiFlowRowNode
+import com.xjtu.toolbox.plugin.api.UiScrollRowNode
+import com.xjtu.toolbox.plugin.api.UiWeightNode
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.graphics.Color
@@ -92,15 +105,47 @@ internal fun PluginUiTree(
         is UiColumnNode -> Column(
             modifier = modifier,
             verticalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
+            horizontalAlignment = node.alignment.toHorizontalAlignment(),
         ) {
             node.children.forEach { PluginUiTree(it, onAction) }
         }
 
         is UiRowNode -> Row(
             modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(
+                node.spacingDp.dp,
+                node.horizontal.toHorizontalAlignment(),
+            ),
+            verticalAlignment = node.vertical.toVerticalAlignment(),
+        ) {
+            node.children.forEach { child ->
+                // 权重节点只在 Row 里有意义：分到 weight 份宽度
+                if (child is UiWeightNode) {
+                    Box(Modifier.weight(child.weight.coerceAtLeast(0.01f))) {
+                        PluginUiTree(child.child, onAction)
+                    }
+                } else {
+                    PluginUiTree(child, onAction)
+                }
+            }
+        }
+
+        is UiWeightNode -> PluginUiTree(node.child, onAction, modifier)
+
+        // 横滑行：子节点按内容宽度排，给个上限免得一张卡占满整行
+        is UiScrollRowNode -> Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            node.children.forEach { child ->
+                Box(Modifier.widthIn(max = 280.dp)) { PluginUiTree(child, onAction) }
+            }
+        }
+
+        is UiFlowRowNode -> FlowRowLayout(spacing = node.spacingDp.dp, modifier = modifier) {
             node.children.forEach { PluginUiTree(it, onAction) }
         }
 
@@ -168,7 +213,7 @@ internal fun PluginUiTree(
             },
             colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
         ) {
-            Column(Modifier.padding(16.dp)) { PluginUiTree(node.child, onAction) }
+            Column(Modifier.padding(node.paddingDp.dp)) { PluginUiTree(node.child, onAction) }
         }
 
         is UiButtonNode -> when (node.style) {
@@ -234,7 +279,13 @@ internal fun PluginUiTree(
         }
 
         is UiProgressNode -> {
-            val fraction = node.value.coerceIn(0f, 1f)
+            val target = node.value.coerceIn(0f, 1f)
+            // 数值变化平滑过去，别一跳一跳的
+            val fraction by animateFloatAsState(
+                targetValue = target,
+                animationSpec = tween(durationMillis = 420),
+                label = "pluginProgress",
+            )
             Column(modifier.fillMaxWidth()) {
                 if (node.label.isNotEmpty()) {
                     Text(
@@ -429,6 +480,70 @@ private val PluginIconSet: Map<String, ImageVector> = mapOf(
 
 /** 名字不在白名单里时画的占位图标（灰色），不是错误也不报警。 */
 private val PluginIconFallback: ImageVector = Icons.Outlined.Extension
+
+/** Column 的水平对齐。 */
+private fun UiAlign.toHorizontalAlignment(): Alignment.Horizontal = when (this) {
+    UiAlign.Start -> Alignment.Start
+    UiAlign.Center -> Alignment.CenterHorizontally
+    UiAlign.End -> Alignment.End
+}
+
+/** Row 的垂直对齐：Start 是顶部，End 是底部。 */
+private fun UiAlign.toVerticalAlignment(): Alignment.Vertical = when (this) {
+    UiAlign.Start -> Alignment.Top
+    UiAlign.Center -> Alignment.CenterVertically
+    UiAlign.End -> Alignment.Bottom
+}
+
+/**
+ * 流式换行布局：一行放不下就换行，每行按最高的那个定行高。
+ *
+ * 没用 Compose 的 `FlowRow`（还是实验 API），自己算一个，行为可预期：
+ * 子节点按自身宽度排，超宽就换行，行内左对齐。
+ */
+@Composable
+private fun FlowRowLayout(
+    spacing: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val gap = spacing.roundToPx()
+        val maxWidth = if (constraints.maxWidth == Int.MAX_VALUE) 0 else constraints.maxWidth
+        val placeables = measurables.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+
+        val rows = mutableListOf<MutableList<Placeable>>()
+        var current = mutableListOf<Placeable>()
+        var lineWidth = 0
+        placeables.forEach { placeable ->
+            val extra = if (current.isEmpty()) placeable.width else placeable.width + gap
+            if (current.isNotEmpty() && maxWidth > 0 && lineWidth + extra > maxWidth) {
+                rows += current
+                current = mutableListOf()
+                lineWidth = 0
+            }
+            current += placeable
+            lineWidth += if (current.size == 1) placeable.width else placeable.width + gap
+        }
+        if (current.isNotEmpty()) rows += current
+
+        val rowHeights = rows.map { row -> row.maxOfOrNull { it.height } ?: 0 }
+        val height = rowHeights.sum() + gap * (rows.size - 1).coerceAtLeast(0)
+        val width = if (maxWidth > 0) maxWidth else (rowHeights.maxOrNull() ?: 0)
+
+        layout(width, height) {
+            var y = 0
+            rows.forEachIndexed { index, row ->
+                var x = 0
+                row.forEach { placeable ->
+                    placeable.place(x, y)
+                    x += placeable.width + gap
+                }
+                y += rowHeights[index] + gap
+            }
+        }
+    }
+}
 
 /** 提示色（徽章、进度条、警告文字共用）。 */
 private val SuccessColor = Color(0xFF3FA45B)

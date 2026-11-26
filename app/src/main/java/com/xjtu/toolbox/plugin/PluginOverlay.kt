@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.plugin
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -265,24 +267,38 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
                 )
             },
         ) { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // 插件页正文也能折叠顶栏；内容不够一屏时不会误折叠
-                    .reportScrollToTopBar(scroll, scrollBehavior)
-                    .verticalScroll(scroll)
-                    .overScrollVertical()
-                    .padding(tabContentPadding(padding))
-                    // 顶栏毛玻璃采样正文
-                    .glassSource(glass)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                val failed = error
-                when {
-                    failed != null -> PluginUiTree(UiEmptyNode("插件加载失败", failed), onAction)
-                    tree == null -> PluginUiTree(UiLoadingNode("正在加载插件…"), onAction)
-                    else -> PluginUiTree(tree, onAction)
+            // 只在「加载 → 内容」「内容 → 错误」这种状态切换时淡入淡出。
+            // 插件 invalidate 只是树变了、状态没变，直接更新，不会整页闪一下。
+            val state = when {
+                error != null -> "error"
+                tree == null -> "loading"
+                else -> "content"
+            }
+            Crossfade(
+                targetState = state,
+                animationSpec = tween(180),
+                label = "pluginState",
+            ) { current ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // 高度变化（加载态 → 长页面）平滑过渡
+                        .animateContentSize()
+                        // 插件页正文也能折叠顶栏；内容不够一屏时不会误折叠
+                        .reportScrollToTopBar(scroll, scrollBehavior)
+                        .verticalScroll(scroll)
+                        .overScrollVertical()
+                        .padding(tabContentPadding(padding))
+                        // 顶栏毛玻璃采样正文
+                        .glassSource(glass)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    when (current) {
+                        "error" -> PluginUiTree(UiEmptyNode("插件加载失败", error.orEmpty()), onAction)
+                        "loading" -> PluginUiTree(UiLoadingNode("正在加载插件…"), onAction)
+                        else -> tree?.let { PluginUiTree(it, onAction) }
+                    }
                 }
             }
         }
