@@ -1251,7 +1251,7 @@ internal fun HomeTileFaceBox(
                     ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
                     Column(Modifier.weight(1f)) {
                         Text(
-                            face.title,
+                            face.labelText,
                             fontSize = 10.sp,
                             lineHeight = 13.sp,
                             color = muted,

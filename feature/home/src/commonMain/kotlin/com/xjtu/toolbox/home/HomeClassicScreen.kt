@@ -951,7 +951,13 @@ internal data class HomeServiceRow(
      * 小字写插件名（见 `HomeTileBoard` 的 TileHero）。
      */
     val heroIsTitle: Boolean = false,
-)
+) {
+    /**
+     * 卡片上那行小字。内置功能放名字；插件页放插件名——大字已经让给页面标题了，
+     * 小字再写一遍页面名就成了「文字与样式 / 文字与样式」。
+     */
+    val labelText: String get() = if (heroIsTitle) subtitle else title
+}
 
 /** 点开功能页，并让功能页从这一块放大出来。 */
 @Composable
