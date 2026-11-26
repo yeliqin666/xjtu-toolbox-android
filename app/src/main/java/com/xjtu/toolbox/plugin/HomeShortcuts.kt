@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
-import com.xjtu.toolbox.auth.ProcessLoginState
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.home.AppService
 import com.xjtu.toolbox.home.HomeGroup
 import com.xjtu.toolbox.home.HomeLayout
@@ -44,7 +44,8 @@ internal object HomeShortcuts {
 
     /** 当前应当渲染的那份布局（存档优先，没有就按目录铺默认）。 */
     private fun loaded(context: Context): HomeLayout = HomeLayoutStore().load(
-        accountType = ProcessLoginState.get(context).accountType,
+        // 和启动器快捷方式（LauncherShortcuts）同一个取法：进程里当前账号的身份
+        accountType = AccountContext.activeAccountType,
         quickRoutes = emptyList(),
         extra = pluginServicesNow(context),
     )

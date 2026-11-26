@@ -66,6 +66,7 @@ import com.xjtu.toolbox.plugin.api.UiButtonStyle
 import com.xjtu.toolbox.plugin.api.UiCardNode
 import com.xjtu.toolbox.plugin.api.UiColumnNode
 import com.xjtu.toolbox.plugin.api.UiDividerNode
+import com.xjtu.toolbox.home.HomeIcons
 import com.xjtu.toolbox.plugin.api.UiEmptyNode
 import com.xjtu.toolbox.plugin.api.UiFieldNode
 import com.xjtu.toolbox.plugin.api.UiImageNode
