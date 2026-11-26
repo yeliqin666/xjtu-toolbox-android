@@ -1261,7 +1261,7 @@ internal fun HomeTileFaceBox(
                         Spacer(Modifier.height(3.dp))
                         Text(
                             // 状态让给了明细（通知的状态就是最新一条）时，横条上还是给那一条，不退回静态副标题
-                            face.stat?.takeIf { it.isNotBlank() } ?: lines.firstOrNull()?.text ?: face.subtitle,
+                            face.stat?.takeIf { it.isNotBlank() } ?: lines.firstOrNull()?.text ?: face.heroText,
                             style = if (figure) {
                                 Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
                             } else {
@@ -1409,7 +1409,7 @@ internal fun HomeTileFaceBox(
                 ) {
                     ExpressiveIcon(icon = face.icon, color = iconColor, size = 32.dp, iconSize = 18.dp)
                     Spacer(Modifier.width(10.dp))
-                    TileHero(face, stat ?: face.subtitle.takeIf { it.isNotBlank() }, figure, statColor, muted, figureSize = 20, bodySize = 12.5f, bodyLines = 2, detailLines = 1, modifier = Modifier.weight(1f))
+                    TileHero(face, stat ?: face.heroText.takeIf { it.isNotBlank() }, figure, statColor, muted, figureSize = 20, bodySize = 12.5f, bodyLines = 2, detailLines = 1, modifier = Modifier.weight(1f))
                     if (lines.isNotEmpty()) {
                         TileDivider(vertical = true, color = muted)
                         TileLines(lines, ink, muted, onLine, compact = true, modifier = Modifier.weight(1f).fillMaxHeight())
@@ -1637,6 +1637,9 @@ private fun TileHero(
         }
     }
 }
+
+/** 卡片上那一行大字：内置功能取副标题（状态/说明），插件页取页面标题。 */
+private val HomeServiceRow.heroText: String get() = if (heroIsTitle) title else subtitle
 
 /** 数据区和明细区之间的一道细线。 */
 @Composable

@@ -194,16 +194,23 @@ class HomeLayoutStore(
      * 只做一次副作用。插件全卸了的那段时间 `extra` 是空的，不置标记，之后装了再补。
      */
     private fun withPluginGroup(layout: HomeLayout, extra: List<AppService>): HomeLayout {
-        if (extra.isEmpty()) return layout
+        val routes = extra.map { it.route.id }.distinct()
+        if (routes.isEmpty()) return layout
         if (store.getBoolean(KEY_PLUGIN_GROUP_ONCE, false)) return layout
         store.putBoolean(KEY_PLUGIN_GROUP_ONCE, true)
-        if (layout.group(HomeLayoutDefaults.PLUGIN_GROUP) != null) return layout
         val groupId = HomeLayoutDefaults.PLUGIN_GROUP
-        var next = layout.addGroup(HomeGroup(id = groupId, title = "插件"))
-        extra.distinctBy { it.route.id }.forEach { service ->
-            next = next.addTile(groupId, service.route.id, next.nextTileId(groupId, service.route.id), 2f, 1f)
+        var next = if (layout.group(groupId) == null) {
+            layout.addGroup(HomeGroup(id = groupId, title = "插件"))
+        } else {
+            layout
         }
-        store.putString(KEY_LAYOUT, HomeLayoutCodec.encode(next))
+        // 组里已经有的不重复加：用户删掉的块**这一轮也没法被他删过**（标记只走一次），
+        // 但插件可能在两次启动之间装/卸过，剩下的补齐就行。
+        val present = next.group(groupId)?.tiles?.mapTo(mutableSetOf()) { it.routeId }.orEmpty()
+        routes.filter { it !in present }.forEach { routeId ->
+            next = next.addTile(groupId, routeId, next.nextTileId(groupId, routeId), 2f, 1f)
+        }
+        if (next !== layout) store.putString(KEY_LAYOUT, HomeLayoutCodec.encode(next))
         return next
     }
 
@@ -397,8 +404,13 @@ private const val KEY_CARD_CORNER = "home_card_corner"
         /** 存档时用户已见过的功能（逗号分隔的路由 id），见 [withNewServices]。 */
         private const val KEY_SEEN_ROUTES = "home_seen_routes"
 
-        /** 「插件组只自动补一次」的标记，见 [withPluginGroup]。 */
-        private const val KEY_PLUGIN_GROUP_ONCE = "home_plugin_group_added"
+        /**
+         * 「插件组只自动补一次」的标记，见 [withPluginGroup]。
+         *
+         * 带 `_v2`：第一版按 `pages[].home` 只补了两页，后来改成「页面默认都能上首页」，
+         * 换一个键让改过布局的人再补一次（这功能还没发布过，不存在给真实用户补两遍的问题）。
+         */
+        private const val KEY_PLUGIN_GROUP_ONCE = "home_plugin_group_added_v2"
 
         /**
          * 开始记「见过的功能」之后才进目录的功能。老存档没有见过记录时，

@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.runtime.mutableStateMapOf
@@ -27,6 +29,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
+import com.xjtu.toolbox.community.ConfirmDialog
 import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -263,6 +266,48 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
                     scrollBehavior = scrollBehavior,
                     onBack = onBack,
                     actions = {
+                        // 「加到主页 / 已在主页」：这一页在清单里允许当快捷方式（默认允许）才出现。
+                        // 加过就是对号，点一下问要不要移除；没加是加号，点一下问要不要加。
+                        val pageMeta = pages.firstOrNull { it.id == currentPageId }
+                        if (record != null && pageMeta != null && pageMeta.shortcut) {
+                            val service = remember(record, pageMeta) { pluginPageService(record, pageMeta) }
+                            val onHome = rememberOnHome(service.route.id)
+                            var askAdd by remember { mutableStateOf(false) }
+                            var askRemove by remember { mutableStateOf(false) }
+                            CouiToolbarActionButton(
+                                onClick = { if (onHome) askRemove = true else askAdd = true },
+                            ) {
+                                Icon(
+                                    if (onHome) Icons.Default.Check else Icons.Default.Add,
+                                    contentDescription = if (onHome) "已在主页" else "加到主页",
+                                )
+                            }
+                            if (askAdd) {
+                                ConfirmDialog(
+                                    title = "加到主页？",
+                                    summary = "首页的「插件」组里会放一个「${service.title}」的快捷方式。",
+                                    confirm = "添加",
+                                    onConfirm = {
+                                        askAdd = false
+                                        HomeShortcuts.add(context, service)
+                                    },
+                                    onDismiss = { askAdd = false },
+                                )
+                            }
+                            if (askRemove) {
+                                ConfirmDialog(
+                                    title = "从主页移除？",
+                                    summary = "只是去掉首页那一格，插件本身和它的数据都不动。",
+                                    confirm = "移除",
+                                    onConfirm = {
+                                        askRemove = false
+                                        HomeShortcuts.remove(context, service.route.id)
+                                    },
+                                    onDismiss = { askRemove = false },
+                                    danger = true,
+                                )
+                            }
+                        }
                         // 只有一个页面的插件没什么可导航的，不显示目录按钮
                         if (pages.size > 1) {
                             CouiToolbarActionButton(onClick = { navOpen = true }) {

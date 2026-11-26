@@ -136,6 +136,7 @@ import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
+import com.xjtu.toolbox.ui.theme.serviceColorOverride
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -193,7 +194,7 @@ fun HomeCardGroupScreen(
         AppServices.homeFor(host.audience) + host.extraServices
     }
     // 配色随应用主题变化，不能放进 remember。
-    val colorByKey = catalog.associate { it.route.id to serviceColor(it.route.id) }
+    val colorByKey = catalog.associate { it.route.id to serviceTint(it) }
 
     // ── 布局与主页设置 ──
     val layoutStore = remember { HomeLayoutStore() }
@@ -2132,13 +2133,14 @@ private fun TilePickerMenu(
                 modifier = Modifier.padding(16.dp),
             )
         }
-        // 内置功能之后接插件公开页：中间插一行小标题，免得两拨混在一起看不出来
-        var pluginHeadingShown = false
+        // 内置功能之后接插件页：**一个插件一段**，小标题就是插件名（副标题），
+        // 这样「插件模板」的六个页面自成一组，不会跟别的插件混成一坨。
+        var pluginOwner: String? = null
         candidates.forEach { service ->
-            if (!pluginHeadingShown && service.pluginPage) {
-                pluginHeadingShown = true
+            if (service.pluginPage && service.subtitle != pluginOwner) {
+                pluginOwner = service.subtitle
                 Text(
-                    "插件",
+                    service.subtitle,
                     fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp, end = 16.dp),
@@ -2148,9 +2150,9 @@ private fun TilePickerMenu(
                 text = { Text(service.title, fontSize = 14.sp) },
                 leadingIcon = {
                     Icon(
-                        HomeIcons.of(service.route),
+                        HomeIcons.of(service.route, service.iconName),
                         contentDescription = null,
-                        tint = serviceColor(service.route.id),
+                        tint = serviceTint(service),
                         modifier = Modifier.size(20.dp),
                     )
                 },
@@ -2233,7 +2235,7 @@ private fun buildFaces(
             val click = clicks.getValue(id)
             id to HomeServiceRow(
                 key = id,
-                icon = HomeIcons.of(service.route),
+                icon = HomeIcons.of(service.route, service.iconName),
                 title = service.title,
                 subtitle = service.subtitle,
                 color = colorByKey[id] ?: Color.Unspecified,
@@ -2244,6 +2246,8 @@ private fun buildFaces(
                 onLink = host::onOpenLink,
                 tone = glance?.tone ?: HomeTone.NORMAL,
                 lines = if (withStats) HomeCards.linesOf(id, stats) else emptyList(),
+                // 插件页没有状态可给：大字放页面标题，小字放插件名
+                heroIsTitle = service.pluginPage,
             )
         }
 }

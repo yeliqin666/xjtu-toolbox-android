@@ -49,6 +49,10 @@ data class AppService(
      * 内置功能那边不加标题。
      */
     val pluginPage: Boolean = false,
+    /** 插件页声明的图标（语义名，见 `HomeIcons.semantic`）；空 = 按类型默认（dex 拼图 / web 地球）。 */
+    val iconName: String = "",
+    /** 插件页声明的图标颜色 `#RRGGBB`；空 = 按类型默认（dex 橙 / web 蓝，与列表里的类型徽章同色）。 */
+    val colorHex: String = "",
 )
 
 object AppServices {

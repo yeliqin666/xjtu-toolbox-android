@@ -38,8 +38,28 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.Assignment
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.DirectionsBus
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.EventSeat
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.MeetingRoom
+import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.TaskAlt
+import androidx.compose.material.icons.outlined.Upload
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.nav.AppRoute
 
@@ -92,6 +112,44 @@ object HomeIcons {
         is AppRoute.PluginWeb -> Icons.Outlined.Language
         else -> Icons.Default.Apps
     }
+
+    /**
+     * 带插件声明的图标：[iconName] 是清单里的 `pages[].icon`（语义名，见 [semantic]），
+     * 认不出来或没写就按路由取默认。
+     */
+    fun of(route: AppRoute, iconName: String): ImageVector = semantic(iconName) ?: of(route)
+
+    /**
+     * 插件图标白名单：语义名 → 宿主图标。
+     *
+     * 插件自己不打包图标（跨 classloader 传 vector 没意义），只能从这份表里挑一个名字。
+     * **只增不减**：名字发出去就是承诺，删掉老插件会掉图标；加名字不用升 `PluginApi.VERSION`。
+     */
+    private val semanticIcons: Map<String, ImageVector> = mapOf(
+        "calendar" to Icons.Outlined.CalendarMonth,
+        "grade" to Icons.Outlined.School,
+        "book" to Icons.Outlined.MenuBook,
+        "card" to Icons.Outlined.CreditCard,
+        "bell" to Icons.Outlined.Notifications,
+        "school" to Icons.Outlined.AccountBalance,
+        "exam" to Icons.Outlined.Assignment,
+        "task" to Icons.Outlined.TaskAlt,
+        "classroom" to Icons.Outlined.MeetingRoom,
+        "seat" to Icons.Outlined.EventSeat,
+        "canteen" to Icons.Outlined.Restaurant,
+        "bus" to Icons.Outlined.DirectionsBus,
+        "doc" to Icons.Outlined.Description,
+        "download" to Icons.Outlined.Download,
+        "upload" to Icons.Outlined.Upload,
+        "user" to Icons.Outlined.Person,
+        "time" to Icons.Outlined.Schedule,
+        "star" to Icons.Outlined.Star,
+        "warning" to Icons.Outlined.Warning,
+        "check" to Icons.Outlined.Check,
+    )
+
+    /** 语义名 → 图标；不认识返回 null（不是错误，不报警）。 */
+    fun semantic(name: String): ImageVector? = semanticIcons[name]
 
     /** 分类卡的图标。 */
     fun category(category: ServiceCategory): ImageVector = when (category) {

@@ -410,12 +410,12 @@ internal fun PluginUiTree(
         )
 
         is UiIconNode -> {
-            val known = PluginIconSet.containsKey(node.name)
+            val known = HomeIcons.semantic(node.name)
             Icon(
-                imageVector = PluginIconSet[node.name] ?: PluginIconFallback,
+                imageVector = known ?: PluginIconFallback,
                 contentDescription = null,
                 modifier = modifier.size(node.sizeDp.dp),
-                tint = if (known) {
+                tint = if (known != null) {
                     MiuixTheme.colorScheme.onSurface
                 } else {
                     MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -448,36 +448,6 @@ internal fun PluginUiTree(
         is UiEmptyNode -> EmptyState(title = node.title, subtitle = node.subtitle, modifier = modifier)
     }
 }
-
-/**
- * 插件图标白名单：语义名 → 宿主图标。
- *
- * **只增不减**：名字发出去就是承诺，删掉老插件会掉图标。加名字不用升 apiVersion，
- * 但插件用了新名字要把清单里的 `minAppVersionCode` 提上去。
- * 名字用语义（`calendar`），不用图标库类名（`Icons.Outlined.Event`），换图标集时插件不用改。
- */
-private val PluginIconSet: Map<String, ImageVector> = mapOf(
-    "calendar" to Icons.Outlined.CalendarMonth,
-    "grade" to Icons.Outlined.School,
-    "book" to Icons.Outlined.MenuBook,
-    "card" to Icons.Outlined.CreditCard,
-    "bell" to Icons.Outlined.Notifications,
-    "school" to Icons.Outlined.AccountBalance,
-    "exam" to Icons.Outlined.Assignment,
-    "task" to Icons.Outlined.TaskAlt,
-    "classroom" to Icons.Outlined.MeetingRoom,
-    "seat" to Icons.Outlined.EventSeat,
-    "canteen" to Icons.Outlined.Restaurant,
-    "bus" to Icons.Outlined.DirectionsBus,
-    "doc" to Icons.Outlined.Description,
-    "download" to Icons.Outlined.Download,
-    "upload" to Icons.Outlined.Upload,
-    "user" to Icons.Outlined.Person,
-    "time" to Icons.Outlined.Schedule,
-    "star" to Icons.Outlined.Star,
-    "warning" to Icons.Outlined.Warning,
-    "check" to Icons.Outlined.Check,
-)
 
 /** 名字不在白名单里时画的占位图标（灰色），不是错误也不报警。 */
 private val PluginIconFallback: ImageVector = Icons.Outlined.Extension

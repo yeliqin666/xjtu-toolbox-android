@@ -973,7 +973,9 @@ internal fun PluginDetailScreen(
         onOpenTools = { PluginLauncher.openTools?.invoke(record.id) },
         onUninstall = {
             if (!demo) {
-                scope.launch {
+                // 不能挂在 rememberCoroutineScope 上：下一行 onBack() 就把这一页拆了，
+                // 协程随作用域一起取消，卸载根本没跑完（就是「按钮点了没反应」那个毛病）。
+                PluginWork.launch {
                     manager.uninstall(record.id)
                     manager.refresh()
                 }

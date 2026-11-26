@@ -35,8 +35,22 @@ private const val R_MATCH = "schedule_match"
 /** 插件公开页的路由 id 前缀（`plugin/<插件>/<页>`、`plugin-web/<插件>`）。 */
 private const val PLUGIN_ROUTE_PREFIX = "plugin/"
 
-/** 插件的统一配色：不做图标，就靠这一色跟内置功能分开。 */
-private val PLUGIN_COLOR = Color(0xFF5E35B1)
+/** dex 插件页的默认色 = 列表里 dex 徽章那支橙。 */
+private val PLUGIN_DEX_COLOR = Color(0xFFF97316)
+
+/** web 插件页的默认色 = 列表里 web 徽章那支蓝。 */
+private val PLUGIN_WEB_COLOR = Color(0xFF3B82F6)
+
+/**
+ * 插件页自己声明的颜色（清单里的 `pages[].iconColor`，`#RRGGBB`）。
+ * 解析不了就返回 null，调用方退回默认色——清单写错不该让首页掉一个格子。
+ */
+fun serviceColorOverride(hex: String): Color? {
+    val text = hex.trim().removePrefix("#")
+    if (text.length != 6) return null
+    val rgb = text.toLongOrNull(16) ?: return null
+    return Color(0xFF000000L or rgb)
+}
 
 /**
  * 功能入口的固定配色。
@@ -45,8 +59,11 @@ private val PLUGIN_COLOR = Color(0xFF5E35B1)
  * 插件公开页不在目录里，路由 id 是运行时拼出来的，所以先按前缀判一次。
  */
 @Composable
-fun serviceColor(key: String): Color =
-    if (key.startsWith(PLUGIN_ROUTE_PREFIX) || key.startsWith("plugin-web/")) PLUGIN_COLOR else builtinColor(key)
+fun serviceColor(key: String): Color = when {
+    key.startsWith("plugin-web/") -> PLUGIN_WEB_COLOR
+    key.startsWith(PLUGIN_ROUTE_PREFIX) -> PLUGIN_DEX_COLOR
+    else -> builtinColor(key)
+}
 
 @Composable
 private fun builtinColor(key: String): Color = when (key) {
