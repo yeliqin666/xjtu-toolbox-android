@@ -440,9 +440,9 @@ fun SettingsScreen(
             }
             ArrowPreference(
                 title = "项目主页",
-                summary = "GitHub · yeliqin666/xjtu-toolbox-android",
+                summary = "GitHub · xjtu-dzhz/dzhz",
                 startAction = { SettingsIcon(Icons.Default.OpenInNew, cBlue) },
-                onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
+                onClick = { host.onOpenUrl("https://github.com/xjtu-dzhz/dzhz") }
             )
             if (host.projectStoryPage != null) {
                 ArrowPreference(
@@ -826,7 +826,7 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
                 title = "项目贡献者",
                 summary = "GitHub 上的贡献者列表",
                 startAction = { SettingsIcon(Icons.Default.OpenInNew, cBlue) },
-                onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/graphs/contributors") }
+                onClick = { host.onOpenUrl("https://github.com/xjtu-dzhz/dzhz/graphs/contributors") }
             )
         }
         SmallTitle("许可证")
@@ -835,13 +835,13 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
                 title = "岱宗盒子",
                 summary = "GPL-3.0",
                 startAction = { SettingsIcon(Icons.Default.Description, cPurple) },
-                onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/LICENSE") }
+                onClick = { host.onOpenUrl("https://github.com/xjtu-dzhz/dzhz/blob/main/LICENSE") }
             )
             ArrowPreference(
                 title = "第三方声明",
                 summary = "上游项目的改动说明与许可证全文",
                 startAction = { SettingsIcon(Icons.Default.Description, cPurple) },
-                onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/THIRD_PARTY_NOTICES.md") }
+                onClick = { host.onOpenUrl("https://github.com/xjtu-dzhz/dzhz/blob/main/THIRD_PARTY_NOTICES.md") }
             )
         }
         SmallTitle("致谢")

@@ -8,8 +8,8 @@ import kotlinx.coroutines.CancellationException
 
 /** 社区只对着本仓库的 Discussions。 */
 object CommunityRepo {
-    const val OWNER = "yeliqin666"
-    const val NAME = "xjtu-toolbox-android"
+    const val OWNER = "xjtu-dzhz"
+    const val NAME = "dzhz"
     const val WEB_URL = "https://github.com/$OWNER/$NAME/discussions"
 
     /**

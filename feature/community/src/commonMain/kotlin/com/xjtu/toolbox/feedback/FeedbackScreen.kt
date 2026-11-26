@@ -62,11 +62,11 @@ import com.xjtu.toolbox.util.campusDateTimeOf
 import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 
 private const val FEEDBACK_GITHUB_ISSUE_URL =
-    "https://github.com/yeliqin666/xjtu-toolbox-android/issues/new"
+    "https://github.com/xjtu-dzhz/dzhz/issues/new"
 /** 与 `.github/scripts/feedback_digest.py` 的 DIAGNOSTICS_SEPARATOR 一致。 */
 private const val DIAGNOSTICS_SEPARATOR = "———— 诊断信息 ————"
 private const val FEEDBACK_DISCUSSIONS_URL =
-    "https://github.com/yeliqin666/xjtu-toolbox-android/discussions"
+    "https://github.com/xjtu-dzhz/dzhz/discussions"
 
 /** 旧版用过「功能坏了 / 有点难用 / 想要新功能」，日报脚本会把旧名映射到这里。 */
 private val CATEGORIES = listOf("有bug", "待改进", "新点子", "其他")
@@ -441,7 +441,7 @@ fun FeedbackScreen(
             ) {
                 ArrowPreference(
                     title = "去 GitHub 提 Issue",
-                    summary = "yeliqin666/xjtu-toolbox-android",
+                    summary = "xjtu-dzhz/dzhz",
                     onClick = { open(FEEDBACK_GITHUB_ISSUE_URL) },
                 )
             }

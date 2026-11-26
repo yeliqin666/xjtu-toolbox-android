@@ -44,7 +44,7 @@ class CommunityFakeUpstream {
         const val DISCUSSION_BODY = "这是一条夹具帖子，不是真讨论。"
         const val DISCUSSION_AUTHOR = VIEWER_LOGIN
         const val DISCUSSION_COMMENTS = 3
-        const val DISCUSSION_URL = "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/42"
+        const val DISCUSSION_URL = "https://github.com/xjtu-dzhz/dzhz/discussions/42"
         const val DISCUSSION_CREATED_AT = "2026-05-01T09:00:00Z"
         const val DISCUSSION_UPDATED_AT = "2026-05-02T10:00:00Z"
         const val PINNED_NUMBER = 7

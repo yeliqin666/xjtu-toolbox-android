@@ -37,7 +37,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.ln
 
-private const val REPO_URL = "https://github.com/yeliqin666/xjtu-toolbox-android"
+private const val REPO_URL = "https://github.com/xjtu-dzhz/dzhz"
 
 /** 「设置 › 关于 › 岱宗盒子的故事」的正文：来历、你和它、星星、一起做它的人、写在最后。外壳由设置页给。 */
 @Composable
@@ -133,7 +133,7 @@ fun ProjectStoryBody(openUrl: (String) -> Unit) {
     CouiSettingsCard {
         ArrowPreference(
             title = "去 GitHub 点亮一颗星",
-            summary = "yeliqin666/xjtu-toolbox-android",
+            summary = "xjtu-dzhz/dzhz",
             onClick = { openUrl(REPO_URL) },
         )
     }

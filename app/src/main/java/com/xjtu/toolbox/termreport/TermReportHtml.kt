@@ -405,7 +405,7 @@ fun TermReport.toHtml(): String {
 <body><main>${slides.joinToString("")}</main><script>$JS</script></body></html>"""
 }
 
-private const val REPO_URL = "https://github.com/yeliqin666/xjtu-toolbox-android"
+private const val REPO_URL = "https://github.com/xjtu-dzhz/dzhz"
 
 /**
  * 「关于岱宗盒子」一页：来历、你和它、Star 曲线、参与人数，收在开源与致谢上。

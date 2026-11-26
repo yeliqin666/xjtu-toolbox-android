@@ -25,7 +25,7 @@ class GithubMarkdownTest {
 
     @Test
     fun `GitHub 自动短链：仓库引用、issue 与讨论链接、标签`() {
-        val repo = "https://github.com/yeliqin666/xjtu-toolbox-android"
+        val repo = "https://github.com/xjtu-dzhz/dzhz"
         assertEquals("[Hz6826/CampusNetLogin#1](https://github.com/Hz6826/CampusNetLogin/issues/1)", linkGithubRefs("Hz6826/CampusNetLogin#1"))
         assertEquals("看 [#451]($repo/issues/451)。", linkGithubRefs("看 $repo/issues/451。"))
         assertEquals(
@@ -45,7 +45,7 @@ class GithubMarkdownTest {
     fun `GH-编号 查到后才变链接`() {
         assertEquals(setOf(451), issueNumbersIn("GH-451"))
         val kinds = mapOf(451 to GithubRefKind.ISSUE)
-        assertEquals("[GH-451](https://github.com/yeliqin666/xjtu-toolbox-android/issues/451)", linkIssues("GH-451", kinds))
+        assertEquals("[GH-451](https://github.com/xjtu-dzhz/dzhz/issues/451)", linkIssues("GH-451", kinds))
         assertEquals("GH-452", linkIssues("GH-452", kinds))
     }
 

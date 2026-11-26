@@ -1225,7 +1225,7 @@ private fun demoRecord(
         name = name,
         author = "Hz6826",
         authorUrl = "https://github.com/Hz6826",
-        projectUrl = "https://github.com/yeliqin666/xjtu-toolbox-android",
+        projectUrl = "https://github.com/xjtu-dzhz/dzhz",
         summary = summary,
         type = if (isWeb) "web" else "dex",
         version = version,

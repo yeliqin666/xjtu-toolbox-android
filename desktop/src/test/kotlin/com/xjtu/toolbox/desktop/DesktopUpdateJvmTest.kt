@@ -17,7 +17,7 @@ class DesktopUpdateJvmTest {
         "name": "5.2.0-draft",
         "draft": true,
         "prerelease": false,
-        "html_url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/tag/v5.2.0-draft",
+        "html_url": "https://github.com/xjtu-dzhz/dzhz/releases/tag/v5.2.0-draft",
         "body": "草稿：不该被任何人看到",
         "assets": [
           {"name": "xjtu-toolbox-5.2.0.msi", "browser_download_url": "https://example.invalid/draft.msi"}
@@ -28,7 +28,7 @@ class DesktopUpdateJvmTest {
         "name": "5.1.2",
         "draft": false,
         "prerelease": false,
-        "html_url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/tag/v5.1.2",
+        "html_url": "https://github.com/xjtu-dzhz/dzhz/releases/tag/v5.1.2",
         "body": "## 岱宗盒子 v5.1.2\n- 桌面端：真数据\n- 修复：若干",
         "assets": [
           {"name": "app-release.apk", "browser_download_url": "https://example.invalid/app-release.apk"},
@@ -41,7 +41,7 @@ class DesktopUpdateJvmTest {
         "name": "5.1.1",
         "draft": false,
         "prerelease": false,
-        "html_url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/tag/v5.1.1",
+        "html_url": "https://github.com/xjtu-dzhz/dzhz/releases/tag/v5.1.1",
         "body": "旧版",
         "assets": [
           {"name": "xjtu-toolbox-5.1.1.exe", "browser_download_url": "https://example.invalid/xjtu-toolbox-5.1.1.exe"}
@@ -57,7 +57,7 @@ class DesktopUpdateJvmTest {
         "tag_name": "v5.1.2",
         "draft": false,
         "prerelease": false,
-        "html_url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/tag/v5.1.2",
+        "html_url": "https://github.com/xjtu-dzhz/dzhz/releases/tag/v5.1.2",
         "body": "只有 APK",
         "assets": [
           {"name": "app-release.apk", "browser_download_url": "https://example.invalid/app-release.apk"}
@@ -74,7 +74,7 @@ class DesktopUpdateJvmTest {
         assertEquals("5.1.2", available.release.version)
         assertEquals("https://example.invalid/xjtu-toolbox-5.1.2-1.msi", available.release.packageUrl)
         assertEquals(
-            "https://github.com/yeliqin666/xjtu-toolbox-android/releases/tag/v5.1.2",
+            "https://github.com/xjtu-dzhz/dzhz/releases/tag/v5.1.2",
             available.release.releaseUrl,
         )
         assertTrue(available.release.notes.contains("桌面端"), "更新说明要原样带出来")
@@ -127,7 +127,7 @@ class DesktopUpdateJvmTest {
     fun `这条接口就是 GitHub 的发布列表，发布页就是给人点的那一页`() {
         assertTrue(DesktopUpdate.RELEASES_API.startsWith("https://api.github.com/repos/"))
         assertTrue(DesktopUpdate.RELEASES_API.endsWith("/releases?per_page=30"))
-        assertEquals("https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest", DesktopUpdate.RELEASES_PAGE)
+        assertEquals("https://github.com/xjtu-dzhz/dzhz/releases/latest", DesktopUpdate.RELEASES_PAGE)
     }
 
     @Test

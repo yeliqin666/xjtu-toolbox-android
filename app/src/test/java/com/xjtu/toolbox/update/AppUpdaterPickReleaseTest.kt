@@ -137,11 +137,11 @@ class AppUpdaterPickReleaseTest {
           "versionName": "5.2.2",
           "versionCode": 92,
           "apkUrl": "https://dzhz.zyxf.top/xjtu-toolbox/apk/5.2.2/app-release.apk",
-          "mirrors": ["https://github.com/yeliqin666/xjtu-toolbox-android/releases/download/v5.2.2/app-release.apk"],
+          "mirrors": ["https://github.com/xjtu-dzhz/dzhz/releases/download/v5.2.2/app-release.apk"],
           "sha256": "${"a".repeat(64)}",
           "size": 6712345,
           "notes": "## test",
-          "releaseUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/tag/v5.2.2",
+          "releaseUrl": "https://github.com/xjtu-dzhz/dzhz/releases/tag/v5.2.2",
           "publishedAt": "2026-10-23T12:00:00Z"
         }
     """.trimIndent()

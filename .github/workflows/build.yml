@@ -310,7 +310,7 @@ jobs:
           OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
           OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
           OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
-          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+          GITHUB_REPO: xjtu-dzhz/dzhz
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/release/app-release.apk
@@ -408,7 +408,7 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_PUBLIC_BASE: ${{ secrets.R2_PUBLIC_BASE }}
           OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
-          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+          GITHUB_REPO: xjtu-dzhz/dzhz
         run: |
           set -euo pipefail
           if [ -n "${R2_ACCOUNT_ID:-}" ] && [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && [ -n "${R2_BUCKET:-}" ]; then
@@ -634,7 +634,7 @@ jobs:
           OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
           OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
           OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
-          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+          GITHUB_REPO: xjtu-dzhz/dzhz
         run: |
           set -euo pipefail
           APK="xjtu-toolbox-$VERSION.apk"
@@ -718,7 +718,7 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_PUBLIC_BASE: ${{ secrets.R2_PUBLIC_BASE }}
           OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
-          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+          GITHUB_REPO: xjtu-dzhz/dzhz
         run: |
           set -euo pipefail
           if [ -n "${R2_ACCOUNT_ID:-}" ] && [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && [ -n "${R2_BUCKET:-}" ]; then

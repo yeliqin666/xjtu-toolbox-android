@@ -119,10 +119,10 @@ object AppUpdater {
     }
 
     fun releasesPageUrl(channel: String): String = when (normalizeChannel(channel)) {
-        CHANNEL_GITHUB -> "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest"
+        CHANNEL_GITHUB -> "https://github.com/xjtu-dzhz/dzhz/releases/latest"
         CHANNEL_GITEE -> "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases"
         // 阿里云 / Cloudflare 清单自带 releaseUrl；拿不到时用 GitHub 发布页兜底。
-        else -> "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest"
+        else -> "https://github.com/xjtu-dzhz/dzhz/releases/latest"
     }
 
     /**
@@ -231,7 +231,7 @@ object AppUpdater {
         includePreview: Boolean,
     ): AppUpdateInfo {
         if (includePreview) {
-            val url = "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases?per_page=30"
+            val url = "https://api.github.com/repos/xjtu-dzhz/dzhz/releases?per_page=30"
             val array = AppJson.parseToJsonElement(fetchText(url)).jsonArray
             pickRelease(array, BuildConfig.VERSION_NAME, includePreview = true)
                 ?.let { return it }
@@ -336,7 +336,7 @@ object AppUpdater {
             }
 
             val finalDownloadUrl = downloadUrl
-                ?: "https://github.com/yeliqin666/xjtu-toolbox-android/releases/download/v$version/app-release.apk"
+                ?: "https://github.com/xjtu-dzhz/dzhz/releases/download/v$version/app-release.apk"
 
             candidates += AppUpdateInfo(
                 version = version,
@@ -363,7 +363,7 @@ object AppUpdater {
 
     private suspend fun fetchRelease(channel: String): ParsedRelease {
         val url = if (channel == CHANNEL_GITHUB) {
-            "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
+            "https://api.github.com/repos/xjtu-dzhz/dzhz/releases/latest"
         } else {
             "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
         }
@@ -511,7 +511,7 @@ object AppUpdater {
             }
         val downloadUrl = apkAsset?.get("browser_download_url")?.stringValue
             ?: if (channel.startsWith("github")) {
-                "https://github.com/yeliqin666/xjtu-toolbox-android/releases/download/v$version/app-release.apk"
+                "https://github.com/xjtu-dzhz/dzhz/releases/download/v$version/app-release.apk"
             } else {
                 "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases/download/v$version/app-release.apk"
             }
@@ -539,7 +539,7 @@ object AppUpdater {
     private suspend fun fetchGithubDigestByTag(version: String): String? {
         githubDigestCache[version]?.let { return it }
         val digest = runCatching {
-            val url = "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases/tags/v$version"
+            val url = "https://api.github.com/repos/xjtu-dzhz/dzhz/releases/tags/v$version"
             val body = client.newCall(
                 Request.Builder()
                     .url(url)

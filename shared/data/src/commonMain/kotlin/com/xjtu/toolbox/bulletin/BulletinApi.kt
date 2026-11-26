@@ -24,7 +24,7 @@ object BulletinApi {
     // Gitee 的 api/v5 raw 接口对未登录请求一律 401（实测 2026-09-18）；
     // 网页 raw 地址会 302 到 raw.giteeusercontent.com，可匿名访问，国内优先走它。
     private const val GITEE_BASE = "https://gitee.com/yeliqin666/xjtu-toolbox-android/raw/announce/"
-    private const val GITHUB_BASE = "https://raw.githubusercontent.com/yeliqin666/xjtu-toolbox-android/announce/"
+    private const val GITHUB_BASE = "https://raw.githubusercontent.com/xjtu-dzhz/dzhz/announce/"
 
     private val client = HttpClients.base.newBuilder()
         .connectTimeout(8, TimeUnit.SECONDS)

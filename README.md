@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/platform-Desktop%20%28Win%2FLinux%29-blueviolet" alt="Desktop" />
   <img src="https://img.shields.io/badge/platform-Web%20%28wasm%29-teal" alt="Web" />
   <img src="https://img.shields.io/badge/minSdk-31%20(Android%2012)-blue" alt="minSdk 31" />
-  <img src="https://img.shields.io/github/v/release/yeliqin666/xjtu-toolbox-android?label=version&color=orange" alt="version" />
+  <img src="https://img.shields.io/github/v/release/xjtu-dzhz/dzhz?label=version&color=orange" alt="version" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0 License" />
 </p>
 
@@ -20,8 +20,8 @@
 
 | 平台 | 获取方式 |
 |------|------|
-| Android 12 及以上 | 国内推荐 [直接下载最新正式版](https://dzhz.zyxf.top/xjtu-toolbox/apk/latest/app-release.apk)；也可以在 [GitHub Releases](https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest) 或 [Gitee 发行版](https://gitee.com/yeliqin666/xjtu-toolbox-android/releases) 下载 `app-release.apk` |
-| Windows | [GitHub Releases](https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest) 下载 `xjtu-dzhz-<版本>.exe` |
+| Android 12 及以上 | 国内推荐 [直接下载最新正式版](https://dzhz.zyxf.top/xjtu-toolbox/apk/latest/app-release.apk)；也可以在 [GitHub Releases](https://github.com/xjtu-dzhz/dzhz/releases/latest) 或 [Gitee 发行版](https://gitee.com/yeliqin666/xjtu-toolbox-android/releases) 下载 `app-release.apk` |
+| Windows | [GitHub Releases](https://github.com/xjtu-dzhz/dzhz/releases/latest) 下载 `xjtu-dzhz-<版本>.exe` |
 | Linux | 同上，Debian / Ubuntu 用 `.deb`，其他发行版用 `linux-x64.tar.gz` |
 | 网页 | 没有公共部署，需要自己运行 serve 模式，见 [`docs/api-contract.md`](docs/api-contract.md) |
 
@@ -73,7 +73,7 @@
 
 ## 反馈与参与
 
-- 使用问题、建议和交流去 [Discussions](https://github.com/yeliqin666/xjtu-toolbox-android/discussions)，App 里「我的 → 社区讨论」看到的就是这里；也可以在 App 里直接提交反馈。
+- 使用问题、建议和交流去 [Discussions](https://github.com/xjtu-dzhz/dzhz/discussions)，App 里「我的 → 社区讨论」看到的就是这里；也可以在 App 里直接提交反馈。
 - 确定是 bug 欢迎提 Issue，请说明应用版本、机型系统、涉及模块与复现步骤；**不要粘贴账号、密码、Cookie 或 API Key**。
 - 学校某个系统挂了或在维护，开一个「校园系统状态」Issue，维护者核实后会发应用内公告。
 - 学校系统接口变动、维护是功能失效最主要的来源，遇到问题欢迎反馈。
@@ -111,8 +111,8 @@
 需要 Android Studio 或 Android SDK（API 37）、JDK 21、Git。
 
 ```bash
-git clone https://github.com/yeliqin666/xjtu-toolbox-android.git
-cd xjtu-toolbox-android
+git clone https://github.com/xjtu-dzhz/dzhz.git
+cd dzhz
 ./gradlew assembleDebug        # 产物在 app/build/outputs/apk/debug/
 ./gradlew testDebugUnitTest
 ```
@@ -134,7 +134,7 @@ Release 构建（`./gradlew assembleRelease`）会启用代码压缩与资源收
 
 ## Star 趋势
 
-[![Star History Chart](https://api.star-history.com/svg?repos=yeliqin666/xjtu-toolbox-android&type=Date)](https://star-history.com/#yeliqin666/xjtu-toolbox-android&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=xjtu-dzhz/dzhz&type=Date)](https://star-history.com/#xjtu-dzhz/dzhz&Date)
 
 ## 图标与致谢
 

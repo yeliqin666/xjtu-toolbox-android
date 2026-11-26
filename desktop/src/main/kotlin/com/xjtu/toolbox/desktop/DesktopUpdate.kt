@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 internal object DesktopUpdate {
 
     /** 发布页 / 接口所在仓库（与 `:app` 的 `AppUpdater` 同一个）。 */
-    const val REPO = "yeliqin666/xjtu-toolbox-android"
+    const val REPO = "xjtu-dzhz/dzhz"
 
     /** 给人点的发布页（与 `:app` 的 `AppUpdater.releasesPageUrl(CHANNEL_GITHUB)` 同一个 URL 形状）。 */
     const val RELEASES_PAGE = "https://github.com/$REPO/releases/latest"

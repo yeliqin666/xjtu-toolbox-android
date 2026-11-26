@@ -16,7 +16,7 @@ import urllib.request
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-OWNER, REPO = "yeliqin666", "xjtu-toolbox-android"
+OWNER, REPO = "xjtu-dzhz", "dzhz"
 BJ = timezone(timedelta(hours=8))
 TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 

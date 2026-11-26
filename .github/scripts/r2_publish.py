@@ -11,7 +11,7 @@ import time
 
 DEFAULT_PUBLIC_BASE = "https://dl.dzhz.top"
 DEFAULT_OSS_BASE = "https://dzhz.zyxf.top/xjtu-toolbox"
-DEFAULT_REPO = "yeliqin666/xjtu-toolbox-android"
+DEFAULT_REPO = "xjtu-dzhz/dzhz"
 CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
 CACHE_NO_CACHE = "no-cache"
 
