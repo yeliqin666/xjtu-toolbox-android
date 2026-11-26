@@ -21,7 +21,7 @@ class SuperAppParseTest {
           {"label":"校园生活","services":[
             {"id":"z1","serviceName":"体检专区","serviceUrl":null,"servicePicUrl":"https://ywtb.xjtu.edu.cn/portal-minio/service/z.png",
              "serviceSource":"校医院","clickNum":null,"aggregationServices":{"aggregationServiceList":[
-               {"id":"c1","serviceId":"s1","service_name":"体检预约","service_url":"https://health.xjtu.edu.cn/homePage/index1","service_icon":"https://ywtb.xjtu.edu.cn/portal-minio/service/c.png"},
+               {"id":"c1","serviceId":"s1","service_name":"体检预约","service_url":"https://health.xjtu.edu.cn/homePage/index1","service_icon":"https://ywtb.xjtu.edu.cn/portal-minio/service/c.png","needLocalNetWork":true},
                {"id":"c2","serviceId":"s2","service_name":"检验报告查询","service_url":" https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1615 "},
                {"id":"c3","serviceId":"s3","service_name":"重复","service_url":"https://health.xjtu.edu.cn/homePage/index1"}
              ]}}
@@ -51,6 +51,10 @@ class SuperAppParseTest {
             zone.children.map { it.url },
         )
         assertNull(zone.children[1].icon)
+        // 学校标的「校内」：校外要经 WebVPN
+        assertTrue(zone.children[0].campusOnly)
+        assertFalse(zone.children[1].campusOnly)
+        assertFalse(cert.campusOnly)
     }
 
     @Test fun searchMatchesNamePinyinAndDepartment() {

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
+import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.data.DataCache
@@ -110,7 +111,10 @@ fun SuperAppScreen(site: SiteSession, onBack: () -> Unit, onOpen: (String) -> Un
     val shown = remember(categories, selected) {
         categories.orEmpty().let { all -> if (selected == ALL) all else all.filter { it.name == selected }.ifEmpty { all } }
     }
-    val open: (SuperAppService) -> Unit = { s -> if (s.isZone) zone = s else onOpen(s.url) }
+    // 只能校内访问的服务：App 判定在校外（全局走 WebVPN）时换成网关地址，点的那一刻再判
+    val offCampus = { site.manager?.currentAccessMode?.value == AccessMode.WEBVPN }
+    val target = { s: SuperAppService, viaVpn: Boolean -> if (viaVpn) WebVpnUtil.toVpnUrl(s.url) else s.url }
+    val open: (SuperAppService) -> Unit = { s -> if (s.isZone) zone = s else onOpen(target(s, s.campusOnly && offCampus())) }
     val showDetail: (SuperAppService) -> Unit = { s -> zone = null; detail = s }
 
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
@@ -172,7 +176,7 @@ fun SuperAppScreen(site: SiteSession, onBack: () -> Unit, onOpen: (String) -> Un
                     item(key = "note") {
                         Text(
                             "服务在内置浏览器中打开，不会带上 App 的登录状态，需要时按页面提示登录统一身份认证。" +
-                                "校外打不开的，在网页右上角选「通过 WebVPN 打开」。",
+                                "学校标为校内的服务在校外会自动经 WebVPN 打开；其余打不开的，在网页右上角选「通过 WebVPN 打开」。",
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
@@ -191,10 +195,12 @@ fun SuperAppScreen(site: SiteSession, onBack: () -> Unit, onOpen: (String) -> Un
         }
         OverlayBottomSheet(show = detail != null, title = detail?.name.orEmpty(), onDismissRequest = { detail = null }) {
             detail?.let { s ->
+                val autoVpn = s.campusOnly && offCampus()
                 ServiceDetail(
                     s,
+                    autoVpn = autoVpn,
                     onOpen = { detail = null; open(s) },
-                    onOpenVpn = { detail = null; onOpen(WebVpnUtil.toVpnUrl(s.url)) },
+                    onOpenAlt = { detail = null; onOpen(target(s, !autoVpn)) },
                 )
             }
         }
@@ -295,7 +301,7 @@ private val ICON_PLATE = Color(0xFFEFF3F9)
 private val ICON_FALLBACK = Color(0xFF2F6BD8)
 
 @Composable
-private fun ServiceDetail(s: SuperAppService, onOpen: () -> Unit, onOpenVpn: () -> Unit) {
+private fun ServiceDetail(s: SuperAppService, autoVpn: Boolean, onOpen: () -> Unit, onOpenAlt: () -> Unit) {
     val dial = rememberPhoneDialer()
     Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
         Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
@@ -305,6 +311,7 @@ private fun ServiceDetail(s: SuperAppService, onOpen: () -> Unit, onOpenVpn: () 
                 Column(Modifier.weight(1f)) {
                     if (s.department.isNotBlank()) Text(s.department, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
                     val meta = listOfNotNull(
+                        "校内服务".takeIf { s.campusOnly },
                         "${s.children.size} 项服务".takeIf { s.isZone },
                         "${s.clicks} 次使用".takeIf { s.clicks > 0 },
                     ).joinToString(" · ")
@@ -332,12 +339,20 @@ private fun ServiceDetail(s: SuperAppService, onOpen: () -> Unit, onOpenVpn: () 
         }
         Spacer(Modifier.height(18.dp))
         Button(onClick = onOpen, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColorsPrimary()) {
-            Text(if (s.isZone) "查看专区" else "打开", color = MiuixTheme.colorScheme.onPrimary)
+            Text(
+                when {
+                    s.isZone -> "查看专区"
+                    autoVpn -> "经 WebVPN 打开"
+                    else -> "打开"
+                },
+                color = MiuixTheme.colorScheme.onPrimary,
+            )
         }
         if (!s.isZone) {
             Spacer(Modifier.height(10.dp))
-            Button(onClick = onOpenVpn, modifier = Modifier.fillMaxWidth(), colors = appTonalButtonColors()) {
-                Text("通过 WebVPN 打开（校外）")
+            // 和上面相反的那条路：校园网判错了也有退路
+            Button(onClick = onOpenAlt, modifier = Modifier.fillMaxWidth(), colors = appTonalButtonColors()) {
+                Text(if (autoVpn) "直接打开（已连校园网）" else "通过 WebVPN 打开（校外）")
             }
         }
     }

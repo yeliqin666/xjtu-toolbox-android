@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -30,6 +31,8 @@ data class SuperAppService(
     val contact: String = "",
     val pinyin: String = "",
     val clicks: Int = 0,
+    /** 学校标成只能校内访问（`needLocalNetWork`）：校外要经 WebVPN 打开。 */
+    val campusOnly: Boolean = false,
     val children: List<SuperAppService> = emptyList(),
 ) {
     val isZone: Boolean get() = children.isNotEmpty()
@@ -107,6 +110,7 @@ class SuperAppApi(private val site: SiteSession) {
                 contact = str("contactInformation").trim(),
                 pinyin = str("servicePinYin"),
                 clicks = int("clickNum") ?: 0,
+                campusOnly = bool("needLocalNetWork"),
                 children = if (url.isEmpty()) children else emptyList(),
             )
         }
@@ -121,11 +125,14 @@ class SuperAppApi(private val site: SiteSession) {
                 name = name,
                 url = url,
                 icon = str("service_icon").ifBlank { null },
+                campusOnly = bool("needLocalNetWork"),
             )
         }
 
         private fun JsonObject.str(key: String): String = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 
         private fun JsonObject.int(key: String): Int? = (get(key) as? JsonPrimitive)?.intOrNull
+
+        private fun JsonObject.bool(key: String): Boolean = (get(key) as? JsonPrimitive)?.booleanOrNull == true
     }
 }
