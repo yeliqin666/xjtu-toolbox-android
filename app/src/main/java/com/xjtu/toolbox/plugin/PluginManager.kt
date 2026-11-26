@@ -201,6 +201,18 @@ internal class PluginManager private constructor(private val appContext: Context
 
     suspend fun setToolsEnabled(id: String, enabled: Boolean) = updateRecord(id) { it.copy(toolsEnabled = enabled) }
 
+    /** 单个工具开关；总开关关着时这些设置留着，重新打开后照旧生效。 */
+    suspend fun setToolEnabled(id: String, tool: String, enabled: Boolean) = updateRecord(id) { record ->
+        record.copy(
+            disabledTools = if (enabled) record.disabledTools - tool else record.disabledTools + tool,
+        )
+    }
+
+    /** web 插件的 WebVPN 开关；required / off 两档不让改。 */
+    suspend fun setVpnEnabled(id: String, enabled: Boolean) = updateRecord(id) { record ->
+        if (record.webVpnLocked()) record else record.copy(vpnOverride = enabled)
+    }
+
     private suspend fun updateRecord(id: String, transform: (PluginRecord) -> PluginRecord) =
         withContext(Dispatchers.IO) {
             val next = currentRecords().map { if (it.id == id) transform(it) else it }
@@ -247,6 +259,8 @@ internal class PluginManager private constructor(private val appContext: Context
         for (record in currentRecords()) {
             if (!record.enabled || !record.toolsEnabled) continue
             for (tool in record.manifest.tools) {
+                // 总开关开着时，用户还可以单独关掉某几个
+                if (tool.name in record.disabledTools) continue
                 val qualified = qualifiedName(record.id, tool.name) ?: continue
                 if (!seen.add(qualified)) continue
                 val function = tool.definition["function"]?.jsonObject ?: continue
@@ -269,7 +283,9 @@ internal class PluginManager private constructor(private val appContext: Context
     fun executeTool(qualifiedName: String, argsJson: String): String {
         val record = currentRecords().firstOrNull { record ->
             record.enabled && record.toolsEnabled &&
-                record.manifest.tools.any { qualifiedName(record.id, it.name) == qualifiedName }
+                qualifiedName in record.manifest.tools
+                    .filterNot { it.name in record.disabledTools }
+                    .mapNotNull { qualifiedName(record.id, it.name) }
         } ?: return "error: not_found; tool: $qualifiedName"
         val original = record.manifest.tools.first { qualifiedName(record.id, it.name) == qualifiedName }.name
         val loaded = load(record.id)

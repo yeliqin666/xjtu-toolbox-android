@@ -125,6 +125,9 @@ internal object PluginLauncher {
 
     /** 打开 web 插件那一页（内置浏览器）。 */
     var openWeb: ((pluginId: String) -> Unit)? = null
+
+    /** 打开某个插件的工具列表。 */
+    var openTools: ((pluginId: String) -> Unit)? = null
 }
 
 /**

@@ -48,6 +48,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -440,14 +441,26 @@ private fun PluginRow(
                         MiuixTheme.colorScheme.onSurfaceVariantSummary
                     },
                 )
+                // web 插件开着 VPN 时提醒一句（插件整体停用就不加）
+                if (record.manifest.isWeb && record.enabled && !broken && record.webVpnEnabled()) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "· 经 WebVPN",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                }
                 if (record.manifest.author.isNotBlank()) {
-                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.width(12.dp))
                     Text(
                         text = record.manifest.author,
                         style = MiuixTheme.textStyles.footnote2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                 }
             }
@@ -459,6 +472,14 @@ private fun PluginRow(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (record.manifest.tools.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "工具 ${record.enabledToolCount()}/${record.manifest.tools.size}",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
@@ -945,6 +966,10 @@ internal fun PluginDetailScreen(
         onToggleTools = { on ->
             if (!demo) scope.launch { manager.setToolsEnabled(record.id, on) }
         },
+        onToggleVpn = { on ->
+            if (!demo) scope.launch { manager.setVpnEnabled(record.id, on) }
+        },
+        onOpenTools = { PluginLauncher.openTools?.invoke(record.id) },
         onUninstall = {
             if (!demo) {
                 scope.launch {
@@ -965,6 +990,8 @@ private fun DetailPage(
     onOpenPage: (String) -> Unit,
     onToggleEnabled: (Boolean) -> Unit,
     onToggleTools: (Boolean) -> Unit,
+    onToggleVpn: (Boolean) -> Unit,
+    onOpenTools: () -> Unit,
     onUninstall: () -> Unit,
 ) {
     val glass = rememberPageGlass()
@@ -1034,13 +1061,28 @@ private fun DetailPage(
                     enabled = !broken,
                     onCheckedChange = onToggleEnabled,
                 )
-                SwitchPreference(
-                    title = "允许小岱调用",
-                    summary = "把这个插件的工具列给小岱；插件代码本来就能在本机运行",
-                    checked = record.toolsEnabled && !broken,
-                    enabled = record.enabled && !broken,
-                    onCheckedChange = onToggleTools,
-                )
+                // web 插件：VPN 策略为 required / off 时灰掉，但状态照实显示
+                if (record.manifest.isWeb) {
+                    SwitchPreference(
+                        title = "走 WebVPN",
+                        summary = when (record.manifest.webVpn) {
+                            "required" -> "插件要求必须开启，校外也能访问"
+                            "off" -> "插件要求直连，不能开启"
+                            else -> "校外要访问校内站点时打开"
+                        },
+                        checked = record.webVpnEnabled(),
+                        enabled = !record.webVpnLocked() && record.enabled && !broken,
+                        onCheckedChange = onToggleVpn,
+                    )
+                }
+                if (record.manifest.tools.isNotEmpty()) {
+                    ArrowPreference(
+                        title = "允许小岱调用",
+                        summary = "工具 ${record.enabledToolCount()}/${record.manifest.tools.size}",
+                        enabled = record.enabled && !broken,
+                        onClick = onOpenTools,
+                    )
+                }
             }
 
             // ② 页面（web 插件只有一个「打开网页」）

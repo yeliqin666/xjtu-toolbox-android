@@ -278,6 +278,9 @@ fun AppRoot(
             com.xjtu.toolbox.plugin.PluginLauncher.openWeb = { id ->
                 router.open(com.xjtu.toolbox.nav.AppRoute.PluginWeb(id))
             }
+            com.xjtu.toolbox.plugin.PluginLauncher.openTools = { id ->
+                router.open(com.xjtu.toolbox.nav.AppRoute.PluginTools(id))
+            }
         }
 
         AutoLoginDialog(router)

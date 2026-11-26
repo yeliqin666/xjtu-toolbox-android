@@ -688,6 +688,12 @@ fun NavEntryBuilder.appPageEntries(
                 onBack = back,
             )
         }
+        page<AppRoute.PluginTools>(transition = expand(AppRoute.PluginTools::class)) { tools ->
+            com.xjtu.toolbox.plugin.PluginToolsScreen(
+                pluginId = tools.pluginId,
+                onBack = back,
+            )
+        }
         page<AppRoute.PluginDetail>(transition = expand(AppRoute.PluginDetail::class)) { detail ->
             com.xjtu.toolbox.plugin.PluginDetailScreen(
                 pluginId = detail.pluginId,

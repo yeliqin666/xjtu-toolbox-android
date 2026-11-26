@@ -181,6 +181,11 @@ sealed interface AppRoute : NavKey {
         override val id get() = "plugin-web/${encode(pluginId)}"
     }
 
+    /** 某个插件的工具列表（二级页）。 */
+    @Serializable data class PluginTools(val pluginId: String) : AppRoute {
+        override val id get() = "plugin-tools/${encode(pluginId)}"
+    }
+
     /** 某个插件的详情页。 */
     @Serializable data class PluginDetail(val pluginId: String) : AppRoute {
         override val id get() = "plugin-detail/${encode(pluginId)}"
@@ -288,6 +293,9 @@ fun appRouteOf(id: String): AppRoute? {
         path.startsWith("plugin-web/") -> path.removePrefix("plugin-web/")
             .takeIf { it.isNotBlank() }
             ?.let(AppRoute::PluginWeb)
+        path.startsWith("plugin-tools/") -> path.removePrefix("plugin-tools/")
+            .takeIf { it.isNotBlank() }
+            ?.let(AppRoute::PluginTools)
         path.startsWith("plugin-detail/") -> path.removePrefix("plugin-detail/")
             .takeIf { it.isNotBlank() }
             ?.let(AppRoute::PluginDetail)

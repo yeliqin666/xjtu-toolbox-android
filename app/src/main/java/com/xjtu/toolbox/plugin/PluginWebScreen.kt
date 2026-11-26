@@ -65,7 +65,8 @@ internal fun PluginWebScreen(
             return@LaunchedEffect
         }
 
-        if (!manifest.webUseVpn) {
+        val useVpn = record.webVpnEnabled()
+        if (!useVpn) {
             state = WebState.Ready(
                 url = startUrl,
                 origins = manifest.webOrigins,

@@ -67,11 +67,13 @@ internal data class PluginWebPart(
     /** 宿主能给网页的能力，目前只认 `theme`。 */
     val capabilities: List<String> = emptyList(),
     /**
-     * 走校内 WebVPN 打开（校外也能访问校内站点）。
-     *
-     * 打开时会先探一次 WebVPN 登录态，失效就在 App 内重登，然后把 [startUrl] 改写成网关地址。
+     * WebVPN 策略，四个取值：
+     * - `required`：必须走 VPN，用户不能关；
+     * - `optional_on`：可选，默认开；
+     * - `optional_off`：可选，默认关；
+     * - `off`：必须直连，用户不能开。
      */
-    val useVpn: Boolean = false,
+    val vpn: String = "off",
 )
 
 @Serializable
@@ -123,6 +125,10 @@ internal data class PluginRecord(
     @SerialName("signerSha256") val signerSha256: String = "",
     val enabled: Boolean = true,
     val toolsEnabled: Boolean = false,
+    /** 总开关开着时，用户单独关掉的工具名。 */
+    val disabledTools: List<String> = emptyList(),
+    /** web 插件的 WebVPN 用户选择；null = 跟清单默认值。 */
+    val vpnOverride: Boolean? = null,
     val installedAt: Long = 0L,
     @SerialName("manifest") val manifest: PluginManifest,
 )
@@ -156,8 +162,8 @@ internal data class PluginManifest(
     /** web 插件允许停留的站点（scheme + host）。 */
     val webOrigins: List<String> = emptyList(),
     val webAllowSubdomains: Boolean = false,
-    /** web 插件是否走校内 WebVPN 打开。 */
-    val webUseVpn: Boolean = false,
+    /** web 插件的 WebVPN 策略原值（见 [PluginWebPart.vpn]）。 */
+    val webVpn: String = "off",
 ) {
     val isWeb: Boolean get() = type == "web"
 
@@ -212,7 +218,7 @@ internal fun PluginPackageManifest.toRuntimeManifest(): PluginManifest = when (t
             webStartUrl = part.startUrl,
             webOrigins = part.origins,
             webAllowSubdomains = part.allowSubdomains,
-            webUseVpn = part.useVpn,
+            webVpn = part.vpn,
         )
     }
     "declarative" -> throw IllegalArgumentException("声明式插件当前版本还不支持")
@@ -293,6 +299,9 @@ internal fun validatePackageManifest(manifest: PluginPackageManifest) {
         "web" -> {
             val part = requireNotNull(manifest.web) { "type 是 web，但没有 web 段" }
             require(part.startUrl.startsWith("https://")) { "web.startUrl 必须是 https 地址" }
+            require(part.vpn in WEB_VPN_MODES) {
+                "web.vpn 只能是 ${WEB_VPN_MODES.joinToString(" / ")}，当前：${part.vpn}"
+            }
             part.origins.forEach { origin ->
                 require(Regex("^https://[a-z0-9.-]+(:\\d+)?$").matches(origin)) {
                     "web.origins 只能是 https + 域名：$origin"
@@ -309,3 +318,23 @@ internal fun validatePackageManifest(manifest: PluginPackageManifest) {
         require(manifest.files.any { it.path == path }) { "files 里没有声明 $path" }
     }
 }
+
+/** `web.vpn` 的合法取值。 */
+internal val WEB_VPN_MODES = setOf("required", "optional_on", "optional_off", "off")
+
+/** 这个 web 插件实际要不要走 VPN（用户选择优先，没有就跟清单默认）。 */
+internal fun PluginRecord.webVpnEnabled(): Boolean = when (manifest.webVpn) {
+    "required" -> true
+    "off" -> false
+    "optional_on" -> vpnOverride ?: true
+    "optional_off" -> vpnOverride ?: false
+    else -> false
+}
+
+/** VPN 是插件强制要求的（required / off）：详情页的开关灰掉，不让改。 */
+internal fun PluginRecord.webVpnLocked(): Boolean =
+    manifest.webVpn == "required" || manifest.webVpn == "off"
+
+/** 真正挂给小岱的工具数：总开关开着时，去掉被单独关掉的。 */
+internal fun PluginRecord.enabledToolCount(): Int =
+    if (!toolsEnabled) 0 else manifest.tools.count { it.name !in disabledTools }
