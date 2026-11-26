@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-26T16:53:13+08:00",
+  "updatedAt": "2026-11-27T00:10:39+08:00",
   "bulletins": [
     {
       "id": "2026-11-26-d558",
@@ -9,7 +9,7 @@
       "minVersion": "5.0.0",
       "mustAck": false,
       "block": false,
-      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/558"
+      "discussionUrl": "https://github.com/xjtu-dzhz/dzhz/discussions/558"
     },
     {
       "id": "2026-11-26-d537",
@@ -28,27 +28,27 @@
       "endsAt": "2026-12-17T00:00:00+08:00",
       "mustAck": false,
       "block": false,
-      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/537",
+      "discussionUrl": "https://github.com/xjtu-dzhz/dzhz/discussions/537",
       "results": [
         {
           "option": "接入高频使用的服务（如校园体育、缴电费），由盒子走登录——登录链路常变动，可能解析异常",
-          "votes": 12
+          "votes": 25
         },
         {
           "option": "接入移动交大功能列表，但不接入任何登录，用户每次自行跳转、手动登录——每次、每个功能都要手动登录，仅作为学校app异常的备用",
-          "votes": 2
+          "votes": 4
         },
         {
           "option": "我有所担忧，不愿在第三方App使用涉及考核与缴费的功能",
-          "votes": 1
+          "votes": 3
         },
         {
           "option": "其他想法（请另发送一条反馈建议）",
           "votes": 0
         }
       ],
-      "voters": 15,
-      "resultsAt": "2026-11-26T16:53:13+08:00"
+      "voters": 32,
+      "resultsAt": "2026-11-27T00:10:39+08:00"
     },
     {
       "id": "2026-11-25-d524",
@@ -60,7 +60,7 @@
       "forceBelow": "5.2.1",
       "mustAck": false,
       "block": true,
-      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/524"
+      "discussionUrl": "https://github.com/xjtu-dzhz/dzhz/discussions/524"
     },
     {
       "id": "2026-11-24-d515",
@@ -69,7 +69,7 @@
       "body": "现在可以在**我的-反馈与投票**发送反馈，**无需登录**，可能不会太及时。如果可以的话还是希望登录内置的基于Github Discussion的 **【社区】** 发帖，感谢大家支持！",
       "mustAck": false,
       "block": false,
-      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/515"
+      "discussionUrl": "https://github.com/xjtu-dzhz/dzhz/discussions/515"
     }
   ]
 }
