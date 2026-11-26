@@ -96,17 +96,8 @@ fun VenueOrdersContent(
 
         else -> {
             val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
-            // 新单插到最前面时，列表默认按 key 守住原来那张卡：人在顶上也会被悄悄往下挪一格，
-            // 新单藏在顶栏上面，顶栏的折叠跟着这一挪乱跳。原本就在顶上就留在顶上（新单露出来）；
-            // 已经往下翻了就照旧守住正在看的那张。requestScrollToItem 和数据变化在同一次测量里生效，不会先跳再回。
-            val firstOrderId = orders.firstOrNull()?.orderId
-            var shownFirstId by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(firstOrderId) }
-            if (firstOrderId != shownFirstId) {
-                if (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0) {
-                    gridState.requestScrollToItem(0)
-                }
-                shownFirstId = firstOrderId
-            }
+            // 新单、刷新失败条都插在最前面
+            com.xjtu.toolbox.ui.components.KeepTopOnInsert(gridState, (error != null) to orders.firstOrNull()?.orderId)
             // 宽屏订单卡分两三列（见 AdaptiveCardGrid）
             AdaptiveCardGrid(
                 state = gridState,
