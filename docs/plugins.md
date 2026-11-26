@@ -128,7 +128,7 @@ class TemplatePage(private val ctx: PluginContext) : PluginPage() {
 | `UiCardNode(child, actionId, paddingDp)` | 卡片，可整张点 |
 | `UiTextNode(text, style, secondary, maxLines, color, argb, bold, italic, underline, strikeThrough, actionId)` | 文字；给了 `actionId` 默认用主色 |
 | `UiRichTextNode(spans, style)` | 混排：一段话里不同样式和链接 |
-| `UiButtonNode(label, actionId, style, enabled)` | 按钮（Filled / Tonal / Plain） |
+| `UiButtonNode(label, actionId, style, enabled, fillWidth)` | 按钮（Filled / Tonal / Plain）；`fillWidth = true` 撑满一行 |
 | `UiListItemNode(title, subtitle, trailing, actionId)` | 设置页那种行 |
 | `UiFieldNode(label, value, actionId, hint)` | 输入框 |
 | `UiSelectNode(label, value, options, actionId)` | 下拉单选（≤8 项），回传 `key` |

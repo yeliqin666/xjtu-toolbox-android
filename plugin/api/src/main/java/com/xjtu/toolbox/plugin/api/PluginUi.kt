@@ -109,11 +109,13 @@ class UiCardNode @JvmOverloads constructor(
  * 按钮。[actionId] 会在点击时通过 [PluginPage.onAction] 回到插件。
  * 三个按钮放一行时用 [UiRowNode] 包起来。
  */
-class UiButtonNode(
+class UiButtonNode @JvmOverloads constructor(
     val label: String,
     val actionId: String,
     val style: UiButtonStyle = UiButtonStyle.Filled,
     val enabled: Boolean = true,
+    /** 撑满一行宽度。放在 Column 里的主操作按钮一般都要开，否则只有文字那么宽。 */
+    val fillWidth: Boolean = false,
 ) : UiNode()
 
 /** 开关行：标题 + 可选说明 + 右侧开关。点击回传目标值（`"true"` / `"false"`）。 */

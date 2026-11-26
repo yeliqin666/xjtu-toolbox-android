@@ -218,11 +218,13 @@ internal fun PluginUiTree(
             Column(Modifier.padding(node.paddingDp.dp)) { PluginUiTree(node.child, onAction) }
         }
 
-        is UiButtonNode -> when (node.style) {
+        is UiButtonNode -> run {
+            val buttonModifier = if (node.fillWidth) modifier.fillMaxWidth() else modifier
+            when (node.style) {
             UiButtonStyle.Filled -> Button(
                 onClick = { onAction(node.actionId, null) },
                 enabled = node.enabled,
-                modifier = modifier,
+                modifier = buttonModifier,
                 colors = ButtonDefaults.buttonColorsPrimary(),
             ) {
                 Text(
@@ -238,15 +240,16 @@ internal fun PluginUiTree(
             UiButtonStyle.Tonal -> Button(
                 onClick = { onAction(node.actionId, null) },
                 enabled = node.enabled,
-                modifier = modifier,
+                modifier = buttonModifier,
             ) { Text(node.label) }
 
             UiButtonStyle.Plain -> TextButton(
                 text = node.label,
                 onClick = { onAction(node.actionId, null) },
                 enabled = node.enabled,
-                modifier = modifier,
+                modifier = buttonModifier,
             )
+            }
         }
 
         is UiSwitchNode -> SwitchPreference(
