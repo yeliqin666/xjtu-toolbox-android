@@ -52,6 +52,18 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
     // 0=未评, 1=已评
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var confirming by remember { mutableStateOf(false) }
+    com.xjtu.toolbox.ui.components.ReportToPidai(title) {
+        if (vm.isLoading) return@ReportToPidai null
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("栏", if (selectedTab == 0) "未评" else "已评")
+            note("未评 ${vm.unfinished.size} 门，已评 ${vm.finished.size} 门")
+            val list = if (selectedTab == 0) vm.unfinished else vm.finished
+            section(if (selectedTab == 0) "未评课程" else "已评课程", list, max = 30) {
+                val c = vm.card(it)
+                "${c.course}｜${c.teacher}｜${c.tag}"
+            }
+        }
+    }
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()

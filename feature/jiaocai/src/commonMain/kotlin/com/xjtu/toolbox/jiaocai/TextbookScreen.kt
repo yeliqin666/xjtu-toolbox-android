@@ -79,12 +79,40 @@ fun TextbookScreen(
     jiaocai1Vm?.bind()
     val jiaocai1Images = lib?.let { (libSource, _) -> remember(libSource) { Jiaocai1PageImages(libSource) } }
 
-    // 全文库使用声明：三栏共用一个页面，进哪一栏都可能碰到全文内容，统一在最外层弹一次，
-    // 不必等用户切到「全文库」栏才提醒——沿用原 Jiaocai1Screen 的做法（进页面就弹）。
-    // 没有全文库那一半时（本端没有那条链）不弹：那一栏根本没画出来。
-    if (lib != null) Jiaocai1UsageNotice(onDecline = onBack)
     val tabs = if (lib != null) listOf("查教材", "书架", "全文库") else listOf("查教材")
     var selectedTab by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, tabs.lastIndex)) }
+    // 全文库使用声明：只有真正切到「书架 / 全文库」时才确认，不挡住默认入口「查教材」。
+    if (lib != null && selectedTab > 0) {
+        Jiaocai1UsageNotice(onDecline = { if (initialTab > 0) onBack() else selectedTab = 0 })
+    }
+    com.xjtu.toolbox.ui.components.ReportToPidai("教材") {
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("栏", tabs.getOrNull(selectedTab))
+            when (selectedTab) {
+                0 -> {
+                    filter("搜索", jiaocaiVm.keyword)
+                    jiaocaiVm.selected?.let { note("正在看教材：${it.title}｜${it.author}｜${it.summary}") }
+                    if (jiaocaiVm.books.isNotEmpty()) {
+                        section("教材结果", jiaocaiVm.books, max = 20) { "${it.title}｜${it.author}" }
+                    }
+                }
+                1 -> {
+                    val shelf = jiaocai1Vm?.shelf?.value.orEmpty()
+                    section("书架", shelf, max = 20) { "${it.title}｜${it.author}" }
+                }
+                else -> {
+                    val libVm = jiaocai1Vm
+                    if (libVm != null) {
+                        filter("搜索", libVm.keyword)
+                        if (libVm.clsName.isNotBlank()) filter("分类", libVm.clsName)
+                        if (libVm.books.isNotEmpty()) {
+                            section("全文库结果", libVm.books, max = 20) { "${it.title}｜${it.author}｜${it.publishDate}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(initialKeyword, jiaocai1Vm) {
         val libVm = jiaocai1Vm ?: return@LaunchedEffect

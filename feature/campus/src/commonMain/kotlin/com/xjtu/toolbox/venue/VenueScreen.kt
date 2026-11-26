@@ -108,9 +108,36 @@ fun VenueScreen(
     var showHint by remember { mutableStateOf(showFirstUseHint) }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    var showBookingConfirm by remember { mutableStateOf(false) }
     var orderDetail by remember { mutableStateOf<OrderInfo?>(null) }
     var cancelTarget by remember { mutableStateOf<OrderInfo?>(null) }
+    com.xjtu.toolbox.ui.components.ReportToPidai(
+        "场馆预订",
+        hint = "要我帮你看看今天有哪些空余时段吗？",
+        orbBottomClearance = {
+            if (selectedTab == 0 && vm.page == VenuePage.SlotSelection && canBook && vm.selectedSlots.isNotEmpty()) 84.dp else 0.dp
+        },
+    ) {
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            if (selectedTab == 1) {
+                filter("页面", "我的订单")
+                section("订单", vm.orders, max = 20) {
+                    val first = it.details.firstOrNull()
+                    "${it.venueName.ifBlank { "场馆订单" }}｜${first?.date.orEmpty()} ${first?.timeSlot.orEmpty()}｜${it.statusText}｜${it.price} 元"
+                }
+            } else if (vm.page == VenuePage.SlotSelection && vm.selectedVenue != null) {
+                filter("场馆", vm.selectedVenue?.name)
+                filter("日期", vm.selectedDate.toString())
+                val free = vm.availableSlots.filter { it.isAvailable }
+                section("可预订时段", free, max = 30) { "${it.timeSlot}｜${it.areaName}｜余 ${it.surplus}/${it.allCount}｜${it.price} 元" }
+            } else {
+                filter("页面", "场馆列表")
+                section("场馆", vm.venues, max = 25) {
+                    val fav = if (it.id in vm.favoriteIds) "（已收藏）" else ""
+                    "${it.name}$fav${it.address?.let { a -> "｜$a" }.orEmpty()}"
+                }
+            }
+        }
+    }
 
     /** 先在内置浏览器里过一遍登录（带着 App 的统一认证 cookie，一般免输），再落到支付页。 */
     fun pay(order: OrderInfo) =
@@ -134,7 +161,8 @@ fun VenueScreen(
             else -> onBack()
         }
     }
-    BackHandler(enabled = selectedTab == 1 || vm.page == VenuePage.SlotSelection, onBack = navigateBack)
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    BackHandler(enabled = pageVisible.value && (selectedTab == 1 || vm.page == VenuePage.SlotSelection), onBack = navigateBack)
     Scaffold(
         topBar = {
             CouiPageTopAppBar(
@@ -181,54 +209,17 @@ fun VenueScreen(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
 
-        // ── 首次使用提示 ──
-        //
-        // 必须放在 Scaffold 的 content 里：miuix 0.9.3 起 Overlay* 注册进 LocalDialogStates，
-        // 而该 CompositionLocal 只有 Scaffold 提供。写在 Scaffold 外面会注册进一个没有宿主的
-        // 空列表，无宿主渲染，不报错也不崩溃，就是不显示。
-        if (showHint) {
-            BackHandler { showHint = false; onFirstUseHintRead() }
-            OverlayDialog(
-                show = showHint,
-                title = "功能说明",
-                onDismissRequest = {
-                    showHint = false
-                    onFirstUseHintRead()
+        // 首次使用改为列表内非阻塞提示横幅，不再弹窗拦截首屏
+        val hintSummary = remember(canBook, source.canCancel, payHint) {
+            buildString {
+                if (canBook) {
+                    append("下单前需完成滑块验证；$payHint")
+                } else {
+                    append("本端可看场馆、时段与我的订单")
+                    if (source.canCancel) append("，支持取消已有订单")
+                    append("；预订请在 App 内进行")
                 }
-            ) {
-                Column(Modifier.fillMaxWidth()) {
-                    Text(
-                        // 后两条只在能下单的那一端成立（只读端没有验证码弹窗、也没有支付入口）；
-                        // 支付那句由宿主传（`payHint`）：三端都能下单，但打开支付页的方式不同。
-                        // 只读端那一条再按 `canCancel` 分：能取消就说能取消。
-                        buildString {
-                            if (canBook) {
-                                append("• 下单前拖动滑块完成验证\n")
-                                append("• $payHint\n")
-                            } else {
-                                // 「能不能取消」是**另一条**能力（`canCancel`），不要跟着 `canBook` 一起说死：
-                                // 桌面端就是「能取消、不能预订」（预订要滑块验证码，那个控件还是 Android 专属）。
-                                // 只说本端真做得到的事 —— 与上面那两条「只在能下单的那一端成立」同一条口径。
-                                append("• 本端只能看：场馆、时段与我的订单")
-                                append(if (source.canCancel) "，以及取消已有订单" else "")
-                                append("；预订请在 App 里做\n")
-                            }
-                            append("• 尽量在校园网下使用")
-                        },
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    TextButton(
-                        text = "知道了",
-                        onClick = {
-                            showHint = false
-                            onFirstUseHintRead()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
-                    )
-                }
+                append("。尽量在校园网下使用。")
             }
         }
         // 选时段时底部是确认预订的操作条，切换条先收起
@@ -303,6 +294,12 @@ fun VenueScreen(
                                 favoriteIds = favoriteIds,
                                 onToggleFavorite = vm::toggleFavorite,
                                 gridState = venueGridState,
+                                showHint = showHint,
+                                hintText = hintSummary,
+                                onDismissHint = {
+                                    showHint = false
+                                    onFirstUseHintRead()
+                                },
                                 modifier = Modifier.fillMaxSize(),
                                 scrollBehavior = scrollBehavior,
                                 topPadding = glassTop,
@@ -317,7 +314,7 @@ fun VenueScreen(
                                 error = vm.slotsError,
                                 onRetry = { vm.loadSlots() },
                                 onRefresh = { vm.loadSlots(silent = true) },
-                                onConfirm = { showBookingConfirm = true },
+                                onConfirm = vm::startBooking,
                                 // 只读端时段格子一律不可选（见类 KDoc）
                                 selectable = canBook,
                                 modifier = Modifier.fillMaxSize(),
@@ -336,63 +333,16 @@ fun VenueScreen(
         // 由 Scaffold 内部的 MiuixPopupHost 渲染。放在 Scaffold 外面（与它平级）时
         // 拿到的是静态默认空列表，弹窗会被静默丢弃——不报错、不崩溃、就是不显示。
 
-        // ─── 预约确认 ───
-        if (showBookingConfirm && canBook) {
-            BackHandler { showBookingConfirm = false }
-            OverlayDialog(
-                title = "确认预订",
-                show = true,
-                onDismissRequest = { showBookingConfirm = false }
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "确定预订以下 ${vm.selectedSlots.size} 个时段吗？",
-                        style = MiuixTheme.textStyles.body1,
-                        fontWeight = FontWeight.Medium
-                    )
-                    vm.selectedSlots.sortedWith(compareBy({ it.date }, { it.timeSlot }, { it.areaName }))
-                        .forEach { slot ->
-                            Text(
-                                listOf(slot.date, slot.timeSlot, slot.areaName)
-                                    .filter { it.isNotBlank() }
-                                    .joinToString("  "),
-                                style = MiuixTheme.textStyles.body2,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantActions
-                            )
-                        }
-                    Text(
-                        "合计：¥${money2(vm.selectedSlots.sumOf { it.price })}",
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Row(Modifier.fillMaxWidth()) {
-                        TextButton(
-                            text = "再看看",
-                            onClick = { showBookingConfirm = false },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(20.dp))
-                        TextButton(
-                            text = "继续预约",
-                            onClick = { showBookingConfirm = false; vm.startBooking() },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.textButtonColorsPrimary()
-                        )
-                    }
-                }
-            }
-        }
-
-        // ─── 验证码弹窗（只读端进不来：canBook=false 时 startBooking 就是空转，captchaHost 也是 null）───
+        // ─── 确认并滑动验证（合并原“确认预订”与“滑动验证”两步弹窗）───
         val host = captchaHost
         if (vm.showCaptcha && canBook && host != null) {
-            BackHandler(onBack = vm::closeCaptcha)
+            val captchaPageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+            BackHandler(enabled = captchaPageVisible.value, onBack = vm::closeCaptcha)
             OverlayDialog(
-                title = "滑动验证",
+                title = "确认并验证",
+                summary = if (vm.selectedSlots.isNotEmpty()) {
+                    "已选 ${vm.selectedSlots.size} 个时段 · 合计 ¥${money2(vm.selectedSlots.sumOf { it.price })}"
+                } else null,
                 show = true,
                 onDismissRequest = vm::closeCaptcha,
             ) {
@@ -567,40 +517,63 @@ fun VenueScreen(
                         color = cs.onSurfaceVariantSummary,
                     )
                     Spacer(Modifier.height(4.dp))
+                    var confirmCancelInDetail by remember(order.orderId) { mutableStateOf(false) }
+                    if (confirmCancelInDetail) {
+                        Text(
+                            "确定取消订单 ${order.orderId}？已支付金额将在 3 个工作日内按规则退回。",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.error,
+                        )
+                    }
                     Row(Modifier.fillMaxWidth()) {
-                        if (canPay) {
+                        if (confirmCancelInDetail) {
                             TextButton(
-                                text = "去支付",
-                                onClick = {
-                                    orderDetail = null
-                                    pay(order)
-                                },
+                                text = "再想想",
+                                onClick = { confirmCancelInDetail = false },
                                 modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.textButtonColorsPrimary()
                             )
-                        }
-                        if (canPay && canCancel) {
                             Spacer(Modifier.width(20.dp))
-                        }
-                        if (canCancel) {
                             TextButton(
-                                text = "取消订单",
+                                text = "确认取消",
                                 onClick = {
                                     orderDetail = null
-                                    cancelTarget = order
+                                    vm.cancelOrder(order)
                                 },
                                 modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.textButtonColors(
-                                    textColor = MiuixTheme.colorScheme.error
+                                colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
+                            )
+                        } else {
+                            if (canPay) {
+                                TextButton(
+                                    text = "去支付",
+                                    onClick = {
+                                        orderDetail = null
+                                        pay(order)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.textButtonColorsPrimary()
                                 )
-                            )
-                        }
-                        if (!canPay && !canCancel) {
-                            TextButton(
-                                text = "关闭",
-                                onClick = { orderDetail = null },
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            }
+                            if (canPay && canCancel) {
+                                Spacer(Modifier.width(20.dp))
+                            }
+                            if (canCancel) {
+                                TextButton(
+                                    text = "取消订单",
+                                    onClick = { confirmCancelInDetail = true },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.textButtonColors(
+                                        textColor = MiuixTheme.colorScheme.error
+                                    )
+                                )
+                            }
+                            if (!canPay && !canCancel) {
+                                TextButton(
+                                    text = "关闭",
+                                    onClick = { orderDetail = null },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
@@ -689,6 +662,9 @@ private fun VenueListContent(
     favoriteIds: Set<Int>,
     onToggleFavorite: (Venue) -> Unit,
     gridState: androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState,
+    showHint: Boolean,
+    hintText: String,
+    onDismissHint: () -> Unit,
     modifier: Modifier = Modifier,
     scrollBehavior: CouiTopBarScrollBehavior,
     /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
@@ -717,6 +693,16 @@ private fun VenueListContent(
             contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp)),
             spacing = 8.dp,
         ) {
+            if (showHint) {
+                fullLineItem(key = "venue_hint") {
+                    com.xjtu.toolbox.ui.components.DismissibleTipBanner(
+                        visible = true,
+                        title = "预订说明",
+                        text = hintText,
+                        onDismiss = onDismissHint,
+                    )
+                }
+            }
             items(sortedVenues, key = { it.id }) { venue ->
                 VenueCard(
                     venue = venue,

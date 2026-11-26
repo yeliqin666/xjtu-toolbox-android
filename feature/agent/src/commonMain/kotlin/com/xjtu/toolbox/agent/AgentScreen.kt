@@ -124,7 +124,6 @@ fun AgentScreen(
     // （在副作用里等，不在组合里读：读了整页每次切底栏都要重组）
     val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
     LaunchedEffect(config.isConfigured, AgentPendingPrompt.generation) {
-        if (!config.isConfigured) return@LaunchedEffect
         androidx.compose.runtime.snapshotFlow { pageVisible.value }.first { it }
         val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
         showConfig = false
@@ -146,8 +145,8 @@ fun AgentScreen(
             return@LaunchedEffect
         }
         if (page == null) vm.newSession()
-        if (pending.draftOnly) {
-            // 只填进输入框等用户自己发；带进来的页面内容挂成输入框上方的标签，发送时一起带上
+        if (pending.draftOnly || !config.isConfigured) {
+            // 只填进输入框等用户自己发；未配置密钥时也先把内容与上下文放好，点发送再去配密钥
             vm.draft = pending.text
             vm.draftContext = context
             return@LaunchedEffect
@@ -191,10 +190,9 @@ fun AgentScreen(
     // 宽屏下会话列表是常驻左栏，根本没有「抽屉开没开」这回事。
     val isWide = com.xjtu.toolbox.ui.isWideLayout()
     var drawerOpen by remember { mutableStateOf(false) }
-    // 长按会话 → 操作菜单 → 改名 / 删除确认
+    // 长按会话 → 操作菜单 / 改名 / 删除确认（同一弹窗内切换，避免连环关闭再打开）
     var actionTarget by remember { mutableStateOf<AgentSession?>(null) }
-    var renameTarget by remember { mutableStateOf<AgentSession?>(null) }
-    var deleteTarget by remember { mutableStateOf<AgentSession?>(null) }
+    var actionMode by remember { mutableStateOf(0) } // 0=菜单 1=重命名 2=删除确认
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(drawerOpen) {
         if (drawerOpen) keyboard?.hide()
@@ -239,7 +237,11 @@ fun AgentScreen(
                         currentId = vm.currentSessionId,
                         onDismiss = { drawerOpen = false },
                         onSelect = { vm.switchSession(it); drawerOpen = false },
-                        onLongPress = { actionTarget = it; drawerOpen = false },
+                        onLongPress = {
+                            actionTarget = it
+                            actionMode = 0
+                            drawerOpen = false
+                        },
                         onNewChat = { startNewChat() },
                     )
                 }
@@ -333,91 +335,79 @@ fun AgentScreen(
             // OverlayDialog 必须在 Scaffold content 里：靠 Scaffold 提供的弹窗宿主渲染。
             // 写在 Scaffold 外面会注册进空列表，点了没反应。
             actionTarget?.let { target ->
+                var renameDraft by remember(target.id, actionMode) { mutableStateOf(target.title) }
                 OverlayDialog(
                     show = true,
-                    title = target.title,
+                    title = when (actionMode) {
+                        1 -> "重命名对话"
+                        2 -> "删除对话？"
+                        else -> target.title
+                    },
+                    summary = if (actionMode == 2) "「${target.title}」将被彻底清除，无法恢复。" else null,
                     onDismissRequest = { actionTarget = null },
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(
-                            text = "重命名",
-                            onClick = { renameTarget = target; actionTarget = null },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        TextButton(
-                            text = "删除",
-                            onClick = { deleteTarget = target; actionTarget = null },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
-                        )
-                        TextButton(
-                            text = "取消",
-                            onClick = { actionTarget = null },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
-
-            renameTarget?.let { target ->
-                var name by remember(target.id) { mutableStateOf(target.title) }
-                OverlayDialog(
-                    show = true,
-                    title = "重命名对话",
-                    onDismissRequest = { renameTarget = null },
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        TextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = "对话标题",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Row(Modifier.fillMaxWidth()) {
+                    when (actionMode) {
+                        1 -> Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            TextField(
+                                value = renameDraft,
+                                onValueChange = { renameDraft = it },
+                                label = "对话标题",
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Row(Modifier.fillMaxWidth()) {
+                                TextButton(
+                                    text = "返回",
+                                    onClick = { actionMode = 0 },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Spacer(Modifier.width(20.dp))
+                                TextButton(
+                                    text = "确定",
+                                    onClick = {
+                                        vm.renameSession(target.id, renameDraft)
+                                        actionTarget = null
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                                )
+                            }
+                        }
+                        2 -> Row(Modifier.fillMaxWidth()) {
                             TextButton(
-                                text = "取消",
-                                onClick = { renameTarget = null },
+                                text = "返回",
+                                onClick = { actionMode = 0 },
                                 modifier = Modifier.weight(1f),
                             )
                             Spacer(Modifier.width(20.dp))
                             TextButton(
-                                text = "确定",
+                                text = "删除",
                                 onClick = {
-                                    vm.renameSession(target.id, name)
-                                    renameTarget = null
+                                    vm.deleteSession(target.id)
+                                    actionTarget = null
                                 },
                                 modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                                colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
                             )
                         }
-                    }
-                }
-            }
-
-            deleteTarget?.let { target ->
-                OverlayDialog(
-                    show = true,
-                    title = "删除对话？",
-                    summary = "「${target.title}」将被彻底清除，无法恢复。",
-                    onDismissRequest = { deleteTarget = null },
-                ) {
-                    Row(Modifier.fillMaxWidth()) {
-                        TextButton(
-                            text = "取消",
-                            onClick = { deleteTarget = null },
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(20.dp))
-                        TextButton(
-                            text = "删除",
-                            onClick = {
-                                vm.deleteSession(target.id)
-                                deleteTarget = null
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
-                        )
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                text = "重命名",
+                                onClick = { actionMode = 1 },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            TextButton(
+                                text = "删除",
+                                onClick = { actionMode = 2 },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = com.xjtu.toolbox.ui.components.appDangerTextButtonColors(),
+                            )
+                            TextButton(
+                                text = "取消",
+                                onClick = { actionTarget = null },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             }

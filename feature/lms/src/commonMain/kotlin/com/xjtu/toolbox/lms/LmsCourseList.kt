@@ -57,7 +57,9 @@ internal fun CourseListPage(
     source: LmsSource,
     cache: LmsPageCache,
     onBack: () -> Unit,
-    onCourseSelected: (LmsCourseSummary) -> Unit
+    onCourseSelected: (LmsCourseSummary) -> Unit,
+    showFirstUseHint: Boolean = false,
+    onDismissFirstUseHint: () -> Unit = {},
 ) {
     val authExpiry = LocalAuthExpiry.current
     val courses = cache.courses
@@ -144,6 +146,17 @@ internal fun CourseListPage(
                         spacing = 0.dp,
                         horizontalSpacing = 0.dp,
                     ) {
+                        if (showFirstUseHint) {
+                            fullLineItem(key = "lms_hint") {
+                                com.xjtu.toolbox.ui.components.DismissibleTipBanner(
+                                    visible = true,
+                                    title = "思源学堂提示",
+                                    text = "可看课程、作业、课件和回放。课件会存入下载管理，活动结束后将关闭下载。",
+                                    onDismiss = onDismissFirstUseHint,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                )
+                            }
+                        }
                         if (semesters.size > 1) {
                             fullLineItem(key = "semesters") {
                                 AppChipTabRow(

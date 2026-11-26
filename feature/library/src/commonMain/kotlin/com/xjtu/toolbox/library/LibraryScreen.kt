@@ -294,45 +294,10 @@ fun LibraryScreen(
         }
     ) { padding ->
 
-        // ── 首次使用提示 ──
-        // 必须放在 Scaffold 的 content 里：miuix 0.9.3 起 Overlay* 注册进 LocalDialogStates，
-        // 而该 CompositionLocal 只有 Scaffold 提供。写在 Scaffold 外面会注册进一个没有宿主的
-        // 空列表，无宿主渲染，不报错也不崩溃，就是不显示。
-        // 两条提示各自只在能预约 / 有平面图时成立；都不成立就不弹。
+        // 首次使用改为卡片头部非阻塞提示条，不再弹窗拦截首屏
         val hintTips = buildList {
-            if (source.canBook) add("⏰" to "预约成功后，请在 30 分钟内入馆签到，否则当日将被禁止线上预约。")
-            if (source.hasSeatPlan) add("📋" to "座位状态说明：「使用中」= 已签到入座；「已预约」 = 已预约未签到；「暂离」= 短暂离开保留中。")
-        }
-        if (showHint && hintTips.isNotEmpty()) {
-            BackHandler { showHint = false; onFirstUseHintRead() }
-            OverlayDialog(
-                show = showHint,
-                title = "图书馆座位预约",
-                onDismissRequest = {
-                    showHint = false
-                    onFirstUseHintRead()
-                }
-            ) {
-                Column(Modifier.fillMaxWidth()) {
-                    hintTips.forEach { (emoji, text) ->
-                        Row(Modifier.padding(vertical = 4.dp)) {
-                            Text(emoji, style = MiuixTheme.textStyles.body1)
-                            Spacer(Modifier.width(8.dp))
-                            Text(text, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    TextButton(
-                        text = "知道了",
-                        onClick = {
-                            showHint = false
-                            onFirstUseHintRead()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
-                    )
-                }
-            }
+            if (source.canBook) add("预约成功后请在 30 分钟内入馆签到，否则当日将被禁止线上预约。")
+            if (source.hasSeatPlan) add("状态说明：使用中 = 已签到；已预约 = 待签到；暂离 = 保留中。")
         }
         // Overlay* 必须放在 Scaffold content 内：miuix 弹窗靠 Scaffold 提供的
         // MiuixPopupHost(LocalPopupStates) 渲染；放在 Scaffold 外（且 App 根无 popup host）会永不显示，
@@ -343,8 +308,9 @@ fun LibraryScreen(
         // 本页 Scaffold 里的弹窗和底部结果条，在底栏上作子页时会被悬浮底栏盖住（#476）：
         // 一律垫出底栏那一截；独立页时这截是 0
         val aboveTabBar = Modifier.tabContentBottomPadding()
+        val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
         val ss = vm.scanSeat
-        BackHandler(enabled = ss != null) { vm.scanSeat = null }
+        BackHandler(enabled = pageVisible.value && ss != null) { vm.scanSeat = null }
         OverlayDialog(
             show = ss != null && source.canBook,
             title = "预约座位",
@@ -398,7 +364,7 @@ fun LibraryScreen(
         }
 
         val cd = confirmDialog
-        BackHandler(enabled = cd != null) { confirmDialog = null }
+        BackHandler(enabled = pageVisible.value && cd != null) { confirmDialog = null }
         OverlayDialog(
             show = cd != null,
             title = "确认操作",
@@ -509,6 +475,16 @@ fun LibraryScreen(
             }
         }
         val headerContent: @Composable ColumnScope.() -> Unit = {
+            com.xjtu.toolbox.ui.components.DismissibleTipBanner(
+                visible = showHint && hintTips.isNotEmpty(),
+                title = "图书馆使用提示",
+                text = hintTips.joinToString("\n"),
+                onDismiss = {
+                    showHint = false
+                    onFirstUseHintRead()
+                },
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+            )
             // ── 当前预约 ──（头部两张卡依次登场）
             val bookingUnknown = !vm.myBookingKnown && vm.myBookingFailed
             val dark = LocalIsDarkTheme.current

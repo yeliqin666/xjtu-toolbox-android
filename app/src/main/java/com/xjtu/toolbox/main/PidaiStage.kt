@@ -43,6 +43,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.AgentPendingPrompt
@@ -91,6 +92,7 @@ internal class PidaiStage(
     }
 
     var hover by mutableStateOf(false)
+    private var capturing = false
 
     /** 「这一页交给小岱」转场的序号，每交一次加一（见 [PidaiHandoffFx]）。 */
     var handoffs by mutableIntStateOf(0)
@@ -136,6 +138,7 @@ internal class PidaiStage(
      * （[open] 由调用方决定进小岱页还是弹大半屏）。有密码框的页、账号页、登记时说不能截的页不截。
      */
     fun tap(open: () -> Unit) {
+        if (hover || capturing) return
         val entry = PidaiPageContext.current()
         val here = page()
         if (here == null) {
@@ -149,7 +152,9 @@ internal class PidaiStage(
             return
         }
         // 先截再播转场：转场画上去之前的那一帧才是用户看到的页面
+        capturing = true
         captureWindow { shot ->
+            capturing = false
             AgentPendingPrompt.fromPage(here.first, here.second, screenshot = shot)
             handOff(open)
         }
@@ -237,7 +242,9 @@ internal fun rememberPidaiStage(top: () -> AppRoute?, tabTitle: () -> String?): 
                 if (route == null) {
                     tabTitle()
                 } else {
-                    (AppServices.all.firstOrNull { it.route == route } ?: AppServices.all.firstOrNull { it.route::class == route::class })?.title
+                    (AppServices.all.firstOrNull { it.route == route }
+                        ?: AppServices.all.firstOrNull { it.route::class == route::class })?.title
+                        ?: fallbackRouteTitle(route)
                 }
             },
             reducedEffects = { reduced.value },
@@ -249,6 +256,21 @@ internal fun rememberPidaiStage(top: () -> AppRoute?, tabTitle: () -> String?): 
             noScreenshot = { top() is AppRoute.Accounts },
         )
     }
+}
+
+/** 不在 [AppServices.all] 里的压栈页，兜底页名。 */
+private fun fallbackRouteTitle(route: AppRoute): String? = when (route) {
+    AppRoute.Inbox -> "消息"
+    AppRoute.Plugins -> "插件"
+    is AppRoute.PluginDetail -> "插件详情"
+    is AppRoute.PluginWeb -> "插件网页"
+    is AppRoute.PluginTools -> "插件工具"
+    is AppRoute.Plugin -> "插件"
+    is AppRoute.NoticeDetail -> "通知详情"
+    is AppRoute.CommunityPost -> "社区帖子"
+    AppRoute.Jiaocai1 -> "教材全文"
+    is AppRoute.Jiaocai1Reader -> route.title.ifBlank { "教材阅读" }
+    else -> null
 }
 
 /** 子页上不放悬浮球的路由：小岱页自己、整屏扫码。 */
@@ -273,12 +295,13 @@ internal fun PidaiStageHost(
     open: (AppRoute) -> Unit,
 ) {
     val imeShown = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val bottomClearance = PidaiPageContext.current()?.orbBottomClearance() ?: 0.dp
     AnimatedVisibility(
         visible = top != null && !hidesOrb(top) && !stage.hover && !imeShown,
         enter = fadeIn() + scaleIn(initialScale = 0.6f),
         exit = fadeOut() + scaleOut(targetScale = 0.6f),
     ) {
-        FloatingOrb(stage) { stage.hover = true }
+        FloatingOrb(stage, bottomClearance = bottomClearance) { stage.hover = true }
     }
     PidaiHoverPanel(visible = stage.hover, onDismiss = { stage.hover = false }) {
         AgentRoutePage(
@@ -288,6 +311,7 @@ internal fun PidaiStageHost(
                 open(route)
             },
             onBack = { stage.hover = false },
+            inHoverPanel = true,
         )
     }
     // 盖在大半屏上面：面板升起的同时看得见这一页被扫描、收进球里
@@ -299,7 +323,7 @@ internal fun PidaiStageHost(
  * 子页右下的悬浮小岱球：拖着走，松手吸到最近的左右边，位置记住。点开大半屏，按住说话。
  */
 @Composable
-private fun FloatingOrb(stage: PidaiStage, onOpen: () -> Unit) {
+private fun FloatingOrb(stage: PidaiStage, bottomClearance: Dp = 0.dp, onOpen: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pidai_orb", Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
@@ -307,14 +331,23 @@ private fun FloatingOrb(stage: PidaiStage, onOpen: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         val orb = with(density) { GLASS_BAR_HEIGHT.toPx() }
         val margin = with(density) { 12.dp.toPx() }
+        val clearancePx = with(density) { bottomClearance.toPx() }
         val maxX = (constraints.maxWidth - orb - margin).coerceAtLeast(margin)
-        val maxY = (constraints.maxHeight - orb - margin).coerceAtLeast(margin)
+        val baseMaxY = (constraints.maxHeight - orb - margin).coerceAtLeast(margin)
+        val maxY = (baseMaxY - clearancePx).coerceAtLeast(margin)
         val x = remember { Animatable(if (prefs.getInt("side", 1) > 0) maxX else margin) }
         val y = remember { Animatable(margin + (maxY - margin) * prefs.getFloat("y", 0.78f)) }
         // 屏幕转了、窗口变了：按记下的边和比例重新摆
-        LaunchedEffect(maxX, maxY) {
+        LaunchedEffect(maxX, baseMaxY) {
             x.snapTo(if (prefs.getInt("side", 1) > 0) maxX else margin)
             y.snapTo(margin + (maxY - margin) * prefs.getFloat("y", 0.78f))
+        }
+        // 底部操作栏弹出/收起时柔和让位，不硬跳
+        LaunchedEffect(maxY) {
+            y.animateTo(
+                margin + (maxY - margin) * prefs.getFloat("y", 0.78f),
+                spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow),
+            )
         }
         // 拖过一点距离才算拖：没过就是点或长按，交给球自己；长按说话时球会吃掉移动，这里不会跟着拖
         Box(

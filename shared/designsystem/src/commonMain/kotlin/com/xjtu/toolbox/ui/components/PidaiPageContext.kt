@@ -5,6 +5,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /**
  * 小岱的「这一页」：页面用 [ReportToPidai] 报上自己叫什么、此刻在显示什么。
@@ -18,12 +20,16 @@ object PidaiPageContext {
         internal val visible: PageSignal,
         private val read: () -> String?,
         private val shootable: () -> Boolean,
+        private val bottomClearance: () -> Dp,
     ) {
         /** 这页此刻显示的内容；读的时候现取，页面数据变了就是新的。 */
         fun snapshot(): String? = runCatching { read() }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
 
         /** 此刻能不能截图（登录页、有密码框时不能）。 */
         fun screenshotAllowed(): Boolean = runCatching { shootable() }.getOrDefault(false)
+
+        /** 底部操作栏占用高度，悬浮球自动让出这段空间不遮挡主操作按钮。 */
+        fun orbBottomClearance(): Dp = runCatching { bottomClearance() }.getOrDefault(0.dp)
     }
 
     // 只在主线程增删，整份替换；是 Compose 状态，悬浮球跟着它换气泡。工具线程读的是某一刻的完整列表
@@ -60,13 +66,15 @@ fun ReportToPidai(
     title: String,
     hint: String? = null,
     screenshotAllowed: () -> Boolean = { true },
+    orbBottomClearance: () -> Dp = { 0.dp },
     snapshot: () -> String?,
 ) {
     val visible = LocalPageVisible.current
     val read by rememberUpdatedState(snapshot)
     val shootable by rememberUpdatedState(screenshotAllowed)
+    val clearance by rememberUpdatedState(orbBottomClearance)
     DisposableEffect(title, hint, visible) {
-        val e = PidaiPageContext.Entry(title, hint, visible, { read() }, { shootable() })
+        val e = PidaiPageContext.Entry(title, hint, visible, { read() }, { shootable() }, { clearance() })
         PidaiPageContext.add(e)
         onDispose { PidaiPageContext.remove(e) }
     }

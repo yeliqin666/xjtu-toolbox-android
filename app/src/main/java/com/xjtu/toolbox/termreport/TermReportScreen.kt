@@ -192,6 +192,21 @@ fun TermReportScreen(onBack: () -> Unit, onAskAgent: (AgentForward) -> Unit, onN
     BackHandler(enabled = viewing != null || fillSteps != null) {
         if (fillSteps != null) cancelShow() else viewing = null
     }
+    var viewerMissingBarVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(viewing?.html) { if (viewing == null) viewerMissingBarVisible = false }
+    com.xjtu.toolbox.ui.components.ReportToPidai(
+        "学期总结",
+        hint = "要我帮你点评一下这学期的总结吗？",
+        orbBottomClearance = { if (viewing != null && viewerMissingBarVisible) 108.dp else 0.dp },
+    ) {
+        viewing?.let { return@ReportToPidai it.agentSnapshot ?: "正在查看学期总结报告。" }
+        val s = status ?: return@ReportToPidai null
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            s.ended?.let { note("可回顾已结束学期：${it.name}") }
+            s.current?.let { (t, w) -> note("进行中学期：${t.name}第 $w/${t.weeks} 周") }
+            if (saved.isNotEmpty()) section("已存档的往期总结", saved, max = 12) { termLabel(it) }
+        }
+    }
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B1F4B), Color(0xFF16122E))))) {
         val v = viewing
         if (v != null) {
@@ -199,7 +214,7 @@ fun TermReportScreen(onBack: () -> Unit, onAskAgent: (AgentForward) -> Unit, onN
                 v,
                 busy = busy,
                 onRefresh = { v.term?.let { show(it, v.archive) } },
-                onAskAgent = onAskAgent,
+                onMissingBarVisibleChange = { viewerMissingBarVisible = it },
                 onLoad = { route -> refreshOnReturn = true; onNavigate(route) },
             )
         } else {
@@ -331,14 +346,14 @@ private fun FillOverlay(steps: List<FillStep>, skipping: Boolean, onSkip: () -> 
     }
 }
 
-/** 存下来的 HTML 用 WebView 原样展示；右上角刷新、截当前页分享、交给小岱，缺数据时底部给去加载的入口。 */
+/** 存下来的 HTML 用 WebView 原样展示；右上角收进单个胶囊操作条，小岱问答统一交给悬浮球；缺数据时底部给去加载的入口。 */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun ReportViewer(
     v: Viewing,
     busy: Boolean,
     onRefresh: () -> Unit,
-    onAskAgent: (AgentForward) -> Unit,
+    onMissingBarVisibleChange: (Boolean) -> Unit,
     onLoad: (AppRoute) -> Unit,
 ) {
     val context = LocalContext.current
@@ -349,6 +364,8 @@ private fun ReportViewer(
     var musicUsed by remember { mutableStateOf(false) }
     if (musicUsed) BackgroundMusic(musicOn)
     var hintClosed by remember(v.html) { mutableStateOf(false) }
+    val missingVisible = v.missing.isNotEmpty() && !hintClosed
+    LaunchedEffect(missingVisible) { onMissingBarVisibleChange(missingVisible) }
     // 提示条放在报告下面而不是盖在上面：WebView 让出高度，页面按剩下的空间排，不会被挡住
     Column(Modifier.fillMaxSize().background(Color(0xFF101426))) {
     Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -382,30 +399,31 @@ private fun ReportViewer(
             modifier = Modifier.fillMaxSize(),
         )
         Row(
-            Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(12.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.14f))
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (v.term != null) {
-                if (busy) CircularProgressIndicator(Modifier.size(28.dp))
-                else RoundButton(Icons.Default.Refresh, "按最新数据刷新", onClick = onRefresh)
+                if (busy) Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(22.dp)) }
+                else ToolbarIconButton(Icons.Default.Refresh, "按最新数据刷新", onClick = onRefresh)
             }
-            RoundButton(if (musicOn) Icons.Default.MusicNote else Icons.Default.MusicOff, if (musicOn) "关闭背景音乐" else "打开背景音乐") {
+            ToolbarIconButton(if (musicOn) Icons.Default.MusicNote else Icons.Default.MusicOff, if (musicOn) "关闭背景音乐" else "打开背景音乐") {
                 musicUsed = true
                 musicOn = !musicOn
             }
-            RoundButton(Icons.Default.Share, "截这一页分享") {
-                val w = webView ?: return@RoundButton
+            ToolbarIconButton(Icons.Default.Share, "截这一页分享") {
+                val w = webView ?: return@ToolbarIconButton
                 scope.launch { shareImage(context, w.drawToBitmap().asImageBitmap(), "term-report.png", "分享学期总结") }
-            }
-            v.agentSnapshot?.let { snapshot ->
-                RoundButton(Icons.Default.SmartToy, "让小岱聊聊这学期") {
-                    onAskAgent(AgentForward(text = "帮我回顾一下这学期", snapshot = snapshot, label = "学期总结"))
-                }
             }
         }
     }
-        if (v.missing.isNotEmpty() && !hintClosed) {
+        if (missingVisible) {
             Column(
                 Modifier.fillMaxWidth().background(Color(0xFF16122E)).navigationBarsPadding()
                     .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 12.dp),
@@ -427,6 +445,14 @@ private fun ReportViewer(
             }
         }
     }
+}
+
+@Composable
+private fun ToolbarIconButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(38.dp).clip(CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(20.dp)) }
 }
 
 @Composable

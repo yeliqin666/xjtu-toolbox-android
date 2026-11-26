@@ -171,6 +171,16 @@ fun FitnessScreen(
     }
 
     LaunchedEffect(source) { loadYears() }
+    com.xjtu.toolbox.ui.components.ReportToPidai("体测查询", hint = "要我帮你看看体测各项和薄弱项吗？") {
+        val s = score ?: return@ReportToPidai null
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("学年", selectedYear?.name)
+            note("总分：${s.totalScore}（${s.totalGrade}）${s.reportStatus.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}")
+            if (s.items.isNotEmpty()) {
+                section("体测分项", s.items, max = 20) { "${it.name}：${it.value}（${it.grade}）" }
+            }
+        }
+    }
 
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt

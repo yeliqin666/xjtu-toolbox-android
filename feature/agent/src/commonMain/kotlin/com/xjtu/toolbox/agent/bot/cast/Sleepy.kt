@@ -190,17 +190,17 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
                 else -> for (side in intArrayOf(-1, 1)) droopyEye(s, ex + side * EYE_GAP, EY + 4 * scribe, open, maxOf(called, alert, v))
             }
 
-            // 拢在右耳边的手：手掌半握成「C」，掌心朝着你
+            // 拢在右耳边的手：手掌半握成「C」，掌心朝着你（放大一些，底栏小尺寸下也看得清）
             if (listen > 0.01) {
                 s.group {
-                    translate(86.0, 30.0)
+                    translate(82.0, 26.0)
                     rotate(-14.0)
                     scale(listen)
-                    s.rrect(0.0, 0.0, 28.0, 40.0, 13.0)
+                    s.rrect(0.0, 0.0, 38.0, 52.0, 17.0)
                     s.fill(SKIN)
-                    s.moveTo(-6.0, -12.0)
-                    s.quadTo(-12.0, 0.0, -6.0, 12.0)
-                    s.stroke(4.0, BLUSH)
+                    s.moveTo(-7.0, -15.0)
+                    s.quadTo(-15.0, 0.0, -7.0, 15.0)
+                    s.stroke(5.5, BLUSH)
                 }
             }
 

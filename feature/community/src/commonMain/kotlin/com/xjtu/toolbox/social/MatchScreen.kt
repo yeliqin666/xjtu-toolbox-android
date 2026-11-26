@@ -622,7 +622,8 @@ private fun ShareSettingsDialog(
     val noDining = "还没读到消费记录，去校园卡页看一眼"
     val noIdentity = "学籍信息还没同步，联网后稍等再来"
 
-    BackHandler(onBack = onDismiss)
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    BackHandler(enabled = pageVisible.value, onBack = onDismiss)
     OverlayDialog(
         show = true,
         title = "分享哪些",
@@ -949,7 +950,8 @@ private fun FriendTimetableAction(hasTimetable: Boolean, onSave: () -> Unit) {
 @Composable
 private fun SaveFriendDialog(initialName: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(initialName) }
-    BackHandler(onBack = onDismiss)
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    BackHandler(enabled = pageVisible.value, onBack = onDismiss)
     OverlayDialog(
         show = true,
         title = "存为好友课表",
@@ -988,6 +990,7 @@ private fun FriendListCard(termNames: Map<String, String>) {
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
         Spacer(Modifier.height(6.dp))
+        var pendingDeleteId by remember { mutableStateOf<String?>(null) }
         friends.forEach { f ->
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -998,11 +1001,27 @@ private fun FriendListCard(termNames: Map<String, String>) {
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
-                com.xjtu.toolbox.ui.components.TextLink(
-                    text = "删除",
-                    onClick = { FriendTimetables.delete(f.id) },
-                    color = MiuixTheme.colorScheme.error,
-                )
+                if (pendingDeleteId == f.id) {
+                    com.xjtu.toolbox.ui.components.TextLink(
+                        text = "取消",
+                        onClick = { pendingDeleteId = null },
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    com.xjtu.toolbox.ui.components.TextLink(
+                        text = "确认删除",
+                        onClick = {
+                            FriendTimetables.delete(f.id)
+                            pendingDeleteId = null
+                        },
+                        color = MiuixTheme.colorScheme.error,
+                    )
+                } else {
+                    com.xjtu.toolbox.ui.components.TextLink(
+                        text = "删除",
+                        onClick = { pendingDeleteId = f.id },
+                        color = MiuixTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }

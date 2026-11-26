@@ -50,6 +50,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
@@ -271,6 +274,58 @@ fun ScheduleScreen(
         overlayFriend?.takeIf { it.term == vm.selectedTermCode }
             ?.let { ScheduleCache.filterByHolidays(it.courses, vm.startOfTerm, vm.holidayDates) }
             .orEmpty()
+    }
+    val pidaiScheduleState = androidx.compose.runtime.rememberUpdatedState(
+        listOf(currentContent, filteredMergedCourses, upcomingItems, nextExam, overlayFriend, unifiedSelectedCourse, campusNow.date),
+    )
+    com.xjtu.toolbox.ui.components.ReportToPidai("日程", hint = "要我帮你看看今天和这周的安排吗？") {
+        pidaiScheduleState.value
+        if (vm.isLoading) return@ReportToPidai null
+        val dowNames = listOf("", "一", "二", "三", "四", "五", "六", "日")
+        fun courseLine(c: CourseItem): String {
+            val day = dowNames.getOrNull(c.dayOfWeek)?.let { "周$it " }.orEmpty()
+            val sec = if (c.startSection > 0) "${c.startSection}-${c.endSection}节" else ""
+            val loc = c.location.takeIf { it.isNotBlank() }?.let { " @ $it" }.orEmpty()
+            return "$day$sec ${c.courseName}$loc"
+        }
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            val tabName = when (currentContent) { "today" -> "今日"; "week" -> "周视图"; else -> "学期" }
+            filter("视图", tabName)
+            filter("学期", vm.termLabel(vm.selectedTermCode).takeIf { it.isNotBlank() })
+            filter("周次", if (vm.showAllWeeks) "全学期" else "第${vm.currentWeek}周")
+            nextExam?.let { note("最近考试：${it.exam.courseName}（${it.label}，${it.exam.examDate} ${it.exam.examTime} ${it.exam.location}）") }
+            unifiedSelectedCourse?.let { note("正在看课程详情：${courseLine(it)}") }
+            when (currentContent) {
+                "today" -> {
+                    val todayDow = campusNow.date.dayOfWeek.ordinal + 1
+                    val todayList = filteredMergedCourses
+                        .filter { it.isInWeek(vm.realCurrentWeek) && it.dayOfWeek == todayDow }
+                        .sortedBy { it.startSection }
+                    section("今日课程（第${vm.realCurrentWeek}周）", todayList, max = 20, line = ::courseLine)
+                    if (upcomingItems.isNotEmpty()) {
+                        section("接下来", upcomingItems, max = 15) { "${it.title}｜${it.subtitle}" }
+                    }
+                    if (vm.homeworkDue.isNotEmpty()) {
+                        section("待交作业", vm.homeworkDue, max = 15) { "${it.courseName}：${it.title}（截止 ${it.deadline}）" }
+                    }
+                }
+                "week" -> {
+                    overlayFriend?.let { note("叠加好友课表：${it.name}") }
+                    val weekCourses = (if (vm.showAllWeeks) filteredMergedCourses else filteredMergedCourses.filter { it.isInWeek(vm.currentWeek) })
+                        .sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }))
+                    section(if (vm.showAllWeeks) "全学期课程" else "第${vm.currentWeek}周课程", weekCourses, max = 40, line = ::courseLine)
+                }
+                else -> {
+                    val distinct = filteredMergedCourses.distinctBy { it.courseCode.ifBlank { it.courseName } }
+                    section("本学期课程", distinct, max = 35) {
+                        listOfNotNull(it.courseName, it.teacher.takeIf(String::isNotBlank), it.location.takeIf(String::isNotBlank)).joinToString("｜")
+                    }
+                    if (vm.exams.isNotEmpty()) {
+                        section("考试安排", vm.exams, max = 20) { "${it.courseName}｜${it.examDate} ${it.examTime}｜${it.location}" }
+                    }
+                }
+            }
+        }
     }
 
     var showWallpaper by remember { mutableStateOf(false) }
@@ -639,6 +694,7 @@ fun ScheduleScreen(
                                     startOfTerm = vm.startOfTerm,
                                     currentTermCode = vm.currentTermCode,
                                     onWeekChange = { vm.currentWeek = it },
+                                    onOpenWeekPicker = { showWeekPicker = true },
                                     onToggleMode = { vm.showAllWeeks = !vm.showAllWeeks },
                                     holidayDates = vm.holidayDates,
                                     customCourses = vm.customCourses,
@@ -901,7 +957,7 @@ private fun ScheduleTabContent(
     courses: List<CourseItem>, currentWeek: Int, totalWeeks: Int,
     showAllWeeks: Boolean, weekNote: String? = null,
     realCurrentWeek: Int = 0, selectedTermCode: String = "", startOfTerm: LocalDate? = null, currentTermCode: String = "",
-    onWeekChange: (Int) -> Unit, onToggleMode: () -> Unit, onAddSchedule: () -> Unit = {},
+    onWeekChange: (Int) -> Unit, onOpenWeekPicker: () -> Unit = {}, onToggleMode: () -> Unit, onAddSchedule: () -> Unit = {},
     customCourses: List<CustomCourse> = emptyList(),
     holidayDates: Map<LocalDate, String> = emptyMap(),
     /** 叠加对比的好友：null = 不叠。[friendCourses] 已按学期和节假日筛过。 */
@@ -980,12 +1036,28 @@ private fun ScheduleTabContent(
     // 顶栏是玻璃、盖在内容上时：有「学期已结束 / 距开学」这条提示，就由提示先让出顶栏高度，
     // 网格不再重复留；没有提示时，留白交给网格的纵向滚动，网格才能从顶栏下面滚过去。
     // 以前漏了这一条，提示整条被压在玻璃顶栏后面。
-    // 好友叠加只在单周视图里画；那条说明和学期提示一样占在网格上方
+    val pageWeeks = totalWeeks.takeIf { it > 0 }
+        ?: courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
+        ?: TermWeeks.DEFAULT_TOTAL_WEEKS
+    val showWeekSwitcher = !showAllWeeks && (courses.isNotEmpty() || startOfTerm != null)
+    // 好友叠加只在单周视图里画；周切换条 + 说明 + 学期提示占在网格上方
     val friendBar = friendName?.takeIf { !showAllWeeks }
-    val hasBanner = weekNote != null || friendBar != null
+    val hasBanner = showWeekSwitcher || weekNote != null || friendBar != null
     val gridTopPadding = if (hasBanner) 0.dp else topPadding
     Column(Modifier.fillMaxSize().overScrollVertical()) {
         if (hasBanner && topPadding > 0.dp) Spacer(Modifier.height(topPadding))
+        if (showWeekSwitcher) {
+            WeekQuickSwitcherBar(
+                currentWeek = currentWeek,
+                realCurrentWeek = realCurrentWeek,
+                viewingCurrentTerm = selectedTermCode == currentTermCode,
+                totalWeeks = pageWeeks,
+                onPrev = { if (currentWeek > 1) onWeekChange(currentWeek - 1) },
+                onNext = { if (currentWeek < pageWeeks) onWeekChange(currentWeek + 1) },
+                onJumpCurrent = { if (realCurrentWeek in 1..pageWeeks) onWeekChange(realCurrentWeek) },
+                onOpenPicker = onOpenWeekPicker,
+            )
+        }
         friendBar?.let { FriendOverlayBar(it, friendOtherTerm, onClearFriend) }
         // 学期状态提示（未开学/已结束）
         if (weekNote != null) {
@@ -1162,6 +1234,96 @@ private fun ScheduleTabContent(
             onRequestTextbooks = onRequestTextbooks,
             onNavigate = onNavigate,
         )
+    }
+}
+
+/** 周视图顶部的轻量周切换条：左右箭头一键翻上一周/下一周，点中间“第 N 周 ▾”一按直达选周面板。 */
+@Composable
+private fun WeekQuickSwitcherBar(
+    currentWeek: Int,
+    realCurrentWeek: Int,
+    viewingCurrentTerm: Boolean,
+    totalWeeks: Int,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onJumpCurrent: () -> Unit,
+    onOpenPicker: () -> Unit,
+) {
+    val accent = MiuixTheme.colorScheme.primary
+    val onVariant = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val isThisWeek = viewingCurrentTerm && realCurrentWeek > 0 && currentWeek == realCurrentWeek
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .clickable(enabled = currentWeek > 1, onClick = onPrev),
+            shape = CircleShape,
+            color = com.xjtu.toolbox.ui.components.AppCardColor,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.ChevronLeft,
+                    contentDescription = "上一周",
+                    tint = if (currentWeek > 1) MiuixTheme.colorScheme.onSurface else onVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(com.xjtu.toolbox.ui.components.AppCardColor)
+                .clickable(onClick = onOpenPicker)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (isThisWeek) "第 $currentWeek 周 · 本周" else "第 $currentWeek 周",
+                style = MiuixTheme.textStyles.footnote1,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isThisWeek) accent else MiuixTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(2.dp))
+            Icon(
+                Icons.Default.KeyboardArrowDown,
+                contentDescription = "选择周次",
+                tint = if (isThisWeek) accent else onVariant,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Surface(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .clickable(enabled = currentWeek < totalWeeks, onClick = onNext),
+            shape = CircleShape,
+            color = com.xjtu.toolbox.ui.components.AppCardColor,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "下一周",
+                    tint = if (currentWeek < totalWeeks) MiuixTheme.colorScheme.onSurface else onVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (viewingCurrentTerm && realCurrentWeek in 1..totalWeeks && currentWeek != realCurrentWeek) {
+            com.xjtu.toolbox.ui.components.TextLink(
+                text = "回本周",
+                onClick = onJumpCurrent,
+                color = accent,
+            )
+        }
     }
 }
 

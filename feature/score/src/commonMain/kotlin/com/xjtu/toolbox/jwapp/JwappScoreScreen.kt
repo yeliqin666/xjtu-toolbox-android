@@ -188,7 +188,11 @@ fun JwappScoreScreen(
         }
     }
     val pidaiView = androidx.compose.runtime.rememberUpdatedState(Triple(filterTermLabel, filteredScores, displayGpaInfo to selectedGpaInfo))
-    com.xjtu.toolbox.ui.components.ReportToPidai("成绩查询", hint = "要我帮你看看绩点和拖后腿的课吗？") {
+    com.xjtu.toolbox.ui.components.ReportToPidai(
+        "成绩查询",
+        hint = "要我帮你看看绩点和拖后腿的课吗？",
+        orbBottomClearance = { if (gpaSelectMode && !vm.isLoading && vm.errorMessage == null) 88.dp else 0.dp },
+    ) {
         val (term, scores, gpa) = pidaiView.value
         if (scores.isEmpty()) return@ReportToPidai null
         com.xjtu.toolbox.ui.components.pidaiSnapshot {
@@ -326,9 +330,11 @@ fun JwappScoreScreen(
                     // 以前整页限宽 720 居中，平板横屏两边各空一大块。
                     AdaptiveRowGrid(
                         modifier = Modifier.fillMaxSize().overScrollVertical(),
-                    spacing = 10.dp,
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 8.dp, bottom = 8.dp)
-                ) {
+                        spacing = 10.dp,
+                        contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(
+                            PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 8.dp, bottom = 8.dp)
+                        ),
+                    ) {
                     // 整页依次登场：GPA 卡 → 筛选 → 成绩列表第一屏
                     fullLineItem {
                       Box(Modifier.enterOnce(0)) {
@@ -605,9 +611,10 @@ fun GpaCard(
     extraContent: @Composable ColumnScope.() -> Unit = {},
 ) {
     val selectAccent = gpaSelectAccent()
+    val cardBase = com.xjtu.toolbox.ui.components.AppCardColor
     val containerColor by androidx.compose.animation.animateColorAsState(
-        if (isSelectMode) androidx.compose.ui.graphics.lerp(MiuixTheme.colorScheme.surfaceVariant, selectAccent, 0.18f)
-        else MiuixTheme.colorScheme.surfaceVariant,
+        if (isSelectMode) androidx.compose.ui.graphics.lerp(cardBase, selectAccent, 0.18f)
+        else cardBase,
         animationSpec = tween(260),
         label = "gpaCardBg"
     )
@@ -1107,7 +1114,7 @@ fun GpaModeBreakdown(
             modifier = Modifier.fillMaxWidth(),
             onClick = { expanded = !expanded },
             pressFeedbackType = PressFeedbackType.Sink,
-            colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+            colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
         ) { body() }
     }
 }

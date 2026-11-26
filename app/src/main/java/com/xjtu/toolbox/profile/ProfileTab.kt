@@ -770,6 +770,27 @@ internal fun ProfileTab(
 
     val displayName = helloProfile?.name?.takeIf { it.isNotBlank() }
         ?: loginState.ywtbUserInfo?.userName ?: loginState.cachedNickname ?: loginState.activeUsername
+    com.xjtu.toolbox.ui.components.ReportToPidai(
+        title = "我的",
+        screenshotAllowed = { loginState.isLoggedIn },
+    ) {
+        if (!loginState.isLoggedIn) return@ReportToPidai "未登录统一身份认证，页面上有账号密码输入框。"
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            note("已登录：$displayName（${loginState.activeUsername}，${loginState.accountType.displayName}）")
+            helloProfile?.let { p ->
+                val parts = listOfNotNull(
+                    p.departmentName.takeIf { it.isNotBlank() },
+                    p.academyName.takeIf { it.isNotBlank() },
+                    p.professionName.takeIf { it.isNotBlank() },
+                    p.className.takeIf { it.isNotBlank() },
+                    p.campusName.takeIf { it.isNotBlank() },
+                )
+                if (parts.isNotEmpty()) note("学籍：" + parts.joinToString("｜"))
+            }
+            downloadSummary?.let { note("下载：$it") }
+            if (accountCount > 0) note("已保存账号：$accountCount 个")
+        }
+    }
 
     // ── UI ──
     Column(
@@ -794,7 +815,12 @@ internal fun ProfileTab(
                 profile = helloProfile,
                 avatar = helloAvatar,
                 avatarVersion = avatarVersion,
-                onAvatarClick = { showAvatarSheet = true },
+                onAvatarClick = {
+                    if (hasCustomAvatar) showAvatarSheet = true
+                    else avatarPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
                 onClick = { onNavigate(AppRoute.Accounts) },
                 modifier = Modifier.enterOnce(0),
             )
@@ -922,18 +948,20 @@ internal fun ProfileTab(
                 if (loginState.accountType == AccountType.UNDERGRADUATE) {
                     var showCertificate by remember { mutableStateOf(false) }
                     // 学业进度、成绩单只放首页（首页保证带上，见 HomeLayoutStore.withEveryService）
-                    MenuGroup(Modifier.enterOnce(2)) {
-                        ProfileMenuRow(Icons.Default.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
-                            onClick = { showCertificate = true })
-                    }
-                    Spacer(Modifier.height(PROFILE_GAP))
-                    if (showCertificate) OverlayBottomSheet(
-                        show = true, title = "在读证明", onDismissRequest = { showCertificate = false },
-                    ) {
-                        Column(Modifier.navigationBarsPadding()) {
+                    Box {
+                        MenuGroup(Modifier.enterOnce(2)) {
+                            ProfileMenuRow(Icons.Default.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
+                                onClick = { showCertificate = true })
+                        }
+                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                            expanded = showCertificate,
+                            onDismissRequest = { showCertificate = false },
+                            morph = com.xjtu.toolbox.ui.components.MenuMorph.FromRow,
+                        ) {
                             EnrollmentCertificate.entries.forEach { certificate ->
-                                ArrowPreference(
-                                    title = certificate.label, summary = "在学校电子凭证平台申请与下载",
+                                com.xjtu.toolbox.ui.components.AppDropdownOption(
+                                    text = certificate.label,
+                                    selected = false,
                                     onClick = {
                                         showCertificate = false
                                         onNavigate(AppRoute.Browser(certificate.url))
@@ -942,6 +970,7 @@ internal fun ProfileTab(
                             }
                         }
                     }
+                    Spacer(Modifier.height(PROFILE_GAP))
                 }
 
                 MenuGroup(Modifier.enterOnce(3)) {

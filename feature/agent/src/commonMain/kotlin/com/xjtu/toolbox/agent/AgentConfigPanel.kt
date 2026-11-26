@@ -538,14 +538,40 @@ private fun AgentMemorySection() {
                         }
                     }
                 }
-                com.xjtu.toolbox.ui.components.TextLink(
-                    text = "全部清空",
-                    onClick = {
-                        memory.clear()
-                        memories = memory.all()
-                    },
-                    color = MiuixTheme.colorScheme.error,
-                )
+                var confirmingClear by remember { mutableStateOf(false) }
+                if (confirmingClear) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "清空全部记忆？",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        com.xjtu.toolbox.ui.components.TextLink(
+                            text = "取消",
+                            onClick = { confirmingClear = false },
+                        )
+                        com.xjtu.toolbox.ui.components.TextLink(
+                            text = "确认清空",
+                            onClick = {
+                                memory.clear()
+                                memories = memory.all()
+                                confirmingClear = false
+                            },
+                            color = MiuixTheme.colorScheme.error,
+                        )
+                    }
+                } else {
+                    com.xjtu.toolbox.ui.components.TextLink(
+                        text = "全部清空",
+                        onClick = { confirmingClear = true },
+                        color = MiuixTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }

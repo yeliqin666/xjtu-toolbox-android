@@ -151,6 +151,20 @@ fun InboxScreen(
     var openedTodos by remember { mutableStateOf(emptySet<String>()) }
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    com.xjtu.toolbox.ui.components.ReportToPidai("消息", hint = "要我帮你理一理待办和未读消息吗？") {
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("栏", if (tab == 0) "待办" else "消息")
+            if (tab == 0) {
+                section("待办", todos, max = 25) { "${it.source}｜${it.title}" }
+                if (finished.isNotEmpty()) note("已完成/已忽略：${finished.size} 条")
+            } else {
+                section("消息", groups, max = 25) {
+                    val tag = if (it.unread) "未读" else "已读"
+                    "[$tag] ${it.latest.source}：${it.latest.title}"
+                }
+            }
+        }
+    }
     var refreshing by remember { mutableStateOf(false) }
     var schoolTodoOpened by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -377,8 +391,16 @@ fun InboxScreen(
                                                 it,
                                                 listOf(
                                                     RowAction("改截止") { editingDue = selfId },
-                                                    RowAction("标为完成") { SelfTodoStore.complete(selfId) },
-                                                    RowAction("删除", danger = true) { SelfTodoStore.delete(selfId) },
+                                                    RowAction("标为完成") {
+                                                        val snapshot = SelfTodoStore.all().firstOrNull { t -> t.id == selfId }
+                                                        SelfTodoStore.complete(selfId)
+                                                        if (snapshot != null) offerUndo("已完成") { SelfTodoStore.restore(snapshot) }
+                                                    },
+                                                    RowAction("删除", danger = true) {
+                                                        val snapshot = SelfTodoStore.all().firstOrNull { t -> t.id == selfId }
+                                                        SelfTodoStore.delete(selfId)
+                                                        if (snapshot != null) offerUndo("已删除") { SelfTodoStore.restore(snapshot) }
+                                                    },
                                                 ),
                                                 todoId = selfId,
                                             )

@@ -219,9 +219,14 @@ internal fun AndroidAgentScreen(
     )
 }
 
-/** 移出底栏的小岱：自带小标题顶栏，屏送上来的导航钮排在返回键后面。 */
+/** 移出底栏的小岱：自带小标题顶栏，屏送上来的导航钮排在返回键后面；半屏面板模式省略重复返回箭头。 */
 @Composable
-internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) -> Unit, onBack: () -> Unit) {
+internal fun AgentRoutePage(
+    loginState: AppLoginState,
+    onNavigate: (AppRoute) -> Unit,
+    onBack: () -> Unit,
+    inHoverPanel: Boolean = false,
+) {
     val tabBottomPadding = LocalTabBottomPadding.current
     var title by remember { mutableStateOf("小岱") }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
@@ -237,12 +242,15 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
                 scrollBehavior = scrollBehavior,
                 pageBackdrop = couiPageBackdropFor(glass),
                 navigationIcon = {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        BackButton(onBack)
-                        navIcon?.invoke()
+                    val customNav = navIcon
+                    if (!inHoverPanel || customNav != null) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (!inHoverPanel) BackButton(onBack)
+                            customNav?.invoke()
+                        }
                     }
                 },
                 actions = { actions?.invoke(this) },

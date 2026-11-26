@@ -98,10 +98,8 @@ private val PERIOD_TIMES = listOf(
     "21:00" to "21:50"   // 11
 )
 
-/** 根据当前时间判断当前节次（0-based），返回 -1 表示不在上课时间 */
-private fun getCurrentPeriod(): Int {
-    // 节次是学校作息 ⇒ 按学校时区的此刻算，不跟本机时区走。
-    val now = nowOnCampus().time
+/** 根据指定时刻判断当前节次（0-based），返回 -1 表示不在上课时间 */
+private fun getCurrentPeriod(now: LocalTime = nowOnCampus().time): Int {
     PERIOD_TIMES.forEachIndexed { index, (start, end) ->
         val s = LocalTime.parse(start)
         val e = LocalTime.parse(end)
@@ -210,12 +208,31 @@ fun EmptyRoomScreen(
 
     // 智能筛选
     var smartFilter by rememberSaveable { mutableStateOf("现在空闲") }
-    // 用户自选节数区间（1-based）
-    var startPeriod by rememberSaveable { mutableIntStateOf(1) }
-    var endPeriod by rememberSaveable { mutableIntStateOf(11) }
+    // 按节查与「此刻综合」各自记住节次区间，切模式互不覆盖
+    var periodStart by rememberSaveable { mutableIntStateOf(1) }
+    var periodEnd by rememberSaveable { mutableIntStateOf(11) }
+    var combinedStart by rememberSaveable { mutableIntStateOf(0) }
+    var combinedEnd by rememberSaveable { mutableIntStateOf(0) }
+    val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
+    val currentPeriod = remember(campusNow) { getCurrentPeriod(campusNow.time) }
+    val combinedActive = isLive && vm.combined
+    val defaultCombinedStart = if (currentPeriod >= 0) (currentPeriod + 2).coerceIn(1, 11) else 1
+    val defaultCombinedEnd = (defaultCombinedStart + 1).coerceAtMost(11)
+    val startPeriod = if (combinedActive) (if (combinedStart > 0) combinedStart else defaultCombinedStart) else periodStart
+    val endPeriod = if (combinedActive) (if (combinedEnd > 0) combinedEnd else defaultCombinedEnd) else periodEnd
+    fun updatePeriodRange(start: Int, end: Int) {
+        val s = start.coerceIn(1, 11)
+        val e = end.coerceIn(s, 11)
+        if (combinedActive) {
+            combinedStart = s
+            combinedEnd = e
+        } else {
+            periodStart = s
+            periodEnd = e
+        }
+    }
 
-    val currentPeriod = remember { getCurrentPeriod() }
-    val isToday = selectedDate == todayOnCampus().toString()
+    val isToday = selectedDate == campusNow.date.toString()
     val effectivePeriod = if (isToday) currentPeriod else -1
     val smartFilters = if (isToday) listOf("现在空闲", "刚解放", "大教室", "全部") else listOf("大教室", "全部")
     LaunchedEffect(isToday) {
@@ -263,8 +280,7 @@ fun EmptyRoomScreen(
     }
     // 点柱子或热力格：只看这一节；「现在空闲」「刚解放」跟别的节次叠不到一起，换回全部
     val pickPeriod: (Int) -> Unit = { i ->
-        startPeriod = i + 1
-        endPeriod = i + 1
+        updatePeriodRange(i + 1, i + 1)
         if (smartFilter == "现在空闲" || smartFilter == "刚解放") smartFilter = "全部"
     }
 
@@ -396,12 +412,12 @@ fun EmptyRoomScreen(
                             icon = { Icon(Icons.Default.Tune, contentDescription = "查询方式") },
                         ) {
                             if (RoomSource.LIVE in sources) {
-                                // 此刻综合：实况 + 当天课表，此刻能用的和接下来会空的一起给
+                                // 此刻综合：实况 + 当天课表，此刻能用的和接下来会空的一起给；保留按节模式的区间
                                 option("此刻综合", selected = isLive && vm.combined) {
-                                    // 进来先看接下来两节：整天都要空的话，此刻被占的几乎全被筛掉
-                                    if (currentPeriod >= 0) {
-                                        startPeriod = (currentPeriod + 2).coerceIn(1, 11)
-                                        endPeriod = (startPeriod + 1).coerceAtMost(11)
+                                    menuOpen = false
+                                    if (combinedStart == 0 && currentPeriod >= 0) {
+                                        combinedStart = (currentPeriod + 2).coerceIn(1, 11)
+                                        combinedEnd = (combinedStart + 1).coerceAtMost(11)
                                     }
                                     vm.selectCombined()
                                 }
@@ -427,33 +443,11 @@ fun EmptyRoomScreen(
             )
         }
     ) { padding ->
-        if (tipVisible) {
-            OverlayDialog(
-                show = true,
-                title = "Cloudflare CDN 查询说明",
-                summary = "无需登录。按课表生成，只知道有没有课，不知道此刻有没有人。" +
-                    if (accountType == AccountType.POSTGRADUATE) "" else "查不到可改用直查教务。",
-                onDismissRequest = {
-                    onCdnTipRead()
-                    cdnTipRead = true
-                    tipVisible = false
-                }
-            ) {
-                TextButton(
-                    text = "知道了",
-                    onClick = {
-                        onCdnTipRead()
-                        cdnTipRead = true
-                        tipVisible = false
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
         val glassTop = padding.glassTop(glass)
         val showFilterSheet = remember { mutableStateOf(false) }
         var buildingQuery by rememberSaveable { mutableStateOf("") }
-        BackHandler(enabled = showFilterSheet.value) {
+        val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+        BackHandler(enabled = pageVisible.value && showFilterSheet.value) {
             showFilterSheet.value = false
         }
 
@@ -599,8 +593,9 @@ fun EmptyRoomScreen(
                 RangeSlider(
                     value = startPeriod.toFloat()..endPeriod.toFloat(),
                     onValueChange = { range ->
-                        startPeriod = range.start.roundToInt().coerceIn(1, 11)
-                        endPeriod = range.endInclusive.roundToInt().coerceIn(startPeriod, 11)
+                        val s = range.start.roundToInt().coerceIn(1, 11)
+                        val e = range.endInclusive.roundToInt().coerceIn(s, 11)
+                        updatePeriodRange(s, e)
                     },
                     valueRange = 1f..11f,
                     steps = 9,
@@ -835,6 +830,22 @@ fun EmptyRoomScreen(
                     }
                 }
 
+                if (tipVisible && sourceKind == RoomSource.CDN) {
+                    fullLineItem(key = "cdn_tip") {
+                        com.xjtu.toolbox.ui.components.DismissibleTipBanner(
+                            visible = true,
+                            title = "Cloudflare CDN 查询说明",
+                            text = "无需登录，按课表生成，仅反映排课情况而非实时在座人数" +
+                                if (accountType == AccountType.POSTGRADUATE) "。" else "，查不到时可改用「直查教务」。",
+                            onDismiss = {
+                                onCdnTipRead()
+                                cdnTipRead = true
+                                tipVisible = false
+                            },
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
                 if (!wideRooms) {
                     fullLineItem(key = "filters") { filtersCard() }
                     heatmapCard?.let { fullLineItem(key = "heatmap") { it() } }
@@ -1087,10 +1098,9 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                 onClick = { expanded = !expanded },
                 onLongClick = { copy(room.name) }
             ),
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (isNowFree)
-                MiuixTheme.colorScheme.surfaceVariant
-            else
-                MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
+            color = if (isNowFree) com.xjtu.toolbox.ui.components.AppCardColor
+            else androidx.compose.ui.graphics.lerp(com.xjtu.toolbox.ui.components.AppCardColor, MiuixTheme.colorScheme.surface, 0.35f)
         )
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
@@ -1229,8 +1239,8 @@ private fun LiveRoomCard(
                 onLongClick = { copy(room.name) }
             ),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
-            color = if (room.isFree) MiuixTheme.colorScheme.surfaceVariant
-            else MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            color = if (room.isFree) com.xjtu.toolbox.ui.components.AppCardColor
+            else androidx.compose.ui.graphics.lerp(com.xjtu.toolbox.ui.components.AppCardColor, MiuixTheme.colorScheme.surface, 0.35f)
         )
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
@@ -1359,7 +1369,7 @@ private fun UpcomingRoomCard(upcoming: UpcomingRoom, schedule: RoomInfo?, curren
     val seats = room.seats.takeIf { it > 0 } ?: schedule?.size ?: 0
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { copy(room.name) }),
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

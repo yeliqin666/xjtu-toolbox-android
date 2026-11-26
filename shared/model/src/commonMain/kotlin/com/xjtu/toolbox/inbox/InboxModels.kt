@@ -325,6 +325,15 @@ object InboxRules {
         finished = data.finished.filterNot { it.item.id == id && it.ignored },
     )
 
+    /** 彻底移除一条待办（不进「已完成」）：自建待办被删除时用，避免和「完成 / 忽略」一样留在已完成列表里。 */
+    fun dropTodo(data: InboxData, id: String): InboxData = data.copy(
+        todos = data.todos.mapValues { (_, list) -> list.filter { it.id != id } },
+        finished = data.finished.filter { it.item.id != id },
+        seenTodos = data.seenTodos - id,
+        ignored = data.ignored - id,
+        importance = data.importance - id,
+    )
+
     /** 滑掉消息：不再显示，同时记成已读，角标随之减掉。 */
     fun clear(data: InboxData, ids: Collection<String>, now: Long): InboxData = data.copy(
         cleared = data.cleared + ids,
@@ -487,6 +496,8 @@ object InboxStore {
     fun ignoreTodo(id: String) = update(AccountContext.activeAccountId) { InboxRules.ignore(it, id, Clock.System.now().toEpochMilliseconds()) }
 
     fun unignoreTodo(id: String, account: String? = AccountContext.activeAccountId) = update(account) { InboxRules.unignore(it, id) }
+
+    fun dropTodo(id: String, account: String? = AccountContext.activeAccountId) = update(account) { InboxRules.dropTodo(it, id) }
 
     /** 滑掉一组消息。返回清除前这些消息的已读记录，撤销时交给 [unclearMessages]。 */
     fun clearMessages(ids: Collection<String>): Map<String, Long> {

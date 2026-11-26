@@ -169,6 +169,21 @@ class InboxTest {
     }
 
     @Test
+    fun `彻底移除待办时不进已完成，和忽略区分开`() {
+        val selfA = OwnInbox.todo(InboxCategories.SELF, "a", "待办", "待办 a", null).copy(time = now - hour)
+        val selfB = OwnInbox.todo(InboxCategories.SELF, "b", "待办", "待办 b", null).copy(time = now - hour)
+        val data = InboxData(
+            todos = mapOf(InboxCategories.SELF to listOf(selfA, selfB)),
+            seenTodos = setOf("a"),
+            importance = mapOf("a" to InboxRules.IMPORTANCE_HIGH),
+        )
+        val dropped = InboxRules.dropTodo(data, "a")
+        val refreshed = InboxRules.replaceTodos(dropped, InboxCategories.SELF, listOf(selfB), now + hour)
+        assertEquals(listOf("b"), InboxRules.todos(refreshed, now + hour).map { it.id })
+        assertTrue(InboxRules.finished(refreshed, now + hour).isEmpty())
+    }
+
+    @Test
     fun `图书馆座位消息不收，已存的合并时清掉，借阅提醒照收`() {
         val seat = InboxItem(id = "s", category = InboxCategories.school("图书馆预约系统"), source = "图书馆预约系统", title = "预约超时", time = now - hour)
         val borrow = InboxItem(id = "b", category = InboxCategories.school("图书馆借阅系统"), source = "图书馆借阅系统", title = "图书即将到期", time = now - hour)

@@ -115,6 +115,21 @@ internal fun ZyxfBrowseScreen(
     LaunchedEffect(vm) { vm.ensureStarted() }
     // 上次没拉成（比如当时没网），再进这一页就自己重试，不用非得下拉
     LaunchedEffect(Unit) { if (vm.error != null && !vm.loading) vm.reload() }
+    com.xjtu.toolbox.ui.components.ReportToPidai("学辅资料", hint = "要我帮你从这里挑复习资料吗？") {
+        if (vm.loading && entries.isEmpty()) return@ReportToPidai null
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            if (searching) filter("搜索", vm.query)
+            else filter("目录", stack.joinToString(" / ") { it.name })
+            filter("排序", vm.sort.label)
+            vm.previewing?.let { note("正在预览：${it.name}") }
+            val folders = entries.filter { it.isFolder }
+            val files = entries.filterNot { it.isFolder }
+            if (folders.isNotEmpty()) section("文件夹", folders, max = 20) { it.name }
+            if (files.isNotEmpty()) section("文件", files, max = 30) {
+                if (it.path.isNotBlank()) "${it.name}（${it.path}）" else it.name
+            }
+        }
+    }
 
     val isWide = com.xjtu.toolbox.ui.isWideLayout()
 

@@ -100,11 +100,30 @@ fun SsActivityScreen(site: SiteSession, onBack: () -> Unit, onOpenWeb: (String) 
     val authExpiry = LocalAuthExpiry.current
     LaunchedEffect(vm) { vm.authExpired.collect { authExpiry.onAuthExpired(AppRoute.SsActivity, onBack) } }
     LaunchedEffect(vm.toast) {
-        vm.toast?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); vm.toast = null }
+        vm.toast?.let {
+            com.xjtu.toolbox.platform.showBriefMessage(it)
+            vm.toast = null
+        }
     }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(tab) { if (tab == 1 && vm.mine == null) vm.loadMine() }
     val tabs = listOf("活动", "我的报名")
+    com.xjtu.toolbox.ui.components.ReportToPidai("活动报名", hint = "要我帮你挑挑能开证明或加分的活动吗？") {
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            vm.detail?.let { d ->
+                note("正在查看活动详情：${d.base.title}｜${d.base.org}｜时间 ${d.base.start} ~ ${d.base.end}｜地点 ${d.place}｜积分 ${d.base.points}｜${if (d.applied) "已报名" else "未报名"}")
+            }
+            if (tab == 1) {
+                filter("页面", "我的报名")
+                val mineList = vm.mine.orEmpty()
+                section("我的报名", mineList, max = 25) { "${it.title}｜${it.activityStatus}｜审核 ${it.review}｜${it.start}" }
+            } else {
+                filter("页面", if (vm.groupProof) "集体活动" else "活动列表")
+                filter("搜索", vm.keyword)
+                section("活动", vm.activities, max = 25) { "${it.title}｜${it.status.label}｜${it.start}｜积分 ${it.points}" }
+            }
+        }
+    }
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
     // 网页上办完（或取消）报名回来，重拉详情与「我的报名」
@@ -289,10 +308,11 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
     )
 }
 
+@Composable
 private fun statusColor(s: SsActivityStatus) = when (s) {
     SsActivityStatus.ONGOING -> Color(0xFF2E9D5B)
-    SsActivityStatus.UPCOMING -> Color(0xFF3478F6)
-    SsActivityStatus.ENDED -> Color(0xFF8E8E93)
+    SsActivityStatus.UPCOMING -> MiuixTheme.colorScheme.primary
+    SsActivityStatus.ENDED -> MiuixTheme.colorScheme.onSurfaceVariantSummary
 }
 
 @Composable

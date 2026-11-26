@@ -550,26 +550,28 @@ private fun OverviewHeader(title: String, modifier: Modifier = Modifier, trailin
     }
 }
 
-// 余额卡的 Mesh 顶点颜色：3x3 网格，中间那个顶点缓慢漂移，四角、四边中点固定在卡片边框上，
-// 保证渐变始终铺满整张卡。
-// 余额卡原来是一整块深蓝，在一片白卡里很突兀。改成浅色：白底上一层很淡的蓝色流光，
-// 和页面上其他卡片是一个体系，余额数字用主题色做重点。深色模式同理：贴近卡片底色，只带一点蓝。
-private val BalanceCardMeshLight = listOf(
-    listOf(Color(0xFFEAF2FF), Color(0xFFF7FAFF), Color(0xFFE2EDFF)),
-    listOf(Color(0xFFF4F8FF), Color(0xFFD3E5FF), Color(0xFFF1F6FF)),
-    listOf(Color(0xFFE4EEFF), Color(0xFFF8FBFF), Color(0xFFDCEAFF)),
-)
-private val BalanceCardMeshDark = listOf(
-    listOf(Color(0xFF1B2433), Color(0xFF20242C), Color(0xFF1A2536)),
-    listOf(Color(0xFF1F242D), Color(0xFF1E3350), Color(0xFF20252E)),
-    listOf(Color(0xFF1A2434), Color(0xFF21252D), Color(0xFF1B2839)),
-)
+// 余额卡的 Mesh 顶点颜色：按当前主题主色与 AppCardColor 混合，跟随主题换色且与页面白色/深色卡片统一。
+@Composable
+private fun rememberBalanceMeshVertices(accent: Color): Pair<List<List<Color>>, List<List<Color>>> {
+    val card = com.xjtu.toolbox.ui.components.AppCardColor
+    return remember(card, accent) {
+        val grid: (Float, Float, Float) -> List<List<Color>> = { edge, mid, center ->
+            listOf(
+                listOf(androidx.compose.ui.graphics.lerp(card, accent, edge), androidx.compose.ui.graphics.lerp(card, accent, mid), androidx.compose.ui.graphics.lerp(card, accent, edge * 1.3f)),
+                listOf(androidx.compose.ui.graphics.lerp(card, accent, mid), androidx.compose.ui.graphics.lerp(card, accent, center), androidx.compose.ui.graphics.lerp(card, accent, mid)),
+                listOf(androidx.compose.ui.graphics.lerp(card, accent, edge * 1.2f), card, androidx.compose.ui.graphics.lerp(card, accent, edge * 1.5f)),
+            )
+        }
+        grid(0.08f, 0.04f, 0.17f) to grid(0.12f, 0.06f, 0.24f)
+    }
+}
 
 @Composable
 private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?, today: TodaySpendSummary) {
     // 浅色卡：余额和图标用主题色，其余文字用常规的正文 / 次要文字颜色
     val accent = MiuixTheme.colorScheme.primary
     val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val (lightVertices, darkVertices) = rememberBalanceMeshVertices(accent)
     top.yukonga.miuix.kmp.basic.Card(
         // 这一页的主角，托一层带主题色的柔影（和首页 Hero 卡同一档）
         modifier = Modifier
@@ -581,8 +583,8 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?, today:
         Box(Modifier.fillMaxWidth()) {
             MeshBackground(
                 modifier = Modifier.matchParentSize(),
-                lightVertexColors = BalanceCardMeshLight,
-                darkVertexColors = BalanceCardMeshDark,
+                lightVertexColors = lightVertices,
+                darkVertexColors = darkVertices,
                 // 这张卡在玻璃顶栏的取样范围里：一直流动的话，静止时顶栏也在持续重新模糊
                 runForMillis = 6_000L,
             )
@@ -821,7 +823,7 @@ private fun TransactionTab(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
             ) {
                 Column(Modifier.padding(vertical = 8.dp)) {
                     com.xjtu.toolbox.ui.components.AppSearchBar(
@@ -853,7 +855,7 @@ private fun TransactionTab(
             item(key = "day_$date") {
                 Card(
                     modifier = Modifier.fillMaxWidth().enterOnce(dayIndex + 1),
-                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                    colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
                 ) {
                     Column {
                         val dayTotal = -txList.filter { it.amount < 0 }.sumOf { it.amount }
@@ -1032,7 +1034,7 @@ private fun CustomRangeDialog(
 
     BackHandler(enabled = show && picking == null) { onDismiss() }
     OverlayDialog(
-        show = show,
+        show = show && picking == null,
         title = "自定义时间段",
         onDismissRequest = onDismiss
     ) {

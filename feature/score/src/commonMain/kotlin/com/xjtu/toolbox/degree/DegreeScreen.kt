@@ -123,6 +123,24 @@ fun DegreeScreen(
     var reconciling by remember { mutableStateOf(false) }
     val progress = vm.progress
     val toggle = { id: String -> opened = if (id in opened) opened - id else opened + id }
+    com.xjtu.toolbox.ui.components.ReportToPidai("学业进度", hint = "要我帮你看看还差哪些学分吗？") {
+        val p = vm.progress ?: return@ReportToPidai null
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("方案", p.planName)
+            if (vm.browsing) filter("模式", "浏览其他培养方案")
+            note("总学分：已修 ${credits(p.counted)} / 要求 ${credits(p.required)}" +
+                (if (p.inProgressCredits > 0) "，在修 ${credits(p.inProgressCredits)}" else ""))
+            val unmet = p.nodes.filter { !it.satisfied }
+            if (unmet.isNotEmpty()) {
+                section("未达标模块", unmet, max = 20) { "${it.name}：已算 ${credits(it.counted)} / 要求 ${credits(it.required)}" }
+            } else {
+                note("所有模块均已达标。")
+            }
+            if (p.unplaced.isNotEmpty()) {
+                section("未归组课程", p.unplaced, max = 20) { "${it.name}（${credits(it.credit)} 学分，${it.score ?: "无成绩"}）" }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -186,7 +204,9 @@ fun DegreeScreen(
                     AdaptiveCardGrid(
                         modifier = Modifier.fillMaxSize().overScrollVertical(),
                         state = gridState,
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 24.dp),
+                        contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(
+                            PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 24.dp)
+                        ),
                         spacing = 12.dp,
                     ) {
                         fullLineItem(key = "hero_${progress.planCode}") {

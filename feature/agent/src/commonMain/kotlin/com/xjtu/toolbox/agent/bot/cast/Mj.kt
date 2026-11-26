@@ -161,9 +161,9 @@ object Mj : CastCharacter("mj", "MJ") {
         if (alert > 0.01) {
             for (side in intArrayOf(-1, 1)) {
                 s.group {
-                    translate(side * 98.0, 44.0 + side * 16 * sin(ta * 10))
+                    translate(side * 93.0, 44.0 + side * 16 * sin(ta * 10))
                     scale(alert)
-                    s.ellipse(0.0, 0.0, 19.0, 12.0)
+                    s.ellipse(0.0, 0.0, 26.0, 17.0)
                     s.fill(CHIN)
                 }
             }
@@ -193,14 +193,17 @@ object Mj : CastCharacter("mj", "MJ") {
             val n = (ts / ECHO).toInt()
             for (k in 0..minOf(1, n)) float(s, "MJ", ECHO_X[(n - k) % 3], -78.0, 0.6, (ts % ECHO) + k * ECHO - 0.1, scribe)
         }
-        // 拢在耳边的手掌
+        // 拢在耳边的手掌（放大一些，小尺寸下也分得出手掌轮廓）
         if (listen > 0.01) {
             s.group {
-                translate(-98.0, 14.0)
+                translate(-89.0, 14.0)
                 rotate(20.0)
                 scale(listen)
-                s.ellipse(0.0, 0.0, 15.0, 21.0)
+                s.ellipse(0.0, 0.0, 22.0, 29.0)
                 s.fill(CHIN)
+                s.moveTo(5.0, -14.0)
+                s.quadTo(12.0, 0.0, 5.0, 14.0)
+                s.stroke(4.5, WEB, 0.7)
             }
             s.soundArcs(-84.0, -40.0, -115.0, listen, p.voice, tl)
         }

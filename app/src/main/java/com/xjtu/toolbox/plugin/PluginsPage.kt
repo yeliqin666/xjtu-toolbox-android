@@ -143,7 +143,6 @@ internal fun PluginsPage(
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    var pendingMarket by remember { mutableStateOf<MarketEntry?>(null) }
     var settingsRevision by remember { mutableIntStateOf(0) }
 
     val records = if (demo) demoRecords() else manager.records
@@ -266,8 +265,30 @@ internal fun PluginsPage(
                 onOpenSettings = { showSettings = true },
                 onInstall = { entry ->
                     val have = records.firstOrNull { it.id == entry.id }
-                    // 已是最新：直接去详情页，不再问装不装
-                    if (!demo && have != null && entry.versionCode <= have.versionCode) onOpenDetail(entry.id) else pendingMarket = entry
+                    when {
+                        // 已是最新：直接去详情页
+                        !demo && have != null && entry.versionCode <= have.versionCode -> onOpenDetail(entry.id)
+                        entry.minAppVersionCode > com.xjtu.toolbox.BuildConfig.VERSION_CODE ->
+                            showBriefMessage("需要更新 App 才能安装「${entry.name}」")
+                        demo -> showBriefMessage("演示数据，不会真的下载")
+                        busy -> Unit
+                        else -> {
+                            // 直接下载校验，随后只弹一次签名与权限确认框
+                            busy = true
+                            message = null
+                            scope.launch {
+                                runCatching {
+                                    val file = PluginMarket.download(context, entry)
+                                    manager.inspectFile(file)
+                                }.onSuccess { pending = it }
+                                    .onFailure {
+                                        message = it.message ?: "下载失败"
+                                        showBriefMessage(message.orEmpty())
+                                    }
+                                busy = false
+                            }
+                        }
+                    }
                 },
                 modifier = base,
                 glassTop = glassTop,
@@ -288,47 +309,6 @@ internal fun PluginsPage(
                     showSettings = false
                     picker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                 },
-            )
-        }
-
-        val market = pendingMarket
-        if (market != null) {
-            val upgrading = records.any { it.id == market.id }
-            val tooNew = market.minAppVersionCode > com.xjtu.toolbox.BuildConfig.VERSION_CODE
-            com.xjtu.toolbox.community.ConfirmDialog(
-                title = "${if (upgrading) "更新" else "下载"}「${market.name}」？",
-                summary = buildString {
-                    append("版本 ${market.version} · 作者 ${market.author}")
-                    if (market.size > 0) append(" · ${formatSize(market.size)}")
-                    append("\n")
-                    append(if (market.isWeb) "web 插件，在内置浏览器里打开网页，与 App 隔离。" else "dex 插件，与本 App 同权限运行。")
-                    if (tooNew) append("\n\n需要更新 App 才能装这个版本。")
-                    else append("\n\n下载并校验后还会再确认一次签名与权限。")
-                },
-                confirm = if (tooNew) "知道了" else "下载",
-                onConfirm = {
-                    pendingMarket = null
-                    when {
-                        tooNew -> Unit
-                        demo -> showBriefMessage("演示数据，不会真的下载")
-                        else -> {
-                            busy = true
-                            message = null
-                            scope.launch {
-                                runCatching {
-                                    val file = PluginMarket.download(context, market)
-                                    manager.inspectFile(file)
-                                }.onSuccess { pending = it }
-                                    .onFailure {
-                                        message = it.message ?: "下载失败"
-                                        showBriefMessage(message.orEmpty())
-                                    }
-                                busy = false
-                            }
-                        }
-                    }
-                },
-                onDismiss = { pendingMarket = null },
             )
         }
 

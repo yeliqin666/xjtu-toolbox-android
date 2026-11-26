@@ -93,6 +93,18 @@ fun SchoolCalendarScreen(
     var selectedTermIndex by remember { mutableIntStateOf(0) }
 
     val today = remember { todayOnCampus() }
+    com.xjtu.toolbox.ui.components.ReportToPidai("校历", hint = "要我帮你算算这学期还有几周或假期安排吗？") {
+        val term = terms.getOrNull(selectedTermIndex) ?: return@ReportToPidai null
+        com.xjtu.toolbox.ui.components.pidaiSnapshot {
+            filter("学期", term.termName)
+            val week = term.currentWeek(today)
+            note("${term.startDate} 至 ${term.endDate}，共 ${term.totalWeeks} 周" +
+                (if (week > 0) "；今天第 $week 周，距结束还有 ${term.daysRemaining(today)} 天" else ""))
+            if (term.events.isNotEmpty()) {
+                section("校历安排", term.events, max = 25) { "${it.name}：${it.startDate} ~ ${it.endDate}（${it.days}天）" }
+            }
+        }
+    }
     val scrollState = rememberLazyListState()
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt

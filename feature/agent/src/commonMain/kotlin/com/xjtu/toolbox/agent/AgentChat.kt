@@ -133,11 +133,15 @@ internal fun ChatPanel(
     LaunchedEffect(visionEnabled) {
         if (!visionEnabled && attachments.isNotEmpty()) attachments = emptyList()
     }
-    // 小岱球带来的页面截图：放进待发图片，用户看得到、能删，发不发由他
-    LaunchedEffect(vm.draftContext) {
-        val shots = vm.draftContext?.images.orEmpty()
-        if (shots.isNotEmpty() && visionEnabled) {
-            attachments = (attachments + shots).distinct().take(AgentVision.MAX_IMAGES_PER_MESSAGE)
+    // 小岱球带来的页面截图：放进待发图片，用户看得到、能删；换页或叉掉页面上下文时清掉上一次自动带的截图，免得旧图残留
+    var autoPageShots by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(vm.draftContext, visionEnabled) {
+        val shots = if (visionEnabled) vm.draftContext?.images.orEmpty() else emptyList()
+        if (autoPageShots != shots) {
+            attachments = ((attachments - autoPageShots.toSet()) + shots)
+                .distinct()
+                .take(AgentVision.MAX_IMAGES_PER_MESSAGE)
+            autoPageShots = shots
         }
     }
 
@@ -788,11 +792,8 @@ private fun MessageBubble(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp))
-                            // 浅色模式纯白，跟浅灰页底拉开；深色模式用卡片底色
-                            .background(
-                                if (com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current) MiuixTheme.colorScheme.surfaceVariant
-                                else androidx.compose.ui.graphics.Color.White
-                            )
+                            // 统一使用 AppCardColor，与页面其余卡片保持同一层级
+                            .background(com.xjtu.toolbox.ui.components.AppCardColor)
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                     ) {
                         if (showThinking) {

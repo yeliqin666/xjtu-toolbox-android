@@ -444,9 +444,9 @@ object SelfTodoStore {
         update(account) { list -> list.filter { it.id != snapshot.id } + snapshot }
     }
 
-    /** 删除：先按「忽略」记进收纳的已完成区（标已忽略），再从存储里去掉，免得显示成「已完成」。 */
+    /** 删除：从收纳与自建待办存储里彻底移除，不进「已完成」。 */
     fun delete(id: String, account: String? = AccountContext.activeAccountId) {
-        InboxStore.ignoreTodo(SelfTodoRules.inboxId(id))
+        InboxStore.dropTodo(SelfTodoRules.inboxId(id), account)
         update(account) { list -> list.filter { it.id != id } }
     }
 }

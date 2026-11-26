@@ -55,7 +55,10 @@ fun NotificationScreen(
     val searching = vm.searching
     var showSourceSheet by remember { mutableStateOf(false) }
     var showRuleSheet by remember { mutableStateOf(false) }
-    BackHandler(enabled = showSourceSheet) { showSourceSheet = false }
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    BackHandler(enabled = pageVisible.value && (showSourceSheet || showRuleSheet)) {
+        if (showRuleSheet) showRuleSheet = false else showSourceSheet = false
+    }
     val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
     // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）。
@@ -249,7 +252,9 @@ fun NotificationScreen(
                         com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
                             modifier = Modifier.fillMaxSize().overScrollVertical(),
                             state = listState,
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 8.dp),
+                            contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(
+                                PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 8.dp)
+                            ),
                             spacing = 8.dp,
                         ) {
                             if (!searching && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {

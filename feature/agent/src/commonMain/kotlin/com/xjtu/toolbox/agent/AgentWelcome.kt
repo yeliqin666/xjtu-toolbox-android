@@ -642,6 +642,7 @@ fun rememberEnter(index: Int) = com.xjtu.toolbox.ui.components.rememberEnterProg
 @Composable
 private fun SetupCard(onOpenConfig: () -> Unit) {
     val primary = MiuixTheme.colorScheme.primary
+    val onPrimary = MiuixTheme.colorScheme.onPrimary
     val enter = rememberEnter(2)
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Column(
@@ -656,28 +657,28 @@ private fun SetupCard(onOpenConfig: () -> Unit) {
             .background(primary)
             .drawBehind {
                 // 右上角两圈半透明的光环当装饰
-                drawCircle(Color.White.copy(alpha = 0.10f), radius = 90.dp.toPx(), center = Offset(size.width, 0f))
-                drawCircle(Color.White.copy(alpha = 0.07f), radius = 140.dp.toPx(), center = Offset(size.width, 0f))
+                drawCircle(onPrimary.copy(alpha = 0.10f), radius = 90.dp.toPx(), center = Offset(size.width, 0f))
+                drawCircle(onPrimary.copy(alpha = 0.07f), radius = 140.dp.toPx(), center = Offset(size.width, 0f))
             }
             .clickable(interactionSource = source, indication = null, onClick = onOpenConfig)
             .padding(18.dp),
     ) {
-        Text("先接一个模型", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("先接一个模型", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = onPrimary)
         Spacer(Modifier.height(4.dp))
         Text(
             "填好 API Key 就能开聊，推荐 DeepSeek",
             style = MiuixTheme.textStyles.body2,
-            color = Color.White.copy(alpha = 0.88f),
+            color = onPrimary.copy(alpha = 0.88f),
         )
         Spacer(Modifier.height(14.dp))
-        DemoBubble("明早几点有课？", mine = true)
+        DemoBubble("明早几点有课？", mine = true, onPrimary = onPrimary)
         Spacer(Modifier.height(6.dp))
-        DemoBubble("明早 8:00 有课，在主楼。要我 7 点叫你起床吗？", mine = false)
+        DemoBubble("明早 8:00 有课，在主楼。要我 7 点叫你起床吗？", mine = false, onPrimary = onPrimary)
         Spacer(Modifier.height(14.dp))
         Row(
             Modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color.White)
+                .background(onPrimary)
                 .padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -689,15 +690,15 @@ private fun SetupCard(onOpenConfig: () -> Unit) {
 }
 
 @Composable
-private fun DemoBubble(text: String, mine: Boolean) {
+private fun DemoBubble(text: String, mine: Boolean, onPrimary: Color) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Text(
             text,
             style = MiuixTheme.textStyles.footnote1,
-            color = Color.White,
+            color = onPrimary,
             modifier = Modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color.White.copy(alpha = if (mine) 0.26f else 0.16f))
+                .background(onPrimary.copy(alpha = if (mine) 0.26f else 0.16f))
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         )
     }

@@ -316,38 +316,10 @@ fun LmsScreen(
     }
 
     // 首次使用提示（`:app` 与原实现同一个 pref 文件、同一个键；桌面端也走 `keyValueStore` 的同一份）
-    val showHint = remember(showFirstUseHint) { mutableStateOf(showFirstUseHint) }
+    var showHint by remember(showFirstUseHint) { mutableStateOf(showFirstUseHint) }
     fun dismissHint() {
-        showHint.value = false
+        showHint = false
         onFirstUseHintRead()
-    }
-
-    if (showHint.value) {
-        BackHandler { dismissHint() }
-        // 用 Window* 而非 Overlay*：本函数是路由外壳，Scaffold 在各子页面里
-        // （CourseListPage / ActivityListPage…），而 Overlay* 需要 Scaffold 提供的
-        // LocalDialogStates 宿主才会渲染，写在外壳里拿不到宿主会静默不显示。
-        // 当前显示哪个子页面是动态的，搬进任一个都不对，故用自带独立 Window 的变体。
-        WindowDialog(
-            show = showHint.value,
-            title = "功能说明",
-            onDismissRequest = { dismissHint() }
-        ) {
-            Column(Modifier.fillMaxWidth()) {
-                Text(
-                    "可看课程、作业、课件和回放。课件存进下载管理；活动结束后学堂会关闭下载。",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-                Spacer(Modifier.height(12.dp))
-                TextButton(
-                    text = "知道了",
-                    onClick = { dismissHint() },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
-            }
-        }
     }
 
     // 合并成一个 BackHandler：多个同时启用时后注册的先被调用，拆成两个很容易被顺序坑到
@@ -420,7 +392,9 @@ fun LmsScreen(
                     source = source,
                     cache = cache,
                     onBack = onBack,
-                    onCourseSelected = { currentPage = LmsPage.ActivityList(it) }
+                    onCourseSelected = { currentPage = LmsPage.ActivityList(it) },
+                    showFirstUseHint = showHint,
+                    onDismissFirstUseHint = ::dismissHint,
                 )
             }
             is LmsPage.ActivityList -> ActivityListPage(
