@@ -154,10 +154,10 @@ class LaunchNotices(
         }
     }
 
-    /** 投票：本地先标记已答，提交失败静默丢弃，免得反复重弹。 */
+    /** 投票：本地先标记已答免得反复重弹，提交结果用 Toast 告知。 */
     internal fun submitPoll(bulletin: Bulletin, selected: List<String>) {
         scope.launch {
-            runCatching {
+            val ok = runCatching {
                 FeedbackApi.submit(
                     ticket = FeedbackStore.newTicket(),
                     category = "投票·${bulletin.id}",
@@ -165,7 +165,9 @@ class LaunchNotices(
                     contact = "",
                     anonId = FeedbackStore.anonId(),
                 )
-            }
+            }.isSuccess
+            val message = if (ok) "已投票，感谢参与" else "投票没发出去，可到反馈页改投"
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
         bulletinStore.recordVote(bulletin.id, selected)
         refreshHero()
