@@ -25,7 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -393,7 +393,7 @@ private fun ActivitySheet(vm: SsActivityViewModel, onOpenWeb: (String) -> Unit) 
 }
 
 @Composable
-private fun DetailBody(d: SsActivityDetail, vm: SsActivityViewModel, onOpenWeb: (String) -> Unit, onSign: () -> Unit) {
+private fun ColumnScope.DetailBody(d: SsActivityDetail, vm: SsActivityViewModel, onOpenWeb: (String) -> Unit, onSign: () -> Unit) {
     val a = d.base
     val facts = listOfNotNull(
         "状态" to a.status.label,
@@ -415,7 +415,8 @@ private fun DetailBody(d: SsActivityDetail, vm: SsActivityViewModel, onOpenWeb: 
             (GUESSED_GROUP to false).takeIf { a.likelyGroupProof && "集体活动" !in d.explicitTags },
             (NO_APPLY to false).takeIf { !d.needApply },
         )
-    Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+    // 正文只用剩下的高度：固定上限在长屏 / 大字号下会把底部按钮挤扁
+    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
         Cover(a.cover, vm, Modifier.padding(bottom = 10.dp).fillMaxWidth().aspectRatio(16f / 9f))
         if (tags.isNotEmpty()) FlowRow(Modifier.padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             tags.forEach { (label, confirmed) -> Tag(label, highlight = confirmed) }
