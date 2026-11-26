@@ -1,6 +1,25 @@
 {
-  "updatedAt": "2026-11-25T10:20:59+08:00",
+  "updatedAt": "2026-11-26T14:34:25+08:00",
   "bulletins": [
+    {
+      "id": "2026-11-26-d537",
+      "level": "info",
+      "title": "接入更多移动交大子功能的投票！！",
+      "body": "有同学反馈移动交大启动慢，，体验差，希望将更多子功能接入岱宗盒子。考虑到合规性、隐私安全，我们在此发起调研",
+      "minVersion": "6.0.1",
+      "options": [
+        "接入高频使用的服务（如校园体育、缴电费），由盒子走登录——登录链路常变动，可能解析异常",
+        "接入移动交大功能列表，但不接入任何登录，用户每次自行跳转、手动登录——每次、每个功能都要手动登录，仅作为学校app异常的备用",
+        "我有所担忧，不愿在第三方App使用涉及考核与缴费的功能",
+        "其他想法（请另发送一条反馈建议）"
+      ],
+      "allowMultiple": false,
+      "allowOther": false,
+      "endsAt": "2026-12-17T00:00:00+08:00",
+      "mustAck": false,
+      "block": false,
+      "discussionUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions/537"
+    },
     {
       "id": "2026-11-25-d524",
       "level": "update",
