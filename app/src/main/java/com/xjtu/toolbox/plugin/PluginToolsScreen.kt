@@ -155,10 +155,13 @@ private fun ToolRow(
 /** 工具的 definition 原文：只读输入框，方便选中复制。 */
 @Composable
 private fun ToolDefinitionDialog(tool: PluginToolManifest, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
         Column(
             Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.9f)
                 .clip(RoundedCornerShape(24.dp))
                 .background(MiuixTheme.colorScheme.surface)
                 .padding(20.dp),
