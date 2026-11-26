@@ -460,7 +460,8 @@ private fun PluginRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.End,
-                        modifier = Modifier.weight(1f, fill = false),
+                        // 占满剩余宽度 + 文本右对齐，作者才靠到卡片右边
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
