@@ -10,7 +10,6 @@ import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.auth.ProcessLoginState
 import com.xjtu.toolbox.plugin.api.Plugin
-import com.xjtu.toolbox.plugin.api.PluginApi
 import com.xjtu.toolbox.plugin.api.PluginEntry
 import com.xjtu.toolbox.plugin.api.PluginPage
 import kotlinx.coroutines.CoroutineScope
@@ -18,13 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import java.io.File
 import java.util.zip.ZipFile
 
@@ -264,7 +256,11 @@ internal class PluginManager private constructor(private val appContext: Context
     // ── 页面 ────────────────────────────────────────────────────────────────
 
     fun openPage(pluginId: String, pageId: String): OpenedPluginPage? {
-        val loaded = load(pluginId) ?: return null
+        val loaded = synchronized(lock) {
+            val manifest = currentRecords().firstOrNull { it.id == pluginId }?.manifest
+            manifest?.apiVersionError()?.let { throw IllegalArgumentException(it) }
+            load(pluginId)
+        } ?: return null
         val page = runCatching { loaded.plugin.pages().firstOrNull { it.id() == pageId } }.getOrNull()
             ?: return null
         return OpenedPluginPage(page, loaded.runtime, loaded.record.manifest.pageTitle(pageId))
@@ -272,53 +268,28 @@ internal class PluginManager private constructor(private val appContext: Context
 
     // ── 工具 ────────────────────────────────────────────────────────────────
 
-    /** 合并所有已启用插件的工具定义；名称统一改写为 `plugin_<id>_<tool>`。 */
-    fun toolDefinitions(): String {
-        val seen = HashSet<String>()
-        val definitions = mutableListOf<JsonObject>()
-        for (record in currentRecords()) {
-            if (!record.enabled || !record.toolsEnabled) continue
-            for (tool in record.manifest.tools) {
-                // 总开关开着时，用户还可以单独关掉某几个
-                if (tool.name in record.disabledTools) continue
-                val qualified = qualifiedName(record.id, tool.name) ?: continue
-                if (!seen.add(qualified)) continue
-                val function = tool.definition["function"]?.jsonObject ?: continue
-                val description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                val rewritten = JsonObject(
-                    function.toMutableMap().apply {
-                        put("name", JsonPrimitive(qualified))
-                        put("description", JsonPrimitive("插件「${record.manifest.name}」：$description"))
-                    },
-                )
-                definitions += buildJsonObject {
-                    put("type", "function")
-                    put("function", rewritten)
-                }
-            }
-        }
-        return JsonArray(definitions).toString()
-    }
+    fun toolDefinitions(): String =
+        JsonArray(currentRecords().registeredTools().map { it.definition() }.toList()).toString()
 
-    fun executeTool(qualifiedName: String, argsJson: String): String {
-        val record = currentRecords().firstOrNull { record ->
-            record.enabled && record.toolsEnabled &&
-                qualifiedName in record.manifest.tools
-                    .filterNot { it.name in record.disabledTools }
-                    .mapNotNull { qualifiedName(record.id, it.name) }
-        } ?: return "error: not_found; tool: $qualifiedName"
-        val original = record.manifest.tools.first { qualifiedName(record.id, it.name) == qualifiedName }.name
-        val loaded = load(record.id)
-            ?: return "error: plugin_unavailable; id: ${record.id}"
-        val tool = runCatching { loaded.plugin.tools().firstOrNull { it.name() == original } }.getOrNull()
-            ?: return "error: not_found; tool: $qualifiedName"
-        return try {
-            tool.execute(argsJson).take(MAX_TOOL_RESULT)
-        } catch (e: VirtualMachineError) {
-            throw e
-        } catch (t: Throwable) {
-            "error: plugin_failed; tool: $qualifiedName; reason: " +
-                (t.message?.take(120) ?: t.javaClass.simpleName)
+    fun executeTool(name: String, argsJson: String): String {
+        val registered = currentRecords().registeredTools().firstOrNull { it.name == name }
+            ?: return "error: not_found; tool: $name"
+        return registered.execute(argsJson) { validatedArgs ->
+            val loaded = synchronized(lock) {
+                // A change since validation requires a fresh tool invocation against the new definition.
+                val current = currentRecords().registeredTools().firstOrNull { it.name == name }
+                if (current == registered) load(registered.record.id) else null
+            } ?: return@execute "error: plugin_unavailable; id: ${registered.record.id}"
+            val tool = runCatching { loaded.plugin.tools().firstOrNull { it.name() == registered.tool.name } }.getOrNull()
+                ?: return@execute "error: not_found; tool: $name"
+            try {
+                tool.execute(validatedArgs).take(MAX_TOOL_RESULT)
+            } catch (e: VirtualMachineError) {
+                throw e
+            } catch (t: Throwable) {
+                "error: plugin_failed; tool: $name; reason: " +
+                    (t.message?.take(120) ?: t.javaClass.simpleName)
+            }
         }
     }
 
@@ -327,6 +298,10 @@ internal class PluginManager private constructor(private val appContext: Context
     private fun load(id: String): LoadedPlugin? = synchronized(lock) {
         val record = currentRecords().firstOrNull { it.id == id } ?: return null
         if (!record.enabled || id in brokenIds) return null
+        record.manifest.apiVersionError()?.let {
+            Log.w(TAG, "无法加载插件 $id：$it")
+            return null
+        }
         loaded[id]?.takeIf { it.record.versionCode == record.versionCode }?.let { return it }
 
         if (record.manifest.isWeb) return null
@@ -386,11 +361,6 @@ internal class PluginManager private constructor(private val appContext: Context
         } finally {
             runCatching { dexDir.deleteRecursively() }
         }
-    }
-
-    private fun qualifiedName(pluginId: String, toolName: String): String? {
-        val id = pluginId.replace(Regex("[^a-zA-Z0-9_]"), "_")
-        return "plugin_${id}_$toolName".takeIf { it.length <= 64 }
     }
 
     private class LoadedPlugin(

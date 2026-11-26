@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.agent
 
 import com.xjtu.toolbox.util.AppJson
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -20,33 +22,41 @@ class CompositeAgentTools(
 
     private val all = listOf(primary) + extras
 
-    private fun namesOf(tools: AgentTools): Set<String> = runCatching {
-        AppJson.parseToJsonElement(tools.toolDefinitions).jsonArray.mapNotNullTo(LinkedHashSet()) {
-            it.jsonObject["function"]?.jsonObject?.get("name")?.jsonPrimitive?.content
-        }
-    }.getOrDefault(emptySet())
+    private data class Catalog(
+        val sources: List<String>,
+        val definitions: String,
+        val owners: Map<String, AgentTools>,
+    )
 
-    private val owners: Map<String, AgentTools> by lazy {
-        val map = LinkedHashMap<String, AgentTools>()
-        all.forEach { t -> (namesOf(t) + t.legacyNames).forEach { map.getOrPut(it) { t } } }
-        map
-    }
+    private val cachedCatalog = MutableStateFlow<Catalog?>(null)
 
-    override val toolDefinitions: String by lazy {
+    private fun catalog(): Catalog {
+        val sources = all.map { it.toolDefinitions }
+        cachedCatalog.value?.takeIf { it.sources == sources }?.let { return it }
+        val owners = LinkedHashMap<String, AgentTools>()
         val seen = HashSet<String>()
-        val merged = all.flatMap { t ->
-            runCatching { AppJson.parseToJsonElement(t.toolDefinitions).jsonArray.toList() }.getOrDefault(emptyList())
-        }.filter { el ->
-            val name = runCatching { el.jsonObject["function"]?.jsonObject?.get("name")?.jsonPrimitive?.content }.getOrNull()
-            name == null || seen.add(name)
+        val merged = ArrayList<JsonElement>()
+        for ((index, tools) in all.withIndex()) {
+            val definitions = runCatching { AppJson.parseToJsonElement(sources[index]).jsonArray }.getOrNull()
+            definitions.orEmpty().forEach { definition ->
+                val name = runCatching {
+                    definition.jsonObject["function"]?.jsonObject?.get("name")?.jsonPrimitive?.content
+                }.getOrNull()
+                if (name == null || seen.add(name)) merged.add(definition)
+                if (name != null) owners.getOrPut(name) { tools }
+            }
+            tools.legacyNames.forEach { owners.getOrPut(it) { tools } }
         }
-        AppJson.encodeToString(JsonArray.serializer(), JsonArray(merged))
+        val definitions = AppJson.encodeToString(JsonArray.serializer(), JsonArray(merged))
+        return Catalog(sources, definitions, owners).also { cachedCatalog.value = it }
     }
 
-    override fun rateLimitKeyOf(toolName: String): String? = (owners[toolName] ?: primary).rateLimitKeyOf(toolName)
+    override val toolDefinitions: String get() = catalog().definitions
+
+    override fun rateLimitKeyOf(toolName: String): String? = (catalog().owners[toolName] ?: primary).rateLimitKeyOf(toolName)
 
     override suspend fun execute(name: String, argsJson: String): String =
-        (owners[name] ?: primary).execute(name, argsJson)
+        (catalog().owners[name] ?: primary).execute(name, argsJson)
 
     override fun drainWidgets(): List<AgentWidget> = all.flatMap { it.drainWidgets() }
 

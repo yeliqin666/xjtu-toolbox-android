@@ -1,11 +1,10 @@
 package com.xjtu.toolbox.plugin
 
+import com.xjtu.toolbox.plugin.api.PluginApi
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * 插件包的清单 `dzhz.plugin.json`（包里根目录那份）。
@@ -247,6 +246,12 @@ internal fun parsePackageManifest(jsonBytes: ByteArray): PluginPackageManifest {
     }.getOrElse { throw IllegalArgumentException("dzhz.plugin.json 解析失败：${it.message}") }
 }
 
+private fun pluginApiVersionError(apiVersion: Int): String? =
+    if (apiVersion == PluginApi.VERSION) null
+    else "插件 API 版本 $apiVersion 与宿主支持的版本 ${PluginApi.VERSION} 不兼容"
+
+internal fun PluginManifest.apiVersionError(): String? = if (isWeb) null else pluginApiVersionError(apiVersion)
+
 /** 元数据那一层的规则：不管 dex 还是 web 都要过。 */
 internal fun validatePackageManifest(manifest: PluginPackageManifest) {
     require(manifest.manifestVersion == 1) {
@@ -282,6 +287,8 @@ internal fun validatePackageManifest(manifest: PluginPackageManifest) {
 
     when (manifest.type) {
         "dex" -> {
+            val error = pluginApiVersionError(manifest.apiVersion)
+            require(error == null) { error.orEmpty() }
             val part = requireNotNull(manifest.dex) { "type 是 dex，但没有 dex 段" }
             require(part.apk.isNotBlank()) { "dex.apk 不能为空" }
             require(PluginPackages.isSafePath(part.apk)) { "dex.apk 路径不合法：${part.apk}" }
@@ -302,11 +309,8 @@ internal fun validatePackageManifest(manifest: PluginPackageManifest) {
                 require(TOOL_NAME_PATTERN.matches(tool.name)) {
                     "工具名不合法（字母、数字、_、-，1–20 位）：${tool.name}"
                 }
-                val function = tool.definition["function"]?.jsonObject
-                    ?: throw IllegalArgumentException("工具 ${tool.name} 的 definition 缺少 function")
-                require(!function["name"]?.jsonPrimitive?.content.isNullOrBlank()) {
-                    "工具 ${tool.name} 的 definition.function.name 不能为空"
-                }
+                val error = tool.definitionError()
+                require(error == null) { "工具 ${tool.name}：$error" }
             }
             require(part.tools.map { it.name }.toSet().size == part.tools.size) { "工具名有重复" }
         }

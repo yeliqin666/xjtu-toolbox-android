@@ -6,7 +6,7 @@
 - **web 插件**：不跑代码，只是"用盒子内置浏览器打开这个网页"；
 - **declarative 插件**：暂不支持（解析到就报错）。
 
-插件源码与模板在单独仓库：<https://github.com/Hz6826/dzhz-plugin-template>（dex）、<https://github.com/Hz6826/dzhz-plugin-web-template>（web）。两个都是 GitHub 模板仓库，带 Actions 自动构建。
+插件源码与模板在单独仓库：<https://github.com/xjtu-dzhz/dzhz-plugin-template>（dex）、<https://github.com/xjtu-dzhz/dzhz-plugin-web-template>（web）。两个都是 GitHub 模板仓库，带 Actions 自动构建。
 
 ---
 
@@ -248,6 +248,12 @@ canteen   bus    doc   download  upload  user  time  star  warning  check
 
 工具可以单独控制：详情页「允许小岱调用」进二级页，上面一个总开关，下面每个工具一行（长按看 `definition`）。总开关关掉时单项设置会留着。
 
+工具的 `definition.type` 填 `function`，`definition.function.name` 与清单工具名一致。宿主按插件 ID 和工具名生成模型侧标识，插件仍用清单里的原名实现 `PluginTool.name()`。安装、更新、卸载或修改开关后，小岱在下一轮请求时读取工具目录。
+
+`definition.function.parameters` 可省略。声明时根节点必须是 `type: object`。宿主支持单一 `type`、`properties`、`required`、`additionalProperties`（布尔值或子 schema）、`items`（单一子 schema）、`enum` 和 `const`，可附 `title`、`description`、`default`、`examples` 和 `$comment`。安装时会拒绝其他关键字。调用时将空参数按空对象检查，其他参数必须是 JSON 对象，通过后才调用插件。
+
+DEX 工具随 Android 插件发布。独立部署、需要跨客户端调用的工具可通过[小岱的 MCP 设置](agent.md#mcp)接入。
+
 ---
 
 ## 在线市场
@@ -270,8 +276,8 @@ App 从**索引地址**拉一份目录（默认 `https://dzhz.top/plugin-market.
       "minAppVersionCode": 101,
       "author": "Hz6826",
       "authorUrl": "https://github.com/Hz6826",
-      "projectUrl": "https://github.com/Hz6826/dzhz-plugin-template",
-      "download": "https://github.com/Hz6826/dzhz-plugin-template/releases/download/v1.0.1/plugin.zip",
+      "projectUrl": "https://github.com/xjtu-dzhz/dzhz-plugin-template",
+      "download": "https://github.com/xjtu-dzhz/dzhz-plugin-template/releases/download/v1.0.1/plugin.zip",
       "mirrors": [],
       "sha256": "…整包 zip 的 64 位小写十六进制…",
       "size": 792344,
@@ -312,12 +318,12 @@ App 从**索引地址**拉一份目录（默认 `https://dzhz.top/plugin-market.
 
 ```bash
 # dex 插件
-git clone https://github.com/Hz6826/dzhz-plugin-template
+git clone https://github.com/xjtu-dzhz/dzhz-plugin-template
 ./gradlew :plugin:assembleDebug
 python3 package.py plugin/build/outputs/apk/debug/plugin-debug.apk
 
 # web 插件
-git clone https://github.com/Hz6826/dzhz-plugin-web-template
+git clone https://github.com/xjtu-dzhz/dzhz-plugin-web-template
 python3 package.py
 ```
 

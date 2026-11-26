@@ -25,4 +25,24 @@ class CompositeAgentToolsTest {
         assertEquals("main:nope", c.execute("nope", "{}"))
         assertTrue(c.memoryBlock() == "mem:main")
     }
+    @Test
+    fun `reused nested registries reflect tool settings on the next turn`() = runTest {
+        val builtin = Fixed(listOf("a"), "main")
+        val pluginTools = Fixed(listOf("plugin_echo"), "plugin")
+        var enabled = false
+        val plugin = object : AgentTools by pluginTools {
+            override val toolDefinitions: String
+                get() = if (enabled) pluginTools.toolDefinitions else "[]"
+        }
+        val registry = CompositeAgentTools(CompositeAgentTools(builtin, listOf(plugin)), emptyList())
+        assertTrue("plugin_echo" !in registry.toolDefinitions)
+        assertEquals("main", registry.rateLimitKeyOf("plugin_echo"))
+        enabled = true
+        assertTrue("plugin_echo" in registry.toolDefinitions)
+        assertEquals("plugin", registry.rateLimitKeyOf("plugin_echo"))
+        assertEquals("plugin:plugin_echo", registry.execute("plugin_echo", "{}"))
+        enabled = false
+        assertTrue("plugin_echo" !in registry.toolDefinitions)
+        assertEquals("main:plugin_echo", registry.execute("plugin_echo", "{}"))
+    }
 }
