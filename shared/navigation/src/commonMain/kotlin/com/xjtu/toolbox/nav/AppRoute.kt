@@ -168,6 +168,37 @@ sealed interface AppRoute : NavKey {
         override val id get() = "superapp"
         override val loginType get() = LoginType.YWTB
     }
+    /**
+     * 插件自己的一级公开页（`page` 空串 = 清单里的第一页）。
+     *
+     * 和普通页面一样进返回栈、能深链；以后 dex 插件的主页可以挂到首页宫格或底栏，
+     * web 插件则固定把它的网页当作唯一公开页。
+     */
+    @Serializable data class Plugin(val pluginId: String, val page: String = "") : AppRoute {
+        override val id get() = "plugin/${encode(pluginId)}" + if (page.isEmpty()) "" else "/${encode(page)}"
+    }
+    /**
+     * 插件管理列表。
+     *
+     * 和 [PluginDetail] 是两个不同的路由类型——miuix-nav 按类型复用 entry，
+     * 同一个类里用参数区分列表/详情会让两条路由撞在一起（点第二个插件时显示的还是第一个）。
+     */
+    @Serializable data object Plugins : AppRoute { override val id get() = "plugins" }
+
+    /** web 插件打开的那一页（内置浏览器 + 可选的 WebVPN）。 */
+    @Serializable data class PluginWeb(val pluginId: String) : AppRoute {
+        override val id get() = "plugin-web/${encode(pluginId)}"
+    }
+
+    /** 某个插件的工具列表（二级页）。 */
+    @Serializable data class PluginTools(val pluginId: String) : AppRoute {
+        override val id get() = "plugin-tools/${encode(pluginId)}"
+    }
+
+    /** 某个插件的详情页。 */
+    @Serializable data class PluginDetail(val pluginId: String) : AppRoute {
+        override val id get() = "plugin-detail/${encode(pluginId)}"
+    }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 小贴士与常见问题（`com.xjtu.toolbox.tips.Tips` 全集）。 */
     @Serializable data object Tips : AppRoute { override val id get() = "tips" }
@@ -266,7 +297,26 @@ fun appRouteOf(id: String): AppRoute? {
             param("courseId")?.toIntOrNull()?.takeIf { it > 0 },
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
-        path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty(), bare = param("bare") == "1")
+        path == "browser" -> AppRoute.Browser(
+            param("url").orEmpty(),
+            param("then").orEmpty(),
+            bare = param("bare") == "1",
+        )
+        path == "plugins" -> AppRoute.Plugins
+        path.startsWith("plugin-web/") -> path.removePrefix("plugin-web/")
+            .takeIf { it.isNotBlank() }
+            ?.let(AppRoute::PluginWeb)
+        path.startsWith("plugin-tools/") -> path.removePrefix("plugin-tools/")
+            .takeIf { it.isNotBlank() }
+            ?.let(AppRoute::PluginTools)
+        path.startsWith("plugin-detail/") -> path.removePrefix("plugin-detail/")
+            .takeIf { it.isNotBlank() }
+            ?.let(AppRoute::PluginDetail)
+        path.startsWith("plugin/") -> {
+            val rest = path.removePrefix("plugin/")
+            val id = rest.substringBefore('/')
+            if (id.isBlank()) null else AppRoute.Plugin(id, rest.substringAfter('/', ""))
+        }
         path.startsWith("community/") -> path.removePrefix("community/").toIntOrNull()?.takeIf { it > 0 }?.let(AppRoute::CommunityPost)
         path.startsWith("notice_detail/") -> {
             val noticeId = path.removePrefix("notice_detail/")

@@ -83,4 +83,15 @@ class KeyValueStoreJvmTest {
         assertTrue(backup.renameTo(file))
         assertEquals("old", newJvmFileKeyValueStore("failed_write").getString("k"))
     }
+
+    @Test
+    fun unreadableFileIsKeptAsideInsteadOfCrashing() = withTempRoot { root ->
+        val file = File(root, "broken.properties")
+        file.writeText("k=\\uZZZZ\n")
+        val store = newJvmFileKeyValueStore("broken")
+        assertEquals(null, store.getString("k"))
+        assertEquals("k=\\uZZZZ\n", File(root, "broken.properties.corrupt").readText())
+        store.putString("k", "fresh")
+        assertEquals("fresh", newJvmFileKeyValueStore("broken").getString("k"))
+    }
 }

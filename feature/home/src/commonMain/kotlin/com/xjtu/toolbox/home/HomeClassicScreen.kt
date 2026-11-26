@@ -95,6 +95,7 @@ import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
+import com.xjtu.toolbox.ui.theme.serviceColorOverride
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -136,9 +137,11 @@ fun HomeClassicScreen(
 ) {
     val honored = host.honoredCards
     // 用目录全量：图标配色按它在目录里的下标取，过滤会让配色挪位。
-    val catalog = remember(host.audience) { AppServices.homeFor(host.audience) }
+    val catalog = remember(host.audience, host.extraServices) {
+        AppServices.homeFor(host.audience) + host.extraServices
+    }
     // 配色随应用主题变化，不能放进 remember。
-    val colorByKey = catalog.associate { it.route.id to serviceColor(it.route.id) }
+    val colorByKey = catalog.associate { it.route.id to serviceTint(it) }
     // 宿主每次重组都是新对象：回调统一经它的最新值转一手，引用固定下来，
     // 数据没变的格子才能跳过重组（HomeServiceRow 按值比较，里面的 lambda 也算在内）
     val currentHost by rememberUpdatedState(host)
@@ -152,7 +155,7 @@ fun HomeClassicScreen(
         val id = service.route.id
         return HomeServiceRow(
             key = service.route.id,
-            icon = HomeIcons.of(service.route),
+            icon = HomeIcons.of(service.route, service.iconName),
             title = service.title,
             subtitle = service.subtitle,
             color = colorByKey[id] ?: Color.Unspecified,
@@ -161,6 +164,7 @@ fun HomeClassicScreen(
             stat = stat?.value,
             statDetail = stat?.detail,
             lines = stat?.lines.orEmpty().ifEmpty { HomeCards.linesOf(id, emptyMap()) },
+            heroIsTitle = service.pluginPage,
         )
     }
 
@@ -180,7 +184,7 @@ fun HomeClassicScreen(
                 )
             }
         } else null
-    val groups = HomeCards.groups(host.audience, host.stats, host.openableRouteIds)
+    val groups = HomeCards.groups(host.audience, host.stats, host.openableRouteIds, host.extraServices)
     val layoutStore = remember { SettingsStore() }
     val background = remember(HomeLayoutRevision.current) { layoutStore.homeBackground }
     val wallpaper = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperImage.takeIf { background == "image" }.orEmpty() }
@@ -275,12 +279,31 @@ fun HomeClassicScreen(
             if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
                 HomeIndexCard(
-                    sections = groups.map { group ->
-                        IndexCategorySection(
-                            title = group.category.title,
-                            accent = serviceColor(HomeIcons.accentKey(group.category)),
-                            rows = group.rows.map { indexRow(it.service, it.stat, it.statDetail) },
-                        )
+                    // 插件公开页接在内置功能后面：**同一类里分两段画**，第二段的标题就是那行
+                    // 小标题「插件」。第一段空了（整类都是插件，理论上不会有）就不画。
+                    sections = groups.flatMap { group ->
+                        val (builtin, plugins) = group.rows.partition { !it.service.pluginPage }
+                        val accent = serviceColor(HomeIcons.accentKey(group.category))
+                        buildList {
+                            if (builtin.isNotEmpty()) {
+                                add(
+                                    IndexCategorySection(
+                                        title = group.category.title,
+                                        accent = accent,
+                                        rows = builtin.map { indexRow(it.service, it.stat, it.statDetail) },
+                                    ),
+                                )
+                            }
+                            if (plugins.isNotEmpty()) {
+                                add(
+                                    IndexCategorySection(
+                                        title = "插件",
+                                        accent = serviceColor(PLUGIN_ACCENT_KEY),
+                                        rows = plugins.map { indexRow(it.service, it.stat, it.statDetail) },
+                                    ),
+                                )
+                            }
+                        }
                     },
                     modifier = Modifier.enterOnce(1),
                 )
@@ -311,6 +334,9 @@ fun HomeClassicScreen(
 }
 
 // ── 首页版式 ──
+
+/** 「插件」那一段的配色键（与 `serviceColor` 里的插件色同一套）。 */
+private const val PLUGIN_ACCENT_KEY = "plugin/"
 
 /** 分类面板：白色卡面、细描边与柔和投影；今日安排使用蓝色底。 */
 @Composable
@@ -918,6 +944,13 @@ internal data class HomeServiceRow(
     val lines: List<HomeLine> = emptyList(),
     /** 点明细里带链接的一条（网址、`tel:`、`app:`、`agent:`）；null = 明细不可点。 */
     val onLink: ((String) -> Unit)? = null,
+    /**
+     * 卡片上那行大字用 [title] 而不是 [subtitle]。
+     *
+     * 内置功能是「小字名字 + 大字状态/说明」；插件页没有状态可给，大字就该是**页面标题**，
+     * 小字写插件名（见 `HomeTileBoard` 的 TileHero）。
+     */
+    val heroIsTitle: Boolean = false,
 )
 
 /** 点开功能页，并让功能页从这一块放大出来。 */
@@ -953,6 +986,14 @@ private fun Modifier.opensRow(
             },
         )
 }
+
+/**
+ * 一个入口的配色：插件页自己声明了 `iconColor` 就用它，否则按路由取默认
+ * （插件 dex 橙 / web 蓝，内置功能各有一色）。
+ */
+@Composable
+internal fun serviceTint(service: AppService): Color =
+    serviceColorOverride(service.colorHex) ?: serviceColor(service.route.id)
 
 /** 首页各卡之间统一的间距。 */
 private val SECTION_GAP = 14.dp

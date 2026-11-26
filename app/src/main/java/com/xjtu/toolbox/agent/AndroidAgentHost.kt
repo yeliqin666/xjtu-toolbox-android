@@ -76,6 +76,10 @@ internal class AndroidAgentHost(
                 loginState.sessionManager?.let { com.xjtu.toolbox.degree.DegreeAgentTools(com.xjtu.toolbox.degree.appDegreeSource(context, it)) },
                 config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it, localFetch = wechat::readArticle) },
                 wechat,
+                // 已启用且允许小岱调用的插件工具；定义来自 plugin.json，不加载 dex
+                com.xjtu.toolbox.plugin.PluginAgentTools(
+                    com.xjtu.toolbox.plugin.PluginManager.get(context),
+                ),
             ),
         )
     }

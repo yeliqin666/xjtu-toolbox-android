@@ -682,6 +682,41 @@ fun NavEntryBuilder.appPageEntries(
                 )
             }
         }
+        // 插件管理：列表和详情是两个路由类型，各占一层返回栈
+        page<AppRoute.Plugins>(transition = expand(AppRoute.Plugins::class)) {
+            com.xjtu.toolbox.plugin.PluginsPage(
+                onBack = back,
+                onOpenDetail = { id -> router.open(AppRoute.PluginDetail(id)) },
+            )
+        }
+        // web 插件：内置浏览器（可选 WebVPN）
+        page<AppRoute.PluginWeb>(transition = expand(AppRoute.PluginWeb::class)) { web ->
+            com.xjtu.toolbox.plugin.PluginWebScreen(
+                pluginId = web.pluginId,
+                loginState = loginState,
+                onBack = back,
+            )
+        }
+        page<AppRoute.PluginTools>(transition = expand(AppRoute.PluginTools::class)) { tools ->
+            com.xjtu.toolbox.plugin.PluginToolsScreen(
+                pluginId = tools.pluginId,
+                onBack = back,
+            )
+        }
+        page<AppRoute.PluginDetail>(transition = expand(AppRoute.PluginDetail::class)) { detail ->
+            com.xjtu.toolbox.plugin.PluginDetailScreen(
+                pluginId = detail.pluginId,
+                onBack = back,
+            )
+        }
+        // 插件自己的一级公开页：和普通页面一样进返回栈、能深链、能断言来源
+        page<AppRoute.Plugin>(transition = expand(AppRoute.Plugin::class)) { plugin ->
+            com.xjtu.toolbox.plugin.PluginPageScreen(
+                pluginId = plugin.pluginId,
+                pageId = plugin.page,
+                onBack = back,
+            )
+        }
         // WebView 常有横向滚动，关掉页内侧滑返回
         page<AppRoute.Browser>(
             transition = expand(AppRoute.Browser::class),

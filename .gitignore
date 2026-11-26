@@ -65,3 +65,6 @@ plan.md
 /tools/*
 !/tools/gen-qr-charset-tables.java
 !/tools/gen-campus-map.py
+
+# 示例插件的签名私钥（演示用，不进仓库）
+plugin/sample/signing/

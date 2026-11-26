@@ -3,6 +3,7 @@ package com.xjtu.toolbox.home
 import android.app.Activity
 import android.content.Context
 import com.xjtu.toolbox.notification.AutoDndScheduler
+import com.xjtu.toolbox.plugin.rememberPluginServices
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
@@ -275,6 +276,8 @@ internal fun rememberAppHome(
     val statsNow = rememberUpdatedState(homeStats)
     val quickNow = rememberUpdatedState(quickRoutes)
     val editableNow = rememberUpdatedState(showQuickActions)
+    // 插件公开页：装/卸、启用/停用会让 records 变，首页目录跟着重组
+    val pluginExtrasNow = rememberUpdatedState(rememberPluginServices())
     val loggedInNow = rememberUpdatedState(isLoggedIn)
     val navigateNow = rememberUpdatedState(onNavigate)
     val profileNow = rememberUpdatedState(onNavigateToProfile)
@@ -296,6 +299,7 @@ internal fun rememberAppHome(
             add(HomeCard.INBOX)
         }
         override val inbox: HomeInboxSummary? get() = inboxNow.value
+        override val extraServices: List<AppService> get() = pluginExtrasNow.value
 
         override val audience get() = audienceNow.value
         override val greetingName: String get() = greetingNow.value

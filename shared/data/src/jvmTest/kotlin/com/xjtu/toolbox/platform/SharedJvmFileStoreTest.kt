@@ -67,10 +67,12 @@ class SharedJvmFileStoreTest {
         assertEquals("second", second.getString("k"))
     }
     @Test
-    fun corruptFileCanBeExplicitlyWiped() = withRoot { root ->
+    fun corruptFileIsKeptAsideAndCanBeWiped() = withRoot { root ->
         val file = File(root, "broken.properties")
         file.writeText("key=\\uZZZZ")
-        kotlin.test.assertFailsWith<IllegalArgumentException>("S2_CORRUPT_READ: corrupt data was treated as empty") { secureKeyValueStore("broken") }
+        // 读不出来不崩，但原件必须原样留底，不能悄悄丢掉
+        assertNull(secureKeyValueStore("broken").getString("key"))
+        assertEquals("key=\\uZZZZ", File(root, "broken.properties.corrupt").readText(), "S2_CORRUPT_READ: corrupt data was discarded")
         wipeSecureStore("broken")
         assertFalse(file.exists())
         assertNull(secureKeyValueStore("broken").getString("key"))

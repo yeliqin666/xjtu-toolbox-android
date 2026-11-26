@@ -883,6 +883,13 @@ private fun DesktopPage(
         AppRoute.TermReport -> NotPortedScreen(onNavigate)
         AppRoute.SuperApp -> NotPortedScreen(onNavigate)
 
+        // 插件系统整块在 :app：dex 加载、内置浏览器、本机文件与通知都是安卓专属，桌面端没有这一套。
+        AppRoute.Plugins -> NotPortedScreen(onNavigate)
+        is AppRoute.PluginDetail -> NotPortedScreen(onNavigate)
+        is AppRoute.PluginTools -> NotPortedScreen(onNavigate)
+        is AppRoute.PluginWeb -> NotPortedScreen(onNavigate)
+        is AppRoute.Plugin -> NotPortedScreen(onNavigate)
+
         // 其余路由显示「没搬过来」，不拿有数据的屏冒充。
         else -> NotPortedScreen(onNavigate)
     }

@@ -2,7 +2,10 @@ package com.xjtu.toolbox.platform
 
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.AccessDeniedException
+import java.nio.file.FileSystemException
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermission
 import java.nio.file.attribute.PosixFilePermissions
@@ -19,6 +22,8 @@ fun keyValueStoreRoot(): File =
         ?: File(System.getProperty("user.home") ?: "/tmp", ".local/share/xjtu-dzhz")
 
 private val stores = ConcurrentHashMap<File, JvmFileKeyValueStore>()
+
+private const val REPLACE_ATTEMPTS = 5
 
 /** 普通和安全存储工厂共用同一个文件实例；以实际路径为键，而非工厂名。 */
 fun jvmFileKeyValueStore(file: File): KeyValueStore = storeFor(file)
@@ -45,12 +50,30 @@ fun wipeJvmFileKeyValueStore(file: File) {
 /** Properties 文件格式不变。凭据保护由上层包装器负责。 */
 internal class JvmFileKeyValueStore(private val file: File) : KeyValueStore {
     private val lock = Any()
-    private var props = Properties().apply {
-        if (file.exists()) file.inputStream().use { load(it) }
+    /** 原件读不出来又没能留底时为 false：宁可不写，也不拿空表盖掉原件。 */
+    private var writable = true
+    private var props = load()
+
+    /** 坏文件不让整个应用起不来：挪成 `.corrupt` 留底，从空表开始。 */
+    private fun load(): Properties {
+        val loaded = Properties()
+        if (!file.exists()) return loaded
+        try {
+            file.inputStream().use { loaded.load(it) }
+        } catch (e: Exception) {
+            loaded.clear()
+            val kept = StoreWriteGate.allowsWrites && runCatching {
+                Files.move(file.toPath(), file.toPath().resolveSibling("${file.name}.corrupt"),
+                    StandardCopyOption.REPLACE_EXISTING)
+            }.isSuccess
+            if (!kept) writable = false
+            Log.w("KeyValueStore", "${file.name} 读取失败，${if (kept) "已另存为 .corrupt" else "本次不写入"}", e)
+        }
+        return loaded
     }
 
     private fun persist(next: Properties) {
-        if (!StoreWriteGate.allowsWrites) return
+        if (!StoreWriteGate.allowsWrites || !writable) return
         val target = file.toPath().toAbsolutePath()
         val dir = target.parent
         Files.createDirectories(dir)
@@ -66,9 +89,25 @@ internal class JvmFileKeyValueStore(private val file: File) : KeyValueStore {
                 it.fd.sync()
             }
             // 原子替换不可用时直接失败，不回退到截断旧文件。
-            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            replaceAtomically(temp, target)
         } finally {
             runCatching { Files.deleteIfExists(temp) }
+        }
+    }
+
+    /** Windows 上目标文件被杀毒、索引短暂打开时替换会被拒，稍等重试几次。 */
+    private fun replaceAtomically(from: Path, to: Path) {
+        var attempt = 0
+        while (true) {
+            try {
+                Files.move(from, to, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                return
+            } catch (e: FileSystemException) {
+                // 只重试「被占用」：拒绝访问，或共享冲突（Windows 报成不带子类的 FileSystemException）
+                val busy = e is AccessDeniedException || e.javaClass == FileSystemException::class.java
+                if (!busy || ++attempt >= REPLACE_ATTEMPTS) throw e
+                Thread.sleep(20L * attempt)
+            }
         }
     }
 
@@ -111,7 +150,10 @@ internal class JvmFileKeyValueStore(private val file: File) : KeyValueStore {
     override fun clear() = mutate { it.clear() }
 
     internal fun wipe() = synchronized(lock) {
-        if (StoreWriteGate.allowsWrites) Files.deleteIfExists(file.toPath())
+        if (StoreWriteGate.allowsWrites) {
+            Files.deleteIfExists(file.toPath())
+            writable = true
+        }
         props.clear()
     }
 }

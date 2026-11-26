@@ -92,8 +92,12 @@ internal object GlobalSearchIndex {
             listOf("找空教室", "哪里空")),
     )
 
-    fun entries(accountType: AccountType? = null): List<SearchEntry> {
-        val services = if (accountType == null) AppServices.all else AppServices.visibleFor(accountType)
+    fun entries(
+        accountType: AccountType? = null,
+        extra: List<AppService> = emptyList(),
+    ): List<SearchEntry> {
+        // 附加入口（插件公开页）接在末尾：目录里没有它，但搜得到、点得开
+        val services = (if (accountType == null) AppServices.all else AppServices.visibleFor(accountType)) + extra
         return services.map { svc ->
             SearchEntry.Screen(
                 title = svc.title,
@@ -105,10 +109,14 @@ internal object GlobalSearchIndex {
         } + agentPrompts
     }
 
-    fun search(query: String, accountType: AccountType? = null): List<SearchEntry> {
+    fun search(
+        query: String,
+        accountType: AccountType? = null,
+        extra: List<AppService> = emptyList(),
+    ): List<SearchEntry> {
         if (query.isBlank()) return emptyList()
         val q = query.trim().lowercase()
-        return entries(accountType).filter { e ->
+        return entries(accountType, extra).filter { e ->
             val haystack = buildList {
                 add(e.title)
                 add(e.subtitle)
@@ -150,9 +158,13 @@ internal fun GlobalSearchBody(
     modifier: Modifier = Modifier,
     /** 顶栏占掉的高度：结果从它下面开始排，滚动时能滑到顶栏的模糊下面。 */
     topPadding: Dp = 0.dp,
+    /** 目录之外的附加入口（插件公开页），由宿主给；不接就只搜内置功能。 */
+    extraServices: List<AppService> = emptyList(),
 ) {
     // query 是参数不是状态，derivedStateOf 会一直拿着第一次的值，得按它重算
-    val results = remember(query, accountType) { GlobalSearchIndex.search(query, accountType) }
+    val results = remember(query, accountType, extraServices) {
+        GlobalSearchIndex.search(query, accountType, extraServices)
+    }
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         AnimatedContent(
             targetState = query.isBlank(),

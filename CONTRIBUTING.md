@@ -242,5 +242,6 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 | [`docs/api-contract.md`](docs/api-contract.md) | serve 模式运行方式与 `/api/*` 契约 |
 | [`docs/archive-format.md`](docs/archive-format.md) | 三端通用的存档格式 |
 | [`docs/agent.md`](docs/agent.md) | 小岱：中断、结果卡、读文档、MCP |
+| [`docs/plugins.md`](docs/plugins.md) | Android 插件：包格式、API、构建与安装、限制 |
 | [`docs/one-take-sharedview-kit.md`](docs/one-take-sharedview-kit.md) | 首页卡片「一镜到底」转场 |
 | [`docs/miuix.md`](docs/miuix.md) | MIUIX 组件用法与本项目约定 |

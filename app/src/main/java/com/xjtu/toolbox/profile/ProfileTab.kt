@@ -963,6 +963,13 @@ internal fun ProfileTab(
                         route = AppRoute.DownloadManager,
                     )
                     MenuDivider()
+                    ProfileMenuRow(
+                        Icons.Default.Extension, TINT_TEAL, "插件",
+                        onClick = { onNavigate(AppRoute.Plugins) },
+                        subtitle = "给盒子加功能的小包",
+                        route = AppRoute.Plugins,
+                    )
+                    MenuDivider()
                     TipsMenuRow(onNavigate)
                 }
                 Spacer(Modifier.height(PROFILE_GAP))

@@ -130,6 +130,14 @@ private class AppSettingsHost(
 
     override val agentPage: (@Composable (onBack: () -> Unit) -> Unit)? get() = agentPageImpl
 
+    /** 插件管理整页；只有 Android 端能加载 dex。 */
+    override val pluginsPage: (@Composable (onBack: () -> Unit) -> Unit) = { onBack ->
+        com.xjtu.toolbox.plugin.PluginsPage(
+            onBack = onBack,
+            onOpenDetail = { id -> com.xjtu.toolbox.plugin.PluginLauncher.openDetail?.invoke(id) },
+        )
+    }
+
     override val projectStoryPage: @Composable () -> Unit = { com.xjtu.toolbox.termreport.ProjectStoryBody(openUri) }
 
     override val versionText: String =
