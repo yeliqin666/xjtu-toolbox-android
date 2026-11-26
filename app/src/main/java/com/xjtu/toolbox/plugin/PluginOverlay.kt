@@ -122,6 +122,9 @@ internal object PluginLauncher {
 
     /** 打开某个插件的详情页（设置里的插件列表也用它）。 */
     var openDetail: ((pluginId: String) -> Unit)? = null
+
+    /** 打开 web 插件那一页（内置浏览器）。 */
+    var openWeb: ((pluginId: String) -> Unit)? = null
 }
 
 /**

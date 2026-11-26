@@ -932,8 +932,12 @@ internal fun PluginDetailScreen(
         broken = record.id in broken,
         onBack = onBack,
         onOpenPage = { pageId ->
-            val launch = PluginLauncher.openRoute
-            if (launch != null) launch(record.id, pageId) else PluginOverlay.open(record.id, pageId)
+            if (record.manifest.isWeb) {
+                PluginLauncher.openWeb?.invoke(record.id)
+            } else {
+                val launch = PluginLauncher.openRoute
+                if (launch != null) launch(record.id, pageId) else PluginOverlay.open(record.id, pageId)
+            }
         },
         onToggleEnabled = { on ->
             if (!demo) scope.launch { manager.setEnabled(record.id, on) }
@@ -1039,17 +1043,27 @@ private fun DetailPage(
                 )
             }
 
-            // ② 页面
+            // ② 页面（web 插件只有一个「打开网页」）
             Spacer(Modifier.height(14.dp))
-            if (record.manifest.pages.isEmpty()) {
-                Text(
+            when {
+                record.manifest.isWeb -> CouiSettingsCard {
+                    ArrowPreference(
+                        title = "打开网页",
+                        summary = buildString {
+                            append(webHostOf(record.manifest.webStartUrl))
+                            if (record.manifest.webUseVpn) append(" · 经 WebVPN")
+                        },
+                        enabled = record.enabled && !broken,
+                        onClick = { onOpenPage("") },
+                    )
+                }
+                record.manifest.pages.isEmpty() -> Text(
                     text = "这个插件没有页面，只给小岱加工具。",
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
                 )
-            } else {
-                CouiSettingsCard {
+                else -> CouiSettingsCard {
                     record.manifest.pages.forEach { page ->
                         ArrowPreference(
                             title = page.title.ifBlank { page.id },
@@ -1274,3 +1288,7 @@ private fun demoMarket(): List<MarketEntry> = listOf(
         tags = listOf("生活"),
     ),
 )
+
+/** 从网址里取主机名，取不到就原样返回（详情页摘要用）。 */
+private fun webHostOf(url: String): String =
+    runCatching { java.net.URI(url).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: url

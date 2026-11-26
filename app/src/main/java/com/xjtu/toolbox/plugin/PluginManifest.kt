@@ -66,6 +66,12 @@ internal data class PluginWebPart(
     val allowSubdomains: Boolean = false,
     /** 宿主能给网页的能力，目前只认 `theme`。 */
     val capabilities: List<String> = emptyList(),
+    /**
+     * 走校内 WebVPN 打开（校外也能访问校内站点）。
+     *
+     * 打开时会先探一次 WebVPN 登录态，失效就在 App 内重登，然后把 [startUrl] 改写成网关地址。
+     */
+    val useVpn: Boolean = false,
 )
 
 @Serializable
@@ -147,6 +153,11 @@ internal data class PluginManifest(
     val dexApk: String = "",
     /** web 插件的起始地址；dex 插件为空。 */
     val webStartUrl: String = "",
+    /** web 插件允许停留的站点（scheme + host）。 */
+    val webOrigins: List<String> = emptyList(),
+    val webAllowSubdomains: Boolean = false,
+    /** web 插件是否走校内 WebVPN 打开。 */
+    val webUseVpn: Boolean = false,
 ) {
     val isWeb: Boolean get() = type == "web"
 
@@ -199,6 +210,9 @@ internal fun PluginPackageManifest.toRuntimeManifest(): PluginManifest = when (t
             versionCode = versionCode,
             minAppVersionCode = minAppVersionCode,
             webStartUrl = part.startUrl,
+            webOrigins = part.origins,
+            webAllowSubdomains = part.allowSubdomains,
+            webUseVpn = part.useVpn,
         )
     }
     "declarative" -> throw IllegalArgumentException("声明式插件当前版本还不支持")

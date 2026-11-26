@@ -680,6 +680,14 @@ fun NavEntryBuilder.appPageEntries(
                 onOpenDetail = { id -> router.open(AppRoute.PluginDetail(id)) },
             )
         }
+        // web 插件：内置浏览器（可选 WebVPN）
+        page<AppRoute.PluginWeb>(transition = expand(AppRoute.PluginWeb::class)) { web ->
+            com.xjtu.toolbox.plugin.PluginWebScreen(
+                pluginId = web.pluginId,
+                loginState = loginState,
+                onBack = back,
+            )
+        }
         page<AppRoute.PluginDetail>(transition = expand(AppRoute.PluginDetail::class)) { detail ->
             com.xjtu.toolbox.plugin.PluginDetailScreen(
                 pluginId = detail.pluginId,

@@ -176,6 +176,11 @@ sealed interface AppRoute : NavKey {
      */
     @Serializable data object Plugins : AppRoute { override val id get() = "plugins" }
 
+    /** web 插件打开的那一页（内置浏览器 + 可选的 WebVPN）。 */
+    @Serializable data class PluginWeb(val pluginId: String) : AppRoute {
+        override val id get() = "plugin-web/${encode(pluginId)}"
+    }
+
     /** 某个插件的详情页。 */
     @Serializable data class PluginDetail(val pluginId: String) : AppRoute {
         override val id get() = "plugin-detail/${encode(pluginId)}"
@@ -280,6 +285,9 @@ fun appRouteOf(id: String): AppRoute? {
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
         path == "plugins" -> AppRoute.Plugins
+        path.startsWith("plugin-web/") -> path.removePrefix("plugin-web/")
+            .takeIf { it.isNotBlank() }
+            ?.let(AppRoute::PluginWeb)
         path.startsWith("plugin-detail/") -> path.removePrefix("plugin-detail/")
             .takeIf { it.isNotBlank() }
             ?.let(AppRoute::PluginDetail)
