@@ -68,15 +68,20 @@ class WebRouteCoverageTest {
     @Test
     fun `路由差集只剩那几条登记过的，且每条都在 WebSupport 的文件头里有如实说明`() {
         assertEquals(
-            51,
+            56,
             declaredRoutes.size,
-            "AppRoute 的声明数不是 51 了（现在 ${declaredRoutes.size}）：$criterion；" +
+            "AppRoute 的声明数不是 56 了（现在 ${declaredRoutes.size}）：$criterion；" +
                 "加/删一条声明要同时看这里与 desktop 那份 DesktopRouteCoverageJvmTest",
         )
         assertEquals(
             listOf(
                 "Browser",
                 "NoticeDetail",
+                "Plugin",
+                "PluginDetail",
+                "PluginTools",
+                "PluginWeb",
+                "Plugins",
                 "QrScan",
                 "SsActivity",
                 "SuperApp",

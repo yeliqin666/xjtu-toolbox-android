@@ -1,169 +1,246 @@
-# 插件（Android）
+# 插件
 
-> ⚠️ **本文档已过时**：写的是早期"插件自带 Compose"的方案，那条路已废弃。
-> 现在的插件是 **zip 包 + `dzhz.plugin.json` + ECDSA 签名**，界面由宿主渲染；
-> 写法看模板仓库：<https://github.com/Hz6826/dzhz-plugin-template>（dex）、
-> <https://github.com/Hz6826/dzhz-plugin-web-template>（web）。本仓库不再自带示例插件。
+插件是**一个 zip 包**，里面放清单和（可选的）代码或网页。盒子打开它的时候：
 
+- **dex 插件**：用一个独立的 `DexClassLoader` 把包里 APK 的入口类加载进 App 进程，插件只返回界面描述（`UiNode` 树），宿主用 miuix 自己画；
+- **web 插件**：不跑代码，只是"用盒子内置浏览器打开这个网页"；
+- **declarative 插件**：暂不支持（解析到就报错）。
 
-Android 端支持**进程内 dex 插件**：插件是带签名的 APK，但不会被系统安装，只由本 App 用
-`DexClassLoader` 加载。插件可以加页面、给小岱加工具，并通过宿主提供的只读接口取学校数据。
+插件源码与模板在单独仓库：<https://github.com/Hz6826/dzhz-plugin-template>（dex）、<https://github.com/Hz6826/dzhz-plugin-web-template>（web）。两个都是 GitHub 模板仓库，带 Actions 自动构建。
 
-> [!CAUTION]
-> **当前是 WIP：安装/管理/工具已通，打开示例页的 Compose 渲染仍会崩。**
-> 进度、已修崩溃和下一步见 [`docs/plugins-status.md`](plugins-status.md)。不要把这个分支当稳定功能合并。
-
-> [!WARNING]
-> 插件和 App 同 uid、同进程运行，拥有完全相同的权限，能读取登录会话、账号、本机缓存并联网。
-> 宿主**没有沙箱**，`plugin.json` 里的声明也不是权限控制。只安装你信任来源的插件。
-
-桌面端和 Web 端不支持插件（dex 只属于 Android）。
+---
 
 ## 包格式
 
-插件是一个普通 Android APK（`applicationId` 随意，不会被安装），必须满足：
+```
+plugin.zip
+├── dzhz.plugin.json     清单
+├── dzhz.plugin.sig      对清单『原始字节』的 SHA256withECDSA 签名（Base64）
+├── plugin.apk           dex 插件的代码（路径由 dex.apk 指定）
+└── ...                  files[] 里声明过的其他文件
+```
 
-- 有签名；
-- `assets/plugin.json` 存在；
-- `assets/plugin.json` 的 `entryClass` 是无参构造、实现了
-  `com.xjtu.toolbox.plugin.api.PluginEntry` 的类；
-- 不超过 30 MB，`classes*.dex` 不超过 8 个；
-- `apiVersion` 与当前 App 的 `PluginApi.VERSION` 完全相等；
-- `minAppVersionCode` 不高于当前 App 的 `BuildConfig.VERSION_CODE`。
-
-`plugin.json`：
+清单示例（dex）：
 
 ```json
 {
-  "apiVersion": 1,
-  "id": "com.example.demo",
+  "manifestVersion": 1,
+  "id": "top.dzhz.plugin.sample",
   "name": "示例插件",
+  "summary": "一句话简介，列表里最多三行",
   "version": "1.0.0",
-  "versionCode": 1,
+  "versionCode": 12,
   "minAppVersionCode": 101,
-  "entryClass": "com.example.demo.DemoPlugin",
-  "pages": [
-    { "id": "home", "title": "示例页" }
+  "author": { "name": "Hz6826", "url": "https://github.com/Hz6826" },
+  "authorAvatar": "",
+  "projectUrl": "",
+  "icon": "",
+  "type": "dex",
+  "apiVersion": 2,
+  "dex": {
+    "apk": "plugin.apk",
+    "entryClass": "top.dzhz.plugin.sample.TemplatePlugin",
+    "pages": [
+      { "id": "home", "title": "组件一览", "group": "基础" },
+      { "id": "about", "title": "关于" }
+    ],
+    "tools": [
+      { "name": "echo", "definition": { "type": "function", "function": { "name": "echo", "description": "原样返回" } } }
+    ]
+  },
+  "files": [
+    { "path": "plugin.apk", "sha256": "…64 位小写十六进制…", "size": 2538474 }
   ],
-  "tools": [
-    {
-      "name": "demo_course_count",
-      "definition": {
-        "type": "function",
-        "function": {
-          "name": "demo_course_count",
-          "description": "统计本周课程条数。",
-          "parameters": { "type": "object", "properties": {} }
-        }
-      }
-    }
-  ]
+  "pubkey": "…ECDSA P-256 公钥，SPKI DER 的 Base64…"
 }
 ```
 
-- `id`：小写字母开头，2–32 位，只允许 `a-z0-9_.`。
-- 页面最多 8 个，页面 id 1–32 位；工具最多 16 个，工具名 1–20 位。
-- **页面/工具的定义以 `plugin.json` 为准**，这样列页面和给小岱工具清单时不需要加载 dex。
-- `tools[].definition` 是 OpenAI function calling 的单条定义；宿主会统一把工具名改写成
-  `plugin_<id>_<tool>`，并按 `plugin.json` 里的定义把它交给模型。
+| 字段 | 说明 |
+|---|---|
+| `id` | 小写字母开头，2–32 位，可含 `.` `_`。装过之后就是这插件的身份 |
+| `name` | 1–14 个字（详情页顶栏放得下） |
+| `versionCode` | 每次更新必须变大 |
+| `minAppVersionCode` | 需要的最低 App 版本；插件用新组件时要跟着提 |
+| `type` | `dex` / `web` / `declarative` |
+| `apiVersion` | dex 插件必填，必须等于宿主的 `PluginApi.VERSION`（现在是 2） |
+| `files[]` | 包里**所有**可被宿主读取的文件，逐条带 sha256 与大小 |
+| `pubkey` | 签名公钥；第一次安装时它的 sha256 被记下来 |
 
-## 插件 API
+## 校验
 
-插件作者只依赖 `:plugin:api`（AAR），不要依赖 App 的任何内部模块：
+安装时按这个顺序过一遍，任何一条不过就整包拒装：
+
+1. 条目 ≤ 64；路径不许绝对路径、`..`、反斜杠、反斜杠；
+2. `dzhz.plugin.json` `dzhz.plugin.sig` 必须在根目录；
+3. 清单字段校验（id / 名字长度 / versionCode / 页面数 ≤8 / 工具数 ≤16 …）；
+4. **验签**：`SHA256withECDSA` 校验清单原始字节；
+5. **逐条核对 `files[]`**：存在、大小对、sha256 对；
+6. dex 插件还要把包里的 APK 解出来，反射检查入口类实现了 `PluginEntry`。
+
+解压时**再核一次** sha256 和大小（防"校验完再替换"），解压总量上限 32 MB。文件落到 `files/plugins/<id>/<versionCode>/`，先写 `.staging` 再改名，写完 `setReadOnly()`（Android 14+ 要求 dex 所在文件不可写）。
+
+## 信任：TOFU
+
+第一包装进来时记住**公钥 SPKI 的 sha256**。之后：
+
+- 同一个 `id` 的更新，必须用**同一把私钥**签；
+- `versionCode` 必须比已装的大；
+- 换钥匙只能让用户先卸载再重装。
+
+模板仓库的 `package.py` 首次运行会在 `signing/plugin-ec.pem` 生成一把 P-256 私钥——**那是发布者的身份，丢了就没法发更新**。
+
+---
+
+## dex 插件
+
+插件只需要实现三个接口（`:plugin:api`，编译期依赖宿主提供的那份副本）：
 
 ```kotlin
-class DemoPlugin : PluginEntry {
-    override fun create(context: PluginContext): Plugin = Demo(context)
+class TemplatePlugin : PluginEntry {
+    override fun create(context: PluginContext): Plugin = …
 }
 
-class Demo(private val context: PluginContext) : Plugin {
-    override fun pages() = listOf(DemoPage(context))
-    override fun tools() = listOf(DemoTool(context))
-}
-
-class DemoPage(private val context: PluginContext) : PluginPage() {
+class TemplatePage(private val ctx: PluginContext) : PluginPage() {
     override fun id() = "home"
-    override fun createView(context: Context, argsJson: String): View =
-        ComposeView(context).apply {
-            setContent { /* 插件自己的 Compose */ }
-        }
-}
-
-class DemoTool(private val context: PluginContext) : PluginTool {
-    override fun name() = "demo_course_count"
-    override fun execute(argsJson: String): String =
-        context.schoolTool("get_schedule", argsJson)
+    override fun render(): UiNode = UiColumnNode(children = listOf(…))
+    override fun onAction(actionId: String, value: String?) { … }
 }
 ```
 
-### 页面
+要点：
 
-- 宿主给标准页面壳（顶栏、返回、全屏覆盖层），插件只返回内容区的 `View`。
-- **插件要自带 Compose / lifecycle / 协程等依赖**。App 的 release 包开了 R8，宿主的
-  `androidx.compose.*` / `kotlin.*` 类会被改名，插件不能直接复用。
-- 插件自带 Compose 时，`ComposeView` 需要插件自己的 `LifecycleOwner` /
-  `SavedStateRegistryOwner` / `ViewModelStoreOwner`，不能依赖宿主的 `ViewTreeLifecycleOwner`
-  （两边是不同的类）。`plugin/sample` 有一份可直接抄的 40 行 shim。
-- 插件页不在导航返回栈里：打开是覆盖层，返回关掉；不能放底栏、首页宫格或深链。
-- 不支持 Android 资源（`R` / `painterResource`）和 `.so`；数据文件放 assets，用
-  `PluginContext.openAsset` 读。
+- `render()` 在**主线程**调用，必须快——数据提前取好放字段里；
+- 改完状态调 `invalidate()`，宿主会重新要一次树（任意线程都能调）；
+- 用户操作只从 `onAction(actionId, value)` 回来：按钮给 `null`，输入框给整段文本，开关给 `"true"` / `"false"`，下拉给选中项的 `key`。
 
-### 工具
+### 界面组件
 
-- 宿主编排（`CompositeAgentTools`）把插件工具和内置工具并在一起，模型看到的名字是
-  `plugin_<id>_<tool>`。
-- `execute` 在 IO 线程调用，必须同步返回；返回给模型看的纯文本，过长会被截断。
-- 插件工具默认关闭，安装后在「设置 → 插件」里单独打开「允许小岱调用」。
-- 工具抛异常只影响这一轮，宿主回 `error: plugin_failed`，不会让 Agent 循环崩掉。
+插件交回的是**界面描述**，不是 Compose。所以深色模式、主题色、字阶、圆角、毛玻璃全都自动跟盒子一致。
 
-### 学校数据
+| 节点 | 用途 |
+|---|---|
+| `UiColumnNode(children, spacingDp, alignment)` | 竖排，可设水平对齐 |
+| `UiRowNode(children, spacingDp, horizontal, vertical)` | 横排，两端对齐 / 居中 / 靠右 |
+| `UiGridNode(columns, children)` | 网格，1–4 列等宽 |
+| `UiScrollRowNode(children, spacingDp)` | 横滑一行（子节点按内容宽度，上限 280dp） |
+| `UiFlowRowNode(children, spacingDp)` | 流式换行 |
+| `UiWeightNode(weight, child)` | Row 里按权重分宽度 |
+| `UiCardNode(child, actionId, paddingDp)` | 卡片，可整张点 |
+| `UiTextNode(text, style, secondary, maxLines, color, argb, bold, italic, underline, strikeThrough, actionId)` | 文字；给了 `actionId` 默认用主色 |
+| `UiRichTextNode(spans, style)` | 混排：一段话里不同样式和链接 |
+| `UiButtonNode(label, actionId, style, enabled)` | 按钮（Filled / Tonal / Plain） |
+| `UiListItemNode(title, subtitle, trailing, actionId)` | 设置页那种行 |
+| `UiFieldNode(label, value, actionId, hint)` | 输入框 |
+| `UiSelectNode(label, value, options, actionId)` | 下拉单选（≤8 项），回传 `key` |
+| `UiSwitchNode(label, checked, actionId, summary, enabled)` | 开关行 |
+| `UiKeyValueNode(label, value, secondary)` | 左标签右值 |
+| `UiProgressNode(value, label)` | 进度条（数值带动画） |
+| `UiBadgeNode(text, tone)` | 徽章（Neutral / Accent / Warning） |
+| `UiIconNode(name, sizeDp)` | 图标，名字取自白名单 |
+| `UiImageNode(url, heightDp)` | 网络图片（Coil） |
+| `UiDividerNode()` / `UiSpacerNode(heightDp)` | 分隔线 / 留白 |
+| `UiLoadingNode(text)` / `UiEmptyNode(title, subtitle)` | 加载中 / 空状态 |
 
-`PluginContext.schoolTool(name, argsJson)` 复用 App 现有的登录、MFA、WebVPN、缓存和限流，
-只放行这些只读工具：
+**字阶**：`Display`（页面大标题）、`Title`（分区）、`Section`（卡片标题）、`Body`（正文）、`Caption`（脚注）。
+
+**颜色**：`UiTextColor.{Default, Secondary, Primary, Success, Warning, Error}`，或者直接给 `argb`（自己适配深浅色）。
+
+**图标白名单**（语义名，不是图标库类名；不在名单里的画灰色占位）：
 
 ```
-get_calendar, get_schedule, get_exam_schedule, search_school_courses,
-get_empty_rooms, get_attendance, get_grades, get_card_info, get_notifications,
-search_yellow_page, find_faculty, get_library, list_zyxf, read_zyxf_file,
-get_textbooks, get_coupons, get_lms, get_lms_activity, get_fitness_score
+calendar  grade  book  card  bell  school  exam  task  classroom  seat
+canteen   bus    doc   download  upload  user  time  star  warning  check
 ```
 
-返回 JSON：
+### 页面与侧栏目录
+
+清单里一个插件可以有多个页面（≤8），每个页面在插件里是一个 `PluginPage` 实例。宿主按 `pages[]` 生成**右侧目录**：
+
+- 有 `group` 的归到同名的一级分组（可折叠）；
+- 没有 `group` 的是顶级条目；
+- 点一条 → 宿主打开对应页面（**不进返回栈**），目录自动收起；
+- 只有 1 个页面时不显示目录按钮；
+- 目录底部是插件信息（版本 + 包名、作者、项目地址 / 插件设置）。
+
+深链：`plugin/<id>` 打开第一页，`plugin/<id>/<pageId>` 直接打开指定页。
+
+### 后端能力（`PluginContext`）
+
+| API | 说明 |
+|---|---|
+| `schoolTool(name, argsJson)` | 只读取学校数据，19 个白名单工具（课表、成绩、考试、空教室、图书馆……）。返回 `{"ok":true,"tool":"…","text":"…","widgets":[…]}` |
+| `openAsset(name)` | 读插件 APK 里的 `assets/` |
+| `openPackageFile(path)` | 读插件包里的文件（相对包根目录） |
+| `dataDir()` | 插件自己的可写目录 |
+| `notify(title, text)` | 普通通知（不弹窗） |
+| `notify(title, text, headsUp = true)` | 悬浮通知（独立的高重要级别渠道） |
+| `toast` / `log` | 提示 / 打日志 |
+| `isDarkTheme` / `primaryColor` / `appVersionCode` | 宿主状态 |
+
+`schoolTool` 必须在**非主线程**调用。`widgets` 是结构化的卡片（`type` 为 `schedule` / `grades` / `rooms` / `notices` …），画表格用这个，别解析 `text`（那是给小岱看的自然语言）。个别工具不产卡片，那时 `widgets` 是空数组。
+
+写类工具（加日程、设闹钟、改设置、存文件）**不在白名单里**，硬调返回 `not_allowed`。
+
+---
+
+## web 插件
 
 ```json
-{"ok":true,"tool":"get_grades","text":"..."}
-{"ok":false,"tool":"get_grades","error":"not_allowed"}
+"type": "web",
+"web": {
+  "startUrl": "https://ehall.xjtu.edu.cn/",
+  "origins": ["https://ehall.xjtu.edu.cn"],
+  "allowSubdomains": true,
+  "capabilities": ["theme"],
+  "vpn": "optional_on"
+}
 ```
 
-- 必须在非主线程调用；主线程调用直接回 `main_thread`。
-- `text` 是给小岱看的取数文本，不是稳定的结构化契约。
-- 写入类（`add_schedule_event`、`set_alarm`、`preference`、`app_setting`、`save_file`、
-  `activity`）不在白名单里，插件硬调会回 `not_allowed`。
+- 打开时走盒子自己的内置浏览器（缓存、Cookie、夜间模式、下载都和盒子其它网页一致）；
+- `origins` 是**主框架导航**白名单，跳到别的主机会被拦下并提示；子资源不受限；
+- 白名单空 = 不限制。
 
-## 构建与安装
+**`vpn` 四档**（校内 WebVPN，开了校外也能访问校内站点）：
 
-1. 在 App 仓库里：`./gradlew :plugin:sample:assembleDebug`。
-2. 产物：`plugin/sample/build/outputs/apk/debug/sample-debug.apk`。
-3. App：「设置 → 插件 → 安装插件 APK」，选这个文件，确认签名/版本/权限提示。
-4. 打开示例页；小岱问「这周几门课」应能调到 `plugin_..._demo_course_count`。
+| 值 | 含义 |
+|---|---|
+| `required` | 必须走，用户不能关（详情页那行灰掉） |
+| `optional_on` | 可选，默认开 |
+| `optional_off` | 可选，默认关 |
+| `off` | 必须直连，用户不能开 |
 
-正式插件建议：
+走 VPN 时先探测登录态（失效会在 App 内重登），再把地址改写成网关地址。**这时页面全在 `webvpn.xjtu.edu.cn` 下，原始域名被加密在路径里，白名单只能按网关放行**——想严格限制站点就别开 VPN。
 
-- 用独立的插件签名密钥（不要复用 App 的 release key），并在 CI 保住；
-- 开 R8，`proguard-rules.pro` 保留入口类和 `com.xjtu.toolbox.plugin.api.**`；
-- 每次 App 的 `PluginApi.VERSION` 加一，插件都要重编并升 `apiVersion`。
+---
 
-## 安装、更新、卸载
+## 安装与更新
 
-- 首次安装记录 APK 签名证书 SHA-256；更新必须同证书、`versionCode` 必须更大。
-- 更新/卸载会关闭正在显示的该插件页面。
-- 卸载删除 `filesDir/plugins/<id>/` 和 `filesDir/plugins/data/<id>/`。
-- 已加载的 `DexClassLoader` 在进程内不能真正卸载；卸载后建议冷启动一次。
-- 插件文件在 `filesDir` 下，不参与系统云备份（见 `res/xml/data_extraction_rules.xml`）。
+- 装：插件列表右上角「设置」→「从文件安装」，选 zip；
+- 更新：同一个 `id`、同一把钥匙、`versionCode` 更大，直接覆盖安装，旧版本目录会被清掉；
+- 禁用：详情页「启用」关掉，页面与工具都不再加载，但包和设置都留着；
+- 卸载：删掉包目录和 `files/plugins/data/<id>`。
 
-## 限制（刻意不做）
+工具可以单独控制：详情页「允许小岱调用」进二级页，上面一个总开关，下面每个工具一行（长按看 `definition`）。总开关关掉时单项设置会留着。
 
-- 不做沙箱、不做权限清单、不做逐次工具确认（插件代码本来就在进程里）；
-- 不做插件市场、远程下载安装、自动更新；
-- 不做插件间依赖、插件调用插件、插件改首页/底栏；
-- 不做桌面/Web 插件。
+---
+
+## 安全模型
+
+- dex 插件和 App **同进程、同 uid**：权限等同 App，能读私有目录、登录会话、本机数据。`PluginContext` 那些接口是「方便」，不是「隔离」；
+- 所以只装信任来源的插件，`dump` 类工具跑不出这个前提；
+- web 插件不跑代码，只加载网页，风险小得多；但它仍带着登录态访问校内站点。
+
+## 开发
+
+```bash
+# dex 插件
+git clone https://github.com/Hz6826/dzhz-plugin-template
+./gradlew :plugin:assembleDebug
+python3 package.py plugin/build/outputs/apk/debug/plugin-debug.apk
+
+# web 插件
+git clone https://github.com/Hz6826/dzhz-plugin-web-template
+python3 package.py
+```
+
+产物 zip 直接装进盒子。两个仓库都有 GitHub Actions：push 出 Artifact，手动 `Run workflow` 填版本号会发到 Release。

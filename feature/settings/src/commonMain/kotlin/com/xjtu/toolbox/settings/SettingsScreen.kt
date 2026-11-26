@@ -482,9 +482,6 @@ fun SettingsScreen(
         host.agentPage?.let {
             add(SettingsGroup("小岱", Icons.Default.SmartToy, cPurple, fullPage = true))
         }
-        host.pluginsPage?.let {
-            add(SettingsGroup("插件", Icons.Default.Extension, cOrange, fullPage = true, fullPageTarget = PLUGINS_PAGE))
-        }
         add(SettingsGroup("关于", Icons.Default.Info, cBlue, aboutGroup))
     }
 

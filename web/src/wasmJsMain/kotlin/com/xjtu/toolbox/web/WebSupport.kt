@@ -21,6 +21,8 @@ import kotlin.reflect.KClass
  * - `SsActivity`：活动报名的屏与智慧社区登录都在 `:app`（安卓专属），本端没有对应屏，落 `NotPortedScreen`；
  * - `SuperApp`：移动交大的屏在 `:app`（安卓专属），子服务靠内置浏览器走各自的统一认证回调，本端没有对应屏，落 `NotPortedScreen`；
  * - `TermReport`：学期总结在 `:app` 里按本机数据现算（课表、成绩、校园卡、小游戏时长），本端没有这些本地数据，也没有这一屏。
+ * - `Plugins` / `PluginDetail` / `PluginTools` / `PluginWeb` / `Plugin`：插件系统整块在 `:app`——
+ *   dex 加载、内置浏览器、本机文件与通知都是安卓专属能力，本端没有插件运行时，这几条一律落 `NotPortedScreen`。
  */
 internal object WebSupport {
 
