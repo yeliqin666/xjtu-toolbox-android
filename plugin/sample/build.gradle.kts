@@ -10,13 +10,13 @@ plugins {
 }
 
 android {
-    namespace = "com.xjtu.toolbox.plugin.sample"
+    namespace = "top.dzhz.plugin.sample"
     compileSdk {
         version = release(37) {
         }
     }
     defaultConfig {
-        applicationId = "com.xjtu.toolbox.plugin.sample"
+        applicationId = "top.dzhz.plugin.sample"
         minSdk = 31
         targetSdk = 36
         versionCode = 6

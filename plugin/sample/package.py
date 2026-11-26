@@ -79,7 +79,7 @@ def main():
 
     manifest = {
         "manifestVersion": 1,
-        "id": "com.xjtu.toolbox.plugin.sample",
+        "id": "top.dzhz.plugin.sample",
         "name": "示例插件",
         "summary": "把课程、考试、成绩、图书馆座位和空教室整理到一页，顺手给小岱加两个只读工具，不碰登录会话也不上传数据",
         "version": args.version,
@@ -91,7 +91,7 @@ def main():
         "apiVersion": 2,
         "dex": {
             "apk": "plugin.apk",
-            "entryClass": "com.xjtu.toolbox.plugin.sample.SamplePlugin",
+            "entryClass": "top.dzhz.plugin.sample.SamplePlugin",
             "pages": PAGES,
             "tools": TOOLS,
         },

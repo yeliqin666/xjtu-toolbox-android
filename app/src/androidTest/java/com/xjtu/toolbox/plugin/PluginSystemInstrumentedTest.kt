@@ -22,7 +22,7 @@ class PluginSystemInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
     private val manager = PluginManager.get(context)
-    private val pluginId = "com.xjtu.toolbox.plugin.sample"
+    private val pluginId = "top.dzhz.plugin.sample"
 
     @After
     fun cleanup() {

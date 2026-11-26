@@ -104,7 +104,7 @@ internal data class PluginRecord(
     val id: String,
     val versionCode: Int,
     val versionName: String,
-    /** 相对 `filesDir/plugins` 的包目录，例如 `com.xjtu.toolbox.plugin.sample/4`。 */
+    /** 相对 `filesDir/plugins` 的包目录，例如 `top.dzhz.plugin.sample/4`。 */
     val root: String = "",
     /** dex 插件 APK 相对包目录的路径；web 插件为空串。 */
     val apk: String = "",

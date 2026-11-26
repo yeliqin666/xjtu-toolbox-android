@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.plugin.sample
+package top.dzhz.plugin.sample
 
 import org.json.JSONObject
 import com.xjtu.toolbox.plugin.api.PluginContext
