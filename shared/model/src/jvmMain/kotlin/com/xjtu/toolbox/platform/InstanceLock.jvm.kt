@@ -1,216 +1,187 @@
 package com.xjtu.toolbox.platform
 
 import java.io.File
-import java.io.FileOutputStream
-import java.nio.file.FileAlreadyExistsException
+import java.io.IOException
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 import java.util.Properties
 
 /**
- * 单实例闸门（B-13）：同一个数据根（`keyValueStoreRoot()`）只让**一个进程**写。
- *
- * 为什么要有它：[JvmFileKeyValueStore] 与 `:data` 的 `FileKeyValueStore` 都是「init 时整份读进内存、
- * 每次改动整份回写」。**两个进程**同时开（桌面窗口 + `:server` 的 serve 模式，或者两个桌面窗口）就会
- * 互相覆盖：后写的把先写的那几个 key 整段抹掉（不是合并、是丢）。所以启动时先抢 `<数据根>/.lock`：
- *
- * - 抢到 ⇒ [isOwner] `true`，正常读写；
- * - 抢不到 ⇒ 这一端按**只读**跑（[StoreWriteGate] 一上，所有键值存储的 `persist()` 直接不落盘），
- *   并把「另一个实例正在运行」如实摆在用户面前（桌面画一条横幅，serve 打一行提示）。
- *
- * **僵尸锁**：进程被 `kill -9` / 断电之后锁文件会留在盘上，但那个 pid 已经不在了。所以拿到锁文件之后
- * 一定要问一句「这个 pid 还活着吗」（[isProcessAlive]）：不活了就把锁当无主的抢过来，而不是让用户
- * 永久卡在只读里（否则唯一出路是手动删 `.lock` —— 那种「自己想办法」的报错不算交代）。
- *
- * 抢锁本身是 `CREATE_NEW`（原子建），因此两个进程同时起步时只有一个能落笔；抢完之后还要再读一遍，
- * 读到的不是自己的 pid 就说明这一轮输了（[readOnly]）—— 不重试到底，绝不在没抢到的前提下当写者。
+ * 数据根目录的进程级写锁。操作系统负责互斥及进程退出后的释放。
+ * .lock.guard 是永久锁文件，不能删除或替换；.lock 只保存诊断信息。
  */
 class InstanceLock private constructor(
-    /** 锁文件，`<数据根>/.lock`。 */
     val file: File,
-    /** 锁上记着的持有者 pid（自己抢到时就是自己）。 */
     val ownerPid: Long,
-    /** 锁上记着的持有者身份（`desktop` / `serve`），读不到就是 `null`。 */
     val ownerRole: String?,
-    /** 持有者是什么时候抢到的（epoch ms），读不到就是 `0`。 */
     val ownerSinceMs: Long,
-    /**
-     * `null` ⇒ 抢到了，本进程是写者。
-     * 非 `null` ⇒ 本进程**只读**，值是那句人话（「谁在上面、该怎么办」）。
-     */
     val readOnlyReason: String?,
+    private val channel: FileChannel? = null,
+    private val fileLock: FileLock? = null,
 ) {
+    val isOwner: Boolean get() = fileLock?.isValid == true
 
-    /** 本进程是否持有这把锁（持有者才允许落盘，见 [StoreWriteGate]）。 */
-    val isOwner: Boolean get() = readOnlyReason == null
-
-    /**
-     * 退出时放锁。不是持有者就什么都不做（**绝不能删别人的锁**：删了第三个进程就会以为没人写）。
-     *
-     * 只删「锁上还是自己的 pid」的那一份 —— 万一中途被别人抢过（僵尸判定的竞态），也不替它清场。
-     */
-    fun release() {
-        if (!isOwner) return
-        if (read(file)?.pid != ownerPid) return
-        runCatching { file.delete() }
-    }
-
-    override fun toString(): String =
-        if (isOwner) "InstanceLock(owner pid=$ownerPid @${file.path})" else "InstanceLock(read-only: $readOnlyReason)"
+    fun release() = releaseOwner(this)
 
     companion object {
-
-        /** 锁文件名（放在数据根下，与那些 `*.properties` 同一个目录 —— 一眼看得见、删得掉）。 */
         const val LOCK_NAME = ".lock"
+        private const val GUARD_NAME = ".lock.guard"
+        private val owners = mutableMapOf<File, InstanceLock>()
 
-        private const val KEY_PID = "pid"
-        private const val KEY_ROLE = "role"
-        private const val KEY_SINCE = "sinceMs"
-
-        /** 抢锁时最多试几次（每次之间没有等待：两次都输就是真输了，直接按只读跑）。 */
-        private const val ATTEMPTS = 3
-
-        /**
-         * 抢 [root] 上的那把锁。
-         *
-         * @param role 本进程的身份，写进锁文件里给人看（`desktop` / `serve`）。
-         * @param root 数据根，默认就是键值存储那个根（`keyValueStoreRoot()`）。
-         * @param alive 判断某个 pid 还在不在（测试注入；真机上就是 `ProcessHandle`）。
-         */
-        fun acquire(
-            role: String,
-            root: File = keyValueStoreRoot(),
-            selfPid: Long = ProcessHandle.current().pid(),
-            alive: (Long) -> Boolean = ::isProcessAlive,
-        ): InstanceLock {
-            runCatching { root.mkdirs() }
+        @Synchronized
+        fun acquire(role: String, root: File = keyValueStoreRoot()): InstanceLock {
+            // Windows may still hold a terminated process's file locks during OS cleanup.
+            // Retry only when the recorded owner has exited; never bypass the actual lock.
             val file = File(root, LOCK_NAME)
-            repeat(ATTEMPTS) {
-                val existing = read(file)
-                // 1) 有主且活着（**自己 pid 永远算活着**：同进程里第二次 acquire 也只能只读）⇒ 让位。
-                //    这里不看 alive 谓词：pid 不可见的容器里 alive(selfPid) 可能为假，
-                //    那时把自己那把锁当僵尸抢掉 = 双写（B-13 要防的正是这个）。
-                if (existing != null && (existing.pid == selfPid || alive(existing.pid))) {
-                    return readOnly(file, existing, role)
+            val deadline = System.nanoTime() + 2_000_000_000L
+            while (true) {
+                val result = acquireOnce(role, root)
+                if (result.isOwner) return result
+                val previous = read(file)
+                if (previous == null || !previous.kernelLock || isProcessAlive(previous.pid) ||
+                    System.nanoTime() >= deadline) return result
+                try {
+                    Thread.sleep(25)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return result
                 }
-                // 2) 没有锁文件 / 僵尸（pid 不在了）⇒ 抢过来。删掉是僵尸判定的后果，不是「覆盖别人的」。
-                if (existing != null) runCatching { file.delete() }
-                // 3) 原子建：赢了才是写者，输了（有人正同时起步）再看一眼谁在上面
-                if (tryCreate(file, role, selfPid)) {
-                    return InstanceLock(file, selfPid, role, System.currentTimeMillis(), readOnlyReason = null)
-                }
-            }
-            val winner = read(file)
-            return if (winner == null) {
-                // 明明是空目录却怎么都建不出来（只读文件系统 / 权限）⇒ 仍然按只读跑，并说清是为什么
-                InstanceLock(
-                    file = file,
-                    ownerPid = selfPid,
-                    ownerRole = null,
-                    ownerSinceMs = 0L,
-                    readOnlyReason = "写不了 ${file.path}（只读文件系统或没有权限）—— 本进程按只读跑：改了也不会存。",
-                )
-            } else {
-                readOnly(file, winner, role)
             }
         }
 
-        /** 只是看一眼锁上是谁（不抢、不写）。诊断 / 测试用。 */
+        private fun acquireOnce(role: String, root: File): InstanceLock {
+            val pid = ProcessHandle.current().pid()
+            val file = try {
+                File(root.canonicalFile, LOCK_NAME)
+            } catch (e: IOException) {
+                return unavailable(File(root, LOCK_NAME), role, e)
+            }
+
+            // 同 JVM 内不再打开第二个 guard 句柄：某些系统关闭任一
+            // 同文件描述符都会释放该进程的文件锁。
+            owners[file]?.let { owner ->
+                return readOnly(file, LockOwner(owner.ownerPid, owner.ownerRole, owner.ownerSinceMs, true), role)
+            }
+
+            val guard = File(file.parentFile, GUARD_NAME)
+            val channel = try {
+                Files.createDirectories(file.parentFile.toPath())
+                FileChannel.open(guard.toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
+            } catch (e: IOException) {
+                return unavailable(file, role, e)
+            }
+            var acquired: FileLock? = null
+            var keep = false
+            try {
+                acquired = try {
+                    channel.tryLock()
+                } catch (_: OverlappingFileLockException) {
+                    null
+                }
+                if (acquired == null) return readOnly(file, read(file), role)
+
+                // 兼容升级时尚未退出的旧版本。新协议不以 PID 判断锁归属。
+                val previous = read(file)
+                if (previous != null && !previous.kernelLock && isProcessAlive(previous.pid)) {
+                    return readOnly(file, previous, role)
+                }
+
+                val since = System.currentTimeMillis()
+                Properties().apply {
+                    setProperty("pid", pid.toString())
+                    setProperty("role", role)
+                    setProperty("sinceMs", since.toString())
+                    setProperty("protocol", "2")
+                }.let { props -> file.outputStream().use { props.store(it, null) } }
+
+                val owner = InstanceLock(file, pid, role, since, null, channel, acquired)
+                owners[file] = owner
+                keep = true
+                return owner
+            } catch (e: IOException) {
+                return unavailable(file, role, e)
+            } finally {
+                if (!keep) {
+                    try {
+                        acquired?.release()
+                    } finally {
+                        channel.close()
+                    }
+                }
+            }
+        }
+
+        @Synchronized
+        private fun releaseOwner(owner: InstanceLock) {
+            if (owners[owner.file] !== owner) return
+            try {
+                // 只在持有操作系统锁时清除诊断信息。
+                runCatching { Files.deleteIfExists(owner.file.toPath()) }
+            } finally {
+                try {
+                    owner.fileLock?.release()
+                } finally {
+                    try {
+                        owner.channel?.close()
+                    } finally {
+                        owners.remove(owner.file)
+                    }
+                }
+            }
+        }
+
+        /** 读取诊断信息，不判断实际锁归属；异常退出后信息可能过期。 */
         fun peek(root: File = keyValueStoreRoot()): InstanceLock? =
             read(File(root, LOCK_NAME))?.let { owner ->
                 InstanceLock(File(root, LOCK_NAME), owner.pid, owner.role, owner.sinceMs, "(peek)")
             }
 
-        private fun readOnly(file: File, owner: LockOwner, role: String): InstanceLock = InstanceLock(
-            file = file,
-            ownerPid = owner.pid,
-            ownerRole = owner.role,
-            ownerSinceMs = owner.sinceMs,
-            readOnlyReason = owner.describe(role),
-        )
-
-        private fun tryCreate(file: File, role: String, pid: Long): Boolean {
-            val text = Properties().apply {
-                setProperty(KEY_PID, pid.toString())
-                setProperty(KEY_ROLE, role)
-                setProperty(KEY_SINCE, System.currentTimeMillis().toString())
-            }
-            return try {
-                // CREATE_NEW：文件已存在就抛 —— 这就是「原子抢到」，不需要额外的锁
-                FileOutputStream(Files.createFile(file.toPath()).toFile()).use { text.store(it, null) }
-                true
-            } catch (e: FileAlreadyExistsException) {
-                false
-            } catch (e: java.io.IOException) {
-                false
-            }
-        }
-
-        private fun read(file: File): LockOwner? {
-            if (!file.isFile) return null
-            val props = Properties()
-            runCatching { file.inputStream().use { props.load(it) } }.onFailure { return null }
-            val pid = props.getProperty(KEY_PID)?.toLongOrNull() ?: return null
-            return LockOwner(
-                pid = pid,
-                role = props.getProperty(KEY_ROLE)?.takeIf { it.isNotBlank() },
-                sinceMs = props.getProperty(KEY_SINCE)?.toLongOrNull() ?: 0L,
+        private fun readOnly(file: File, owner: LockOwner?, role: String): InstanceLock {
+            val who = owner?.let { "（pid ${it.pid}${it.role?.let { r -> "，$r" }.orEmpty()}）" }.orEmpty()
+            return InstanceLock(
+                file, owner?.pid ?: -1L, owner?.role, owner?.sinceMs ?: 0L,
+                "另一个实例正在运行$who：当前 $role 实例按只读运行。关闭其他实例后重新启动即可写入。",
             )
         }
 
-        private fun LockOwner.describe(role: String): String {
-            val who = buildString {
-                append("pid ").append(pid)
-                this@describe.role?.let { append("，").append(it) }
-                if (sinceMs > 0) append("，").append(startedAt(sinceMs))
-            }
-            return "另一个实例正在运行（$who）：同一个数据根只允许一个写者，" +
-                "所以这一端（$role）按只读跑 —— 在这里改了也不会存。" +
-                "要写就先关掉那一个再启动；确认它已经不在（进程被 kill 过）而锁还在，删掉 ${LOCK_NAME} 再启动。"
-        }
+        private fun unavailable(file: File, role: String, error: IOException) = InstanceLock(
+            file, -1L, null, 0L,
+            "无法取得 ${file.path} 的写锁（${error.javaClass.simpleName}: ${error.message}）：当前 $role 实例按只读运行。",
+        )
 
-        private fun startedAt(epochMs: Long): String = runCatching {
-            val at = java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault())
-            "启动于 " + at.toLocalDateTime().toString().replace('T', ' ')
-        }.getOrDefault("启动时间未知")
+        private fun read(file: File): LockOwner? = runCatching {
+            val props = Properties().apply { file.inputStream().use { load(it) } }
+            LockOwner(
+                props.getProperty("pid")?.toLongOrNull() ?: return null,
+                props.getProperty("role"),
+                props.getProperty("sinceMs")?.toLongOrNull() ?: 0L,
+                props.getProperty("protocol") == "2",
+            )
+        }.getOrNull()
+
+        private data class LockOwner(val pid: Long, val role: String?, val sinceMs: Long, val kernelLock: Boolean)
     }
-
-    private class LockOwner(val pid: Long, val role: String?, val sinceMs: Long)
 }
 
-/** `pid` 还在不在：`ProcessHandle` 在 JDK 9+ 上会顺手排掉僵尸（已退出未回收的也算不在）。 */
-internal fun isProcessAlive(pid: Long): Boolean {
-    if (pid <= 0L) return false
-    return runCatching {
-        ProcessHandle.of(pid).map { it.isAlive }.orElse(false)
-    }.getOrDefault(false)
-}
+internal fun isProcessAlive(pid: Long): Boolean =
+    pid > 0 && runCatching { ProcessHandle.of(pid).map { it.isAlive }.orElse(false) }.getOrDefault(false)
 
-/**
- * 进程级写闸：拿不到单实例锁就把 [readOnlyReason] 设上，之后**所有**键值存储的 `persist()` 都不落盘。
- *
- * 为什么是全局一格而不是给每个 store 传一个只读标志：一个进程只有一种身份（要么是写者、要么是只读
- * 观察者），而写者之间才需要区分 —— 没有「这个 store 可写、那个不可写」这种情形。放在这里还有个好处：
- * `:data` 的 `FileKeyValueStore` 与 `:shared:model` 的 `JvmFileKeyValueStore` 是两份各自独立的实现，
- * 一个全局开关才能同时管住它们（两边都会问一句 [allowsWrites]）。
- */
+/** 进程级只读状态。所有 JVM 键值存储写入均受此限制。 */
 object StoreWriteGate {
-
-    /** `null` = 可以写；非 `null` = 只读，值是那句人话（谁在上面）。 */
     @Volatile
     var readOnlyReason: String? = null
         private set
 
-    /** 还能不能落盘。**每个 `persist()` 开口第一句就问它。** */
     val allowsWrites: Boolean get() = readOnlyReason == null
 
-    /** 转只读（只该调一次，在启动抢锁失败处）。 */
     fun goReadOnly(reason: String) {
         readOnlyReason = reason
     }
 
-    /** 仅测试用：把闸复位（否则一个测试的只读会漏给后面的测试）。 */
     internal fun resetForTest() {
         readOnlyReason = null
     }
 }
-

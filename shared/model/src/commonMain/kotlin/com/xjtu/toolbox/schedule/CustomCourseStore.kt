@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** 「自建日程那张表」这条缝 —— 读写收成一组动作，怎么存由各端自己定。 */
 interface CustomCourseStore {
@@ -42,9 +44,6 @@ interface CustomCourseStore {
 /** 键值缝上的那份实现 —— 桌面端用（这一端没有 Room）。 */
 class KeyValueCustomCourseStore(private val store: KeyValueStore) : CustomCourseStore {
 
-    /** 写一次就 +1：`observeByTerm` 靠它把新表推出去（键值缝本身没有监听器）。 */
-    private val version = MutableStateFlow(0L)
-
     override fun observeByTerm(accountId: String, termCode: String): Flow<List<CustomCourse>> =
         version.map { byTerm(accountId, termCode) }.distinctUntilChanged()
 
@@ -64,18 +63,18 @@ class KeyValueCustomCourseStore(private val store: KeyValueStore) : CustomCourse
         }
         .sortedBy { it.startMinuteOfDay }
 
-    override suspend fun insert(course: CustomCourse): Long {
+    override suspend fun insert(course: CustomCourse): Long = lock.withLock {
         val rows = all()
         val id = (rows.maxOfOrNull { it.id } ?: 0L) + 1
         write(rows + course.copy(id = id))
-        return id
+        id
     }
 
-    override suspend fun update(course: CustomCourse) {
+    override suspend fun update(course: CustomCourse) = lock.withLock {
         write(all().map { if (it.id == course.id) course else it })
     }
 
-    override suspend fun delete(course: CustomCourse) {
+    override suspend fun delete(course: CustomCourse) = lock.withLock {
         write(all().filterNot { it.id == course.id })
     }
 
@@ -84,7 +83,7 @@ class KeyValueCustomCourseStore(private val store: KeyValueStore) : CustomCourse
             .sortedWith(compareByDescending<CustomCourse> { it.termCode }.thenBy { it.dayOfWeek }
                 .thenBy { it.startSection }.thenBy { it.startMinuteOfDay })
 
-    override suspend fun deleteByAccount(accountId: String) {
+    override suspend fun deleteByAccount(accountId: String) = lock.withLock {
         write(all().filterNot { it.accountId == accountId })
     }
 
@@ -103,6 +102,10 @@ class KeyValueCustomCourseStore(private val store: KeyValueStore) : CustomCourse
     }
 
     companion object {
+        // 同一份课程表可能被多个 Store 实例访问。
+        private val lock = Mutex()
+        private val version = MutableStateFlow(0L)
+
         /** 落盘键。桌面端这份文件里只有这一个键。 */
         const val KEY = "custom_courses"
     }

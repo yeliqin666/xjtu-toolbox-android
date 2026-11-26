@@ -1,7 +1,7 @@
 name: Desktop Windows Packaging
 
 # 出 .exe 安装包（jpackage 不能交叉构建，只能在 Windows 上打）。PR 上只在打包配置、图标、版本目录或
-# DPAPI 代码变动时跑，并在真 Windows 上验 DPAPI（Linux 上这几条会自行跳过）；
+# JVM 平台存储代码变动时跑，并在真 Windows 上验文件存储与 DPAPI（Linux 上 DPAPI 测试会自行跳过）；
 # 正式发版时由 build.yml 在安卓 Release 发完后调用，把产物挂到同一个 Release（不走 OSS）。
 
 on:
@@ -10,6 +10,8 @@ on:
       - 'desktop/build.gradle.kts'
       - 'desktop/icons/**'
       - 'gradle/libs.versions.toml'
+      - 'shared/model/src/jvmMain/kotlin/com/xjtu/toolbox/platform/**'
+      - 'shared/model/src/jvmTest/kotlin/com/xjtu/toolbox/platform/**'
       - 'shared/data/src/jvmMain/kotlin/com/xjtu/toolbox/platform/**'
       - 'shared/data/src/jvmTest/kotlin/com/xjtu/toolbox/platform/**'
       - '.github/workflows/desktop-windows.yml'
@@ -38,9 +40,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: DPAPI 凭据保护测试
+      - name: JVM 文件存储与凭据保护测试
         if: inputs.release_tag == ''
-        run: .\gradlew.bat :shared:data:jvmTest --tests "com.xjtu.toolbox.platform.*"
+        run: .\gradlew.bat --continue :shared:model:jvmTest --tests "com.xjtu.toolbox.platform.*" :shared:data:jvmTest --tests "com.xjtu.toolbox.platform.*"
 
       # JDK 21 的 jpackage 用 WiX v3；只认 ≥3.14（3.11 要 .NET 3.5，镜像不带），并用 WIX_PATH 阻止 Compose 去下旧版
       - name: 准备 WiX
@@ -118,6 +120,7 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
           path: |
+            shared/model/build/reports/tests/**
             shared/data/build/reports/tests/**
             desktop/build/compose/logs/**
             desktop/build/compose/tmp/*.args.txt
