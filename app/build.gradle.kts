@@ -1,4 +1,10 @@
 import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.android.application)
@@ -28,6 +34,9 @@ android {
         targetSdk = 36
         versionCode = 101
         versionName = "6.2.3"
+
+        // 插件系统的设备测试：样例 APK 作为 androidTest asset，见文件末尾的 preparePluginTestAssets
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -246,6 +255,8 @@ dependencies {
     implementation(project(":feature:score"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:webvpn"))
+    // 插件系统的稳定 API；插件 APK 也编译时依赖它（见 plugin/api）
+    implementation(project(":plugin:api"))
     // 金标联盟 SharedViewKit：ROM 声明支持时，公告卡 → 公告详情走系统级一镜到底；
     // 不支持时由 :app 的 KitOneTake 回落成 App 内现有的 Compose 转场（见 KitOneTake.kt）。
     implementation(libs.sharedview.kit)
@@ -313,6 +324,9 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.espresso.core)
     robolectricAndroidAll("org.robolectric:android-all-instrumented:15-robolectric-13954326-i7")
     debugImplementation(libs.androidx.ui.tooling)
     // 组合追踪：广播 androidx.tracing.perfetto.action.ENABLE_TRACING 后，Perfetto 的 track_event 里有每个重组的组件名

@@ -100,6 +100,9 @@ interface SettingsHost {
     /** 「小岱」整页设置；没接小岱的端（桌面 / Web）为 null，整条不出现。 */
     val agentPage: (@Composable (onBack: () -> Unit) -> Unit)? get() = null
 
+    /** 「插件」整页管理；只有能加载 dex 的端（Android）接，桌面 / Web 为 null，整条不出现。 */
+    val pluginsPage: (@Composable (onBack: () -> Unit) -> Unit)? get() = null
+
     /** 「关于 → 岱宗盒子的故事」的正文（外壳与顶栏由设置页给）；没有项目数据的端为 null，整条不出现。 */
     val projectStoryPage: (@Composable () -> Unit)? get() = null
 }

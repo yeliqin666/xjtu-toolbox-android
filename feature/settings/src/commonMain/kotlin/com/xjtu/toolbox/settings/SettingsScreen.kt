@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Wifi
@@ -516,7 +517,7 @@ fun SettingsScreen(
         SettingsHome(
             groups, onBack,
             onOpenGroup = { page = it },
-            onOpenFullPage = { page = AGENT_PAGE },
+            onOpenFullPage = { page = groups[it].fullPageTarget },
             modifier = Modifier.graphicsLayer {
                 translationX = (if (rtl) 1f else -1f) * cover * size.width * 0.25f
                 alpha = 1f - 0.1f * cover
@@ -576,6 +577,19 @@ fun SettingsScreen(
         ) {
             BackHandler(enabled = page == AGENT_PAGE) { page = NO_PAGE }
             host.agentPage?.invoke({ page = NO_PAGE })
+        }
+        // 插件管理整页：只有能加载 dex 的端接了这个槽位
+        AnimatedVisibility(
+            visible = page == PLUGINS_PAGE,
+            enter = slideInHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+            exit = slideOutHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+        ) {
+            BackHandler(enabled = page == PLUGINS_PAGE) { page = NO_PAGE }
+            host.pluginsPage?.invoke({ page = NO_PAGE })
         }
     }
 }
@@ -731,6 +745,7 @@ private const val CHANGELOG_PAGE = -3
 private const val EULA_PAGE = -4
 private const val AGENT_PAGE = -5
 private const val STORY_PAGE = -6
+private const val PLUGINS_PAGE = -7
 
 private const val STORY_TITLE = "岱宗盒子的故事"
 
@@ -745,6 +760,8 @@ private class SettingsGroup(
     val color: Color,
     val body: @Composable () -> Unit = {},
     val fullPage: Boolean = false,
+    /** [fullPage] 时点开哪一页；默认是小岱设置。 */
+    val fullPageTarget: Int = AGENT_PAGE,
 )
 
 @Composable

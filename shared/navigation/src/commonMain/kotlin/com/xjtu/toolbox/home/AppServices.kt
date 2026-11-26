@@ -41,6 +41,18 @@ data class AppService(
      * 页面里加了能单独说出名字的功能就登记在这，不然小岱会说 App 没有。
      */
     val features: List<String> = emptyList(),
+    /**
+     * 这是插件公开页，不是内置功能（2026-11）。
+     *
+     * 插件页由宿主在运行时追加到目录末尾（见 `HomeHost.extraServices`）。首页编辑态的
+     * 添加面板、经典版的服务列表靠这个标记在**内置功能之后**插一行小标题「插件」，
+     * 内置功能那边不加标题。
+     */
+    val pluginPage: Boolean = false,
+    /** 插件页声明的图标（语义名，见 `HomeIcons.semantic`）；空 = 按类型默认（dex 拼图 / web 地球）。 */
+    val iconName: String = "",
+    /** 插件页声明的图标颜色 `#RRGGBB`；空 = 按类型默认（dex 橙 / web 蓝，与列表里的类型徽章同色）。 */
+    val colorHex: String = "",
 )
 
 object AppServices {

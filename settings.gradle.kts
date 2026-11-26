@@ -92,3 +92,6 @@ include(":feature:score")
 include(":feature:settings")
 include(":feature:webvpn")
 
+// 插件系统：稳定的插件 API（Android AAR）+ 一个可安装的样例插件 APK。
+include(":plugin:api")
+

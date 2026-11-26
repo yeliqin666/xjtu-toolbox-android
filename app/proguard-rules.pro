@@ -50,3 +50,17 @@
 # 预览版与正式版现在用同一套 R8 规则，这类问题能在预览阶段就提前暴露。
 -keep class com.xjtu.toolbox.nav.AppRoute { *; }
 -keep class com.xjtu.toolbox.nav.AppRoute$* { *; }
+
+# ── 插件 API（plugin/api）──
+# 插件 APK 单独编译，按原类名引用这些接口；宿主 R8 改了名，插件就找不到宿主。
+# 真正的契约在 plugin/api/consumer-rules.pro；这里显式再写一条，避免 consumer 规则没生效。
+-keep class com.xjtu.toolbox.plugin.api.** { *; }
+
+# ── 插件：共享 lifecycle / savedstate ──
+# 插件 ComposeView 用父加载器的 LifecycleOwner / SavedStateRegistryOwner / R.id，
+# 这些类被 R8 改名后插件按原类名就找不到了；它们体量不大，整包保留。
+-keep class androidx.lifecycle.** { *; }
+-keep class androidx.savedstate.** { *; }
+
+# 插件代码和宿主的 lifecycle 一起用宿主 Kotlin stdlib；R8 改名后插件按原类名找不到。
+-keep class kotlin.** { *; }

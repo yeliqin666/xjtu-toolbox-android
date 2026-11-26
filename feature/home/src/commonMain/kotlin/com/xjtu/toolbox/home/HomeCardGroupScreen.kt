@@ -136,6 +136,7 @@ import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
+import com.xjtu.toolbox.ui.theme.serviceColorOverride
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -189,9 +190,11 @@ fun HomeCardGroupScreen(
 ) {
     val honored = host.honoredCards
     // 用目录全量：图标配色按它在目录里的下标取，过滤会让配色挪位。
-    val catalog = remember(host.audience) { AppServices.homeFor(host.audience) }
+    val catalog = remember(host.audience, host.extraServices) {
+        AppServices.homeFor(host.audience) + host.extraServices
+    }
     // 配色随应用主题变化，不能放进 remember。
-    val colorByKey = catalog.associate { it.route.id to serviceColor(it.route.id) }
+    val colorByKey = catalog.associate { it.route.id to serviceTint(it) }
 
     // ── 布局与主页设置 ──
     val layoutStore = remember { HomeLayoutStore() }
@@ -202,8 +205,8 @@ fun HomeCardGroupScreen(
     val settingsRevision = SettingsRevision.current
     val revision = HomeLayoutRevision.current
     val editing = remember { HomeEditState() }
-    val stored = remember(revision, host.audience, host.quickRoutes) {
-        layoutStore.load(host.audience, host.quickRoutes)
+    val stored = remember(revision, host.audience, host.quickRoutes, host.extraServices) {
+        layoutStore.load(host.audience, host.quickRoutes, host.extraServices)
     }
     val layout = editing.draft ?: stored
     val grid = layoutStore.grid
@@ -603,7 +606,7 @@ fun HomeCardGroupScreen(
     val resetRevision = HomeLayoutResetRevision.current
     LaunchedEffect(resetRevision) {
         if (resetRevision == 0 || !editing.on) return@LaunchedEffect
-        editing.draft = layoutStore.load(host.audience, host.quickRoutes)
+        editing.draft = layoutStore.load(host.audience, host.quickRoutes, host.extraServices)
     }
 
     /** 缩放中的实时尺寸（格）：按「手指内容坐标 − 起手内容坐标」的**绝对差值**重算。 */
@@ -2130,14 +2133,26 @@ private fun TilePickerMenu(
                 modifier = Modifier.padding(16.dp),
             )
         }
+        // 内置功能之后接插件页：**一个插件一段**，小标题就是插件名（副标题），
+        // 这样「插件模板」的六个页面自成一组，不会跟别的插件混成一坨。
+        var pluginOwner: String? = null
         candidates.forEach { service ->
+            if (service.pluginPage && service.subtitle != pluginOwner) {
+                pluginOwner = service.subtitle
+                Text(
+                    service.subtitle,
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp, end = 16.dp),
+                )
+            }
             com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
                 text = { Text(service.title, fontSize = 14.sp) },
                 leadingIcon = {
                     Icon(
-                        HomeIcons.of(service.route),
+                        HomeIcons.of(service.route, service.iconName),
                         contentDescription = null,
-                        tint = serviceColor(service.route.id),
+                        tint = serviceTint(service),
                         modifier = Modifier.size(20.dp),
                     )
                 },
@@ -2220,7 +2235,7 @@ private fun buildFaces(
             val click = clicks.getValue(id)
             id to HomeServiceRow(
                 key = id,
-                icon = HomeIcons.of(service.route),
+                icon = HomeIcons.of(service.route, service.iconName),
                 title = service.title,
                 subtitle = service.subtitle,
                 color = colorByKey[id] ?: Color.Unspecified,
@@ -2231,6 +2246,8 @@ private fun buildFaces(
                 onLink = host::onOpenLink,
                 tone = glance?.tone ?: HomeTone.NORMAL,
                 lines = if (withStats) HomeCards.linesOf(id, stats) else emptyList(),
+                // 插件页没有状态可给：大字放页面标题，小字放插件名
+                heroIsTitle = service.pluginPage,
             )
         }
 }
