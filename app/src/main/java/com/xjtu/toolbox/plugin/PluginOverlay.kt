@@ -274,26 +274,27 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
                 tree == null -> "loading"
                 else -> "content"
             }
-            Crossfade(
-                targetState = state,
-                animationSpec = tween(180),
-                label = "pluginState",
-            ) { current ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        // 高度变化（加载态 → 长页面）平滑过渡
-                        .animateContentSize()
-                        // 插件页正文也能折叠顶栏；内容不够一屏时不会误折叠
-                        .reportScrollToTopBar(scroll, scrollBehavior)
-                        .verticalScroll(scroll)
-                        .overScrollVertical()
-                        .padding(tabContentPadding(padding))
-                        // 顶栏毛玻璃采样正文
-                        .glassSource(glass)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+            // 滚动容器放在 Crossfade 外面：里面被无界约束量过就滚不动了
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    // 高度变化（加载态 → 长页面）平滑过渡
+                    .animateContentSize()
+                    // 插件页正文也能折叠顶栏；内容不够一屏时不会误折叠
+                    .reportScrollToTopBar(scroll, scrollBehavior)
+                    .verticalScroll(scroll)
+                    .overScrollVertical()
+                    .padding(tabContentPadding(padding))
+                    // 顶栏毛玻璃采样正文
+                    .glassSource(glass)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Crossfade(
+                    targetState = state,
+                    animationSpec = tween(180),
+                    label = "pluginState",
+                ) { current ->
                     when (current) {
                         "error" -> PluginUiTree(UiEmptyNode("插件加载失败", error.orEmpty()), onAction)
                         "loading" -> PluginUiTree(UiLoadingNode("正在加载插件…"), onAction)
