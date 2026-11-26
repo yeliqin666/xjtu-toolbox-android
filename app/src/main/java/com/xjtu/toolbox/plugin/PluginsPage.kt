@@ -1171,21 +1171,24 @@ private fun DetailPage(
                     )
                 }
             }
-        }
-    }
 
-    if (confirm) {
-        com.xjtu.toolbox.community.ConfirmDialog(
-            title = "卸载「${record.manifest.name}」？",
-            summary = "会删掉插件包和它自己的数据目录，这个插件的页面和小岱工具立刻失效。\n\n已经产生的本地数据不能恢复。",
-            confirm = "卸载",
-            onConfirm = {
-                confirm = false
-                onUninstall()
-            },
-            onDismiss = { confirm = false },
-            danger = true,
-        )
+            // 确认弹窗必须挂在本页这个 Scaffold 的内容里：miuix 的 Overlay 系列靠 Scaffold
+            // 提供的 MiuixPopupHost 渲染，写在 Scaffold 外面会 fallback 到最外层 Scaffold，
+            // 被当前页面盖住——表现就是「点了卸载没反应」。
+            if (confirm) {
+                com.xjtu.toolbox.community.ConfirmDialog(
+                    title = "卸载「${record.manifest.name}」？",
+                    summary = "会删掉插件包和它自己的数据目录，这个插件的页面和小岱工具立刻失效。\n\n已经产生的本地数据不能恢复。",
+                    confirm = "卸载",
+                    onConfirm = {
+                        confirm = false
+                        onUninstall()
+                    },
+                    onDismiss = { confirm = false },
+                    danger = true,
+                )
+            }
+        }
     }
 }
 
