@@ -44,6 +44,9 @@ enum class SettingsRow {
 
     /** 课表显示考勤角标。 */
     SCHEDULE_ATTENDANCE,
+
+    /** 内置浏览器的网页是否跟随深色模式（有内置浏览器的端才列）。 */
+    BROWSER_DARK,
 }
 
 /** 一条更新日志。 */

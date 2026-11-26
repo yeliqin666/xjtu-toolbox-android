@@ -107,6 +107,9 @@ fun SsActivityScreen(site: SiteSession, onBack: () -> Unit, onOpenWeb: (String) 
     val tabs = listOf("活动", "我的报名")
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
+    // 网页上办完（或取消）报名回来，重拉详情与「我的报名」
+    val openWeb: (String) -> Unit = { url -> vm.markWebPending(); onOpenWeb(url) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { vm.refreshAfterWeb() }
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -132,19 +135,27 @@ fun SsActivityScreen(site: SiteSession, onBack: () -> Unit, onOpenWeb: (String) 
                             modifier = Modifier.fillMaxSize(),
                         ) { ActivityList(vm, listPadding, glassTop) }
                     } else {
-                        MineList(vm, listPadding, glassTop)
+                        // 和「活动」页一样套下拉刷新：它同时把列表滚动接给顶栏，大标题才收得起来
+                        AppPullToRefresh(
+                            isRefreshing = vm.mineRefreshing,
+                            onRefresh = { vm.loadMine(refresh = true) },
+                            scrollBehavior = scrollBehavior,
+                            topPadding = glassTop,
+                            modifier = Modifier.fillMaxSize(),
+                        ) { MineList(vm, listPadding, glassTop) }
                     }
                 }
             }
         }
         // 必须在 Scaffold 内容里：miuix 的 Overlay 只有 Scaffold 提供宿主，放外面不显示
-        ActivitySheet(vm, onOpenWeb)
+        ActivitySheet(vm, openWeb)
     }
 }
 
 @Composable
 private fun ActivityList(vm: SsActivityViewModel, padding: PaddingValues, glassTop: androidx.compose.ui.unit.Dp) {
-    LazyColumn(Modifier.fillMaxSize().overScrollVertical(), contentPadding = padding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val listState = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState()
+    LazyColumn(Modifier.fillMaxSize().overScrollVertical(), state = listState, contentPadding = padding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item(key = "search") {
             Column {
                 TextField(
@@ -204,9 +215,18 @@ private fun MineList(vm: SsActivityViewModel, padding: PaddingValues, glassTop: 
             EmptyState(title = "还没有报名记录", subtitle = "在「活动」里找感兴趣的报名", modifier = Modifier.fillMaxSize())
         }
         // 不设 key：同一活动可能有多条报名记录（重新提交、取消后再报），重复 key 会直接崩
-        else -> LazyColumn(Modifier.fillMaxSize().overScrollVertical(), contentPadding = padding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        else -> LazyColumn(
+            Modifier.fillMaxSize().overScrollVertical(),
+            state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
+            contentPadding = padding,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             items(mine) { m ->
-                Card(Modifier.fillMaxWidth().clickable(enabled = m.activityId.isNotBlank()) { vm.open(m.activityId) }) {
+                Card(
+                    Modifier.fillMaxWidth(),
+                    pressFeedbackType = if (m.activityId.isNotBlank()) top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink else top.yukonga.miuix.kmp.utils.PressFeedbackType.None,
+                    onClick = if (m.activityId.isNotBlank()) ({ vm.open(m.activityId) }) else null,
+                ) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(m.cover, vm, Modifier.padding(end = 12.dp).size(width = 72.dp, height = 54.dp))
                         Column(Modifier.weight(1f)) {

@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.AppChipTabRow
 import com.xjtu.toolbox.ui.components.AppMultiChipTabRow
 import com.xjtu.toolbox.ui.components.AppSearchBar
@@ -492,10 +493,85 @@ fun JwappScoreScreen(
                         }
                     }
 
-                    fullLineItem { Spacer(Modifier.height(16.dp)) }
+                    // 选课模式下底部有悬浮条，末尾多留出它的高度，最后一门课不被挡住
+                    fullLineItem { Spacer(Modifier.height(if (gpaSelectMode) 104.dp else 16.dp)) }
                 }
                 }
             }
+        }
+
+        // 选课算 GPA 的结果放底部悬浮条：往下勾的时候一直看得见，勾一门更新一次（#546）
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            GpaSelectionBar(
+                visible = gpaSelectMode && !vm.isLoading && vm.errorMessage == null,
+                gpaInfo = selectedGpaInfo,
+                courses = selectedCourseIds.size,
+                credits = allTermScores.flatMap { it.scoreList }.filter { it.id in selectedCourseIds }.sumOf { it.coursePoint },
+                precision = gpaPrecision,
+                onPrecisionToggle = { gpaPrecision = if (gpaPrecision >= 4) 2 else gpaPrecision + 1 },
+            )
+        }
+    }
+}
+
+/** 选课算 GPA 的底部悬浮条：左边已选门数与学分，右边均分与 GPA；点一下切换小数位，与上面 GPA 卡一致。 */
+@Composable
+private fun GpaSelectionBar(
+    visible: Boolean,
+    gpaInfo: GpaInfo?,
+    courses: Int,
+    credits: Double,
+    precision: Int,
+    onPrecisionToggle: () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = androidx.compose.animation.slideInVertically { it } + fadeIn(),
+        exit = androidx.compose.animation.slideOutVertically { it } + fadeOut(),
+    ) {
+        val accent = gpaSelectAccent()
+        val shape = RoundedCornerShape(22.dp)
+        val textColor = MiuixTheme.colorScheme.onSurface
+        Row(
+            Modifier
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp + LocalTabBottomPadding.current)
+                .widthIn(max = 560.dp)
+                .fillMaxWidth()
+                .appCardShadow(shape, strong = true)
+                .clip(shape)
+                .background(androidx.compose.ui.graphics.lerp(MiuixTheme.colorScheme.surfaceVariant, accent, 0.18f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = SinkFeedback(),
+                    onClick = onPrecisionToggle,
+                )
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("已选 $courses 门", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold, color = textColor)
+                Text(
+                    "${formatFixed(credits.toFloat(), 1)} 学分",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            GpaStatColumn(
+                value = gpaInfo?.averageScore?.takeIf { it > 0 },
+                format = { formatFixed(it, precision) },
+                label = "均分",
+                textColor = textColor,
+                modifier = Modifier.widthIn(min = 64.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            GpaStatColumn(
+                value = gpaInfo?.gpa,
+                format = { formatFixed(it, precision) },
+                label = "GPA",
+                textColor = textColor,
+                modifier = Modifier.widthIn(min = 64.dp),
+            )
         }
     }
 }

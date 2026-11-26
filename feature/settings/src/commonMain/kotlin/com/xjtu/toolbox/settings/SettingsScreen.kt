@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Notifications
@@ -131,6 +132,7 @@ fun SettingsScreen(
     var navBarStyle by remember { mutableStateOf(store.navBarStyle) }
     var reducedEffects by remember { mutableStateOf(store.reducedEffects) }
     var darkMode by remember { mutableStateOf(store.darkMode) }
+    var browserFollowDark by remember { mutableStateOf(store.browserFollowDark) }
     var dynamicColor by remember { mutableStateOf(store.dynamicColor) }
     var customColorEnabled by remember { mutableStateOf(store.customColorEnabled) }
     // 浅色 / 深色各存一份自选色，弹窗里分别设置
@@ -228,6 +230,18 @@ fun SettingsScreen(
                         host.onAppearanceChanged()
                     }
                 )
+                if (SettingsRow.BROWSER_DARK in host.honoredRows && darkMode != SettingsStore.DARK_MODE_LIGHT) {
+                    SwitchPreference(
+                        title = "网页跟随深色模式",
+                        summary = "内置浏览器里的网页一起变暗；显示错乱的网站可在浏览器菜单里单独关掉",
+                        checked = browserFollowDark,
+                        startAction = { SettingsIcon(Icons.Default.Language, cPurple) },
+                        onCheckedChange = { v ->
+                            browserFollowDark = v
+                            store.browserFollowDark = v
+                        },
+                    )
+                }
             }
             if (showDynamicColor) {
                 AppDropdownPreference(

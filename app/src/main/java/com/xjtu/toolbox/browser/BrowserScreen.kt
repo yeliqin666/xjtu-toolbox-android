@@ -23,7 +23,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DesktopWindows
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -235,9 +237,12 @@ fun BrowserScreen(
         callback.onReceiveValue(picked)
     }
 
-    LaunchedEffect(isDark, webViewRef) {
+    // 菜单里切了当前网站的深色开关后 +1，重新套一遍
+    var darkRevision by remember { mutableIntStateOf(0) }
+    LaunchedEffect(isDark, webViewRef, darkRevision) {
         webViewRef?.let { WebViewNightMode.apply(it, isDark) }
     }
+    val siteDarkOn = remember(currentUrl, darkRevision) { WebViewNightMode.enabledFor(currentUrl) }
 
     val initialHost = remember(initialUrl) { hostOf(initialUrl) }
     val cookieDomains = remember(initialHost, extraCookieDomains) {
@@ -342,6 +347,17 @@ fun BrowserScreen(
                                     desktop = !desktop
                                     // 关掉要重载才能拿回页面原来的 viewport
                                     webViewRef?.let { if (desktop) it.evaluateJavascript(DESKTOP_VIEWPORT_JS, null) else it.reload() }
+                                }
+                                // 深色下才有意义；登录 / 验证码页本来就不变暗，不给开关
+                                if (isWeb && isDark && !WebViewNightMode.shouldSkip(currentUrl)) {
+                                    val on = siteDarkOn
+                                    option(
+                                        if (on) "此网站不用深色" else "此网站使用深色",
+                                        icon = if (on) Icons.Default.LightMode else Icons.Default.DarkMode,
+                                    ) {
+                                        WebViewNightMode.setEnabledFor(currentUrl, !on)
+                                        darkRevision++
+                                    }
                                 }
                                 if (isWeb) {
                                     // 分享：纯文字「网页标题 + 链接」，走系统分享面板

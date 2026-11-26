@@ -47,15 +47,27 @@ internal class NotificationViewModel(
         tagPagesLoaded = 0
     }
 
+    /**
+     * 顶部来源条里点中的那一个：只在已加载的合并结果里筛，不重新拉（#544）。null = 全部来源。
+     * 不落盘：下次进来回到「全部」。
+     */
+    var focusedSource by mutableStateOf<NotificationSource?>(null); private set
+
+    fun focusSource(source: NotificationSource?) {
+        focusedSource = source?.takeIf { it in selectedSources }
+        tagPagesLoaded = 0
+    }
+
     fun passesRules(n: Notification): Boolean = rules[n.source]?.accepts(n.title) ?: true
-    fun visibleInList(n: Notification): Boolean = passesRules(n) && selectedTag.let { it == null || it in n.tags }
+    fun inFocus(n: Notification): Boolean = focusedSource.let { it == null || n.source == it }
+    fun visibleInList(n: Notification): Boolean = passesRules(n) && inFocus(n) && selectedTag.let { it == null || it in n.tags }
 
     /**
      * 有分类或规则在筛时，连续自动翻了几页都没翻出能显示的。
      * 冷门分类、严格的规则可能翻遍全站都凑不满一屏，要有个头。
      */
     private var tagPagesLoaded by mutableIntStateOf(0)
-    private val filtering: Boolean get() = selectedTag != null || rulesActive
+    private val filtering: Boolean get() = selectedTag != null || rulesActive || focusedSource != null
     val tagAutoLoad: Boolean get() = !filtering || tagPagesLoaded < MAX_TAG_PAGES
 
     fun selectTag(tag: String?) {
@@ -107,6 +119,7 @@ internal class NotificationViewModel(
         if (sources.isNotEmpty()) {
             preferences.putStringSet("sources", sources.map { it.name }.toSet())
             selectedSources = sources.toSet()
+            if (focusedSource !in selectedSources) focusedSource = null
             // 分类是各来源自己的，换来源后旧分类大概率没有了
             selectTag(null)
         }

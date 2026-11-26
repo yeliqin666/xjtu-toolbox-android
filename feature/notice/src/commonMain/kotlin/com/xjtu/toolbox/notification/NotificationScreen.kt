@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.Newspaper
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,13 +60,13 @@ fun NotificationScreen(
 
     // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）。
     // 两种都过一遍来源规则，[hiddenByRules] 是被规则挡掉的条数。
-    val (filteredNotifications, hiddenByRules) = remember(notifications, vm.searchQuery, vm.searchResults, vm.selectedTag, vm.rules) {
-        val candidates = if (!searching) notifications.filter { n -> vm.selectedTag.let { it == null || it in n.tags } }
+    val (filteredNotifications, hiddenByRules) = remember(notifications, vm.searchQuery, vm.searchResults, vm.selectedTag, vm.rules, vm.focusedSource) {
+        val candidates = if (!searching) notifications.filter { n -> vm.inFocus(n) && vm.selectedTag.let { it == null || it in n.tags } }
         else {
             val local = notifications.filter { it.title.contains(vm.searchQuery.trim(), ignoreCase = true) }
             val remote = vm.searchResults
-            if (remote == null) local
-            else (remote + local).distinctBy { it.link }.sortedByDescending { it.date }
+            (if (remote == null) local else (remote + local).distinctBy { it.link }.sortedByDescending { it.date })
+                .filter(vm::inFocus)
         }
         val shown = candidates.filter(vm::passesRules)
         shown to candidates.size - shown.size
@@ -108,16 +109,15 @@ fun NotificationScreen(
                     else -> sources.take(2).joinToString("、") { it.displayName } + " 等 ${sources.size} 个来源"
                 },
                 actions = {
-                    // 有规则在筛当前来源时图标着主题色，提醒列表不是全量
-                    com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { showRuleSheet = true }) {
-                        Icon(
-                            Icons.Outlined.FilterList,
-                            contentDescription = if (vm.rulesActive) "通知规则（已启用）" else "通知规则",
-                            tint = if (vm.rulesActive) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
-                        )
-                    }
-                    com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { showSourceSheet = true }) {
-                        Icon(Icons.Outlined.Newspaper, contentDescription = "选择通知来源")
+                    // 日常筛选交给列表顶上的来源条和搜索；来源管理与通知规则收进「更多」（#544）
+                    var menuOpen by remember { mutableStateOf(false) }
+                    com.xjtu.toolbox.ui.glass.CouiIconMenu(
+                        expanded = menuOpen,
+                        onExpandedChange = { menuOpen = it },
+                        icon = { Icon(Icons.Default.MoreHoriz, contentDescription = "更多") },
+                    ) {
+                        option("管理通知来源", icon = Icons.Outlined.Newspaper) { showSourceSheet = true }
+                        option(if (vm.rulesActive) "通知规则（已启用）" else "通知规则", icon = Icons.Outlined.FilterList) { showRuleSheet = true }
                     }
                 },
             )
@@ -249,8 +249,31 @@ fun NotificationScreen(
                                 }
                             }
                             fullLineItem(key = "search") { searchBar(Modifier) }
+                            // 来源条：「全部」+ 已选的每个来源，点一下只看那一个；最后一颗「＋ 来源」直接管理选哪些（#544）
+                            fullLineItem(key = "sources") {
+                                // "" = 全部来源；MANAGE_SOURCES = 管理入口，点它不改选中
+                                com.xjtu.toolbox.ui.components.AppChipTabRow(
+                                    options = listOf<Any>("") + vm.selectedSources.sortedBy { it.ordinal } + MANAGE_SOURCES,
+                                    selected = vm.focusedSource ?: "",
+                                    onSelect = { picked ->
+                                        when (picked) {
+                                            is NotificationSource -> vm.focusSource(picked)
+                                            MANAGE_SOURCES -> showSourceSheet = true
+                                            else -> vm.focusSource(null)
+                                        }
+                                    },
+                                    label = { s ->
+                                        when (s) {
+                                            is NotificationSource -> s.displayName
+                                            MANAGE_SOURCES -> "＋ 来源"
+                                            else -> "全部来源"
+                                        }
+                                    },
+                                    bleed = 16.dp,
+                                )
+                            }
                             // 只有一种分类时筛了也没区别；搜索走的是站内结果，这一版不筛
-                            val tagOptions = noticeTagOptions(notifications)
+                            val tagOptions = noticeTagOptions(notifications.filter(vm::inFocus))
                             if (!searching && (tagOptions.size > 1 || vm.selectedTag != null)) {
                                 fullLineItem(key = "tags") {
                                     // "" 代表「全部」
@@ -321,7 +344,7 @@ fun NotificationScreen(
                                 androidx.compose.foundation.layout.Box(Modifier.enterOnce(index).then(origin.modifier)) {
                                 NotificationCard(
                                     notification = notification,
-                                    showSource = vm.selectedSources.size > 1,
+                                    showSource = vm.selectedSources.size > 1 && vm.focusedSource == null,
                                     onAskAgent = onAskAgent?.let { ask ->
                                         { ask(com.xjtu.toolbox.agent.AgentForward.notice(notification)) }
                                     },
@@ -369,6 +392,9 @@ fun NotificationScreen(
         }
     }
 }
+
+/** 来源条最后那颗「＋ 来源」的占位值。 */
+private const val MANAGE_SOURCES = "\u0000manage"
 
 // ==================== 日期格式化 ====================
 

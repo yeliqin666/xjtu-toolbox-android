@@ -40,6 +40,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean(KEY_REDUCED_EFFECTS, false)
         set(value) = store.putBoolean(KEY_REDUCED_EFFECTS, value)
 
+    /** 内置浏览器的网页跟随深色模式变暗（单个网站可在浏览器菜单里另行开关）。默认开启。 */
+    var browserFollowDark: Boolean
+        get() = store.getBoolean("browser_follow_dark", true)
+        set(value) = store.putBoolean("browser_follow_dark", value)
+
     /** 跟随系统壁纸 / 调色盘动态取色（Material You / Monet）。默认关闭。 */
     var dynamicColor: Boolean
         get() = store.getBoolean(KEY_DYNAMIC_COLOR, false)

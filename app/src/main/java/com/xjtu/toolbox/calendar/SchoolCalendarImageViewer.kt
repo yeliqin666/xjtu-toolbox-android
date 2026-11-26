@@ -3,7 +3,13 @@ package com.xjtu.toolbox.calendar
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.widget.Toast
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -51,10 +57,17 @@ fun decodeCalendarBitmap(bytes: ByteArray, maxSide: Int = 2400): Bitmap? {
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
 }
 
-/** 校历页里的「教务处校历原图」卡片，点击全屏查看。 */
+/**
+ * 校历页里的「教务处校历原图」卡片，点击全屏查看。
+ *
+ * 图还没下完就先出卡片：按 [placeholderRatio]（上次见过的比例）留好位置，下完后图自上而下铺开，
+ * 不会最后突然撑开、把下面的内容往下推（#551）。
+ */
 @Composable
 fun SchoolCalendarImageCard(
-    loaded: LoadedCalendarImage,
+    image: SchoolCalendarImage,
+    loaded: LoadedCalendarImage?,
+    placeholderRatio: Float,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -64,12 +77,12 @@ fun SchoolCalendarImageCard(
             .padding(horizontal = 16.dp, vertical = 6.dp),
         cornerRadius = 16.dp,
     ) {
-        Column(Modifier.clickable(onClick = onOpen).padding(14.dp)) {
+        Column(Modifier.clickable(enabled = loaded != null, onClick = onOpen).padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(loaded.image.label, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
+                    Text(image.label, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
                     Text(
-                        "教务处发布 · 点击放大、保存",
+                        if (loaded != null) "教务处发布 · 点击放大、保存" else "教务处发布 · 正在加载原图…",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
@@ -77,16 +90,34 @@ fun SchoolCalendarImageCard(
                 Icon(Icons.Default.ZoomIn, contentDescription = null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Spacer(Modifier.height(10.dp))
-            val bitmap = remember(loaded) { loaded.bitmap.asImageBitmap() }
-            Image(
-                bitmap = bitmap,
-                contentDescription = loaded.image.label,
-                contentScale = ContentScale.FillWidth,
-                modifier = Modifier
+            val ratio = loaded?.let { it.bitmap.width.toFloat() / it.bitmap.height } ?: placeholderRatio
+            // 实际比例与占位不同时高度平滑过渡，而不是跳一下
+            val shownRatio by animateFloatAsState(ratio, tween(320), label = "calendarRatio")
+            val reveal = remember { Animatable(0f) }
+            LaunchedEffect(loaded) {
+                if (loaded != null) reveal.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
+            }
+            Box(
+                Modifier
                     .fillMaxWidth()
-                    .aspectRatio(loaded.bitmap.width.toFloat() / loaded.bitmap.height)
-                    .clip(RoundedCornerShape(10.dp)),
-            )
+                    .aspectRatio(shownRatio)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)),
+            ) {
+                if (loaded != null) {
+                    val bitmap = remember(loaded) { loaded.bitmap.asImageBitmap() }
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = image.label,
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawWithContent {
+                                clipRect(bottom = size.height * reveal.value) { this@drawWithContent.drawContent() }
+                            },
+                    )
+                }
+            }
         }
     }
 }

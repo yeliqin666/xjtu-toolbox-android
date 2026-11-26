@@ -45,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,6 +110,7 @@ fun FacultyScreen(
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -267,20 +270,8 @@ fun FacultyScreen(
             }
         }
 
-        // ⚠️ 两个弹窗必须写在 Scaffold 的内容 lambda **里面**。
-        // OverlayBottomSheet 默认 renderInRootScaffold = true，需要在组合树祖先中
-        // 找到 Scaffold 宿主才能渲染；放在 Scaffold 外面它会静默地什么都不显示——
-        // 筛选弹窗拉不开、点老师没反应，都是这一个原因。
-        // 同时 show 必须由外部布尔驱动（false→true），不能条件式创建后把 show 初值设成 true。
-        // 宽屏详情在右栏，不弹窗
-        FacultyDetailSheet(
-            member = if (isWide) null else vm.detail,
-            vm = vm,
-            onOpenUrl = onOpenUrl,
-            avatar = avatar,
-            onDismiss = { vm.detail = null },
-        )
-
+        // ⚠️ 筛选弹窗必须写在 Scaffold 的内容 lambda **里面**：OverlayBottomSheet 要在祖先里找到
+        // Scaffold 宿主才能渲染，放外面会静默地什么都不显示。show 必须由外部布尔驱动（false→true）。
         val pickerTarget = picker
         val pickerOptions = when (pickerTarget) {
             PickerTarget.COLLEGE -> vm.filters.colleges
@@ -315,6 +306,28 @@ fun FacultyScreen(
         }
     }
 
+    // 窄屏的详情是一层子页面：从右侧滑入，返回回到列表原位——列表一直留在下面，滚动位置不动（#550）。
+    // 宽屏详情在右栏，不走这里。
+    val narrowDetail = vm.detail.takeIf { !com.xjtu.toolbox.ui.isWideLayout() }
+    var lastDetail by remember { mutableStateOf<FacultyMember?>(null) }
+    if (narrowDetail != null) lastDetail = narrowDetail
+    com.xjtu.toolbox.platform.BackHandler(enabled = narrowDetail != null) { vm.detail = null }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = narrowDetail != null,
+        enter = androidx.compose.animation.slideInHorizontally { it } + androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.slideOutHorizontally { it } + androidx.compose.animation.fadeOut(),
+    ) {
+        // 收起动画期间 vm.detail 已经是 null，留着最后一位老师，内容才不会塌成空白
+        lastDetail?.let { member ->
+            // 吃掉空白处的点击：不然会穿透到下面的列表上
+            Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } }) {
+                androidx.compose.runtime.key(member.teacherId) {
+                    FacultyDetailPage(member = member, vm = vm, onOpenUrl = onOpenUrl, avatar = avatar, onBack = { vm.detail = null })
+                }
+            }
+        }
+    }
+    }
 }
 
 private enum class PickerTarget { COLLEGE, DISCIPLINE, PRO_RANK }
@@ -381,45 +394,38 @@ private fun FacultyCard(member: FacultyMember, avatar: @Composable (FacultyMembe
 
 // ==================== 详情 ====================
 
+/** 窄屏的教师详情子页：标准玻璃顶栏（大标题是老师姓名）+ 与宽屏右栏同一份内容。 */
 @Composable
-private fun FacultyDetailSheet(
-    /** null 表示未选中任何教师；此时弹窗保持在组合树里但 show=false */
-    member: FacultyMember?,
+private fun FacultyDetailPage(
+    member: FacultyMember,
     vm: FacultyViewModel,
     onOpenUrl: (String) -> Unit,
     avatar: @Composable (FacultyMember, Int) -> Unit,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
 ) {
-    // 内容需要一个非空的 member 才能渲染。关闭动画期间 member 已经变 null，
-    // 所以保留最后一次的值，避免收起过程中内容突然塌成空白。
-    var lastMember by remember { mutableStateOf<FacultyMember?>(null) }
-    if (member != null) lastMember = member
-    val shown = lastMember ?: return
-
-    var homepage by remember(shown.teacherId) { mutableStateOf(vm.cachedHomepage(shown)) }
-    LaunchedEffect(member?.teacherId) {
-        val target = member ?: return@LaunchedEffect
-        homepage = vm.homepage(target)
-    }
-
-    OverlayBottomSheet(
-        show = member != null,
-        title = shown.name,
-        // 抽屉默认白底，详情里的信息卡也是白的；垫 surface 灰底才分得出
-        backgroundColor = MiuixTheme.colorScheme.surface,
-        onDismissRequest = onDismiss,
-    ) {
+    var homepage by remember(member.teacherId) { mutableStateOf(vm.cachedHomepage(member)) }
+    LaunchedEffect(member.teacherId) { homepage = vm.homepage(member) }
+    val glass = rememberPageGlass()
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    val scroll = rememberScrollState()
+    Scaffold(
+        topBar = { GlassTopAppBar(title = member.name, glass = glass, scrollBehavior = scrollBehavior, onBack = onBack) },
+    ) { padding ->
         FacultyDetailBody(
-            shown = shown,
+            shown = member,
             homepage = homepage,
             onOpenUrl = onOpenUrl,
             avatar = avatar,
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
+                .reportScrollToTopBar(scroll, scrollBehavior)
+                .verticalScroll(scroll)
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(bottom = 12.dp),
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
+                .padding(horizontal = 16.dp)
+                .padding(top = padding.glassTop(glass) + 8.dp, bottom = 24.dp)
+                .navigationBarsPadding(),
         )
     }
 }

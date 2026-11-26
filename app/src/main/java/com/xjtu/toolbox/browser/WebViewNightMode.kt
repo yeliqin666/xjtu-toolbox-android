@@ -38,8 +38,33 @@ object WebViewNightMode {
     private const val HAS_JS =
         "(function(){return !!(window.DarkReader && window.DarkReader.enable);})()"
 
+    /** 每个网站自己的选择（主机名 → 开 / 关），没选过的跟随设置里的总开关（#552）。 */
+    private val sites by lazy { com.xjtu.toolbox.platform.keyValueStore("browser_dark_sites") }
+
+    private fun hostOf(url: String?): String? =
+        runCatching { Uri.parse(url.orEmpty()).host?.lowercase() }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    /** 这个网页在深色模式下要不要变暗：网站单独选过的优先，否则看总开关。 */
+    fun enabledFor(url: String?): Boolean {
+        val host = hostOf(url)
+        val site = host?.let { sites.getString(it) }
+        return when (site) {
+            "on" -> true
+            "off" -> false
+            else -> com.xjtu.toolbox.settings.SettingsStore().browserFollowDark
+        }
+    }
+
+    /** 只对当前网站生效的开关；与总开关一致时不单独记，之后改总开关它也跟着走。 */
+    fun setEnabledFor(url: String?, enabled: Boolean) {
+        val host = hostOf(url) ?: return
+        val follow = com.xjtu.toolbox.settings.SettingsStore().browserFollowDark
+        sites.putString(host, if (enabled == follow) null else if (enabled) "on" else "off")
+    }
+
+    /** [dark] 是 App 此刻是否深色；真正变不变暗还要看网站选择与登录页例外。 */
     fun apply(view: WebView, dark: Boolean) {
-        val want = dark && !shouldSkip(view.url)
+        val want = dark && enabledFor(view.url) && !shouldSkip(view.url)
         view.setBackgroundColor(if (want) Color.parseColor("#181A1B") else Color.WHITE)
         val toggle = if (want) ENABLE_JS else DISABLE_JS
         view.evaluateJavascript(HAS_JS) { loaded ->

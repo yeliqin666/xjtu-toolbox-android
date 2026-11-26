@@ -91,12 +91,33 @@ internal class SsActivityViewModel(site: SiteSession) : ViewModel() {
         }
     }
 
-    fun loadMine() {
+    var mineRefreshing by mutableStateOf(false); private set
+
+    /** [refresh] 为下拉刷新：已有列表时不清空，只转圈。 */
+    fun loadMine(refresh: Boolean = false) {
         viewModelScope.launch {
+            if (refresh) mineRefreshing = true
             mineError = null
             runCatching { io { api.myApplies() } }
                 .onSuccess { mine = it }
                 .onFailure { mineError = message(it) }
+            mineRefreshing = false
+        }
+    }
+
+    /** 去网页办理（团体报名、附件报名，或在网页上取消）的活动；回到本页时据此重拉状态（#553）。 */
+    private var webPendingId: String? = null
+
+    fun markWebPending() {
+        webPendingId = detailId
+    }
+
+    fun refreshAfterWeb() {
+        val id = webPendingId ?: return
+        webPendingId = null
+        if (mine != null) loadMine(refresh = true)
+        viewModelScope.launch {
+            runCatching { io { api.detail(id) } }.onSuccess { record(it); if (detailId == id) detail = it }
         }
     }
 

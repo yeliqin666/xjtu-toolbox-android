@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.inbox
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.synchronizedBlock
@@ -348,6 +350,10 @@ object SelfTodoHooks {
 object SelfTodoStore {
     private val lock = Any()
 
+    /** 每次改动 +1：界面拿它当「待办变了、该重读」的信号（如日程·今日）。 */
+    var revision by com.xjtu.toolbox.util.singletonState { androidx.compose.runtime.mutableIntStateOf(0) }
+        private set
+
     private fun prefs(account: String?) = keyValueStore("self_todos${AccountContext.suffixFor(account)}")
 
     private fun nowMs() = Clock.System.now().toEpochMilliseconds()
@@ -371,6 +377,7 @@ object SelfTodoStore {
             publish(account, next)
             b to next
         }
+        revision++
         runCatching { SelfTodoHooks.onChanged?.invoke(account, before, after) }
     }
 

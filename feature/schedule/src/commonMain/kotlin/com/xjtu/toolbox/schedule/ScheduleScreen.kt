@@ -1540,8 +1540,13 @@ private fun UnscheduledBanner(
                             Text(detail, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1)
                         }
                     }
-                    TextButton(text = "忽略", onClick = { onDismiss(u) })
-                    TextButton(text = "填时间", onClick = { onFill(u) })
+                    // 文字链接而不是按钮：横幅本身已经是一块色底，再叠按钮底太重（#564）
+                    com.xjtu.toolbox.ui.components.TextLink(
+                        text = "忽略",
+                        onClick = { onDismiss(u) },
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    com.xjtu.toolbox.ui.components.TextLink(text = "填时间", onClick = { onFill(u) })
                 }
             }
         }

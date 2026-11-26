@@ -16,8 +16,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import com.xjtu.toolbox.inbox.SelfTodo
+import com.xjtu.toolbox.inbox.SelfTodoRules
+import com.xjtu.toolbox.inbox.SelfTodoStore
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -106,7 +112,16 @@ fun TodayTimeline(
 ) {
     val courseColors = rememberCourseColors(allCourseNames)
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthNumber) }
-    val entries = remember(courses, exams, today, todayHomework, calendarEvents) {
+    // 今天的自建待办（含排日程、小岱精选加进来的）：存储一改动就重读（#545）
+    val todoRevision = SelfTodoStore.revision
+    val (untimedTodos, timedTodos) = remember(today, todoRevision) { todayTodosOf(SelfTodoStore.open(), today) }
+    var openedTodo by remember { mutableStateOf<SelfTodo?>(null) }
+    val completeTodo: (SelfTodo) -> Unit = { t ->
+        SelfTodoStore.complete(t.id)
+        if (openedTodo?.id == t.id) openedTodo = null
+        com.xjtu.toolbox.platform.showBriefMessage("已完成：${stripDatePrefix(t.title)}")
+    }
+    val entries = remember(courses, exams, today, todayHomework, calendarEvents, timedTodos) {
         val dow = today.dayOfWeek.ordinal + 1
         val fromCourses = courses.filter { it.dayOfWeek == dow }.map { c ->
             val (start, end) = c.clockMinutes(isSummer)
@@ -147,7 +162,7 @@ fun TodayTimeline(
                 TimelineEntry(
                     startMinute = zoned.hour * 60 + zoned.minute,
                     endMinute = 0,
-                    title = "[${hw.courseName}] ${hw.title}",
+                    title = "[${hw.courseName}] ${stripDatePrefix(hw.title)}",
                     place = "",
                     detail = "${formatTwoDigits(zoned.hour)}:${formatTwoDigits(zoned.minute)} 截止",
                     kind = EntryKind.HOMEWORK,
@@ -160,7 +175,7 @@ fun TodayTimeline(
             TimelineEntry(
                 startMinute = slice.startMinute,
                 endMinute = slice.endMinute,
-                title = e.title,
+                title = stripDatePrefix(e.title),
                 place = e.location,
                 detail = listOfNotNull(
                     e.calendarName.takeIf { it.isNotBlank() },
@@ -171,8 +186,20 @@ fun TodayTimeline(
                 allDay = slice.allDay,
             )
         }
+        val fromTodos = timedTodos.map { (t, minute) ->
+            TimelineEntry(
+                startMinute = minute,
+                endMinute = 0,
+                title = stripDatePrefix(t.title),
+                place = "",
+                detail = "${formatMinute(minute)} 截止",
+                kind = EntryKind.TODO,
+                course = null,
+                todo = t,
+            )
+        }
         // 全天的排最前面：它不占某个时刻，是这一天的背景（画的时候单独成一组，不进时间轴）
-        (fromCourses + fromExams + fromHomework + fromCalendar)
+        (fromCourses + fromExams + fromHomework + fromCalendar + fromTodos)
             .sortedWith(compareBy<TimelineEntry> { !it.allDay }.thenBy { it.startMinute })
     }
 
@@ -189,15 +216,21 @@ fun TodayTimeline(
                     EntryKind.EXAM -> "考试 ${e.title}"
                     EntryKind.HOMEWORK -> "作业截止 ${e.title}"
                     EntryKind.CALENDAR -> "日历日程 ${e.title}"
+                    EntryKind.TODO -> "待办截止 ${e.title}"
                 }
                 "$time｜$what｜${e.place}"
-            },
+            } + untimedTodos.map { "今天内｜待办 ${stripDatePrefix(it.title)}｜" },
             upcoming,
         )
     }
 
+    // 待办详情：看一眼就走的东西用底部面板，不跳页
+    openedTodo?.let { todo ->
+        TodoDetailSheet(todo = todo, onComplete = { completeTodo(todo) }, onNavigate = onNavigate, onDismiss = { openedTodo = null })
+    }
+
     // 两边都没内容才是真的空——只要「接下来」有东西，就不该用一整页空状态盖住它。
-    if (entries.isEmpty() && upcoming.isEmpty() && showPlan) {
+    if (entries.isEmpty() && upcoming.isEmpty() && untimedTodos.isEmpty() && showPlan) {
         // 有屁岱卡时整页可滚：卡片展开后（时间线 + 地图）比一屏高
         val listState = androidx.compose.foundation.lazy.rememberLazyListState()
         com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
@@ -212,7 +245,7 @@ fun TodayTimeline(
         }
         return
     }
-    if (entries.isEmpty() && upcoming.isEmpty()) {
+    if (entries.isEmpty() && upcoming.isEmpty() && untimedTodos.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(top = topPadding, bottom = bottomPadding), Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
@@ -244,15 +277,25 @@ fun TodayTimeline(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (showPlan) item(key = "day_plan") { DayPlanCard(planSnapshot, today, onAdd = onAddPlan) }
+        // 今天内要做、没有具体时刻的待办放最上面，圆圈直接勾掉
+        if (untimedTodos.isNotEmpty()) {
+            item(key = "todo_label") { Box(Modifier.enterOnce(0)) { SectionLabel("今天要做") } }
+            itemsIndexed(untimedTodos, key = { _, t -> "todo_${t.id}" }) { i, t ->
+                Box(Modifier.animateItem().enterOnce(1 + i)) {
+                    TodoRow(t, onCheck = { completeTodo(t) }, onClick = { openedTodo = t })
+                }
+            }
+        }
+        val todoBase = if (untimedTodos.isEmpty()) 0 else untimedTodos.size + 1
         // 全天日程单独一组放在最上面，不占时间轴上的某个钟点
         val allDayEntries = entries.filter { it.allDay }
         val timedEntries = entries.filterNot { it.allDay }
         if (allDayEntries.isNotEmpty()) {
-            item(key = "all_day_label") { Box(Modifier.enterOnce(0)) { SectionLabel("全天") } }
-            itemsIndexed(allDayEntries) { i, e -> Box(Modifier.enterOnce(1 + i)) { AllDayRow(e) } }
+            item(key = "all_day_label") { Box(Modifier.enterOnce(todoBase)) { SectionLabel("全天") } }
+            itemsIndexed(allDayEntries) { i, e -> Box(Modifier.enterOnce(todoBase + 1 + i)) { AllDayRow(e) } }
         }
-        val timedBase = if (allDayEntries.isEmpty()) 0 else allDayEntries.size + 1
-        if (entries.isEmpty()) {
+        val timedBase = todoBase + if (allDayEntries.isEmpty()) 0 else allDayEntries.size + 1
+        if (entries.isEmpty() && untimedTodos.isEmpty()) {
             // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
             // 别让页面看着像没加载出来。
             item { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
@@ -264,7 +307,11 @@ fun TodayTimeline(
                 val progress = if (e.endMinute > e.startMinute && nowMinute in e.startMinute until e.endMinute)
                     (nowMinute - e.startMinute).toFloat() / (e.endMinute - e.startMinute) else null
                 Box(Modifier.enterOnce(timedBase + i)) {
-                    TimelineRow(e, past, courseColors, onCourseClick, progress, onNavigate)
+                    TimelineRow(
+                        e, past, courseColors, onCourseClick, progress, onNavigate,
+                        onTodoClick = { openedTodo = it },
+                        onTodoCheck = completeTodo,
+                    )
                 }
             }
         }
@@ -277,7 +324,35 @@ fun TodayTimeline(
     }
 }
 
-private enum class EntryKind { COURSE, EXAM, HOMEWORK, CALENDAR }
+private enum class EntryKind { COURSE, EXAM, HOMEWORK, CALENDAR, TODO }
+
+/** 自建待办在今日里的颜色：与收纳里「我的待办」的默认绿一致。 */
+private val TodoAccent = Color(0xFF34A853)
+
+/**
+ * 去掉标题开头的日期前缀，如 `2026-11-26-1400 小组汇报`、`2026.11.26 作业`、`2026年11月26日 讲座`：
+ * 日期已经单独显示，标题里再来一遍只是噪音（#545）。去掉后什么都不剩就保留原样。
+ */
+internal fun stripDatePrefix(title: String): String {
+    val stripped = DATE_PREFIX.replaceFirst(title, "")
+    return stripped.ifBlank { title }
+}
+
+private val DATE_PREFIX = Regex("""^\s*\d{4}\s*[-./年]\s*\d{1,2}\s*[-./月]\s*\d{1,2}\s*日?(?:\s*[-_ T]?\s*\d{1,2}[:：]?\d{2})?[\s\-_:：·|｜,，、]*""")
+
+/** 截止落在 [today] 的未办待办；全天或 23:59（「今天」快捷项）的算没有具体时刻。 */
+private fun todayTodosOf(todos: List<SelfTodo>, today: LocalDate): Pair<List<SelfTodo>, List<Pair<SelfTodo, Int>>> {
+    val untimed = mutableListOf<SelfTodo>()
+    val timed = mutableListOf<Pair<SelfTodo, Int>>()
+    todos.forEach { t ->
+        val ms = SelfTodoRules.dueMillis(t).takeIf { it > 0 } ?: return@forEach
+        val local = Instant.fromEpochMilliseconds(ms).toLocalDateTime(CampusTimeZone)
+        if (local.date != today) return@forEach
+        val minute = local.hour * 60 + local.minute
+        if (t.isAllDay || minute >= 23 * 60 + 59) untimed += t else timed += t to minute
+    }
+    return untimed to timed
+}
 
 private data class TimelineEntry(
     val startMinute: Int,
@@ -290,6 +365,8 @@ private data class TimelineEntry(
     val route: AppRoute? = null,
     /** 系统日历的全天日程：时刻列写「全天」，不算进「已过去」。 */
     val allDay: Boolean = false,
+    /** 有具体时刻的自建待办：点开看详情，圆圈直接勾掉。 */
+    val todo: SelfTodo? = null,
 )
 
 /** 今日顶上「全天」那一组的一行：系统日历的全天日程（含把今天整个盖住的跨天日程），不画钟点。 */
@@ -365,12 +442,15 @@ private fun TimelineRow(
     /** 正在进行时是已过去的比例（0~1），否则 null。 */
     progress: Float? = null,
     onNavigate: (AppRoute) -> Unit,
+    onTodoClick: (SelfTodo) -> Unit = {},
+    onTodoCheck: (SelfTodo) -> Unit = {},
 ) {
     val accent = when (e.kind) {
         EntryKind.EXAM -> MiuixTheme.colorScheme.error
         EntryKind.HOMEWORK -> MiuixTheme.colorScheme.primary
         EntryKind.COURSE -> courseColors.colorOf(e.title)
         EntryKind.CALENDAR -> SystemCalendarAccent
+        EntryKind.TODO -> TodoAccent
     }
     val alpha = if (past) 0.45f else 1f
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -408,7 +488,13 @@ private fun TimelineRow(
             modifier = Modifier.weight(1f),
             cornerRadius = 12.dp,
             colors = CardDefaults.defaultColors(color = accent.copy(alpha = 0.12f * alpha)),
-            onClick = { if (e.course != null) onCourseClick(e.course) else e.route?.let(onNavigate) },
+            onClick = {
+                when {
+                    e.course != null -> onCourseClick(e.course)
+                    e.todo != null -> onTodoClick(e.todo)
+                    else -> e.route?.let(onNavigate)
+                }
+            },
         ) {
             // 正在上的课：卡底从左到右铺一层更深的颜色表示已上的部分，进场时长出来
             val grown = com.xjtu.toolbox.ui.components.rememberRollingValue((progress ?: 0f).toDouble(), 700)
@@ -423,10 +509,15 @@ private fun TimelineRow(
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    e.todo?.let { todo ->
+                        TodoCheck(accent, onCheck = { onTodoCheck(todo) })
+                        Spacer(Modifier.width(8.dp))
+                    }
                     val badge = when (e.kind) {
                         EntryKind.EXAM -> "考试"
                         EntryKind.HOMEWORK -> "作业"
                         EntryKind.CALENDAR -> "日历"
+                        EntryKind.TODO -> "待办"
                         EntryKind.COURSE -> null
                     }
                     if (badge != null) {
@@ -465,6 +556,89 @@ private fun TimelineRow(
                     )
                 }
             }
+        }
+    }
+}
+
+/** 待办前面的空心圆：点一下就勾掉（勾完这条会从今日里消失，收纳里进「已完成」）。 */
+@Composable
+private fun TodoCheck(accent: Color, onCheck: () -> Unit) {
+    Box(
+        Modifier
+            .size(20.dp)
+            .clip(CircleShape)
+            .border(1.6.dp, accent, CircleShape)
+            .clickable(onClickLabel = "完成", onClick = onCheck),
+    )
+}
+
+/** 今日顶上「今天要做」的一行：没有具体时刻的待办。 */
+@Composable
+private fun TodoRow(todo: SelfTodo, onCheck: () -> Unit, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 12.dp,
+        colors = CardDefaults.defaultColors(color = TodoAccent.copy(alpha = 0.12f)),
+        onClick = onClick,
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            TodoCheck(TodoAccent, onCheck)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stripDatePrefix(todo.title),
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val sub = todo.course ?: todo.content.lineSequence().firstOrNull { it.isNotBlank() && !it.startsWith("http") }
+                if (!sub.isNullOrBlank()) {
+                    Text(sub, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+/** 待办详情底部面板：备注全文、原文链接，和「标记完成」。 */
+@Composable
+private fun TodoDetailSheet(todo: SelfTodo, onComplete: () -> Unit, onNavigate: (AppRoute) -> Unit, onDismiss: () -> Unit) {
+    val link = remember(todo.content) { Regex("""https?://\S+""").find(todo.content)?.value }
+    val note = remember(todo.content, link) { link?.let { todo.content.replace(it, "") }?.trim() ?: todo.content.trim() }
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
+        show = true,
+        title = stripDatePrefix(todo.title),
+        onDismissRequest = onDismiss,
+    ) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+            val meta = listOfNotNull(todo.course, SelfTodoRules.dueText(todo)?.let { "$it 截止" }).joinToString(" · ")
+            if (meta.isNotEmpty()) {
+                Text(meta, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.height(8.dp))
+            }
+            if (note.isNotEmpty()) {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(note, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurface)
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            if (link != null) {
+                com.xjtu.toolbox.ui.components.TextLink(
+                    text = "查看原文",
+                    chevron = true,
+                    onClick = { onDismiss(); onNavigate(AppRoute.Browser(link)) },
+                    modifier = Modifier.offset(x = (-10).dp),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            top.yukonga.miuix.kmp.basic.TextButton(
+                text = "标记完成",
+                onClick = onComplete,
+                modifier = Modifier.fillMaxWidth(),
+                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColorsPrimary(),
+            )
         }
     }
 }
@@ -530,7 +704,7 @@ fun buildUpcoming(
             if (deadline.toLocalDateTime(zone).date == today) return@mapNotNull null
             UpcomingItem(
                 kind = UpcomingKind.HOMEWORK,
-                title = "[${hw.courseName}] ${hw.title}",
+                title = "[${hw.courseName}] ${stripDatePrefix(hw.title)}",
                 subtitle = "还${remaining(nowInstant, deadline)}",
                 at = deadline,
                 route = AppRoute.Lms(hw.courseId, hw.activityId),
@@ -551,7 +725,7 @@ fun buildUpcoming(
             val whenText = "周$dow $time" + (slice.spanLabel()?.let { " · $it" } ?: "")
             UpcomingItem(
                 kind = UpcomingKind.CALENDAR,
-                title = e.title,
+                title = stripDatePrefix(e.title),
                 subtitle = listOfNotNull(whenText, e.location.takeIf { it.isNotBlank() }).joinToString(" · "),
                 at = if (slice.allDay) dayStart else dayStart + slice.startMinute.minutes,
                 allDay = slice.allDay,
