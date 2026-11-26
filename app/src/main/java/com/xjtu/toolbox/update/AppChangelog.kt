@@ -38,6 +38,7 @@ object AppChangelog {
             items = listOf(
                 "🪶" to "行稳致远，进而有为。",
                 "☁️" to "新增 Cloudflare R2 更新渠道，可在设置中选择从 dl.dzhz.top 检查和下载更新",
+                "🛠️" to "修复在内置浏览器或学辅资料里下载大文件时闪退",
             )
         ),
         "6.2.2" to VersionChangelog(
