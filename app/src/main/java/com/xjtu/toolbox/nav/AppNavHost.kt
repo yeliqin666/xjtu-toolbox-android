@@ -164,7 +164,7 @@ fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
 
 /** [appPageEntries] 里以 data object 形式注册过的页面（带参数的上面单独判断）。 */
 private val standaloneHostedRoutes: Set<AppRoute> = setOf(
-    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity, AppRoute.TermReport,
+    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge, AppRoute.SsActivity, AppRoute.TermReport, AppRoute.SuperApp,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
     AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress,
@@ -388,6 +388,15 @@ fun NavEntryBuilder.appPageEntries(
         page<AppRoute.SsActivity>(transition = expand(AppRoute.SsActivity::class)) {
             WithSite(com.xjtu.toolbox.auth.SsSession.SITE_KEY) {
                 com.xjtu.toolbox.ss.SsActivityScreen(site = it, onBack = back, onOpenWeb = { url -> router.open(AppRoute.Browser(url)) })
+            }
+        }
+        page<AppRoute.SuperApp>(transition = expand(AppRoute.SuperApp::class)) {
+            WithSite(com.xjtu.toolbox.auth.YwtbSession.SITE_KEY) {
+                com.xjtu.toolbox.superapp.SuperAppScreen(
+                    site = it,
+                    onBack = back,
+                    onOpen = { url -> router.open(AppRoute.Browser(url, bare = true)) },
+                )
             }
         }
         page<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
@@ -716,17 +725,18 @@ fun NavEntryBuilder.appPageEntries(
             val url = browser.url
             val host = remember(url) { runCatching { Uri.parse(url).host?.lowercase() }.getOrNull() }
             val destinationHost = remember(browser.then) { runCatching { Uri.parse(browser.then).host?.lowercase() }.getOrNull() }
+            // bare：一个 cookie 都不注入，网页自己走统一认证；WebView 里原有的 cookie 与 UA 照旧，不清不改
             BrowserScreen(
                 initialUrl = url,
                 thenUrl = browser.then,
-                site = loginState.sessionManager?.getSiteOrNull(siteKeyForHost(destinationHost ?: host.orEmpty()))
+                site = if (browser.bare) null else loginState.sessionManager?.getSiteOrNull(siteKeyForHost(destinationHost ?: host.orEmpty()))
                     ?: loginState.sessionManager?.getSiteOrNull("jwxt"),
-                cookieClient = if (url.contains("webvpn.xjtu.edu.cn", ignoreCase = true)) {
+                cookieClient = if (!browser.bare && url.contains("webvpn.xjtu.edu.cn", ignoreCase = true)) {
                     loginState.webVpnClientOrNull
                 } else {
                     null
                 },
-                extraCookieDomains = listOfNotNull(host, destinationHost),
+                extraCookieDomains = if (browser.bare) emptyList() else listOfNotNull(host, destinationHost),
                 onAskAgent = { sendToPidai(it, router::open) },
                 onBack = back,
             )

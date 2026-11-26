@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit
 object ZyxfDownloader {
 
     private const val TAG = "ZyxfDownloader"
+    private const val HTML_SNIFF_BYTES = 256L
 
     private val client: OkHttpClient by lazy {
         HttpClients.base.newBuilder()
@@ -91,21 +92,24 @@ object ZyxfDownloader {
                 } else {
                     fileNameOf(disposition, url, fallbackName)
                 }
-                val bytes = resp.body?.bytes() ?: return null
+                val source = resp.body?.source() ?: return null
+                // 只窥探开头判 HTML，正文边收边写：整包 bytes() 遇到大文件会 OOM。
+                source.request(HTML_SNIFF_BYTES)
+                val head = source.peek().readByteArray(minOf(source.buffer.size, HTML_SNIFF_BYTES))
                 // 验证码页 / 挑战页也是 200。存成「附件.docx」用户只会看到打不开。
-                if (isHtmlDisguisedAsFile(mime, disposition, bytes)) {
+                if (isHtmlDisguisedAsFile(mime, disposition, head)) {
                     Log.w(TAG, "refusing html body as file: $url")
                     return null
                 }
-                Log.d(TAG, "downloaded name=$name mime=$mime size=${bytes.size}")
 
-                LmsDownloadStore.saveBytes(
+                LmsDownloadStore.saveStream(
                     context = context,
                     fileName = name,
-                    mimeType = mime.ifBlank { "application/octet-stream" },
-                    bytes = bytes,
+                    mimeType = mime,
                     category = category,
-                )?.let { name }
+                ) { out -> source.inputStream().copyTo(out) }
+                    ?.also { Log.d(TAG, "downloaded name=$name mime=$mime") }
+                    ?.let { name }
             }
         } catch (e: Exception) {
             Log.e(TAG, "download error: $url", e)

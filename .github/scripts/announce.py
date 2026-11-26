@@ -4,6 +4,7 @@
 
     python3 announce.py event   # 讨论区有变动（新建 / 编辑 / 关闭 / 删除…）：重建公告，不统计
     python3 announce.py tally   # 每 4 天：统计投票、删已截止投票的票、过期的帖子关掉、生成「大家在问」，再重建
+    python3 announce.py poll    # 评论区 /tally：只统计 POLL_NUMBER 那一帖的投票（不删票、不关帖），再重建
 
 * 一帖一条公告：标题 = 帖子标题，其余按发帖表单（.github/DISCUSSION_TEMPLATE/announcements.yml）的「### 小标题」解析。
   只认按表单格式写的帖（有「### 正文」一节）；分类里别的帖子（旧帖、随手发的讨论）不进 App。
@@ -279,8 +280,9 @@ def fetch_votes(fs: fd.Feishu, polls: list[dict]) -> list[dict]:
     return rows
 
 
-def update_polls(fs: fd.Feishu, gh: fd.GitHub, ns: list[Notice], now: datetime) -> None:
-    """统计还没出最终结果的投票，写回结果回复（截止的另发最终结果；上次没发出去的这次补发）。"""
+def update_polls(fs: fd.Feishu, gh: fd.GitHub, ns: list[Notice], now: datetime, force: bool = False) -> None:
+    """统计还没出最终结果的投票，写回结果回复（截止的另发最终结果；上次没发出去的这次补发）。
+    [force]：票数没变也重写结果回复（手动统计要让人看到「统计于」更新了）。"""
     due = [n for n in ns if n.bulletin and n.bulletin.get("options") and not final_saved(n)
            and (parse_time(n.bulletin.get("startsAt")) or now) <= now]
     if not due:
@@ -290,7 +292,7 @@ def update_polls(fs: fd.Feishu, gh: fd.GitHub, ns: list[Notice], now: datetime) 
         p = n.bulletin
         results, voters = tally(p, rows)
         final = (parse_time(p.get("endsAt")) or now + timedelta(1)) <= now
-        if results == p.get("results") and voters == p.get("voters", 0) and not final:
+        if not force and results == p.get("results") and voters == p.get("voters", 0) and not final:
             continue
         p.update(results=results, voters=voters, resultsAt=iso(now))
         if final:
@@ -473,7 +475,7 @@ def event_number() -> Optional[int]:
 
 def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
-    if mode not in {"event", "tally"}:
+    if mode not in {"event", "tally", "poll"}:
         print(__doc__)
         raise SystemExit(2)
     out = Path(fd.env("OUT_DIR", "out"))
@@ -497,6 +499,13 @@ def main() -> None:
             # 关了的帖子不再统计也不再删票，票没删掉的投票这趟先不关
             expiring = [n for n in ns if not (n.bulletin and n.bulletin.get("options"))]
         close_expired(gh, expiring, now)
+    elif mode == "poll":
+        number = int(fd.env("POLL_NUMBER", "0") or 0)
+        target = [n for n in ns if n.number == number and n.bulletin and n.bulletin.get("options")]
+        if target:
+            update_polls(fd.Feishu(), gh, target, now, force=True)
+        else:
+            fd.log(f"::warning::#{number} 不是进行中的投票（已关帖、没按表单写或没有投票选项），只重建公告")
     else:
         number = event_number()
         touched = [n for n in ns if n.number == number]

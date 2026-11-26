@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
@@ -20,14 +21,10 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Checkbox
-import top.yukonga.miuix.kmp.basic.RadioButton
-import androidx.compose.ui.state.ToggleableState
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.*
@@ -48,6 +45,9 @@ import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.ChoiceList
+import com.xjtu.toolbox.ui.components.rememberChoiceState
+import kotlin.time.Clock
 
 internal fun bulletinAccent(level: BulletinLevel) = when (level) {
     BulletinLevel.WARN -> Color(0xFFE65100)
@@ -298,6 +298,28 @@ private fun NoticePanelSnapshot(bulletin: Bulletin, modifier: Modifier) {
     }
 }
 
+/** 投票标题下的一行：单选 / 可多选，以及截止倒计时。 */
+@Composable
+private fun PollMeta(bulletin: Bulletin) {
+    val colors = MiuixTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (bulletin.allowMultiple) "可多选" else "单选",
+            style = MiuixTheme.textStyles.footnote2,
+            fontWeight = FontWeight.Medium,
+            color = colors.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(colors.primary.copy(alpha = 0.12f))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+        bulletin.remainingText(Clock.System.now())?.let {
+            Spacer(Modifier.width(8.dp))
+            Text(it, style = MiuixTheme.textStyles.footnote1, color = colors.onSurfaceVariantSummary)
+        }
+    }
+}
+
 @Composable
 fun BulletinLaunchDialog(
     bulletin: Bulletin,
@@ -320,8 +342,7 @@ fun BulletinLaunchDialog(
         bulletin.level == BulletinLevel.WARN -> "维护通知"
         else -> "通知"
     }
-    val selected = remember(bulletin.id) { mutableStateListOf<String>() }
-    var otherText by remember(bulletin.id) { mutableStateOf("") }
+    val choice = rememberChoiceState(bulletin.id, bulletin.options, bulletin.allowMultiple)
     WindowBottomSheet(
         show = show.value,
         title = title,
@@ -338,8 +359,12 @@ fun BulletinLaunchDialog(
                 style = MiuixTheme.textStyles.title4,
                 fontWeight = FontWeight.Bold,
             )
-            if (bulletin.body.isNotBlank()) {
+            if (bulletin.isPoll) {
                 Spacer(Modifier.height(8.dp))
+                PollMeta(bulletin)
+            }
+            if (bulletin.body.isNotBlank()) {
+                Spacer(Modifier.height(10.dp))
                 GithubMarkdown(
                     bulletin.body,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -348,56 +373,23 @@ fun BulletinLaunchDialog(
             }
             Spacer(Modifier.height(16.dp))
             if (bulletin.isPoll) {
-                bulletin.options.forEach { option ->
-                    val isChecked = option in selected
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                if (bulletin.allowMultiple) {
-                                    if (isChecked) selected.remove(option) else selected.add(option)
-                                } else {
-                                    selected.clear()
-                                    selected.add(option)
-                                }
-                            }
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (bulletin.allowMultiple) {
-                            Checkbox(
-                                state = if (isChecked) ToggleableState.On else ToggleableState.Off,
-                                onClick = null,
-                            )
-                        } else {
-                            RadioButton(selected = isChecked, onClick = null)
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Text(option, style = MiuixTheme.textStyles.body1)
-                    }
-                }
-                if (bulletin.allowOther) {
-                    Spacer(Modifier.height(8.dp))
-                    TextField(
-                        value = otherText,
-                        onValueChange = { otherText = it },
-                        label = "其他（选填）",
-                        singleLine = false,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
+                ChoiceList(choice, bulletin.options, bulletin.allowOther)
+                val answers = choice.answers
+                Spacer(Modifier.height(20.dp))
                 Button(
-                    onClick = {
-                        val answers = selected.toList() +
-                            listOfNotNull(otherText.trim().ifBlank { null }?.let { "其他：$it" })
-                        onSubmitPoll(answers)
-                    },
-                    enabled = selected.isNotEmpty() || otherText.isNotBlank(),
+                    onClick = { onSubmitPoll(answers) },
+                    enabled = answers.isNotEmpty() && !choice.otherMissing,
                     colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("提交", color = MiuixTheme.colorScheme.onPrimary)
+                    Text(
+                        when {
+                            choice.otherMissing -> "填一下「其他」再提交"
+                            answers.isEmpty() -> "选一项再提交"
+                            else -> "提交"
+                        },
+                        color = MiuixTheme.colorScheme.onPrimary,
+                    )
                 }
             } else if (isForceUpdate) {
                 Button(

@@ -97,6 +97,14 @@ object AppServices {
         AppService(AppRoute.Fitness, "体测查询", "体测成绩与明细", ServiceCategory.LIFE, listOf("体测", "体育", "体能", "fitness")),
         AppService(AppRoute.YellowPage, "校园黄页", "校内电话与机构", ServiceCategory.LIFE, listOf("黄页", "电话", "分机")),
         AppService(AppRoute.CampusBus, "校车查询", "班次、站点与余量", ServiceCategory.LIFE, listOf("校车", "班车", "通勤车", "创新港班车", "兴庆班车", "bus")),
+        AppService(AppRoute.SuperApp, "移动交大", "学校全部网上服务", ServiceCategory.LIFE,
+            listOf("移动交大", "superapp", "服务大厅", "一网通办", "办事", "网上办事", "在读证明", "缴网费", "宿舍电费", "体检", "会议室预约", "报修", "失物招领", "心理咨询"),
+            features = listOf(
+                "服务分类：按教育教学、校园生活、财务等分类浏览学校的网上服务",
+                "搜索服务：按名称或拼音找服务",
+                "专区：体检、预约、缴费、校园卡等专区里的子服务",
+                "服务详情：长按看说明、主管部门与联系电话",
+            )),
 
         AppService(AppRoute.WebVpnConverter, "WebVPN", "非校园网访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
         AppService(AppRoute.Agent, "小岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问小岱", "屁岱", "ai", "助手")),

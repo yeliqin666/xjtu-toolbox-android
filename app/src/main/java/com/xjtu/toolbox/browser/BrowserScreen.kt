@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.VpnKey
 import kotlinx.serialization.json.jsonPrimitive
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -356,6 +357,10 @@ fun BrowserScreen(
                                             send(runCatching { com.xjtu.toolbox.util.AppJson.parseToJsonElement(raw).jsonPrimitive.content }.getOrDefault(""))
                                         } ?: send("")
                                     }
+                                    // 校内站在校外打不开：换成网关地址重开，网关会话由网页自己走统一认证
+                                    if (!WebVpnUtil.isWebVpnUrl(currentUrl)) option("通过 WebVPN 打开", icon = Icons.Default.VpnKey) {
+                                        webViewRef?.loadUrl(WebVpnUtil.toVpnUrl(currentUrl))
+                                    }
                                     option("在外部浏览器打开", icon = Icons.AutoMirrored.Filled.OpenInNew) {
                                         runCatching {
                                             context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(shareableUrl(currentUrl, WebVpnUtil))))
@@ -484,10 +489,7 @@ fun BrowserScreen(
                                 }
                                 return false
                             }
-                            try {
-                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                                context.startActivity(intent)
-                            } catch (_: Exception) { }
+                            openExternalScheme(context, url, view)
                             return true
                         }
                     }
@@ -516,11 +518,14 @@ fun BrowserScreen(
                                     req: WebResourceRequest?
                                 ): Boolean {
                                     val u = req?.url?.toString() ?: return true
-                                    if (isCmsOneShotDownload(u)) {
-                                        val name = URLUtil.guessFileName(u, null, null)
-                                        saveHttpDownload.value(u, name, parent.settings.userAgentString)
-                                    } else {
-                                        parent.loadUrl(u)
+                                    when {
+                                        isCmsOneShotDownload(u) -> {
+                                            val name = URLUtil.guessFileName(u, null, null)
+                                            saveHttpDownload.value(u, name, parent.settings.userAgentString)
+                                        }
+                                        u.startsWith("http://") || u.startsWith("https://") -> parent.loadUrl(u)
+                                        // loadUrl 不经过 shouldOverrideUrlLoading，自定义 scheme 在这里直接交给系统
+                                        else -> openExternalScheme(context, u, parent)
                                     }
                                     tmp.destroy()
                                     return true
@@ -667,14 +672,43 @@ h.go=function(n){n=Number(n)||0;if(n<0)b.back(-n);else go(n);};})()"""
     }
 }
 
+/**
+ * 登录链上的一跳：统一认证、开放平台 OAuth、各站自己的 CAS / OAuth 入口和带一次性凭据的回调。
+ * 后退跳过它们：退到带 `ticket` / `code` 的回调上会把用过的凭据再交一次，站点只会报错。
+ */
 internal fun isAuthHop(url: String): Boolean {
     val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
     val host = uri.host?.lowercase().orEmpty()
+    val params = uri.rawQuery.orEmpty().split('&').map { it.substringBefore('=') }
     return host == "login.xjtu.edu.cn" || host == "cas.xjtu.edu.cn" ||
-        (host == "org.xjtu.edu.cn" && (uri.path.orEmpty().contains("login") || uri.path.orEmpty().startsWith("/openplatform/oauth/"))) ||
-        (host == "202.117.17.144" && (uri.path.orEmpty().startsWith("/web/login/") || uri.path.orEmpty().startsWith("/web/cas/"))) ||
-        (host == "webvpn.xjtu.edu.cn" && uri.path?.trimEnd('/') == "/login") ||
-        uri.rawQuery.orEmpty().split('&').any { it.substringBefore('=') == "ticket" }
+        "ticket" in params || ("code" in params && "state" in params) ||
+        AUTH_PATH.containsMatchIn(uri.rawPath.orEmpty().lowercase())
+}
+
+/** `/cas/login`、`/openplatform/oauth/`、`xjtuCASLogin`、`OAuthPage`、`cas-entrance.jsp`、`/web/cas/` 这类路径。 */
+private val AUTH_PATH = Regex("""login|oauth|/cas([/_.-]|$)|/sso([/_.-]|$)""")
+
+/**
+ * 网页要拉起别的 App（`intent://`、`weixin://`、`alipays://` 这类支付或登录回调）。
+ * `intent://` 按 Intent URI 解析，没装对应 App 时退回它给的 `browser_fallback_url`；
+ * 只放行可浏览的隐式 Intent，网页不能借此指定组件拉起本机任意页面。
+ */
+private fun openExternalScheme(context: android.content.Context, url: String, web: WebView?) {
+    val intent = runCatching {
+        if (url.startsWith("intent:", ignoreCase = true)) android.content.Intent.parseUri(url, android.content.Intent.URI_INTENT_SCHEME)
+        else android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))
+    }.getOrNull() ?: return
+    intent.addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+    intent.component = null
+    intent.selector = null
+    try {
+        context.startActivity(intent)
+    } catch (_: android.content.ActivityNotFoundException) {
+        val fallback = intent.getStringExtra("browser_fallback_url")
+        if (fallback != null && (fallback.startsWith("https://") || fallback.startsWith("http://"))) web?.loadUrl(fallback)
+        else Toast.makeText(context, "没有可以打开这个链接的应用", Toast.LENGTH_SHORT).show()
+    } catch (_: Exception) {
+    }
 }
 
 /** 顶栏第二行显示的域名：WebVPN 代理地址换回原站域名，去掉 www.。 */

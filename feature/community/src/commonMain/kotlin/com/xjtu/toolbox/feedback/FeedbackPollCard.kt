@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.feedback
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -9,7 +8,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,11 +17,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -40,12 +36,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.bulletin.PollResult
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.ChoiceList
+import com.xjtu.toolbox.ui.components.rememberChoiceState
 import com.xjtu.toolbox.ui.components.SmallTitle
 import com.xjtu.toolbox.util.campusDateTimeOf
 import kotlinx.coroutines.launch
@@ -56,7 +53,6 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.time.Clock
@@ -116,8 +112,8 @@ private fun OpenPollCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Pill(if (myVote == null) "投票中" else "已投票", colors.primary)
             Spacer(Modifier.weight(1f))
-            poll.endsAt?.let {
-                Text(remaining(it, now), style = MiuixTheme.textStyles.footnote1, color = colors.onSurfaceVariantSummary)
+            poll.remainingText(now)?.let {
+                Text(it, style = MiuixTheme.textStyles.footnote1, color = colors.onSurfaceVariantSummary)
             }
         }
         Text(poll.title, style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.SemiBold)
@@ -158,8 +154,7 @@ private fun PollChoices(
     onVote: (List<String>, (Boolean) -> Unit) -> Unit,
 ) {
     val colors = MiuixTheme.colorScheme
-    var picked by remember(poll.id) { mutableStateOf(previous.filter { it in poll.options }.toSet()) }
-    var other by remember(poll.id) { mutableStateOf(previous.firstOrNull { it !in poll.options }.orEmpty()) }
+    val choice = rememberChoiceState(poll.id, poll.options, poll.allowMultiple, previous)
     var sending by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     Text(
@@ -167,33 +162,8 @@ private fun PollChoices(
         style = MiuixTheme.textStyles.footnote2,
         color = colors.onSurfaceVariantSummary,
     )
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        poll.options.forEach { option ->
-            val on = option in picked
-            OptionTile(option, on, poll.allowMultiple) {
-                picked = when {
-                    poll.allowMultiple -> if (on) picked - option else picked + option
-                    on -> emptySet()
-                    else -> setOf(option)
-                }
-                if (!poll.allowMultiple && picked.isNotEmpty()) other = ""
-            }
-        }
-        if (poll.allowOther) {
-            TextField(
-                value = other,
-                onValueChange = {
-                    // 「、」是提交时的分隔符
-                    other = it.replace("、", "，")
-                    if (!poll.allowMultiple && other.isNotBlank()) picked = emptySet()
-                },
-                label = "其他（自己填）",
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-    val selected = picked.sortedBy { poll.options.indexOf(it) } + listOfNotNull(other.trim().ifBlank { null })
+    ChoiceList(choice, poll.options, poll.allowOther)
+    val selected = choice.answers
     if (failed) {
         Text("没投上，检查下网络再试", style = MiuixTheme.textStyles.footnote1, color = colors.error)
     }
@@ -204,6 +174,7 @@ private fun PollChoices(
         TextButton(
             text = when {
                 sending -> "提交中…"
+                choice.otherMissing -> "填一下「其他」再投"
                 selected.isEmpty() -> "选一项再投"
                 else -> "投票"
             },
@@ -212,55 +183,10 @@ private fun PollChoices(
                 failed = false
                 onVote(selected) { ok -> sending = false; failed = !ok }
             },
-            enabled = selected.isNotEmpty() && !sending,
+            enabled = selected.isNotEmpty() && !choice.otherMissing && !sending,
             colors = ButtonDefaults.textButtonColorsPrimary(),
             modifier = Modifier.weight(1f),
         )
-    }
-}
-
-@Composable
-private fun OptionTile(text: String, on: Boolean, multiple: Boolean, onClick: () -> Unit) {
-    val colors = MiuixTheme.colorScheme
-    val shape = RoundedCornerShape(14.dp)
-    val bg by animateColorAsState(if (on) colors.primary.copy(alpha = 0.10f) else colors.surfaceContainer)
-    val edge by animateColorAsState(if (on) colors.primary.copy(alpha = 0.6f) else Color.Transparent)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .clip(shape)
-            .background(bg)
-            .border(1.dp, edge, shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text,
-            style = MiuixTheme.textStyles.body2,
-            fontWeight = if (on) FontWeight.Medium else FontWeight.Normal,
-            color = if (on) colors.primary else colors.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(10.dp))
-        Mark(on, if (multiple) RoundedCornerShape(6.dp) else CircleShape)
-    }
-}
-
-/** 选中标记：单选圆、多选圆角方，选中填主色打勾。 */
-@Composable
-private fun Mark(on: Boolean, shape: Shape) {
-    val colors = MiuixTheme.colorScheme
-    Box(
-        Modifier
-            .size(20.dp)
-            .clip(shape)
-            .background(if (on) colors.primary else Color.Transparent)
-            .border(1.5.dp, if (on) colors.primary else colors.onSurfaceVariantSummary.copy(alpha = 0.5f), shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (on) Icon(Icons.Filled.Check, contentDescription = null, tint = colors.onPrimary, modifier = Modifier.size(14.dp))
     }
 }
 
@@ -273,7 +199,7 @@ private fun PollResults(poll: Bulletin, mine: List<String>) {
     if (poll.results.isEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             poll.options.forEach { ResultBar(it, null, 0f, it in mine, leading = false) }
-            mine.filter { it !in poll.options }.forEach { ResultBar("其他：$it", null, 0f, mine = true, leading = false) }
+            mine.filter { it !in poll.options }.forEach { ResultBar("其他：${it.removePrefix("其他：")}", null, 0f, mine = true, leading = false) }
         }
         Text("首轮统计后显示票数", style = MiuixTheme.textStyles.footnote2, color = colors.onSurfaceVariantSummary)
         return
@@ -454,15 +380,6 @@ private fun verdict(poll: Bulletin): String {
 
 private fun footer(poll: Bulletin, tail: String): String =
     listOfNotNull(poll.voters.takeIf { it > 0 }?.let { "$it 人参与" }, tail).joinToString(" · ")
-
-private fun remaining(endsAt: Instant, now: Instant): String {
-    val left = endsAt - now
-    return when {
-        left.inWholeDays >= 1 -> "还剩 ${left.inWholeDays} 天"
-        left.inWholeHours >= 1 -> "还剩 ${left.inWholeHours} 小时"
-        else -> "即将截止"
-    }
-}
 
 private fun dateText(t: Instant): String {
     val d = campusDateTimeOf(t.toEpochMilliseconds())

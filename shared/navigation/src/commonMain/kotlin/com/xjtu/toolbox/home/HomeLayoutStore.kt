@@ -355,7 +355,7 @@ private const val KEY_CARD_CORNER = "home_card_corner"
          * 开始记「见过的功能」之后才进目录的功能。老存档没有见过记录时，
          * 按「当前目录减去这些」当作见过，于是这些会补进去，其余的（用户删过的）不会。
          */
-        private val INTRODUCED_AFTER_SEEN_TRACKING = setOf(AppRoute.SsActivity.id)
+        private val INTRODUCED_AFTER_SEEN_TRACKING = setOf(AppRoute.SsActivity.id, AppRoute.SuperApp.id)
     }
 }
 
