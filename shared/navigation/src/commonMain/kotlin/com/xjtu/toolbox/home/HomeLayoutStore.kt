@@ -28,6 +28,9 @@ object HomeLayoutDefaults {
 
     const val QUICK_GROUP = "quick"
 
+    /** 附加入口（插件公开页）那一组：id 固定，组名「插件」，永远排在最后一组。 */
+    const val PLUGIN_GROUP = "plugin"
+
     /**
      * 默认放大一档（2×2）：最常看、内容也最多（通知列最近几条标题）。
      * 付款码要 2×2 才画得下二维码，目录里它紧跟校园卡，两块正好并排占满一行。
@@ -45,7 +48,11 @@ object HomeLayoutDefaults {
         AppRoute.CampusBus.id,
     )
 
-    fun of(accountType: AccountType, quickRoutes: List<AppRoute> = emptyList()): HomeLayout {
+    fun of(
+        accountType: AccountType,
+        quickRoutes: List<AppRoute> = emptyList(),
+        extra: List<AppService> = emptyList(),
+    ): HomeLayout {
         val groups = mutableListOf<HomeGroup>()
 
         val quick = pack(
@@ -70,6 +77,16 @@ object HomeLayoutDefaults {
                 )
                 groups += HomeGroup(id = category.name, title = category.title, tiles = tiles)
             }
+
+        // 附加入口（插件公开页）单独一组「插件」：插件的名字得占两格才放得下（1×1 是纯图标，
+        // 而插件不做图标，全是同一个方块分不清），所以 2×1、一组排两列。没有就整组不出。
+        val pluginTiles = pack(
+            groupId = PLUGIN_GROUP,
+            items = extra.map { DefaultSlot(it.route.id, 2, 1) },
+        )
+        if (pluginTiles.isNotEmpty()) {
+            groups += HomeGroup(id = PLUGIN_GROUP, title = "插件", tiles = pluginTiles)
+        }
 
         return HomeLayout(groups)
     }
@@ -150,15 +167,44 @@ class HomeLayoutStore(
      * 读出来顺手收一遍空行（`compactGaps`，只网格模式）：老版本把空行留在存档里了，不收的话
      * 用户升级完看到的还是那片空行。
      */
-    fun load(accountType: AccountType, quickRoutes: List<AppRoute> = emptyList()): HomeLayout {
+    fun load(
+        accountType: AccountType,
+        quickRoutes: List<AppRoute> = emptyList(),
+        extra: List<AppService> = emptyList(),
+    ): HomeLayout {
         // 网格曾经可以关掉（自由摆放）：关过的存档在这里取整落盘一次，之后永远按网格
         if (!store.getBoolean(KEY_LEGACY_GRID, true)) {
             saved?.let { store.putString(KEY_LAYOUT, HomeLayoutCodec.encode(it.snapToGrid().withoutEmptyGroups())) }
             store.remove(KEY_LEGACY_GRID)
         }
         val stored = saved ?: migrateFromWidgetLayout(accountType)
-        return (stored?.let { withNewServices(it, accountType) } ?: HomeLayoutDefaults.of(accountType, quickRoutes))
-            .compactGaps(grid)
+        return (
+            stored?.let { withPluginGroup(withNewServices(it, accountType), extra) }
+                ?: HomeLayoutDefaults.of(accountType, quickRoutes, extra)
+            ).compactGaps(grid)
+    }
+
+    /**
+     * 给**改过布局的人**补一组「插件」——只补一次。
+     *
+     * 默认布局每次按目录现算，插件组天生就在；自己摆过布局的人读的是整页存档，存档里没有
+     * 插件组，插件页就一个都上不了首页。这里按「第一次真的见到插件公开页」补一次，
+     * 补完置 [KEY_PLUGIN_GROUP_ONCE]：之后用户把它删掉、或把卡片全搬走（空组保存时自动删），
+     * 都不会再长回来——跟更新日志那套「这个版本启动过没有」是同一个思路，一个布尔标记，
+     * 只做一次副作用。插件全卸了的那段时间 `extra` 是空的，不置标记，之后装了再补。
+     */
+    private fun withPluginGroup(layout: HomeLayout, extra: List<AppService>): HomeLayout {
+        if (extra.isEmpty()) return layout
+        if (store.getBoolean(KEY_PLUGIN_GROUP_ONCE, false)) return layout
+        store.putBoolean(KEY_PLUGIN_GROUP_ONCE, true)
+        if (layout.group(HomeLayoutDefaults.PLUGIN_GROUP) != null) return layout
+        val groupId = HomeLayoutDefaults.PLUGIN_GROUP
+        var next = layout.addGroup(HomeGroup(id = groupId, title = "插件"))
+        extra.distinctBy { it.route.id }.forEach { service ->
+            next = next.addTile(groupId, service.route.id, next.nextTileId(groupId, service.route.id), 2f, 1f)
+        }
+        store.putString(KEY_LAYOUT, HomeLayoutCodec.encode(next))
+        return next
     }
 
     /**
@@ -350,6 +396,9 @@ private const val KEY_CARD_CORNER = "home_card_corner"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"
         /** 存档时用户已见过的功能（逗号分隔的路由 id），见 [withNewServices]。 */
         private const val KEY_SEEN_ROUTES = "home_seen_routes"
+
+        /** 「插件组只自动补一次」的标记，见 [withPluginGroup]。 */
+        private const val KEY_PLUGIN_GROUP_ONCE = "home_plugin_group_added"
 
         /**
          * 开始记「见过的功能」之后才进目录的功能。老存档没有见过记录时，

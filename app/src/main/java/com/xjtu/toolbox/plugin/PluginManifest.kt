@@ -92,6 +92,13 @@ internal data class PluginPageManifest(
      * 宿主按页面顺序生成目录，一级分组可折叠。
      */
     val group: String = "",
+    /**
+     * 这一页是不是「对外的公开页」（默认不是）。
+     *
+     * 只有公开页会进盒子的服务目录：首页「插件」那一组、编辑态的添加面板、全局搜索、底栏候选。
+     * 插件内部的子页（比如设置、详情）不用标，免得首页被这些页塞满。
+     */
+    val home: Boolean = false,
 )
 
 @Serializable

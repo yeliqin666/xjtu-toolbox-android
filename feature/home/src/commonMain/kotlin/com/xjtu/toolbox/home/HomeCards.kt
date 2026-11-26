@@ -41,8 +41,9 @@ object HomeCards {
         accountType: AccountType,
         stats: Map<String, HomeStat>,
         onlyRouteIds: Set<String>? = null,
+        extra: List<AppService> = emptyList(),
     ): List<HomeCardGroup> {
-        val services = AppServices.homeFor(accountType)
+        val services = (AppServices.homeFor(accountType) + extra)
             .filter { onlyRouteIds == null || it.route.id in onlyRouteIds }
         return ServiceCategory.entries.mapNotNull { category ->
             val items = services.filter { it.category == category }

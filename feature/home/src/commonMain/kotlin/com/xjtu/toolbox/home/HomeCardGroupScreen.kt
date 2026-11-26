@@ -189,7 +189,9 @@ fun HomeCardGroupScreen(
 ) {
     val honored = host.honoredCards
     // 用目录全量：图标配色按它在目录里的下标取，过滤会让配色挪位。
-    val catalog = remember(host.audience) { AppServices.homeFor(host.audience) }
+    val catalog = remember(host.audience, host.extraServices) {
+        AppServices.homeFor(host.audience) + host.extraServices
+    }
     // 配色随应用主题变化，不能放进 remember。
     val colorByKey = catalog.associate { it.route.id to serviceColor(it.route.id) }
 
@@ -202,8 +204,8 @@ fun HomeCardGroupScreen(
     val settingsRevision = SettingsRevision.current
     val revision = HomeLayoutRevision.current
     val editing = remember { HomeEditState() }
-    val stored = remember(revision, host.audience, host.quickRoutes) {
-        layoutStore.load(host.audience, host.quickRoutes)
+    val stored = remember(revision, host.audience, host.quickRoutes, host.extraServices) {
+        layoutStore.load(host.audience, host.quickRoutes, host.extraServices)
     }
     val layout = editing.draft ?: stored
     val grid = layoutStore.grid
@@ -603,7 +605,7 @@ fun HomeCardGroupScreen(
     val resetRevision = HomeLayoutResetRevision.current
     LaunchedEffect(resetRevision) {
         if (resetRevision == 0 || !editing.on) return@LaunchedEffect
-        editing.draft = layoutStore.load(host.audience, host.quickRoutes)
+        editing.draft = layoutStore.load(host.audience, host.quickRoutes, host.extraServices)
     }
 
     /** 缩放中的实时尺寸（格）：按「手指内容坐标 − 起手内容坐标」的**绝对差值**重算。 */
@@ -2130,7 +2132,18 @@ private fun TilePickerMenu(
                 modifier = Modifier.padding(16.dp),
             )
         }
+        // 内置功能之后接插件公开页：中间插一行小标题，免得两拨混在一起看不出来
+        var pluginHeadingShown = false
         candidates.forEach { service ->
+            if (!pluginHeadingShown && service.pluginPage) {
+                pluginHeadingShown = true
+                Text(
+                    "插件",
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp, end = 16.dp),
+                )
+            }
             com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
                 text = { Text(service.title, fontSize = 14.sp) },
                 leadingIcon = {

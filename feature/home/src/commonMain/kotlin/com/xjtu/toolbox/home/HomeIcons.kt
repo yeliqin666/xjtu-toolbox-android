@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.nav.AppRoute
 
@@ -84,6 +86,10 @@ object HomeIcons {
         AppRoute.GameGo -> Icons.Default.Casino
         AppRoute.GameXiangqi -> Icons.Default.School
         AppRoute.Match -> Icons.Default.Groups
+        // 插件公开页：dex 插件是一个个页面，web 插件就是一个网址。
+        // 插件不做图标（2026-11），所以这一类没有「按插件区分」的图标可用。
+        is AppRoute.Plugin -> Icons.Outlined.Extension
+        is AppRoute.PluginWeb -> Icons.Outlined.Language
         else -> Icons.Default.Apps
     }
 

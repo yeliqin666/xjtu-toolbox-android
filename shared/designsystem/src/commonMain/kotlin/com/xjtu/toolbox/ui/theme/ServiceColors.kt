@@ -32,12 +32,24 @@ private const val R_COMMUNITY = "community"
 private const val R_GAMES = "games"
 private const val R_MATCH = "schedule_match"
 
+/** 插件公开页的路由 id 前缀（`plugin/<插件>/<页>`、`plugin-web/<插件>`）。 */
+private const val PLUGIN_ROUTE_PREFIX = "plugin/"
+
+/** 插件的统一配色：不做图标，就靠这一色跟内置功能分开。 */
+private val PLUGIN_COLOR = Color(0xFF5E35B1)
+
 /**
  * 功能入口的固定配色。
  * [通知公告] 保留主题 error 色以保证警示语义。
+ *
+ * 插件公开页不在目录里，路由 id 是运行时拼出来的，所以先按前缀判一次。
  */
 @Composable
-fun serviceColor(key: String): Color = when (key) {
+fun serviceColor(key: String): Color =
+    if (key.startsWith(PLUGIN_ROUTE_PREFIX) || key.startsWith("plugin-web/")) PLUGIN_COLOR else builtinColor(key)
+
+@Composable
+private fun builtinColor(key: String): Color = when (key) {
     // 上课
     R_SCHEDULE -> Color(0xFF315FD4)
     R_EMPTY_ROOM -> Color(0xFF283593)

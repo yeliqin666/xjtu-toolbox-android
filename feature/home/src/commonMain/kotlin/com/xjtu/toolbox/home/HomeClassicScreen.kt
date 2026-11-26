@@ -136,7 +136,9 @@ fun HomeClassicScreen(
 ) {
     val honored = host.honoredCards
     // 用目录全量：图标配色按它在目录里的下标取，过滤会让配色挪位。
-    val catalog = remember(host.audience) { AppServices.homeFor(host.audience) }
+    val catalog = remember(host.audience, host.extraServices) {
+        AppServices.homeFor(host.audience) + host.extraServices
+    }
     // 配色随应用主题变化，不能放进 remember。
     val colorByKey = catalog.associate { it.route.id to serviceColor(it.route.id) }
     // 宿主每次重组都是新对象：回调统一经它的最新值转一手，引用固定下来，
@@ -180,7 +182,7 @@ fun HomeClassicScreen(
                 )
             }
         } else null
-    val groups = HomeCards.groups(host.audience, host.stats, host.openableRouteIds)
+    val groups = HomeCards.groups(host.audience, host.stats, host.openableRouteIds, host.extraServices)
     val layoutStore = remember { SettingsStore() }
     val background = remember(HomeLayoutRevision.current) { layoutStore.homeBackground }
     val wallpaper = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperImage.takeIf { background == "image" }.orEmpty() }
@@ -275,12 +277,31 @@ fun HomeClassicScreen(
             if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
                 HomeIndexCard(
-                    sections = groups.map { group ->
-                        IndexCategorySection(
-                            title = group.category.title,
-                            accent = serviceColor(HomeIcons.accentKey(group.category)),
-                            rows = group.rows.map { indexRow(it.service, it.stat, it.statDetail) },
-                        )
+                    // 插件公开页接在内置功能后面：**同一类里分两段画**，第二段的标题就是那行
+                    // 小标题「插件」。第一段空了（整类都是插件，理论上不会有）就不画。
+                    sections = groups.flatMap { group ->
+                        val (builtin, plugins) = group.rows.partition { !it.service.pluginPage }
+                        val accent = serviceColor(HomeIcons.accentKey(group.category))
+                        buildList {
+                            if (builtin.isNotEmpty()) {
+                                add(
+                                    IndexCategorySection(
+                                        title = group.category.title,
+                                        accent = accent,
+                                        rows = builtin.map { indexRow(it.service, it.stat, it.statDetail) },
+                                    ),
+                                )
+                            }
+                            if (plugins.isNotEmpty()) {
+                                add(
+                                    IndexCategorySection(
+                                        title = "插件",
+                                        accent = serviceColor(PLUGIN_ACCENT_KEY),
+                                        rows = plugins.map { indexRow(it.service, it.stat, it.statDetail) },
+                                    ),
+                                )
+                            }
+                        }
                     },
                     modifier = Modifier.enterOnce(1),
                 )
@@ -311,6 +332,9 @@ fun HomeClassicScreen(
 }
 
 // ── 首页版式 ──
+
+/** 「插件」那一段的配色键（与 `serviceColor` 里的插件色同一套）。 */
+private const val PLUGIN_ACCENT_KEY = "plugin/"
 
 /** 分类面板：白色卡面、细描边与柔和投影；今日安排使用蓝色底。 */
 @Composable
