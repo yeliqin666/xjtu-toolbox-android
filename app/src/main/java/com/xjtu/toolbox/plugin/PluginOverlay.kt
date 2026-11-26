@@ -87,6 +87,9 @@ internal object PluginOverlay {
  */
 internal object PluginLauncher {
     var openRoute: ((pluginId: String, pageId: String) -> Unit)? = null
+
+    /** 打开某个插件的详情页（设置里的插件列表也用它）。 */
+    var openDetail: ((pluginId: String) -> Unit)? = null
 }
 
 /**

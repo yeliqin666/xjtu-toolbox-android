@@ -265,12 +265,15 @@ fun AppRoot(
         if (com.xjtu.toolbox.plugin.PluginOverlay.listOpen) {
             LaunchedEffect(Unit) {
                 com.xjtu.toolbox.plugin.PluginOverlay.consumeListRequest()
-                router.open(com.xjtu.toolbox.nav.AppRoute.Plugins())
+                router.open(com.xjtu.toolbox.nav.AppRoute.Plugins)
             }
         }
         androidx.compose.runtime.SideEffect {
             com.xjtu.toolbox.plugin.PluginLauncher.openRoute = { id, page ->
                 router.open(com.xjtu.toolbox.nav.AppRoute.Plugin(id, page))
+            }
+            com.xjtu.toolbox.plugin.PluginLauncher.openDetail = { id ->
+                router.open(com.xjtu.toolbox.nav.AppRoute.PluginDetail(id))
             }
         }
 
