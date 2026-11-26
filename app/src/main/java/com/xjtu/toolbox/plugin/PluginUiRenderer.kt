@@ -51,8 +51,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -154,7 +158,13 @@ internal fun PluginUiTree(
         is UiTextNode -> Text(
             text = node.text,
             modifier = if (node.actionId.isNotEmpty()) {
-                modifier.clickable { onAction(node.actionId, null) }
+                modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = { onAction(node.actionId, null) },
+                    )
             } else {
                 modifier
             },
@@ -207,13 +217,14 @@ internal fun PluginUiTree(
             style = node.style.toMiuixStyle(),
         )
 
+        // 可点的卡与宿主列表卡一致：下沉按压 + 按压遮罩
         is UiCardNode -> Card(
-            modifier = if (node.actionId.isEmpty()) {
-                modifier.fillMaxWidth()
-            } else {
-                modifier.fillMaxWidth().clickable { onAction(node.actionId, null) }
-            },
+            modifier = modifier.fillMaxWidth(),
+            cornerRadius = 16.dp,
             colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+            pressFeedbackType = if (node.actionId.isEmpty()) PressFeedbackType.None else PressFeedbackType.Sink,
+            showIndication = node.actionId.isNotEmpty(),
+            onClick = if (node.actionId.isEmpty()) null else ({ onAction(node.actionId, null) }),
         ) {
             Column(Modifier.padding(node.paddingDp.dp)) { PluginUiTree(node.child, onAction) }
         }
@@ -363,7 +374,19 @@ internal fun PluginUiTree(
             Row(
                 modifier = modifier
                     .fillMaxWidth()
-                    .then(if (clickable) Modifier.clickable { onAction(node.actionId, null) } else Modifier)
+                    .then(
+                        if (clickable) {
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = SinkFeedback(),
+                                    onClick = { onAction(node.actionId, null) },
+                                )
+                        } else {
+                            Modifier
+                        },
+                    )
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

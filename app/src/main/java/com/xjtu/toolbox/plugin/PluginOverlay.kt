@@ -1,16 +1,21 @@
 package com.xjtu.toolbox.plugin
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -18,6 +23,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import com.xjtu.toolbox.ui.components.TextLink
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -428,8 +441,13 @@ private fun PluginNavDrawer(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(0.72f)
+                    .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
                     .background(MiuixTheme.colorScheme.surface)
-                    .padding(start = 20.dp, end = 20.dp, top = 56.dp, bottom = 28.dp),
+                    // 吃掉面板空白处的点击：不然会落到下面的遮罩上，把抽屉关掉
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 20.dp),
             ) {
                 Text(
                     text = "目录",
@@ -443,11 +461,17 @@ private fun PluginNavDrawer(
                         .groupBy { it.group }
                         .forEach { (group, items) ->
                             val isCollapsed = collapsed[group] == true
+                            val arrow by animateFloatAsState(if (isCollapsed) -90f else 0f, label = "groupArrow")
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { collapsed[group] = !isCollapsed }
-                                    .padding(vertical = 10.dp),
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = SinkFeedback(),
+                                        onClick = { collapsed[group] = !isCollapsed },
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
@@ -459,13 +483,19 @@ private fun PluginNavDrawer(
                                 Icon(
                                     imageVector = Icons.Default.KeyboardArrowDown,
                                     contentDescription = if (isCollapsed) "展开" else "收起",
-                                    modifier = Modifier.rotate(if (isCollapsed) -90f else 0f),
+                                    modifier = Modifier.rotate(arrow),
                                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
                             }
-                            if (!isCollapsed) {
-                                items.forEach { item ->
-                                    NavPageRow(item, item.id == selectedPageId, indent = true) { onSelect(item.id) }
+                            AnimatedVisibility(
+                                visible = !isCollapsed,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut(),
+                            ) {
+                                Column {
+                                    items.forEach { item ->
+                                        NavPageRow(item, item.id == selectedPageId, indent = true) { onSelect(item.id) }
+                                    }
                                 }
                             }
                         }
@@ -494,20 +524,10 @@ private fun PluginNavDrawer(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         textAlign = TextAlign.End,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        // 两个链接用主题主色（跟「可点击文本」一致），不用次要灰
-                        Text(
-                            text = "项目地址",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier.clickable(enabled = projectUrl.isNotBlank(), onClick = onOpenProject),
-                        )
-                        Text(
-                            text = "插件设置",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier.clickable(onClick = onOpenSettings),
-                        )
+                    // TextLink 自带 10dp 内边距，往右拉回去，链接文字才和上面两行右边对齐
+                    Row(Modifier.offset(x = 10.dp)) {
+                        if (projectUrl.isNotBlank()) TextLink(text = "项目地址", onClick = onOpenProject)
+                        TextLink(text = "插件设置", onClick = onOpenSettings)
                     }
                 }
             }
@@ -515,7 +535,7 @@ private fun PluginNavDrawer(
     }
 }
 
-/** 目录里的一个页面条目。二级条目缩进，选中项用主色。 */
+/** 目录里的一个页面条目。二级条目缩进，选中项主色字 + 淡主色底。 */
 @Composable
 private fun NavPageRow(
     page: PluginPageManifest,
@@ -523,17 +543,22 @@ private fun NavPageRow(
     indent: Boolean,
     onClick: () -> Unit,
 ) {
+    val primary = MiuixTheme.colorScheme.primary
+    val tint by animateColorAsState(if (selected) primary.copy(alpha = 0.12f) else Color.Transparent, label = "navSelected")
     Text(
         text = page.title.ifBlank { page.id },
         style = MiuixTheme.textStyles.title3,
-        color = if (selected) {
-            MiuixTheme.colorScheme.primary
-        } else {
-            MiuixTheme.colorScheme.onSurfaceVariantSummary
-        },
+        color = if (selected) primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         modifier = Modifier
+            .padding(start = if (indent) 14.dp else 0.dp, top = 2.dp, bottom = 2.dp)
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = if (indent) 14.dp else 0.dp, top = 8.dp, bottom = 8.dp),
+            .clip(RoundedCornerShape(12.dp))
+            .background(tint)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            )
+            .padding(horizontal = 8.dp, vertical = 8.dp),
     )
 }

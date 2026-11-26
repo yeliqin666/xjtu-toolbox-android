@@ -2,6 +2,7 @@ package com.xjtu.toolbox.plugin
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -93,11 +94,8 @@ internal fun PluginWebScreen(
     }
 
     when (val current = state) {
-        WebState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            LoadingState(message = "正在打开网页…")
-        }
-
-        is WebState.Error -> {
+        // 加载与出错都带顶栏：WebVPN 探活慢的时候也能返回
+        WebState.Loading, is WebState.Error -> {
             val glass = rememberPageGlass()
             val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
             Scaffold(
@@ -109,8 +107,14 @@ internal fun PluginWebScreen(
                         onBack = onBack,
                     )
                 },
-            ) { _ ->
-                EmptyState(title = "打不开这个网页", subtitle = current.message)
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    if (current is WebState.Error) {
+                        EmptyState(title = "打不开这个网页", subtitle = current.message)
+                    } else {
+                        LoadingState(message = "正在打开网页…")
+                    }
+                }
             }
         }
 

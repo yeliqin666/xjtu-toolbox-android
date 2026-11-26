@@ -2,15 +2,16 @@ package com.xjtu.toolbox.plugin
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,12 +24,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
@@ -45,13 +48,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.platform.showBriefMessage
+import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownOption
 import com.xjtu.toolbox.ui.components.AppFilterChip
@@ -59,11 +64,14 @@ import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.ArrowPreference
+import com.xjtu.toolbox.ui.components.CouiPreferenceSpec
 import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import com.xjtu.toolbox.ui.components.DockedPageTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.MenuMorph
 import com.xjtu.toolbox.ui.components.SwitchPreference
+import com.xjtu.toolbox.ui.components.TextLink
+import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.ReportScrollPosition
@@ -81,11 +89,14 @@ import kotlinx.serialization.json.JsonObject
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 
 /** web 插件徽章色。 */
 private val WebBadgeColor = Color(0xFF3B82F6)
@@ -199,31 +210,55 @@ internal fun PluginsPage(
                 state = listState,
                 contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
             ) {
+                if (busy) {
+                    item(key = "busy") {
+                        Row(
+                            Modifier
+                                .animateItem()
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            InfiniteProgressIndicator()
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                text = "正在处理插件包…",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+                // 只放失败原因（要留着看）；成功走 toast
                 message?.let { text ->
-                    item {
+                    item(key = "message") {
                         Text(
                             text = text,
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .animateItem()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     }
                 }
                 if (records.isEmpty()) {
-                    item {
+                    item(key = "empty") {
                         EmptyState(
                             title = "还没有装插件",
                             subtitle = "右上角的设置里可以从文件安装；插件是一个 .zip 包，dex 类型里带 APK，web 类型只是打开一个网页。",
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 } else {
-                    items(records, key = { it.id }) { record ->
+                    itemsIndexed(records, key = { _, it -> it.id }) { index, record ->
                         PluginRow(
                             record = record,
                             broken = record.id in broken,
                             onClick = { onOpenDetail(record.id) },
                             modifier = Modifier
                                 .animateItem()
+                                .enterOnce(index)
                                 .padding(horizontal = 16.dp, vertical = 5.dp),
                         )
                     }
@@ -273,7 +308,7 @@ internal fun PluginsPage(
                 confirm = "安装",
                 onConfirm = {
                     pendingMarket = null
-                    message = "演示数据：真装要等索引和包格式接上"
+                    showBriefMessage("演示数据：真装要等索引和包格式接上")
                 },
                 onDismiss = { pendingMarket = null },
             )
@@ -296,7 +331,7 @@ internal fun PluginsPage(
                     busy = true
                     scope.launch {
                         runCatching { withContext(Dispatchers.IO) { manager.commit(install) } }
-                            .onSuccess { message = "已${if (install.isUpdate) "更新" else "安装"}：${install.manifest.name}" }
+                            .onSuccess { showBriefMessage("已${if (install.isUpdate) "更新" else "安装"}：${install.manifest.name}") }
                             .onFailure { message = it.message ?: "安装失败" }
                         manager.refresh()
                         busy = false
@@ -319,13 +354,13 @@ private fun AuthorAvatar(name: String) {
         Modifier
             .size(30.dp)
             .clip(CircleShape)
-            .background(DexBadgeColor.copy(alpha = 0.18f)),
+            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = initial,
             style = MiuixTheme.textStyles.footnote1,
-            color = DexBadgeColor,
+            color = MiuixTheme.colorScheme.primary,
         )
     }
 }
@@ -398,14 +433,8 @@ private fun PluginRow(
     }
     // 停用的插件标题置灰加删除线，扫一眼就知道它现在不工作
     val dimmed = !record.enabled
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+    PressCard(onClick = onClick, modifier = modifier.fillMaxWidth()) {
+        Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = record.manifest.name,
@@ -663,39 +692,51 @@ private fun MarketTab(
 
             if (shown.isEmpty()) {
                 item(key = "empty") {
-                    EmptyState(
-                        title = "在线市场还没开张",
-                        subtitle = if (entries.isEmpty()) {
-                            "还没配索引地址，或者索引里还没有内容。"
-                        } else {
-                            "没有符合筛选条件的插件。"
-                        },
-                    )
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "去设置里填索引地址…",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable(onClick = onOpenSettings)
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                    Column(Modifier.animateItem().fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        EmptyState(
+                            title = if (entries.isEmpty()) "在线市场还没开张" else "没有符合条件的插件",
+                            subtitle = if (entries.isEmpty()) {
+                                "还没配索引地址，或者索引里还没有内容。"
+                            } else {
+                                "换个关键词，或者放宽筛选条件。"
+                            },
                         )
+                        if (entries.isEmpty()) TextLink(text = "去设置里填索引地址", onClick = onOpenSettings, chevron = true)
                     }
                 }
             } else {
-                items(shown, key = { it.id }) { entry ->
+                itemsIndexed(shown, key = { _, it -> it.id }) { index, entry ->
                     MarketRow(
                         entry = entry,
                         onClick = { onInstall(entry) },
                         modifier = Modifier
                             .animateItem()
+                            .enterOnce(index)
                             .padding(horizontal = 16.dp, vertical = 5.dp),
                     )
                 }
             }
         }
     }
+}
+
+/** 插件列表、市场里可点的卡片：与社区帖子卡同一套圆角、底色和下沉按压。 */
+@Composable
+private fun PressCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    insideMargin: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+    content: @Composable () -> Unit,
+) {
+    Card(
+        modifier = modifier,
+        cornerRadius = 16.dp,
+        insideMargin = insideMargin,
+        colors = CardDefaults.defaultColors(color = AppCardColor),
+        pressFeedbackType = PressFeedbackType.Sink,
+        showIndication = true,
+        onClick = onClick,
+    ) { content() }
 }
 
 /** 胶囊尾巴上的下拉箭头。 */
@@ -715,15 +756,12 @@ private fun FeaturedCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier
-            .width(220.dp)
-            .height(132.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+    PressCard(
+        onClick = onClick,
+        modifier = modifier.width(220.dp).height(132.dp),
+        insideMargin = PaddingValues(14.dp),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = entry.name,
@@ -768,14 +806,8 @@ private fun FeaturedCard(
 
 @Composable
 private fun MarketRow(entry: MarketEntry, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+    PressCard(onClick = onClick, modifier = modifier.fillMaxWidth()) {
+        Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = entry.name,
@@ -857,19 +889,16 @@ private fun SettingsSheet(demo: Boolean, onDismiss: () -> Unit, onInstallFromFil
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
-                Text(
-                    text = "用默认市场（${PluginSettings.DEFAULT_INDEX_URL}）",
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable {
-                            indexUrl = PluginSettings.DEFAULT_INDEX_URL
-                            if (!demo) PluginSettings.setIndexUrl(context, PluginSettings.DEFAULT_INDEX_URL)
-                        }
-                        .padding(vertical = 6.dp),
-                )
             }
+            TextLink(
+                text = "用默认市场",
+                onClick = {
+                    indexUrl = PluginSettings.DEFAULT_INDEX_URL
+                    if (!demo) PluginSettings.setIndexUrl(context, PluginSettings.DEFAULT_INDEX_URL)
+                },
+                enabled = indexUrl != PluginSettings.DEFAULT_INDEX_URL,
+                modifier = Modifier.padding(start = 10.dp),
+            )
             CouiSettingsCard {
                 SwitchPreference(
                     title = "只在 Wi-Fi 下加载索引",
@@ -889,8 +918,9 @@ private fun SettingsSheet(demo: Boolean, onDismiss: () -> Unit, onInstallFromFil
                     title = "清空插件缓存",
                     summary = "只删临时文件，不动已装的插件和它们的数据",
                     onClick = {
-                        context.cacheDir.listFiles { f -> f.name.startsWith("plugin_import_") }
-                            ?.forEach { runCatching { it.delete() } }
+                        val removed = context.cacheDir.listFiles { f -> f.name.startsWith("plugin_import_") }
+                            ?.count { runCatching { it.delete() }.getOrDefault(false) } ?: 0
+                        showBriefMessage(if (removed > 0) "已清理 $removed 个临时文件" else "没有可清理的缓存")
                     },
                 )
             }
@@ -940,10 +970,11 @@ internal fun PluginDetailScreen(
                     onBack = onBack,
                 )
             },
-        ) { _ ->
+        ) { padding ->
             EmptyState(
                 title = "插件不在了",
                 subtitle = "可能已经卸载，或者列表还没读完；返回上一页看看。",
+                modifier = Modifier.padding(padding),
             )
         }
         return
@@ -1148,29 +1179,42 @@ private fun DetailPage(
                 }
             }
 
-            // ④ 卸载
+            // ④ 卸载：单独一张、居中红字，与「我的」页的退出登录同一套
             Spacer(Modifier.height(14.dp))
             CouiSettingsCard {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable { confirm = true }
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                        .defaultMinSize(minHeight = CouiPreferenceSpec.rowMinHeight)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = SinkFeedback(),
+                            onClick = { confirm = true },
+                        ),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(CouiPreferenceSpec.iconSize),
+                        tint = MiuixTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.width(CouiPreferenceSpec.iconSpacing))
                     Text(
                         text = "卸载插件",
-                        style = MiuixTheme.textStyles.body2,
+                        fontSize = CouiPreferenceSpec.titleSize,
+                        fontWeight = FontWeight.Medium,
                         color = MiuixTheme.colorScheme.error,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "删除插件包与数据目录",
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
             }
+            Text(
+                text = "会删除插件包与它的数据目录。",
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+            )
 
             // 确认弹窗必须挂在本页这个 Scaffold 的内容里：miuix 的 Overlay 系列靠 Scaffold
             // 提供的 MiuixPopupHost 渲染，写在 Scaffold 外面会 fallback 到最外层 Scaffold，
