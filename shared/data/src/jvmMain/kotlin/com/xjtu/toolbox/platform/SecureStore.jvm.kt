@@ -17,7 +17,9 @@ actual fun secureKeyValueStore(name: String, legacyFallbackName: String?): KeyVa
     val raw = jvmFileKeyValueStore(File(dataRoot(), "$name.properties"))
     if (name != com.xjtu.toolbox.account.AccountStore.FILE_NAME) return raw
     return ProtectedKeyValueStore(raw, secretProtectorForPlatform(), setOf("accounts")).apply {
-        migratePlaintext("accounts")
+        // 加密失败时保留明文，下次打开再试；不因此打不开账号表
+        runCatching { migratePlaintext("accounts") }
+            .onFailure { Log.w("SecureStore", "账号表明文转密文失败", it) }
     }
 }
 

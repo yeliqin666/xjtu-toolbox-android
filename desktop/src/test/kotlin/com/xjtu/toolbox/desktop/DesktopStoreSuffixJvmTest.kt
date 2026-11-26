@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.desktop
 
+import com.xjtu.toolbox.account.Account
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
 import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfRecord
@@ -42,6 +44,7 @@ class DesktopStoreSuffixJvmTest {
             DesktopJiaocai1ShelfStore.STORE_NAME,
             DesktopJiaocai1ShelfStore.storeName(account),
             DesktopJiaocai1ShelfStore.storeName(otherAccount),
+            AccountStore.FILE_NAME,
         )) {
             wipeSecureStore(name)
         }
@@ -56,6 +59,7 @@ class DesktopStoreSuffixJvmTest {
             DesktopJiaocai1ShelfStore.STORE_NAME,
             DesktopJiaocai1ShelfStore.storeName(account),
             DesktopJiaocai1ShelfStore.storeName(otherAccount),
+            AccountStore.FILE_NAME,
         )) wipeSecureStore(name)
         dataRootOverride = null
         keyValueStoreRootOverride = null
@@ -115,6 +119,19 @@ class DesktopStoreSuffixJvmTest {
         assertTrue(DesktopJiaocai1ShelfStore(otherAccount).observeAll().first().isEmpty())
         assertEquals(legacyRaw, legacy.getString(KEY_ROWS))
         assertTrue(File(root, "jiaocai1_shelf.properties").isFile)
+    }
+
+    @Test
+    fun singleAccountAdoptsLegacyRowsOnce() = runBlocking {
+        AccountStore().upsert(Account(accountId = account))
+        val legacy = secureKeyValueStore(DesktopDownloadTaskStore.STORE_NAME)
+        DesktopDownloadTaskStore(legacy).insert(task(filePath = "/tmp/old.mp4"))
+
+        assertEquals(listOf("/tmp/old.mp4"), DesktopDownloadTaskStore(account).getAll().map { it.filePath })
+        // 只接收一次：清掉新名里的行后旧数据不会回来，旧文件仍保留
+        secureKeyValueStore(DesktopDownloadTaskStore.storeName(account)).remove(KEY_ROWS)
+        assertTrue(DesktopDownloadTaskStore(account).getAll().isEmpty())
+        assertTrue(File(root, "download_tasks.properties").isFile)
     }
 
     // ── 夹具 ────────────────────────────────────────────────────────────────

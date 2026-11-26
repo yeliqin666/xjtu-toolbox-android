@@ -26,9 +26,11 @@ class DesktopJiaocai1ShelfStore(
     private val store: KeyValueStore,
 ) : Jiaocai1ShelfStore {
 
-    /** 按账号打开独立的存储，不读取归属不明的旧文件。 */
+    /** 按账号打开独立的存储；旧的无后缀文件只在单账号时接收一次（见 [adoptLegacyRows]）。 */
     constructor(accountId: String? = AccountContext.activeAccountId) : this(
-        store = com.xjtu.toolbox.platform.secureKeyValueStore(storeName(accountId)),
+        store = com.xjtu.toolbox.desktop.adoptLegacyRows(
+            com.xjtu.toolbox.platform.secureKeyValueStore(storeName(accountId)), STORE_NAME, KEY_ROWS, accountId,
+        ),
     )
 
     private val rows = MutableStateFlow(read())
