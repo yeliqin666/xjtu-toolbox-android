@@ -43,8 +43,11 @@ internal fun pluginServices(
             listOf(
                 AppService(
                     route = AppRoute.PluginWeb(record.id),
-                    title = manifest.name,
-                    subtitle = manifest.summary.ifBlank { "网页插件" },
+                    // 卡片上小字是 title、大字是 subtitle（见 HomeTileItem）：大字放「这一页叫什么」，
+                    // 小字放「它是什么／是谁的」。web 插件就一个网页，大字只能放插件名，
+                    // 所以小字退回类型说明——不然四个格子全是大字插件名，挤成一团。
+                    title = "网页插件",
+                    subtitle = manifest.name,
                     category = ServiceCategory.TOOL,
                     aliases = listOf(manifest.name, manifest.summary).filter { it.isNotBlank() },
                     pluginPage = true,
@@ -54,8 +57,10 @@ internal fun pluginServices(
             manifest.pages.filter { it.home }.map { page ->
                 AppService(
                     route = AppRoute.Plugin(record.id, page.id),
-                    title = page.title.ifBlank { manifest.name },
-                    subtitle = manifest.name,
+                    // 小字插件名、大字页面名：同一个插件的几个页面并排时，认的是「文字与样式」「数据展示」，
+                    // 而不是四块都写「插件模板」
+                    title = manifest.name,
+                    subtitle = page.title.ifBlank { manifest.name },
                     category = ServiceCategory.TOOL,
                     aliases = listOf(manifest.name, page.title, manifest.summary).filter { it.isNotBlank() },
                     pluginPage = true,
