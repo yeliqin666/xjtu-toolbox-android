@@ -151,7 +151,10 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
     val darkTheme = LocalIsDarkTheme.current
     val primaryArgb = MiuixTheme.colorScheme.primary.toArgb()
     LaunchedEffect(page, darkTheme, primaryArgb) {
-        page?.runtime?.applyTheme(darkTheme, primaryArgb)
+        val openedPage = page ?: return@LaunchedEffect
+        openedPage.runtime.applyTheme(darkTheme, primaryArgb)
+        // 第一次 render 时主题还没注入，改完要再要一次树，插件才读得到
+        tick++
     }
 
     // 插件改完状态调 invalidate()，这里切回主线程重要一次树；插件从任意线程调都行

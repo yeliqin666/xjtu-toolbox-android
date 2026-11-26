@@ -68,8 +68,8 @@ def main():
     parser.add_argument("apk", type=pathlib.Path)
     parser.add_argument("-o", "--out", type=pathlib.Path, default=HERE / "sample-plugin.zip")
     parser.add_argument("-k", "--key", type=pathlib.Path, default=DEFAULT_KEY)
-    parser.add_argument("--version", default="1.1.2")
-    parser.add_argument("--version-code", type=int, default=5)
+    parser.add_argument("--version", default="0.2.0")
+    parser.add_argument("--version-code", type=int, default=6)
     args = parser.parse_args()
 
     apk_bytes = args.apk.read_bytes()
