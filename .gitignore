@@ -40,9 +40,6 @@ leaderboard.properties
 /.github/copilot-instructions.md
 /.zcode/
 /.workbuddy/
-# 屁岱皮肤制作 Skill 独立维护在 yeliqin666/pidai-skin-maker，本地 clone 到这里使用
-/.agents/skills/pidai-skin-maker/
-/.claude/skills/pidai-skin-maker/
 
 # ── 本地参考与草稿 ──
 # miuix 源码副本（152MB，仅供查实现，App 走 Maven 依赖）
