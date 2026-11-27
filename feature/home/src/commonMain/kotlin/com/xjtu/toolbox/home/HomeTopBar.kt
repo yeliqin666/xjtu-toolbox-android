@@ -11,6 +11,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
@@ -223,7 +226,14 @@ private val BarSwap = ContentTransform(
 internal fun HomeSearchLayer(visible: Boolean, topPadding: Dp, content: (@Composable (topPadding: Dp) -> Unit)?) {
     if (content == null) return
     androidx.compose.animation.AnimatedVisibility(visible, enter = fadeIn(tween(200)), exit = fadeOut(tween(160))) {
-        Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) { content(topPadding) }
+        Box(
+            Modifier.fillMaxSize()
+                .background(MiuixTheme.colorScheme.surface)
+                .pointerInput(Unit) {
+                    // 子控件先收到按下；消费空白处的按下，避免外层首页把长按当成编辑操作。
+                    awaitEachGesture { awaitFirstDown(requireUnconsumed = false).consume() }
+                },
+        ) { content(topPadding) }
     }
 }
 
