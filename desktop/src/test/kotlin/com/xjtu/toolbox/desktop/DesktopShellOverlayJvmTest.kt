@@ -23,8 +23,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import com.xjtu.toolbox.library.LibraryScreen
-import com.xjtu.toolbox.library.LibrarySource
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.shell.AppShell
 import com.xjtu.toolbox.shell.ShellNavState
@@ -33,6 +31,8 @@ import com.xjtu.toolbox.shell.ShellTarget
 import com.xjtu.toolbox.ui.LocalIsWideLayout
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import org.jetbrains.skia.Image
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -49,19 +49,13 @@ class DesktopShellOverlayJvmTest {
     /** miuix `DialogDefaults.outsideMargin.height`：弹窗底离宿主底 12dp。 */
     private val dialogOutsideMargin = 12f
 
-    /** 库页那条「首次使用提示」的标题 —— 就是 `shell-after-login.png` 底部那条差里那张卡。 */
-    private val dialogTitleLabel = "图书馆座位预约"
-
-    /** 夹具取数：一份能预约的 [DemoLibrarySource]（`canBook = true`）。 */
-    private class FixtureLibrarySource : LibrarySource by DemoLibrarySource() {
-        override val canBook: Boolean get() = true
-    }
+    private val dialogTitleLabel = "测试弹窗"
 
     /** 一次渲染量到的东西：语义树那一侧（底栏 / 弹窗标题）+ 像素那一侧（弹窗卡片）。 */
     private class Probe(
         /** 底栏第一格那一块（`首页`）—— 它的 `top` 就是页框的底。 */
         val bar: Rect?,
-        /** 弹窗标题（`图书馆座位预约`）那一块：miuix 那个 popup 宿主里的文字。 */
+        /** 弹窗标题那一块：miuix 那个 popup 宿主里的文字。 */
         val dialogTitle: Rect?,
         /** 弹窗卡片占了哪几行（像素量出来的）。 */
         val cardRows: IntRange,
@@ -142,14 +136,16 @@ class DesktopShellOverlayJvmTest {
         }
     }
 
-    /** 库页本身：真屏 + 夹具取数 + 提示会弹（这一枪要看的正是那个弹窗）。 */
+    /** 与功能页相同的嵌套 Scaffold，弹窗始终打开以便对照宿主边界。 */
     @Composable
-    private fun libraryPage() {
-        LibraryScreen(source = FixtureLibrarySource(), onBack = {}, showFirstUseHint = true)
+    private fun pageWithDialog() {
+        Scaffold {
+            OverlayDialog(show = true, title = dialogTitleLabel, onDismissRequest = {}) {}
+        }
     }
 
     @Composable
-    private fun shellWithLibraryPage() {
+    private fun shellWithDialog() {
         AppShell(
             nav = ShellNavState(
                 tabs = desktopTabs(),
@@ -160,13 +156,13 @@ class DesktopShellOverlayJvmTest {
             glassStyle = false,
             bottomInset = 0.dp,
             contentWindowInsets = WindowInsets(0),
-            page = { _, _ -> libraryPage() },
+            page = { _, _ -> pageWithDialog() },
         )
     }
 
     @Test
     fun `页里的弹窗挂在壳这个根 Scaffold 上：铺到窗口底、压在底栏上`() {
-        val probe = probe { shellWithLibraryPage() }
+        val probe = probe { shellWithDialog() }
         println("PROBE[shell] 底栏第一格=${probe.bar} 弹窗标题=${probe.dialogTitle}")
         println("PROBE[shell] 弹窗卡片 rows=${probe.cardRows.first}..${probe.cardRows.last}")
         println("PROBE[shell] 语义树文字=${probe.texts}")
@@ -204,13 +200,13 @@ class DesktopShellOverlayJvmTest {
 
     @Test
     fun `旧壳那种容器（Column + 64dp 的条）里弹窗被页框裁在底栏上方，差的就是那 64`() {
-        val inShell = probe { shellWithLibraryPage() }
+        val inShell = probe { shellWithDialog() }
         val inShellShape = inShell.cardRows.last + 1f
 
         // 模拟没有 Scaffold 的壳：内容 Box + 64dp 底栏（画成中灰，避免被误当成弹窗卡片）。
         val oldShape = probe {
             Column(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f)) { libraryPage() }
+                Box(Modifier.weight(1f)) { pageWithDialog() }
                 Box(
                     Modifier
                         .fillMaxWidth()
