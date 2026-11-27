@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<h1><img src="docs/icon.png" alt="" height="180px" /> 岱宗盒子 </h1>
+<h1><img src="docs/icon.png" alt=""  style="height: 1em"/> 岱宗盒子 </h1>
 
 <b style="margin-bottom: 2rem;">[下载](https://github.com/xjtu-dzhz/dzhz/releases/latest) | [反馈](https://github.com/xjtu-dzhz/dzhz/discussions/new/choose) | [插件开发](docs/plugins.md) | [加入我们](https://github.com/xjtu-dzhz/dzhz/discussions/new?category=join-us)</b>
 
@@ -106,7 +106,7 @@
 
 欢迎 PR。参与开发前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，其中规定了版本号、分支、提交与测试要求。
 
-> [!INFO]
+> [!TIP]
 > 想要参与社区审核？或是想频繁的参与开发？欢迎[加入我们](https://github.com/xjtu-dzhz/dzhz/discussions/new?category=join-us)！
 
 ## 🛠️ 开发
