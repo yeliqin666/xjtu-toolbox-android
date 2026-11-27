@@ -76,19 +76,11 @@ class ScheduleTermSwitchTest {
     fun failedRequestAfterAutomaticTermChangeDoesNotFallBackToThePreviousTerm() {
         val oldCourse = CourseItem(courseName = "数学", weekBits = "1")
         var lateRefresh: CompletableDeferred<SourceSchedule>? = null
-        val source = object : JwxtScheduleSource {
-            override fun termNames() = emptyMap<String, String>()
-            override fun termWeeksOf(term: String): Int? = null
-            override suspend fun currentTerm() = "new"
-            override suspend fun termList() = listOf("new", "old")
+        val source = object : TermSwitchSource() {
             override suspend fun schedule(term: String?): SourceSchedule {
                 if (term == "old") return lateRefresh?.await() ?: SourceSchedule(listOf(oldCourse))
                 throw java.io.IOException("offline")
             }
-            override suspend fun examSchedule(term: String?) = emptyList<ExamItem>()
-            override suspend fun changes(term: String) = emptyList<ScheduleChangeEvent>()
-            override suspend fun termStart(term: String) = TermStartData(term, if (term == "old") "2025-09-01" else null)
-            override suspend fun textbooks(studentId: String, term: String?) = emptyList<TextbookItem>()
         }
         withSchedule(source) { vm, cache ->
             ScheduleCache.writeLastTerm(cache, "old")
@@ -121,6 +113,51 @@ class ScheduleTermSwitchTest {
             assertFalse(vm.showingStaleData)
             assertTrue(vm.courses.isEmpty())
         }
+    }
+
+    @Test
+    fun lateExamRefreshUpdatesOnlyTheOriginalTermsCache() {
+        val oldExam = ExamItem(courseName = "数学", location = "教一")
+        val movedExam = oldExam.copy(location = "教二")
+        val newExam = ExamItem(courseName = "物理")
+        var oldRefresh: CompletableDeferred<List<ExamItem>>? = null
+        val source = object : TermSwitchSource() {
+            override suspend fun schedule(term: String?) = SourceSchedule(listOf(CourseItem(courseName = "数学")))
+            override suspend fun examSchedule(term: String?) =
+                if (term == "old") oldRefresh?.await() ?: listOf(oldExam) else listOf(newExam)
+        }
+
+        withSchedule(source) { vm, cache ->
+            vm.bind()
+            runCurrent()
+            vm.switchTerm("old")
+            runCurrent()
+            assertEquals(listOf(oldExam), vm.exams)
+
+            oldRefresh = CompletableDeferred()
+            vm.refreshExams()
+            runCurrent()
+            vm.switchTerm("new")
+            runCurrent()
+            assertEquals(listOf(newExam), vm.exams)
+
+            oldRefresh.complete(listOf(movedExam))
+            runCurrent()
+            assertEquals(listOf(newExam), vm.exams)
+            assertEquals(listOf(newExam), ScheduleCache.readExams(cache, "new"))
+            assertEquals(listOf(movedExam), ScheduleCache.readExams(cache, "old"))
+        }
+    }
+
+    private abstract class TermSwitchSource : JwxtScheduleSource {
+        override fun termNames() = emptyMap<String, String>()
+        override fun termWeeksOf(term: String): Int? = null
+        override suspend fun currentTerm() = "new"
+        override suspend fun termList() = listOf("new", "old")
+        override suspend fun examSchedule(term: String?) = emptyList<ExamItem>()
+        override suspend fun changes(term: String) = emptyList<ScheduleChangeEvent>()
+        override suspend fun termStart(term: String) = TermStartData(term, if (term == "old") "2025-09-01" else null)
+        override suspend fun textbooks(studentId: String, term: String?) = emptyList<TextbookItem>()
     }
 
     private fun withSchedule(
