@@ -62,7 +62,11 @@ def env(name: str, default: Optional[str] = None) -> str:
 
 def http(method: str, url: str, body: Any = None, headers: Optional[dict] = None) -> Any:
     data = json.dumps(body).encode() if body is not None else None
-    h = {"Content-Type": "application/json; charset=utf-8", **(headers or {})}
+    h = {
+        "Content-Type": "application/json; charset=utf-8",
+        "User-Agent": "dzhz-announce/1.0",
+        **(headers or {}),
+    }
     for attempt in range(3):
         req = urllib.request.Request(url, data=data, method=method, headers=h)
         try:
