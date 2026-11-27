@@ -85,11 +85,12 @@ jobs:
           git push -q origin HEAD:announce
           echo "pushed=1" >> "$GITHUB_OUTPUT"
 
-      # 公告放一份到 OSS：App 先读 OSS，读不到再读 GitHub。
+      # 公告放一份到 OSS（App 同时读 OSS 和 GitHub，取 updatedAt 较新的）。
       # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce，所以在这里自己传。
-      # 清单类对象在 ESA 上是不缓存的（见 docs/release.md），传完不需要刷缓存。
+      # 每趟都传、都刷：重传是幂等的，手动跑一次就能把 CDN 上的旧公告换掉。
       - name: Upload bulletin to OSS
-        if: steps.commit.outputs.pushed == '1'
+        id: oss
+        if: env.DRY_RUN != '1'
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -104,3 +105,19 @@ jobs:
           if [ -f announce/feedback-qa.json ]; then
             python3 .github/scripts/oss_upload.py announce/feedback-qa.json "xjtu-toolbox/feedback-qa.json" "no-cache"
           fi
+
+      # ESA 实测会缓存 bulletin.json（命中时缓存期约 30 天），不认源站的 no-cache，传完必须主动刷
+      - name: Purge ESA cache for bulletin
+        if: steps.oss.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
+          ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
+          ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
+        run: |
+          if [ -n "$ESA_SITE_ID" ]; then
+            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
+              || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
+          fi
+          python3 .github/scripts/esa_purge.py bulletin.json feedback-qa.json
