@@ -197,6 +197,7 @@ tasks.register<org.gradle.api.tasks.bundling.Tar>("packageTarGz") {
     group = "distribution"
     description = "把 app-image 打成 tar.gz（免安装：解压后直接跑 bin/xjtu-dzhz）"
     dependsOn("createDistributable")
+    useFileSystemPermissions()
     compression = org.gradle.api.tasks.bundling.Compression.GZIP
     archiveFileName.set("xjtu-dzhz-$desktopPackageVersion-linux-x64.tar.gz")
     destinationDirectory.set(layout.buildDirectory.dir("compose/binaries/main/tar"))
