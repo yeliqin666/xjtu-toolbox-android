@@ -1451,6 +1451,7 @@ def maybe_sync_feedback_reply(client: GitHub, owner: str, repo: str, comment: Co
             headers={
                 "Content-Type": "application/json; charset=utf-8",
                 "Authorization": f"Bearer {admin_token}",
+                "User-Agent": "dzhz-discussion-sync/1.0",
             },
         )
         try:
