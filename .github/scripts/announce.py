@@ -90,7 +90,8 @@ class Notice:
     bot_comments: list[dict] = field(default_factory=list)
 
     def bot_comment(self, mark: str) -> Optional[dict]:
-        return next((c for c in self.bot_comments if mark in c["body"]), None)
+        # 取最新一条：旧的删不掉时会留下多条
+        return next((c for c in reversed(self.bot_comments) if mark in c["body"]), None)
 
 
 def sections(body: str) -> Optional[dict[str, str]]:
@@ -389,17 +390,22 @@ def close_expired(gh: fd.GitHub, ns: list[Notice], now: datetime) -> None:
 
 
 ADD = """mutation($d:ID!,$b:String!){addDiscussionComment(input:{discussionId:$d,body:$b}){comment{id body}}}"""
+DELETE = """mutation($c:ID!){deleteDiscussionComment(input:{id:$c}){comment{id}}}"""
 
 
 def upsert_comment(gh: fd.GitHub, n: Notice, mark: str, body: str) -> None:
+    """GITHUB_TOKEN 改不了讨论回复（updateDiscussionComment 报 FORBIDDEN），所以发新的、删旧的。"""
     current = n.bot_comment(mark)
-    if current is None:
-        got = gh.gwrite(ADD, d=n.node_id, b=body)
-        n.bot_comments.append(((got.get("addDiscussionComment") or {}).get("comment")) or {"id": "", "body": body})
-    elif current["body"].strip() != body.strip():
-        gh.gwrite("""mutation($c:ID!,$b:String!){updateDiscussionComment(input:{commentId:$c,body:$b}){comment{id}}}""",
-                  c=current["id"], b=body)
-        current["body"] = body
+    if current is not None and current["body"].strip() == body.strip():
+        return
+    got = gh.gwrite(ADD, d=n.node_id, b=body)
+    n.bot_comments.append(((got.get("addDiscussionComment") or {}).get("comment")) or {"id": "", "body": body})
+    if current is not None and current.get("id"):
+        try:
+            gh.gwrite(DELETE, c=current["id"])
+            n.bot_comments.remove(current)
+        except Exception as e:  # noqa: BLE001 —— 新的已发出，旧的留着也只是多一条
+            fd.log(f"::warning::#{n.number} 旧回复没删掉：{e}")
 
 
 # ---------------------------------------------------------------- 发布回执
