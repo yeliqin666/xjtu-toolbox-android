@@ -519,7 +519,7 @@ def upsert_comment(gh: GitHub, n: Notice, mark: str, body: str) -> None:
             gh.gwrite(DELETE, c=current["id"])
             n.bot_comments.remove(current)
         except Exception as e:  # noqa: BLE001 —— 新的已发出，旧的留着也只是多一条
-            fd.log(f"::warning::#{n.number} 旧回复没删掉：{e}")
+            log(f"::warning::#{n.number} 旧回复没删掉：{e}")
 
 
 # ---------------------------------------------------------------- 发布回执
