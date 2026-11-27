@@ -1,4 +1,4 @@
-name: Sync announce to OSS + Gitee
+name: Sync announce to OSS
 
 on:
   push:
@@ -69,36 +69,8 @@ jobs:
           curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/bulletin.json" >/dev/null \
             || echo "::warning::public CDN bulletin check timed out; OSS object is verified"
 
-      - name: Push announce to Gitee
-        continue-on-error: true
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
-          GITEE_URL: https://gitee.com/yeliqin666/xjtu-toolbox-android.git
-          # 拿不到凭据就直接失败，不要在无人值守的 CI 上等输入框
-          GIT_TERMINAL_PROMPT: "0"
-        run: |
-          if [ -z "$GITEE_TOKEN" ]; then
-            echo "::error::GITEE_ACCESS_TOKEN missing"
-            exit 1
-          fi
-          if [ -f .git/shallow ]; then
-            git fetch --unshallow
-          fi
-          # token 不拼进 remote URL：URL 会被 git 写进 .git/config，之后任何
-          # `git remote -v` 或 push 报错都可能把它打出来。URL 保持干净，凭据只经 env
-          # 交给 credential helper（.git/config 里存下的也只是对 $GITEE_TOKEN 的引用）。
-          git remote add gitee "$GITEE_URL" 2>/dev/null || git remote set-url gitee "$GITEE_URL"
-          git config --local --replace-all 'credential.https://gitee.com.helper' \
-            '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
-          # 先普通推，被拒（Gitee 上分叉了）才强推并告警；这份 workflow 跑在 announce 分支上，用不到 .github/scripts
-          git push gitee HEAD:announce || {
-            echo "::warning::Gitee 上的 announce 与 GitHub 分叉，改为强推覆盖"
-            git push gitee HEAD:announce --force
-          }
-          echo "announce branch synced to Gitee"
-
       - name: Fail if OSS bulletin upload failed
         if: steps.oss_bulletin.outcome != 'success'
         run: |
-          echo "::error::OSS bulletin upload failed; Gitee fallback was updated. Re-run the workflow to fix OSS."
+          echo "::error::OSS bulletin upload failed. Re-run the workflow to fix OSS."
           exit 1

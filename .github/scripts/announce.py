@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""讨论区公告分类（slug announcements）→ App 公告（bulletin.json，工作流提交到 announce 分支、再推 Gitee）。
+"""讨论区公告分类（slug announcements）→ App 公告（bulletin.json，工作流提交到 announce 分支、再传 OSS）。
 
     python3 announce.py event   # 讨论区有变动（新建 / 编辑 / 关闭 / 删除…）：重建公告，不统计
     python3 announce.py tally   # 每 4 天：统计投票、删已截止投票的票、过期的帖子关掉、生成「大家在问」，再重建
@@ -625,7 +625,7 @@ def main() -> None:
         log("讨论区还没有表单公告，不生成 bulletin.json")
         return
     bulletins = [n.bulletin for n in ns if n.bulletin]
-    # updatedAt 只在公告内容变了时更新：App 同时读 OSS 和 Gitee，靠它挑较新的一份（OSS 边缘缓存可能是旧的）；
+    # updatedAt 只在公告内容变了时更新：旧版 App 同时读 OSS 和 Gitee，靠它挑较新的一份；
     # 内容没变就沿用旧时间，免得每次重建都多一个空提交
     path = out / BULLETIN_FILE
     old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
