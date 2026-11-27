@@ -87,7 +87,9 @@ fun ClassicBottomBar(
                 }
             }
             // 经典栏是铺满的一条：附件就是最右边那一格
-            accessory?.invoke(ShellBarAccessoryForm.CLASSIC)
+            if (accessory != null) {
+                Box(Modifier.align(Alignment.CenterVertically)) { accessory(ShellBarAccessoryForm.CLASSIC) }
+            }
         }
     }
 }
