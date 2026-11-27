@@ -20,7 +20,7 @@
 
 | 平台 | 获取方式 |
 |------|------|
-| Android 12 及以上 | 国内推荐 [直接下载最新正式版](https://dzhz.zyxf.top/xjtu-toolbox/apk/latest/app-release.apk)；也可以在 [GitHub Releases](https://github.com/xjtu-dzhz/dzhz/releases/latest) 或 [Gitee 发行版](https://gitee.com/yeliqin666/xjtu-toolbox-android/releases) 下载 `app-release.apk` |
+| Android 12 及以上 | 国内推荐 [直接下载最新正式版](https://dzhz.zyxf.top/xjtu-toolbox/apk/latest/app-release.apk)；也可以在 [GitHub Releases](https://github.com/xjtu-dzhz/dzhz/releases/latest) 下载 `app-release.apk` |
 | Windows | [GitHub Releases](https://github.com/xjtu-dzhz/dzhz/releases/latest) 下载 `xjtu-dzhz-<版本>.exe` |
 | Linux | 同上，Debian / Ubuntu 用 `.deb`，其他发行版用 `linux-x64.tar.gz` |
 | 网页 | 没有公共部署，需要自己运行 serve 模式，见 [`docs/api-contract.md`](docs/api-contract.md) |

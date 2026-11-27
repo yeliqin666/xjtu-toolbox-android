@@ -181,7 +181,7 @@ android {
 
     packaging {
         // minSdk≥28 时 AGP 默认把 dex 不压缩、按页对齐存进 APK，好让 ART 直接 mmap。
-        // 本应用 dex 约 8.8MB，占 APK 八成，用户却是整包下载（Gitee/GitHub Release），
+        // 本应用 dex 约 8.8MB，占 APK 八成，用户却是整包下载（OSS / R2 / GitHub Release），
         // 压缩后下载体积约 10.8→6.4MB。代价是安装时 ART 把 dex 解到 vdex、多占约 9MB
         // 存储；运行时跑的是 AOT/JIT 产物，启动速度不受影响（同机交替 A/B 各 18 次冷启动，
         // 压缩 ~335ms vs 不压缩 ~332ms，差异在噪声内）。
@@ -280,7 +280,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.work.runtime.ktx)
-    // 本应用靠 GitHub/Gitee Release 侧载分发，走不到 Play 的安装期 AOT。
+    // 本应用靠 OSS / R2 / GitHub Release 侧载分发，走不到 Play 的安装期 AOT。
     // profileinstaller 在首启时把包里的 baseline-prof.txt 交给 ART 编译，
     // 少了它 profile 等于没打。
     implementation(libs.androidx.profileinstaller)

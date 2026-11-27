@@ -13,16 +13,12 @@ import org.robolectric.annotation.Config
 class CredentialStoreChannelMigrationTest {
 
     @Test
-    fun oldGiteeMigratesToAliyunOnlyOnce() {
+    fun giteeAlwaysFallsBackToAliyun() {
         val store = CredentialStore(RuntimeEnvironment.getApplication())
 
-        // 模拟旧版本存下的默认值：第一次读取应迁到阿里云。
-        store.updateChannel = AppUpdater.CHANNEL_GITEE
+        // Gitee 已下线：旧版本存下的 gitee 一律落到阿里云。
+        store.updateChannel = "gitee"
         assertEquals(AppUpdater.CHANNEL_ALIYUN, store.updateChannel)
-
-        // 迁移只做一次；用户之后主动选 Gitee 应保持。
-        store.updateChannel = AppUpdater.CHANNEL_GITEE
-        assertEquals(AppUpdater.CHANNEL_GITEE, store.updateChannel)
 
         store.updateChannel = AppUpdater.CHANNEL_GITHUB
         assertEquals(AppUpdater.CHANNEL_GITHUB, store.updateChannel)
