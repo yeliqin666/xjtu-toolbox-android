@@ -35,9 +35,10 @@ permissions:
   # /tally 派发 announce.yml / vote-tally.yml（GITHUB_TOKEN 能触发 workflow_dispatch）
   actions: write
 
-# 同一讨论内的命令串行处理，避免同一来源并发创建两个 issue。
+# 同一来源（顶层评论 → 主帖；楼中楼 → 父评论）的命令串行处理，避免并发建出两个 issue。
+# 不按整个讨论分组：同组只保留一个排队中的运行，连着在日报各楼发命令会把中间的取消掉。
 concurrency:
-  group: discussion-commands-${{ github.event.discussion.number }}
+  group: discussion-commands-${{ github.event.discussion.number }}-${{ github.event.comment.parent_id || 'top' }}
   cancel-in-progress: false
 
 jobs:
