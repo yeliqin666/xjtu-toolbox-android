@@ -3,9 +3,9 @@
 
     esa_purge.py <对象路径>...   # 相对 xjtu-toolbox/，例如 apk/latest/app-release.apk
 
-清单类 JSON（stable.json / preview.json / bulletin.json 等）在 ESA 规则里是不缓存的，
-不需要刷；真正要刷的是「会被覆盖写、又落在长缓存规则里」的固定路径：目前只有
-apk/latest/app-release.apk（30 天）。ESA 不认源站 Cache-Control，覆盖写之后不刷就要等
+stable.json / preview.json 在 ESA 规则里不缓存；要刷的是「会被覆盖写、又落在长缓存规则里」的
+固定路径：apk/latest/app-release.apk（30 天），以及实测会被缓存的 bulletin.json（announce.yml 传完就刷）。
+ESA 不认源站 Cache-Control，覆盖写之后不刷就要等
 缓存过期（#519）。没配 ESA_SITE_ID / ESA_ACCESS_KEY_ID / ESA_ACCESS_KEY_SECRET 时跳过；
 刷新失败只报警告，不让发版失败。
 """
