@@ -2,33 +2,32 @@
 
 <div align="center">
 
-<h1 style="margin-bottom: 2rem;"><img src="docs/icon.png" alt="" height="180px" /> 岱宗盒子 </h1>
+<h1><img src="docs/icon.png" alt="" height="180px" /> 岱宗盒子 </h1>
+
+<b style="margin-bottom: 2rem;">[下载](https://github.com/xjtu-dzhz/dzhz/releases/latest) | [反馈](https://github.com/xjtu-dzhz/dzhz/discussions/new/choose) | [插件开发](docs/plugins.md) | [加入我们](https://github.com/xjtu-dzhz/dzhz/discussions/new?category=join-us)</b>
 
 [![GitHub License](https://img.shields.io/github/license/xjtu-dzhz/dzhz)](LICENSE)
 [![GitHub Issues](https://img.shields.io/github/issues/xjtu-dzhz/dzhz)](https://github.com/xjtu-dzhz/dzhz/issues)
 [![GitHub PRs](https://img.shields.io/github/issues-pr/xjtu-dzhz/dzhz)](https://github.com/xjtu-dzhz/dzhz/pulls)
-[![CodeFactor](https://www.codefactor.io/repository/github/xjtu-dzhz/dzhz/badge)](https://www.codefactor.io/repository/github/xjtu-dzhz/dzhz)
 [![Build & Release](https://img.shields.io/github/actions/workflow/status/xjtu-dzhz/dzhz/build.yml?label=build&logo=github)](https://github.com/xjtu-dzhz/dzhz/actions/workflows/build.yml)
 ![GitHub Stars](https://img.shields.io/github/stars/xjtu-dzhz/dzhz?style=social)
 <br>
 
 ![android](https://img.shields.io/badge/platforms-Android-green)
 ![win/linux](https://img.shields.io/badge/Desktop%20%28Win%2FLinux%29-blueviolet)
-![web](https://img.shields.io/badge/Web%20%28wasm%29-teal)&nbsp;&nbsp;&nbsp;
+![web](https://img.shields.io/badge/Web%20%28wasm%29-teal)&nbsp;&nbsp;
 ![minSdk](https://img.shields.io/badge/minSdk-31%20(Android%2012)-blue)
 ![version](https://img.shields.io/github/v/release/xjtu-dzhz/dzhz?label=version&color=orange)
-
-<b>[下载](https://github.com/xjtu-dzhz/dzhz/releases/latest) | [反馈](https://github.com/xjtu-dzhz/dzhz/discussions/new/choose) | [插件开发](docs/plugins.md) | [加入我们](https://github.com/xjtu-dzhz/dzhz/discussions/new?category=join-us)</b>
 
 </div>
 
 > 泰山不让土壤，故能成其大。&nbsp;&nbsp;&nbsp;&nbsp;——李斯《谏逐客书》
 
-面向**西安交通大学学生**的校园工具箱 _（KMP，Android 为主，另有桌面端与网页端）_。
+面向**西安交通大学学生**的校园工具箱。 
 
-Android 版使用 _Kotlin_ 与 _Jetpack Compose_ 原生开发，便捷使用教务、图书馆、校园卡、思源学堂等学校服务，**不经过任何自建业务中转服务器**——账号凭据与校园数据只在设备和学校系统之间流动。
+基于 Kotlin Multiplatform（KMP）开发，Android 为主，另有桌面端与网页端；便捷使用学校服务，校园服务请求直接由设备访问学校系统，**不经过**项目自建业务中转服务器。我们重视你的隐私！
 
-## 下载安装
+## 📥 下载安装
 
 官网：<https://dzhz.top>
 
@@ -69,12 +68,12 @@ Android 版使用 _Kotlin_ 与 _Jetpack Compose_ 原生开发，便捷使用教�
 
 ### 🌟 特色功能
 
-- **学期总结**：回顾课程、成绩与消费，生成专属学期称号。
-- **图书馆空位推荐**：覆盖三校区，支持座位查询、预约、换座与签到。
-- **思源学堂**：课程、作业、评分、课件、附件及直播回放。
-- **原生社区**：基于 GitHub Discussions 构建，支持完整的讨论与互动体验。
-- **多账号隔离**：不同账号的课表、成绩、对话与校园卡数据相互独立。
-- **跨端存档**：支持 Android、桌面与 Web 之间的数据导入导出。
+- **学期总结**：课程、成绩与消费回顾，生成专属学期称号。
+- **图书馆**：三校区空位查询、预约、换座与签到。
+- **思源学堂**：课程、作业、课件、评分与直播回放。
+- **社区**：基于 GitHub Discussions，提供讨论与互动。
+- **多账号**：不同账号的数据相互隔离。
+- **跨端存档**：支持 Android、桌面与 Web 之间导入导出。
 
 ### 🤖 小岱（AI 助手）
 
@@ -98,7 +97,7 @@ Android 版使用 _Kotlin_ 与 _Jetpack Compose_ 原生开发，便捷使用教�
 - **AI 内容**：生成内容可能存在错误，重要信息请以学校官方渠道为准。
 - **项目声明**：本项目为学生个人作品，非西安交通大学官方产品，与学校无隶属关系。
 
-## 反馈与参与
+## 🤝 反馈与参与
 
 - 使用问题、建议和交流去 [Discussions](https://github.com/xjtu-dzhz/dzhz/discussions)，App 里「我的 → 社区讨论」看到的就是这里；也可以在 App 里直接提交反馈。
 - 确定是 bug 欢迎提 Issue，请说明应用版本、机型系统、涉及模块与复现步骤；**不要粘贴账号、密码、Cookie 或 API Key**。
@@ -110,13 +109,13 @@ Android 版使用 _Kotlin_ 与 _Jetpack Compose_ 原生开发，便捷使用教�
 > [!INFO]
 > 想要参与社区审核？或是想频繁的参与开发？欢迎[加入我们](https://github.com/xjtu-dzhz/dzhz/discussions/new?category=join-us)！
 
-## 开发
+## 🛠️ 开发
 
-### 🛠️ 技术栈
+### 🧰 技术栈
 
 **Kotlin** · **Jetpack Compose** · **MIUIX** · **OkHttp** · **Ktor** · **Room** · **Kotlin Coroutines** · **Coil**
 
-### 本地构建
+### 🚀 构建与测试
 
 需要 Android Studio 或 Android SDK（API 37）、JDK 21、Git。
 
@@ -129,27 +128,27 @@ cd dzhz
 
 Windows 下把 `./gradlew` 换成 `gradlew.bat`。
 
-<details >
+<details>
 <summary>关于release构建</summary>
 Release构建（`./gradlew assembleRelease`）会启用代码压缩与资源收缩。未提供签名配置时生成未签名产物；如需签名，通过环境变量 `KEYSTORE_PATH`、`STORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD` 提供，或在本地放置被 Git 忽略的 `release.jks` 与 `keystore.properties`。
 </details>
 
-## 相关项目
+## 🔗 相关项目
 
 - [XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox) —— 桌面端仙交百宝箱
 - [XJTU-Course-Genius](https://github.com/Hz162/XJTU-Course-Genius)
 - [zyxf](https://github.com/Guochaoo/zyxf) —— 仲英学辅资料站
 - [Etoile](https://github.com/JoyinJoester/Etoile) —— Android 原生 GitHub 客户端，社区功能的登录与讨论区代码改编自它
 
-## Star 趋势
+## ⭐ Star 趋势
 
 [![Star History Chart](https://api.star-history.com/svg?repos=xjtu-dzhz/dzhz&type=Date)](https://star-history.com/#xjtu-dzhz/dzhz&Date)
 
-### 访问计数器
+### 🔢 访问计数器
 
 ![Moe Counter](https://count.getloli.com/@dzhz-top-main?theme=booru-jaypee&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
 
-## 图标与致谢
+## 🙏 致谢
 
 应用图标使用「交小西」Q 版形象，**图标形象版权归交小西制作组所有**（[B 站主页](https://space.bilibili.com/3494379805215567)），已获得交小西制作组授权。
 
@@ -157,6 +156,6 @@ Release构建（`./gradlew assembleRelease`）会启用代码压缩与资源收�
 
 该形象不适用本仓库的 GPL-3.0 许可，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-## 许可
+## 📜 开源协议
 
 [GPL-3.0](LICENSE)
