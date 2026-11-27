@@ -60,7 +60,7 @@ internal fun bulletinLevelLabel(level: BulletinLevel) = when (level) {
     BulletinLevel.FORCE_UPDATE -> "必须更新"
     BulletinLevel.UPDATE -> "可更新"
     BulletinLevel.CRITICAL -> "重要"
-    BulletinLevel.WARN -> "维护"
+    BulletinLevel.WARN -> "提醒"
     BulletinLevel.INFO -> "通知"
 }
 
@@ -336,11 +336,9 @@ fun BulletinLaunchDialog(
     val isForceUpdate = bulletin.level == BulletinLevel.FORCE_UPDATE
     val title = when {
         bulletin.isPoll -> "小调查"
-        bulletin.level == BulletinLevel.FORCE_UPDATE -> "必须更新"
         bulletin.level == BulletinLevel.UPDATE -> "发现新版本"
         bulletin.level == BulletinLevel.CRITICAL -> "重要通知"
-        bulletin.level == BulletinLevel.WARN -> "维护通知"
-        else -> "通知"
+        else -> bulletinLevelLabel(bulletin.level)
     }
     val choice = rememberChoiceState(bulletin.id, bulletin.options, bulletin.allowMultiple)
     WindowBottomSheet(
