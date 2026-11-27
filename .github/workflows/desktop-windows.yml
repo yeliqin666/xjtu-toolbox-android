@@ -66,11 +66,6 @@ jobs:
       - name: 打 .exe
         shell: pwsh
         env:
-          FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
-          FEEDBACK_APP_SECRET: ${{ secrets.FEEDBACK_APP_SECRET }}
-          FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
-          FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
-          FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
           # jpackage 按自身 locale 选 MSI 的主 culture：zh_CN ⇒ 用 JDK 自带的中文 wxl（代码页 936），
           # 中文应用名「岱宗盒子」才放得进 MSI；默认 en-us（代码页 1252）时 light.exe 报 LGHT0311（exit 311）
           JAVA_TOOL_OPTIONS: -Duser.language=zh -Duser.country=CN

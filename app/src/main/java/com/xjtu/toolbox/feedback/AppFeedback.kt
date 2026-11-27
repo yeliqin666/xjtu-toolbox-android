@@ -5,18 +5,14 @@ import android.app.ApplicationStartInfo
 import android.content.Context
 import com.xjtu.toolbox.BuildConfig
 
-/** 把反馈后端的凭据与展示字段交给 `:data` 的 [FeedbackApi]。 */
+/** 把反馈后端地址与展示字段交给 `:data` 的 [FeedbackApi]。 */
 object AppFeedback {
 
     /** 幂等：重复调只是把同一份值再写一次。 */
     fun install(context: Context) {
         val app = context.applicationContext
         FeedbackApi.config = FeedbackApi.Config(
-            appId = BuildConfig.FEEDBACK_APP_ID,
-            appSecret = BuildConfig.FEEDBACK_APP_SECRET,
-            baseToken = BuildConfig.FEEDBACK_BASE_TOKEN,
-            submitTable = BuildConfig.FEEDBACK_TABLE_SUBMIT,
-            replyTable = BuildConfig.FEEDBACK_TABLE_REPLY,
+            baseUrl = BuildConfig.FEEDBACK_BASE_URL,
             versionLabel = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})" +
                 if (BuildConfig.IS_PREVIEW) " [preview]" else "",
             deviceLabel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",

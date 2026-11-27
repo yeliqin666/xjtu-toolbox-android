@@ -63,7 +63,7 @@ import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 
 private const val FEEDBACK_GITHUB_ISSUE_URL =
     "https://github.com/xjtu-dzhz/dzhz/issues/new"
-/** 与 `.github/scripts/feedback_digest.py` 的 DIAGNOSTICS_SEPARATOR 一致。 */
+/** 诊断信息与正文之间的分隔线。 */
 private const val DIAGNOSTICS_SEPARATOR = "———— 诊断信息 ————"
 private const val FEEDBACK_DISCUSSIONS_URL =
     "https://github.com/xjtu-dzhz/dzhz/discussions"
@@ -279,7 +279,7 @@ fun FeedbackScreen(
                         )
                         Text(
                             buildAnnotatedString {
-                                append("反馈将经过 AI 审核并公开，勿留个人信息。条件允许仍建议前往")
+                                append("反馈提交后将实时进入后台，精选回复会公开到「大家在问」，勿留个人信息。也可前往")
                                 withLink(
                                     LinkAnnotation.Clickable("community", linkStyle) {
                                         onOpenCommunity?.invoke() ?: open(FEEDBACK_DISCUSSIONS_URL)

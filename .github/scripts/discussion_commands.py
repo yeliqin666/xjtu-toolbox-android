@@ -20,18 +20,13 @@ admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正�
 * issue_no：必填，`#123` 或 `GH-123`；把内容以评论形式附加到已有 issue；
 * details：命令后空一行开始的内容，覆盖默认来源；
 * 默认来源：顶层回复 → 讨论主帖（`## 标题` + 正文）；楼中楼 → 被回复的评论；
-* 楼中楼里 GitHub 自动带上的 `>` 引用块：有 details 时去掉 details 开头的引用块，
+    *楼中楼里 GitHub 自动带上的 `>` 引用块：有 details 时去掉 details 开头的引用块，
   没有 details 且命令正文开头就是引用块时，把引用正文当作附加内容。
 
     /tally
 
 * 立即统计投票：公告分类的投票帖里发 → 派发 announce.yml 只统计这一帖并更新「📊 投票结果」；
   #213 新功能投票总楼里回复某一楼 → 派发 vote-tally.yml 只统计那一楼。本脚本只派发，不碰票数。
-
-    /reply [私密]   /skip
-
-* 只在「反馈日报」分类的帖子里用：在某条反馈的楼里回复，工单号从那层楼的隐藏标记读；
-  执行逻辑（写飞书回复表、更新帖子标记、关帖）在 feedback_digest.py，见那边的说明。
 
 这是给以后更多讨论区命令用的最小框架：命令注册在 HANDLERS，每个 handler 只负责
 解析自己的参数并返回回复正文，GitHub 读写统一走 GitHub 类。
@@ -1107,52 +1102,6 @@ class AttachCommentHandler(CommandHandler):
         )
 
 
-class FeedbackHandler(CommandHandler):
-    """`/reply`、`/skip`：反馈日报帖里回复某条反馈，写回飞书回复表。执行逻辑在 feedback_digest.py。"""
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.usage = ""
-
-    def handle(self, ctx: "Context", args: list[str]) -> str:
-        import feedback_digest as fd  # 用到才加载：它出问题不影响 /toissue
-
-        self.usage = fd.USAGE_TEXT
-        c = ctx.comment
-        d = c.discussion
-        if not fd.is_feedback_discussion(d.category):
-            raise CommandFailure(f"只能在「{fd.env('FEEDBACK_DISCUSSION_CATEGORY', '反馈日报')}」分类的帖子里用")
-        if d.closed:
-            raise CommandFailure("这期反馈日报已经关闭了")
-        node = {
-            "id": c.node_id,
-            "url": c.url,
-            "body": c.body,
-            "author": {"login": c.author_login},
-            "replyTo": {"id": c.reply_to_node_id, "databaseId": c.reply_to_id, "body": c.reply_to_body}
-            if c.reply_to_node_id else None,
-            "discussion": {"id": d.node_id, "number": d.number, "body": d.body,
-                           "closed": d.closed, "category": {"name": d.category}},
-        }
-        def gwrite(query: str, **variables: Any) -> dict[str, Any]:
-            try:
-                return ctx.client.graphql(query, variables)
-            except GitHubError as error:  # 把 GitHub 给的具体原因带出来，光一句「返回错误」没法查
-                detail = "；".join(e.get("message", "") for e in error.errors) or str(error)
-                raise RuntimeError(f"{query.split('(')[0].split()[-1]}：{detail}") from None
-
-        try:
-            done = fd.discussion_done(gwrite, d.node_id)
-            out = fd.run_discussion_commands(gwrite, None, node, done)
-        except Exception as error:  # noqa: BLE001 —— 飞书 / GraphQL 出错都当一次失败回给操作者
-            raise CommandFailure(str(error)) from None
-        if out is None:
-            raise CommandFailure("没找到可执行的命令")
-        if out.errors and not out.notes:
-            raise CommandFailure("；".join(out.errors))
-        return fd.result_lines(out)
-
-
 VOTE_FLOOR_DISCUSSION = 213  # vote_tally.py 的 DISCUSSION_NUMBER
 
 
@@ -1201,8 +1150,6 @@ class TallyHandler(CommandHandler):
 HANDLERS: dict[str, CommandHandler] = {
     ToIssueHandler.name: ToIssueHandler(),
     AttachCommentHandler.name: AttachCommentHandler(),
-    "/reply": FeedbackHandler("/reply"),
-    "/skip": FeedbackHandler("/skip"),
     TallyHandler.name: TallyHandler(),
 }
 
@@ -1393,11 +1340,143 @@ def self_test() -> None:
     else:
         raise AssertionError("非法 issue_no 应当返回 CommandFailure")
 
+    disc_body = (
+        "<!-- feedback-ticket:T123456789 -->\n"
+        "**类别**：有bug · **工单**：`T123456789`\n\n"
+        "> 课表打不开\n> 第二行描述\n\n"
+        "<details><summary>诊断信息</summary>\n\n```\nx\n```\n\n</details>"
+    )
+    assert parse_feedback_reply_comment("下版本修复", disc_body) == ("下版本修复", True, "课表打不开 第二行描述")
+    assert parse_feedback_reply_comment("私密：请加群私聊日志", disc_body) == ("请加群私聊日志", False, "课表打不开 第二行描述")
+    assert parse_feedback_reply_comment("不公开:\n问题：为什么打不开课表\n请升级测试", disc_body) == (
+        "请升级测试", False, "为什么打不开课表"
+    )
+    assert parse_feedback_reply_comment("   ", disc_body) is None
+
     print("self-test ok")
 
 
+ADD_REACTION_MUTATION = """
+mutation($subjectId: ID!, $content: ReactionContent!) {
+  addReaction(input: {subjectId: $subjectId, content: $content}) {
+    reaction { content }
+  }
+}
+"""
+PRIVATE_PREFIX_RE = re.compile(r"^\s*(?:私密|不公开)\s*[:：]\s*(.*)$")
+QUESTION_LINE_RE = re.compile(r"^\s*问题\s*[:：]\s*(.+)$")
+BOT_LOGINS = {"github-actions", "github-actions[bot]"}
+
+
+def extract_feedback_question(discussion_body: str) -> str:
+    head = discussion_body.split("<details>", 1)[0].split("\n---", 1)[0]
+    lines = [
+        html.unescape(ln[1:]).replace("\u200b", "").strip()
+        for ln in head.splitlines()
+        if ln.lstrip().startswith(">")
+    ]
+    text = " ".join(x for x in lines if x)
+    if len(text) > 200:
+        text = text[:199].rstrip() + "…"
+    return text
+
+
+def parse_feedback_reply_comment(comment_body: str, discussion_body: str) -> Optional[tuple[str, bool, str]]:
+    lines = comment_body.strip().splitlines()
+    if not lines:
+        return None
+    is_public = True
+    m_priv = PRIVATE_PREFIX_RE.match(lines[0])
+    if m_priv:
+        is_public = False
+        rest_first = m_priv.group(1).strip()
+        if rest_first:
+            lines[0] = rest_first
+        else:
+            lines.pop(0)
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    question = ""
+    if lines:
+        m_q = QUESTION_LINE_RE.match(lines[0])
+        if m_q:
+            question = m_q.group(1).strip()[:200]
+            lines.pop(0)
+    reply_text = "\n".join(lines).strip()
+    if not reply_text:
+        return None
+    if not question:
+        question = extract_feedback_question(discussion_body)
+    return reply_text, is_public, question
+
+
+def maybe_sync_feedback_reply(client: GitHub, owner: str, repo: str, comment: Comment) -> None:
+    expected_cat = (os.environ.get("FEEDBACK_CATEGORY") or "用户反馈").strip()
+    disc = comment.discussion
+    if disc.category != expected_cat or disc.closed:
+        log("评论里没有已注册的命令，跳过")
+        return
+    if comment.author_login in BOT_LOGINS:
+        return
+    tm = FEEDBACK_ITEM_RE.search(disc.body)
+    if not tm:
+        log("反馈贴缺少工单标记，跳过")
+        return
+    if not is_maintainer(client, owner, repo, comment):
+        log(f"@{comment.author_login or '(未知用户)'} 没有维护者权限，跳过同步回复")
+        return
+    parsed = parse_feedback_reply_comment(comment.body, disc.body)
+    if parsed is None:
+        return
+    reply_text, is_public, question = parsed
+
+    admin_token = (os.environ.get("FEEDBACK_ADMIN_TOKEN") or "").strip()
+    if not admin_token:
+        warn("未配置 FEEDBACK_ADMIN_TOKEN，跳过同步回复到反馈后端")
+        return
+    base_url = (os.environ.get("FEEDBACK_BASE_URL") or "https://api.dzhz.top/feedback").strip().rstrip("/")
+    payload = json.dumps({
+        "ticket": tm.group(1),
+        "reply": reply_text,
+        "isPublic": is_public,
+        "question": question,
+        "replyBy": comment.author_login,
+    }).encode("utf-8")
+
+    for attempt in range(3):
+        req = urllib.request.Request(
+            f"{base_url}/admin/replies",
+            data=payload,
+            method="POST",
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": f"Bearer {admin_token}",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                if 200 <= resp.status < 300:
+                    break
+        except urllib.error.HTTPError as err:
+            if err.code >= 500 and attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            fatal(f"同步回复到反馈后端失败：{err.code} {err.read().decode('utf-8', 'replace')[:200]}")
+        except (urllib.error.URLError, TimeoutError, OSError) as err:
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            fatal(f"同步回复到反馈后端失败：{err}")
+
+    log(f"已同步工单 {tm.group(1)} 回复到反馈后端（公开={is_public}）")
+    try:
+        client.graphql(ADD_REACTION_MUTATION, {"subjectId": comment.node_id, "content": "ROCKET"}, retries=1)
+    except GitHubError as err:
+        warn(f"加确认表情失败（回复已同步）：{err}")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="处理 Discussion 里的讨论命令（/toissue、/attachcomment、/reply、/skip）")
+    parser = argparse.ArgumentParser(description="处理 Discussion 里的讨论命令（/toissue、/attachcomment）与反馈回复同步")
     parser.add_argument(
         "--comment-node-id",
         default=os.environ.get("COMMENT_NODE_ID") or "",
@@ -1431,7 +1510,7 @@ def main() -> None:
 
     found = find_command(comment.body)
     if not found:
-        log("评论里没有已注册的命令，跳过")
+        maybe_sync_feedback_reply(client, owner, repo, comment)
         return
 
     if not is_maintainer(client, owner, repo, comment):

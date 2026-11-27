@@ -62,11 +62,8 @@ jobs:
       - name: Build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
-          FEEDBACK_APP_SECRET: ${{ secrets.FEEDBACK_APP_SECRET }}
-          FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
-          FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
-          FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
+          FEEDBACK_BASE_URL: ${{ vars.FEEDBACK_BASE_URL || 'https://api.dzhz.top/feedback' }}
+          FEEDBACK_ADMIN_TOKEN: ${{ secrets.FEEDBACK_ADMIN_TOKEN }}
           # 定时触发时为空串，只有手动 / 评论区 /tally 派发才有值
           POLL_NUMBER: ${{ github.event.inputs.poll }}
         run: |
