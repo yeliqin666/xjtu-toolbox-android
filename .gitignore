@@ -27,7 +27,7 @@ local.properties
 release.jks
 release.jks.b64
 keystore.properties
-# 反馈后端（飞书多维表格）凭据
+# 反馈后端地址的本地覆盖（baseUrl）
 feedback.properties
 # 小游戏全服榜的服务端地址覆盖，只在本地联调时用
 leaderboard.properties

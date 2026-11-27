@@ -234,7 +234,7 @@ class ServePayFeedbackWebvpnApiTest {
         assertFailsWith<IllegalStateException> { api.fromVpnUrl("empty") }
     }
 
-    /** 这三族在 campus-api 里没有端点（付款码走 `:data` 的 okhttp 借校园卡会话、反馈直连飞书、 WebVPN 是本地的纯函数） */
+    /** 这三族在 campus-api 里没有端点（付款码走 `:data` 的 okhttp 借校园卡会话、反馈直连自家后端、 WebVPN 是本地的纯函数） */
     @Test
     fun campusApiModeThrowsInsteadOfFakingEmptyData() = runTest {
         val engine = engineFor(
