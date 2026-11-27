@@ -40,10 +40,10 @@ class FeedbackStoreJvmTest {
 
     @Test
     fun `回复缓存：键值对往返（节流命中时屏直接拿它渲染）`() {
-        FeedbackStore.cacheReplies(mapOf("TA" to FeedbackReply("示例回复", "2026-10-01 12:00", "yeliqin666")))
+        FeedbackStore.cacheReplies(mapOf("TA" to FeedbackReply("示例回复", "2026-10-01 12:00", "user1")))
         val cached = FeedbackStore.cachedReplies()
         assertEquals(setOf("TA"), cached.keys)
-        assertEquals(FeedbackReply("示例回复", "2026-10-01 12:00", "yeliqin666"), cached.getValue("TA"))
+        assertEquals(FeedbackReply("示例回复", "2026-10-01 12:00", "user1"), cached.getValue("TA"))
     }
 
     @Test
