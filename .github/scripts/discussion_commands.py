@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """处理 Discussion 评论里的讨论命令。
 
-    /toissue <type> <priority> [flags] [assignee]
+    /toissue <type> <priority> <size> [flags] [assignee]
 
-* type：bug / feature；priority：0 / 1 / 2 / 3；
+* type：bug / feature；priority：0 / 1 / 2 / 3；size：xs / s / m / l；
 * flags：q 加 Question 标签，t 把 Awaiting Assignment 换成 Awaiting Triage；
   顺序无关，大小写不敏感，未定义字符忽略并在回复末尾提示；
 * assignee：@用户名，可省略；flags 位置以 @ 开头时跳过 flags。
@@ -71,6 +71,12 @@ PRIORITY_LABELS = {
     "2": "🔹 Priority: P2 - Medium",
     "3": "🌱 Priority: P3 - Low",
 }
+SIZE_LABELS = {
+    "xs": "📏 Size: XS",
+    "s": "📏 Size: S",
+    "m": "📏 Size: M",
+    "l": "📏 Size: L",
+}
 LABEL_ASSIGNMENT = "📥 State:Awaiting Assignment"
 LABEL_TRIAGE = "🕒 State:Awaiting Triage"
 LABEL_IN_PROGRESS = "🔧 State:In Progress"
@@ -78,6 +84,7 @@ LABEL_QUESTION = "Question"
 MANAGED_LABELS = frozenset(
     list(TYPE_LABELS.values())
     + list(PRIORITY_LABELS.values())
+    + list(SIZE_LABELS.values())
     + [LABEL_ASSIGNMENT, LABEL_TRIAGE, LABEL_IN_PROGRESS, LABEL_QUESTION]
 )
 
@@ -88,10 +95,11 @@ LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 
 TOISSUE_USAGE = """用法：
 
-`/toissue <type> <priority> [flags] [assignee]`
+`/toissue <type> <priority> <size> [flags] [assignee]`
 
 - `type`：`bug` 或 `feature`
 - `priority`：`0`、`1`、`2`、`3`，分别对应 P0～P3
+- `size`：`xs`、`s`、`m`、`l`，分别对应 XS～L
 - `flags`：可组合的小写字母
   - `q`：额外加 `Question` 标签
   - `t`：把 `📥 State:Awaiting Assignment` 换成 `🕒 State:Awaiting Triage`
@@ -100,7 +108,7 @@ TOISSUE_USAGE = """用法：
 - flags 位置以 `@` 开头时跳过 flags，直接按 assignee 解析
 - 命令下方空一行后可写 `## 标题`，标题与正文之间至少空一行（正文可留空）；没有 `## 标题` 时忽略后面的文字，回退到主帖/父评论
 
-示例：`/toissue bug 1 qt @someone`"""
+示例：`/toissue bug 1 m qt @someone`"""
 
 ATTACH_USAGE = """用法：
 
@@ -178,7 +186,7 @@ class GitHub:
         return self._viewer_login
 
     def graphql(
-        self, query: str, variables: Optional[dict[str, Any]] = None, retries: int = 3
+            self, query: str, variables: Optional[dict[str, Any]] = None, retries: int = 3
     ) -> dict[str, Any]:
         payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
         request = urllib.request.Request(
@@ -233,7 +241,7 @@ class GitHub:
             data=json.dumps(body).encode("utf-8") if body is not None else None,
             method=method,
             headers=headers,
-        )
+            )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 raw = response.read().decode("utf-8")
@@ -399,6 +407,7 @@ class Context:
 class ToIssueArgs:
     type: str
     priority: str
+    size: str
     flags: set[str] = field(default_factory=set)
     assignee: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
@@ -736,7 +745,13 @@ def parse_toissue(args: list[str]) -> ToIssueArgs:
     if priority not in PRIORITY_LABELS:
         raise ParseError(f"priority 必须是 `0`、`1`、`2`、`3`，收到 `{brief(args[1])}`。")
 
-    rest = list(args[2:])
+    if len(args) < 3:
+        raise ParseError("缺少 size 参数。")
+    size = args[2].lower()
+    if size not in SIZE_LABELS:
+        raise ParseError(f"size 必须是 `xs`、`s`、`m`、`l`，收到 `{brief(args[2])}`。")
+
+    rest = list(args[3:])
     flags: set[str] = set()
     warnings: list[str] = []
     assignee: Optional[str] = None
@@ -770,7 +785,7 @@ def parse_toissue(args: list[str]) -> ToIssueArgs:
             raise ParseError(f"assignee 格式不正确：`{brief(assignee_token)}`，应写成 `@用户名`。")
         assignee = login
 
-    return ToIssueArgs(kind, priority, flags, assignee, warnings)
+    return ToIssueArgs(kind, priority, size, flags, assignee, warnings)
 
 
 def desired_labels(parsed: ToIssueArgs) -> set[str]:
@@ -780,7 +795,12 @@ def desired_labels(parsed: ToIssueArgs) -> set[str]:
         state = LABEL_IN_PROGRESS
     else:
         state = LABEL_ASSIGNMENT
-    labels = {TYPE_LABELS[parsed.type], PRIORITY_LABELS[parsed.priority], state}
+    labels = {
+        TYPE_LABELS[parsed.type],
+        PRIORITY_LABELS[parsed.priority],
+        SIZE_LABELS[parsed.size],
+        state,
+    }
     if "q" in parsed.flags:
         labels.add(LABEL_QUESTION)
     return labels
@@ -893,12 +913,12 @@ def lookup_user_id(client: GitHub, login: str) -> str:
 
 
 def create_issue(
-    client: GitHub,
-    repository_id: str,
-    title: str,
-    body: str,
-    label_ids: list[str],
-    assignee_id: Optional[str],
+        client: GitHub,
+        repository_id: str,
+        title: str,
+        body: str,
+        label_ids: list[str],
+        assignee_id: Optional[str],
 ) -> dict[str, Any]:
     issue_input: dict[str, Any] = {
         "repositoryId": repository_id,
@@ -913,7 +933,7 @@ def create_issue(
 
 
 def update_issue_labels(
-    client: GitHub, issue: dict[str, Any], desired: set[str], label_map: dict[str, str]
+        client: GitHub, issue: dict[str, Any], desired: set[str], label_map: dict[str, str]
 ) -> None:
     unmanaged = [
         label["id"]
@@ -1175,44 +1195,47 @@ def self_test() -> None:
     def parse(text: str) -> ToIssueArgs:
         return parse_toissue(text.split())
 
-    parsed = parse("bug 1")
-    assert parsed.type == "bug" and parsed.priority == "1"
+    parsed = parse("bug 1 m")
+    assert parsed.type == "bug" and parsed.priority == "1" and parsed.size == "m"
     assert parsed.flags == set() and parsed.assignee is None and not parsed.warnings
 
-    parsed = parse("feature 3 qT @someone")
+    parsed = parse("feature 3 l qT @someone")
+    assert parsed.size == "l"
     assert parsed.flags == {"q", "t"} and parsed.assignee == "someone"
 
-    parsed = parse("bug 1 @someone")
+    parsed = parse("bug 1 xs @someone")
+    assert parsed.size == "xs"
     assert parsed.flags == set() and parsed.assignee == "someone"
 
-    parsed = parse("bug 1 qxz @someone tail")
+    parsed = parse("bug 1 s qxz @someone tail")
+    assert parsed.size == "s"
     assert parsed.flags == {"q"} and parsed.assignee == "someone"
     assert len(parsed.warnings) == 2
 
-    assert find_command("```\n/toissue bug 1\n```") is None
-    assert find_command("> /toissue bug 1") is None
-    found = find_command("说明\n  /toissue bug 1 @someone")
+    assert find_command("```\n/toissue bug 1 m\n```") is None
+    assert find_command("> /toissue bug 1 m") is None
+    found = find_command("说明\n  /toissue bug 1 m @someone")
     assert found is not None and found[0] == "/toissue"
-    assert found[1] == ["bug", "1", "@someone"] and found[2] == 1
+    assert found[1] == ["bug", "1", "m", "@someone"] and found[2] == 1
 
-    assert parse_tail("/toissue bug 1\n\n## 标题\n\n正文", 0) == Tail("标题", "正文")
-    assert parse_tail("/toissue bug 1\n\n## 标题", 0) == Tail("标题", "")
-    assert parse_tail("/toissue bug 1\n\n## 标题\n正文", 0) is None
-    assert parse_tail("/toissue bug 1\n## 标题\n\n正文", 0) is None
-    assert parse_tail("/toissue bug 1\n\n### 标题\n\n正文", 0) is None
-    assert parse_tail("/toissue bug 1\n\n##标题\n\n正文", 0) is None
-    assert parse_tail("/toissue bug 1\n\n##  \n\n正文", 0) is None
-    assert parse_tail("/toissue bug 1\n\n  ## 标题  \n\n正文", 0) == Tail("标题", "正文")
+    assert parse_tail("/toissue bug 1 m\n\n## 标题\n\n正文", 0) == Tail("标题", "正文")
+    assert parse_tail("/toissue bug 1 m\n\n## 标题", 0) == Tail("标题", "")
+    assert parse_tail("/toissue bug 1 m\n\n## 标题\n正文", 0) is None
+    assert parse_tail("/toissue bug 1 m\n## 标题\n\n正文", 0) is None
+    assert parse_tail("/toissue bug 1 m\n\n### 标题\n\n正文", 0) is None
+    assert parse_tail("/toissue bug 1 m\n\n##标题\n\n正文", 0) is None
+    assert parse_tail("/toissue bug 1 m\n\n##  \n\n正文", 0) is None
+    assert parse_tail("/toissue bug 1 m\n\n  ## 标题  \n\n正文", 0) == Tail("标题", "正文")
 
     discussion = Discussion("D", 7, "讨论标题", "主帖正文", "durl", "d作者", "R")
 
     def make_comment(
-        body: str,
-        reply_to_id: Optional[int] = None,
-        parent_body: str = "",
-        parent_url: str = "purl",
-        author: str = "u",
-        parent_author: str = "p作者",
+            body: str,
+            reply_to_id: Optional[int] = None,
+            parent_body: str = "",
+            parent_url: str = "purl",
+            author: str = "u",
+            parent_author: str = "p作者",
     ) -> Comment:
         return Comment(
             "C",
@@ -1229,36 +1252,37 @@ def self_test() -> None:
             discussion,
         )
 
-    source = pick_source(make_comment("/toissue bug 1\n\n## 自定义\n\n正文"), 0)
+    source = pick_source(make_comment("/toissue bug 1 m\n\n## 自定义\n\n正文"), 0)
     assert source.key == "discussioncomment-2" and source.content == "正文"
     assert source.raw_title == "自定义" and source.where == "本评论"
 
-    source = pick_source(make_comment("/toissue bug 1"), 0)
+    source = pick_source(make_comment("/toissue bug 1 m"), 0)
     assert source.key == "discussion-7" and source.content == "主帖正文"
     assert source.where == "本讨论"
 
-    source = pick_source(make_comment("/toissue bug 1", 9, "父评论正文"), 0)
+    source = pick_source(make_comment("/toissue bug 1 m", 9, "父评论正文"), 0)
     assert source.key == "discussioncomment-9" and source.content == "父评论正文"
     assert source.raw_title == "父评论正文" and source.where == "父评论"
 
-    source = pick_source(make_comment("/toissue bug 1\n\n## 标题\n\n正文", 9, "父评论正文"), 0)
+    source = pick_source(make_comment("/toissue bug 1 m\n\n## 标题\n\n正文", 9, "父评论正文"), 0)
     assert source.key == "discussioncomment-2" and source.content == "正文"
 
     # 标题块不合法时忽略尾随文字，回退到默认来源。
-    source = pick_source(make_comment("/toissue bug 1\n## 标题\n\n正文"), 0)
+    source = pick_source(make_comment("/toissue bug 1 m\n## 标题\n\n正文"), 0)
     assert source.key == "discussion-7" and source.content == "主帖正文"
 
-    source = pick_source(make_comment("/toissue bug 1\n## 标题\n\n正文", 9, "父评论正文"), 0)
+    source = pick_source(make_comment("/toissue bug 1 m\n## 标题\n\n正文", 9, "父评论正文"), 0)
     assert source.key == "discussioncomment-9" and source.content == "父评论正文"
 
     assert issue_title("bug", "[Bug] 闪退", "fallback") == "[Bug] 闪退"
     assert "由 @someone 通过 [`/toissue`](u) 创建" in build_issue_body("k", "l", "someone", "u", "正文")
 
-    assert LABEL_ASSIGNMENT in desired_labels(parse("bug 1"))
-    assert LABEL_IN_PROGRESS in desired_labels(parse("bug 1 @someone"))
-    assert LABEL_TRIAGE in desired_labels(parse("bug 1 t @someone"))
+    assert LABEL_ASSIGNMENT in desired_labels(parse("bug 1 m"))
+    assert SIZE_LABELS["m"] in desired_labels(parse("bug 1 m"))
+    assert LABEL_IN_PROGRESS in desired_labels(parse("bug 1 m @someone"))
+    assert LABEL_TRIAGE in desired_labels(parse("bug 1 m t @someone"))
 
-    for bad in ("", "bug", "bug 4", "bug 1 @", "nope 1"):
+    for bad in ("", "bug", "bug 1", "bug 1 invalid", "bug 4 m", "bug 1 m @", "nope 1 m"):
         try:
             parse(bad)
         except (UsageNeeded, ParseError):
@@ -1269,7 +1293,7 @@ def self_test() -> None:
     handler = ToIssueHandler()
     assert handler.handle(None, []) == TOISSUE_USAGE
     try:
-        handler.handle(None, ["bug", "9"])
+        handler.handle(None, ["bug", "9", "m"])
     except CommandFailure as error:
         assert not error.fatal
         body = failure_body(handler.name, handler.usage, error.message)
