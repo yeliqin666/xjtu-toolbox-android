@@ -2,6 +2,7 @@ package com.xjtu.toolbox.jiaocai1
 
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,11 +12,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "Jiaocai1Page"
+
+/** 封面重定向最多跟几跳（真站点上封面一般不跳，留两跳给 WebVPN 网关与静态资源兜底）。 */
+private const val MAX_COVER_HOPS = 2
+
+/** 要自己处理的「重定向」码：301 / 302 / 303 / 307 / 308（304 不在内，它没有 Location）。 */
+private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+
+/** 全文库的域名（与 `Jiaocai1Api.BASE` 同一个 host，从那一处取，避免两处各写一份）。 */
+private val JIAOCAI1_UPSTREAM_HOST: String =
+    Jiaocai1Api.BASE.substringAfter("://").substringBefore('/')
 
 /**
  * 教材页面的**字节加载**：取图、磁盘缓存、预取窗口、并发闸门（[Jiaocai1PageBytes] 的实现）。
@@ -53,7 +65,7 @@ class Jiaocai1PageLoader(
     override suspend fun coverBytes(url: String): ByteArray? {
         if (url.isBlank()) return null
         return withContext(Dispatchers.IO) {
-            gate.withPermit { fetchBytes(url, "${Jiaocai1Api.BASE}/front/") }
+            gate.withPermit { fetchCover(url, "${Jiaocai1Api.BASE}/front/") }
         }
     }
 
@@ -134,11 +146,7 @@ class Jiaocai1PageLoader(
      * 但那是全站共性问题，不该在这里单独兜。
      */
     private suspend fun fetchBytes(url: String, referer: String): ByteArray? = try {
-        val request = Request.Builder().url(url).get()
-            .header("Accept", "image/avif,image/webp,image/png,image/*;q=0.8,*/*;q=0.5")
-            .header("Referer", referer)
-            .build()
-        site.executeWithReAuth(request).use { resp ->
+        site.executeWithReAuth(imageRequest(url, referer)).use { resp ->
             val body = resp.body?.bytes()
             if (!resp.isSuccessful || body == null || !body.looksLikeImage()) {
                 Log.w(TAG, "非图像响应 code=${resp.code} len=${body?.size} headers=${resp.headers}")
@@ -149,6 +157,71 @@ class Jiaocai1PageLoader(
         Log.w(TAG, "fetch failed: ${e.message}")
         null
     }
+
+    /**
+     * 封面取字节：**自己跟重定向，只跟同主机的跳**（最多 [MAX_COVER_HOPS] 跳）。
+     *
+     * 为什么不能直接复用 [fetchBytes]（2026-11-27 #597）：`?url=` 是客户端带回来的，serve 那一层虽然
+     * 用 `isJiaocai1Url` 判过「只认全文库」，但那判的是**第一发**的 URL；OkHttp 默认跟随重定向
+     * ⇒ 一个合法的全文库地址只要 302 到别处（内网、云元数据），serve 就替调用方去取了。
+     *
+     * 做法：本发请求关掉自动跟随（`followRedirects = false`），拿 `Location` 自己解析，
+     * 目标主机复核通过才跟下一发。WebVPN 形态先解码回原域名再比 —— 网关自己那一跳算同主机，
+     * 否则校外（WEBVPN 模式）会把封面全弄坏。
+     *
+     * 页图那条路（[download]）不套这层：它的 URL 由服务端句柄拼出来，不是调用方能决定的输入。
+     */
+    private suspend fun fetchCover(url: String, referer: String): ByteArray? {
+        var current = url
+        var hops = 0
+        while (true) {
+            val response = try {
+                site.executeWithReAuth(imageRequest(current, referer), followRedirects = false)
+            } catch (e: Exception) {
+                Log.w(TAG, "cover fetch failed: ${e.message}")
+                return null
+            }
+            val location = response.use { resp ->
+                if (resp.code in REDIRECT_CODES) {
+                    resp.header("Location")
+                } else {
+                    val body = resp.body?.bytes()
+                    return if (!resp.isSuccessful || body == null || !body.looksLikeImage()) {
+                        Log.w(TAG, "封面非图像响应 code=${resp.code} len=${body?.size}")
+                        null
+                    } else {
+                        body
+                    }
+                }
+            }
+            if (location == null) {
+                Log.w(TAG, "封面重定向没有 Location，放弃")
+                return null
+            }
+            if (hops++ >= MAX_COVER_HOPS) {
+                Log.w(TAG, "封面重定向超过 $MAX_COVER_HOPS 跳，放弃")
+                return null
+            }
+            current = sameHostRedirect(current, location) ?: run {
+                Log.w(TAG, "封面重定向到别的主机，放弃：${location.take(120)}")
+                return null
+            }
+        }
+    }
+
+    /** 重定向目标与当前地址**同主机**才放行（WebVPN 形态先解码回原域名再比）；否则 `null`。 */
+    private fun sameHostRedirect(from: String, location: String): String? {
+        val base = from.toHttpUrlOrNull() ?: return null
+        val next = base.resolve(location) ?: return null
+        if (next.scheme != "http" && next.scheme != "https") return null
+        val original = WebVpnUtil.getOriginalUrl(next.toString())?.toHttpUrlOrNull() ?: next
+        return next.toString().takeIf { original.host.equals(JIAOCAI1_UPSTREAM_HOST, ignoreCase = true) }
+    }
+
+    private fun imageRequest(url: String, referer: String): Request = Request.Builder().url(url).get()
+        .header("Accept", "image/avif,image/webp,image/png,image/*;q=0.8,*/*;q=0.5")
+        .header("Referer", referer)
+        .build()
 
     private fun diskFile(ssno: String, fileName: String): File =
         File(File(diskRoot, ssno.sanitize()), fileName.sanitize() + ".img")

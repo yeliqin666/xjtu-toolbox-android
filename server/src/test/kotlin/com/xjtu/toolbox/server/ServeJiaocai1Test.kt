@@ -318,6 +318,12 @@ class ServeJiaocai1Test {
             "https://evil.com/?x=jiaocai1.lib.xjtu.edu.cn",
             "file:///etc/passwd",
             "http://127.0.0.1:8123/api/status",
+            // #597：手工切字符串能被这几条骗过去（`#` 之后整段是 fragment，解析器直接丢掉）
+            "https://evil.com#@jiaocai1.lib.xjtu.edu.cn/a.jpg",
+            "https://evil.com\\@jiaocai1.lib.xjtu.edu.cn/a.jpg",
+            // 带 userinfo 的一律拒（`host@evil.com` 各家解析器读法不同，没有正当用途）
+            "https://user:pw@jiaocai1.lib.xjtu.edu.cn/a.jpg",
+            "https://jiaocai1.lib.xjtu.edu.cn@evil.com/a.jpg",
         )) {
             val response = http.get("$COVER_PATH?url=${encode(bad)}")
             assertEquals(400, response.statusCode(), bad)
@@ -339,6 +345,30 @@ class ServeJiaocai1Test {
         )
         assertEquals(0xFF.toByte(), cover.body()[0], "JPEG 魔数")
         assertEquals(0xD8.toByte(), cover.body()[1], "JPEG 魔数")
+    }
+
+    @Test
+    fun `封面重定向：同主机那一跳照跟，跨主机那一跳拒绝（#597）`() = withFakeProxy {
+        resetProcessState()
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val http = serve(session, token)
+        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+        // 封面要先把会话立起来（见上一条的注释）
+        assertEquals(200, http.get("$SEARCH_PATH?keyword=%E7%A4%BA%E4%BE%8B").statusCode())
+
+        // 同主机 302（`Location` 是相对路径）⇒ 自己跟一跳，拿回真图
+        val sameHost = "${Jiaocai1FakeUpstream.BASE}/cover/${Jiaocai1FakeUpstream.SSNO}.jpg?hop=1"
+        val followed = http.getBytes("$COVER_PATH?url=${encode(sameHost)}")
+        assertEquals(200, followed.statusCode(), "同主机那一跳要跟")
+        assertEquals(0xFF.toByte(), followed.body()[0], "JPEG 魔数")
+
+        // 跨主机 302 ⇒ 不跟（否则一个合法地址就能把 serve 带到任意主机），按「取不到」回 502
+        val crossHost = "${Jiaocai1FakeUpstream.BASE}/cover/${Jiaocai1FakeUpstream.SSNO}.jpg?hop=evil"
+        val refused = http.get("$COVER_PATH?url=${encode(crossHost)}")
+        assertEquals(502, refused.statusCode())
+        assertEquals(ApiErrors.UPSTREAM_FAILED, envelopeCode(refused))
+        assertTrue(envelopeMessage(refused).orEmpty().contains("取不到"), "502 要说这是取不到：${envelopeMessage(refused)}")
     }
 
     // ── 书架（serve 侧按账号落盘）──────────────────────────────────────

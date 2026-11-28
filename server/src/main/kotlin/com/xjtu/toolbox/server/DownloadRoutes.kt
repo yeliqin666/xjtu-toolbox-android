@@ -7,6 +7,7 @@ import com.xjtu.toolbox.media.DownloadTask
 import com.xjtu.toolbox.media.JvmDownloadEngine
 import com.xjtu.toolbox.media.JvmDownloadFileSystem
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLProtocol
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -72,6 +73,8 @@ import kotlinx.serialization.Serializable
  *   **与桌面窗口的列表不共享**（理由在那份 KDoc 里：共用一个文件会互相写坏）。
  * - `:data` 的引擎只支持**可直接 GET 的直链**（HLS 的 `m3u8` 不支持）⇒ 遇到 m3u8 在这里就拒，
  *   不交给引擎去失败。
+ * - `url` 只收 http/https、不带 userinfo、主机不是本机 / IP 字面量（[downloadUrlProblem]，2026-11-27 #597）：
+ *   serve 会**真的去取**这条链，不判就等于让它替调用方打内网（默认只听本机时风险有限，`--host 0.0.0.0` 会放大）。
  * - 目录不可写 / 网络断 ⇒ 由引擎把任务置成 `failed` 并写 `errorMessage`，这里**照实回**。
  */
 
@@ -140,7 +143,8 @@ internal fun Route.downloadRoutes(
                 ?: return@post call.respondBadRequestMessage(DOWNLOAD_BODY_MESSAGE)
             val url = body.url.trim()
             if (url.isEmpty()) return@post call.respondBadRequestMessage(DOWNLOAD_BODY_MESSAGE)
-            if (url.contains(".m3u8")) return@post call.respondBadRequestMessage(DOWNLOAD_M3U8_MESSAGE)
+            // 形状校验（#597）：serve 会**真的去取**这条链，不判就等于让它替调用方打内网。
+            downloadUrlProblem(url)?.let { return@post call.respondBadRequestMessage(it) }
             val camera = body.cameraType?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_CAMERA
             runCatching {
                 val ids = manager.enqueueDownloads(
@@ -395,6 +399,46 @@ private const val DEFAULT_TITLE = "回放"
 private const val DOWNLOAD_BODY_MESSAGE = "请求体需要 url（视频直链）；cameraType / courseName / activityTitle / activityId 可选"
 private const val DOWNLOAD_M3U8_MESSAGE = "这一条是 HLS（m3u8）：本端引擎只支持可直接 GET 的直链，请换一条"
 private const val DOWNLOAD_ID_MESSAGE = "路径里的 id 需要是数字（那一条下载任务的主键）"
+private const val DOWNLOAD_URL_MESSAGE = "url 只收 http/https 的直链，且不带 `user@host` 那种写法"
+private const val DOWNLOAD_LOCAL_HOST_MESSAGE =
+    "url 的主机不能是本机或 IP 字面量（localhost / 127.0.0.1 / 内网地址这类）：serve 会真的去取这条链"
+
+/**
+ * 直链的形状校验（#597）。返回 `null` = 可以交给下载引擎，否则是要回给屏上的中文短句。
+ *
+ * 为什么不钉域名白名单：直链是上游 `LmsApi` 从 `download_url` 里拿的 CDN 地址（仓库里没有夹具），
+ * 钉死域名会把正常回放一起挡掉。这里只把「一定不该出现在回放直链里」的形状挑出来：
+ *
+ * - scheme 只认 http / https —— `file:` / `ftp:` 引擎本来也取不了，早拒比让它进引擎再炸好；
+ * - **主机不能是本机或 IP 字面量** —— `127.0.0.1`、`10.x`、`169.254.169.254`（云元数据）、`[::1]`
+ *   全在这一条里。serve 默认只听本机，但这台机器**自己能打到**的内网不只有它自己；
+ * - `localhost` / `*.localhost` 同上（`hosts` 文件里那一行就是它）。
+ *
+ * ## 如实边界
+ *
+ * 域名解析到私网地址（DNS rebinding）这一层挡不住：要挡得在连接层按**解析结果**判，那需要自建
+ * DNS 或自定义 `Dns` 实现，与「只支持直链」这一族的体量不匹配。默认只听本机的部署风险有限；
+ * 用 `--host 0.0.0.0` 对外开的机器仍应自己收紧防火墙（见 #597 的优先级说明）。
+ */
+internal fun downloadUrlProblem(url: String): String? {
+    if (url.contains(".m3u8", ignoreCase = true)) return DOWNLOAD_M3U8_MESSAGE
+    val parsed = parseAbsoluteUrl(url) ?: return DOWNLOAD_URL_MESSAGE
+    if (parsed.protocol != URLProtocol.HTTP && parsed.protocol != URLProtocol.HTTPS) return DOWNLOAD_URL_MESSAGE
+    if (!parsed.user.isNullOrEmpty() || !parsed.password.isNullOrEmpty()) return DOWNLOAD_URL_MESSAGE
+    val host = parsed.host
+    if (host.isEmpty() || isLocalOrLiteralIp(host)) return DOWNLOAD_LOCAL_HOST_MESSAGE
+    return null
+}
+
+/** 本机名，或「浏览器也认」的 IP 字面量写法（点分四段 / 纯数字 / 带冒号的 IPv6）。 */
+private fun isLocalOrLiteralIp(host: String): Boolean {
+    val lower = host.lowercase()
+    if (lower == "localhost" || lower.endsWith(".localhost")) return true
+    // IPv6 字面量在 `Url.host` 里是 `::1` / `fe80::1` 这种样子（方括号已被解析器摘掉）
+    if (lower.contains(':')) return true
+    // 纯数字 / 点分：`127.0.0.1`、`2130706433`、`169.254.169.254` 一个都别放过
+    return lower.all { it.isDigit() || it == '.' }
+}
 
 /** 三个动作动词的子路径。 */
 internal const val DOWNLOAD_PAUSE = "pause"

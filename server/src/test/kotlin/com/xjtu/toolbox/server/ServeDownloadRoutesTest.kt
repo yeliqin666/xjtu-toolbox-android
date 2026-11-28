@@ -283,6 +283,43 @@ class ServeDownloadRoutesTest {
     }
 
     @Test
+    fun `直链形状：非 http(s)、本机与 IP 字面量、带 userinfo 一律 400（#597）`() = withFakeProxy {
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val root = Files.createTempDirectory("serve-download-url").toFile()
+        val engine = GatedEngine()
+        val http = serve(session, token, newManager(root, engine))
+        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+
+        // serve 会**真的去取**这条链 ⇒ 形状不对的当场拒，一条都不建、引擎一次都不叫
+        for (url in listOf(
+            "file:///etc/passwd",
+            "ftp://lms.example.com/replay/1.mp4",
+            "http://127.0.0.1:8080/a.mp4",
+            "http://localhost/a.mp4",
+            "http://[::1]/a.mp4",
+            "http://169.254.169.254/latest/meta-data/",
+            "https://user:pw@lms.example.com/replay/1.mp4",
+        )) {
+            val response = http.postJson(DOWNLOAD_PATH, """{"url":"$url"}""")
+            assertEquals(400, response.statusCode(), url)
+            assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(response), url)
+            assertTrue(
+                envelopeMessage(response).orEmpty().contains("url"),
+                "400 要说出是 url 的问题：$url → ${envelopeMessage(response)}",
+            )
+        }
+
+        // m3u8 不看大小写（旧的 `contains(".m3u8")` 会漏掉大写）
+        val upper = http.postJson(DOWNLOAD_PATH, """{"url":"https://lms.example.com/replay/INDEX.M3U8"}""")
+        assertEquals(400, upper.statusCode())
+        assertTrue(envelopeMessage(upper).orEmpty().contains("m3u8"), "大写也要认出来：${envelopeMessage(upper)}")
+
+        assertEquals(0, envelopeData(http.get(DOWNLOAD_PATH)).optInt("count"), "400 那几枪一条都不该建")
+        assertEquals(0, engine.calls.get(), "400 那几枪都不该到引擎")
+    }
+
+    @Test
     fun `三个动作动词：暂停到恢复到取消，目标不在表里或状态不对时 409`() = withFakeProxy {
         val token = AccessToken.newToken()
         val session = ServeSession()

@@ -224,7 +224,12 @@ class Jiaocai1FakeUpstream {
                 respond(exchange, 200, "image/jpeg", pageJpeg(path.substringAfterLast('/')))
             }
             // 封面：真站点上是一张小图（搜索结果与书架里的缩略图走它）
-            path.startsWith("/cover/") -> respond(exchange, 200, "image/jpeg", coverJpeg())
+            // `?hop=` 两档专供 #597：同主机跳一次 / 跳到别的域名（取封面的那一层必须只跟前者）
+            path.startsWith("/cover/") -> when {
+                query.contains("hop=evil") -> redirect(exchange, "https://example.com/x.jpg")
+                query.contains("hop=1") -> redirect(exchange, "/cover/$SSNO.jpg")
+                else -> respond(exchange, 200, "image/jpeg", coverJpeg())
+            }
             // `/front/` 那一发只是 Referer 的落点，真站点上是首页；夹具给个空页就够
             else -> respond(exchange, 200, "text/html; charset=utf-8", "<html></html>".toByteArray())
         }

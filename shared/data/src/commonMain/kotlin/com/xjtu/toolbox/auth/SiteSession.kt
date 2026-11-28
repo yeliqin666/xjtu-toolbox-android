@@ -324,13 +324,26 @@ abstract class SiteSession(
     /**
      * 业务请求统一入口。命中认证失效响应时自动 invalidate + 重认证 + 重放一次。
      * 重放仍失败抛 [AuthExpiredException]。调用方传入的 request 无需预注 header—— [decorateRequest] 负责补齐。
+     *
+     * [followRedirects] = false 时**不跟随重定向**（3xx 原样回给调用方，由它自己逐跳判）。
+     * 只有「URL 来自不可信输入、但请求由这台机器发出」的那类取数用它（教材封面，见 #597）：
+     * 默认跟随的话，一个合法主机的 302 就能把请求带到任意地方。派生 client 走 `newBuilder()`，
+     * 连接池 / 拦截器（含 WebVPN 改写）与 [client] 是同一套，只是关闭了跟随。
      */
     @Throws(IOException::class, AuthExpiredException::class)
-    suspend fun executeWithReAuth(request: Request, retried: Boolean = false): Response {
+    suspend fun executeWithReAuth(
+        request: Request,
+        retried: Boolean = false,
+        followRedirects: Boolean = true,
+    ): Response {
         val epochBefore = loginEpoch
         val response = withContext(Dispatchers.IO) {
             val finalRequest = decorateRequest(request.newBuilder()).build()
-            client.newCall(finalRequest).execute()
+            val callClient = if (followRedirects) client else client.newBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build()
+            callClient.newCall(finalRequest).execute()
         }
 
         // 只对文本类响应做预览。二进制流（PDF/图片/附件下载）不可能是 CAS 登录页，
@@ -371,7 +384,7 @@ abstract class SiteSession(
         // 不在锁外 invalidate（会误伤并发协程刚建立的新会话），
         // 由 ensureLogin 依据代数决定是复用还是真正重登录。
         ensureLogin(creds.first, creds.second, force = true, staleEpoch = epochBefore)
-        return executeWithReAuth(request, retried = true)
+        return executeWithReAuth(request, retried = true, followRedirects = followRedirects)
     }
 
     /** 站点会话的 Ktor 形状出口。惰性建、**永不 close**（见 [com.xjtu.toolbox.network.asToolboxKtorClient] 的 KDoc：

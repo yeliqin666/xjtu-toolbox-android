@@ -12,6 +12,7 @@ import com.xjtu.toolbox.jiaocai1.Jiaocai1Source
 import com.xjtu.toolbox.platform.dataRootDir
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLProtocol
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
@@ -59,7 +60,8 @@ import kotlinx.serialization.Serializable
  * - **`jpgPath` 不投影**：那是服务端按会话下发的令牌路径（`:core` 的 `Jiaocai1BookHandle` 自己也
  *   写着「不要持久化」）。客户端要的是**页表**（每页的页型与编号），取字节走 [JIAOCAI1_PAGE]。
  * - **封面只认全文库自己的地址**（[isJiaocai1Url]）：`?url=` 是客户端从检索结果里带回来的，
- *   不校验就等于把 serve 变成一台谁都能用的取图代理。
+ *   不校验就等于把 serve 变成一台谁都能用的取图代理。**跨主机的重定向也不跟**（只跟同主机那一跳）——
+ *   那是由 `:data` 的 `Jiaocai1PageLoader.coverBytes` 逐跳复核的，因为「跟不跟」只能由发请求的那一层决定。
  * - **封面要在会话建立之后才拿得到**：`:data` 的 `Jiaocai1PageLoader.coverBytes` 走的是取字节那条路，
  *   **不会**像 `classify` / `search` / `openBook` 那样自己跟一遍 `portalLogin` 跳转链 ⇒ 全新会话里
  *   先取封面会拿回跳转页（按「取不到」回 502）。真实屏上的次序就是「先检索、再画封面」，所以这不算缺路；
@@ -382,15 +384,27 @@ private suspend fun ApplicationCall.respondImageUnavailable(what: String) = resp
     ),
 )
 
-/** `?url=` 只认全文库自己的地址（见文件头「如实边界」）。 */
+/**
+ * `?url=` 只认全文库自己的地址（见文件头「如实边界」）。
+ *
+ * ⚠️ 必须交给 URL 解析器判，**不能手工切字符串**（2026-11-27 #597）。旧的写法只截了 `/` 和 `?`、
+ * 再 `substringAfter('@')`，于是 `https://evil.com#@jiaocai1.lib.xjtu.edu.cn/a.jpg` 会让这一层看到
+ * 全文库的域名、而实际请求打到 `evil.com`（`#` 之后整段是 fragment，解析器直接丢掉）——
+ * 等于把 serve 变成一台谁都能用的 SSRF 跳板。这里改成「解析后逐项判」：
+ *
+ * - scheme 只认 http / https（`file:`、`ftp:` 之类当场拒）；
+ * - **带 userinfo 的一律拒**（`https://user@host` / `https://host@evil.com` 各解析器读法不同，
+ *   没有正当用途，不给解释空间）；
+ * - host 必须**等于**全文库域名（不是 `endsWith`：`jiaocai1.lib.xjtu.edu.cn.evil.com` 要拒掉）。
+ *
+ * 跨主机的重定向不在这里管（那一枪的 URL 本身是合法的），由 `:data` 的
+ * `Jiaocai1PageLoader.coverBytes` 逐跳复核 —— 见那边的 KDoc。
+ */
 internal fun isJiaocai1Url(url: String): Boolean {
-    val trimmed = url.trim()
-    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) return false
-    val host = trimmed.substringAfter("://").substringBefore('/').substringBefore('?')
-        .substringAfter('@') // 挡掉 user@host 那种写法
-        .substringBefore(':')
-        .lowercase()
-    return host == JIAOCAI1_HOST
+    val parsed = parseAbsoluteUrl(url) ?: return false
+    if (parsed.protocol != URLProtocol.HTTP && parsed.protocol != URLProtocol.HTTPS) return false
+    if (!parsed.user.isNullOrEmpty() || !parsed.password.isNullOrEmpty()) return false
+    return parsed.host.equals(JIAOCAI1_HOST, ignoreCase = true)
 }
 
 /** 全文库的域名（`:data` 的 `Jiaocai1Api.BASE` 上那一个）。 */
