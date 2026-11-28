@@ -125,7 +125,7 @@ class TemplatePage(private val ctx: PluginContext) : PluginPage() {
 | `UiScrollRowNode(children, spacingDp)` | 横滑一行（子节点按内容宽度，上限 280dp） |
 | `UiFlowRowNode(children, spacingDp)` | 流式换行 |
 | `UiWeightNode(weight, child)` | Row 里按权重分宽度 |
-| `UiFillWidthNode(child)` | 让子节点撑满可用宽度（`End` 对齐要靠它）|
+| `UiFillWidthNode(child)` | 让子节点撑满可用宽度（`End` 对齐要靠它）；别拿它包 `UiWeightNode`，权重要套在外面 |
 | `UiCardNode(child, actionId, paddingDp)` | 卡片，可整张点 |
 | `UiTextNode(text, style, secondary, maxLines, color, argb, bold, italic, underline, strikeThrough, actionId)` | 文字；给了 `actionId` 默认用主色 |
 | `UiRichTextNode(spans, style)` | 混排：一段话里不同样式和链接 |

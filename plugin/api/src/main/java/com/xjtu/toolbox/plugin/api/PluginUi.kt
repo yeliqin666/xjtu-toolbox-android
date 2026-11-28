@@ -61,6 +61,9 @@ class UiRowNode @JvmOverloads constructor(
  *
  * 做成包装节点而不是给 Column 加字段：给已有节点的构造器加参数会改掉 Kotlin 默认参数合成
  * 构造器的 JVM 签名，已经编译好的旧插件会链接失败。
+ *
+ * 放在 [UiRowNode] 里时别拿它包 [UiWeightNode]：权重只认 Row 的直接子节点，被包住就不生效。
+ * 要权重就把 [UiWeightNode] 套在外面：`UiWeightNode(1f, UiFillWidthNode(child))`。
  */
 class UiFillWidthNode(val child: UiNode) : UiNode()
 
