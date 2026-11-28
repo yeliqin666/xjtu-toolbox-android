@@ -18,6 +18,12 @@ name: Handle discussion commands
 #     命令后空一行写的内容（details）覆盖默认来源；楼中楼 details 开头的
 #     自动引用块会去掉，没有 details 时命令开头的引用块当作附加内容。
 #
+#   /update-market [url] [--tags a,b] [--featured|--no-featured] [--dry-run]
+#     把插件公告帖里的 zip 收进在线市场索引（dzhz-server 的 services/web/public/plugin-market.json）：
+#     验 ECDSA P-256 签名、核对 files[] 清单、按 versionCode 防回退，用 Git Data API 一次提交；
+#     签名钥匙按 TOFU 钉在 dzhz-server 的 .github/plugin-market-keys.json。
+#     只收 plugin-release（插件公告）分类，要求仓库 admin 权限，写索引用 MARKET_SYNC_TOKEN。
+#
 # 只有仓库 write / maintain / admin 权限的作者会触发；权限不足静默跳过。
 # GitHub 不允许回复楼中楼，所以对楼中楼命令的回复会落在同一线程顶层，并引用具体评论。
 # 命令要求单独占一行（行首可有空格）；引用行（>）和围栏代码块里的不算。
@@ -57,4 +63,8 @@ jobs:
           FEEDBACK_ADMIN_TOKEN: ${{ secrets.FEEDBACK_ADMIN_TOKEN }}
           FEEDBACK_CATEGORY: ${{ vars.FEEDBACK_CATEGORY || '用户反馈' }}
           ANNOUNCE_CATEGORY: ${{ vars.ANNOUNCE_CATEGORY || 'announcements' }}
+          # /update-market 写 dzhz-server 的索引：fine-grained PAT，只要 Contents 读写
+          MARKET_SYNC_TOKEN: ${{ secrets.MARKET_SYNC_TOKEN }}
+          MARKET_REPO: ${{ vars.MARKET_REPO || 'xjtu-dzhz/dzhz-server' }}
+          PLUGIN_CATEGORY: ${{ vars.PLUGIN_CATEGORY || 'plugin-release' }}
         run: python3 .github/scripts/discussion_commands.py

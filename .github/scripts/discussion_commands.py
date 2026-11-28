@@ -28,6 +28,14 @@ admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正�
 * 立即统计投票：公告分类的投票帖里发 → 派发 announce.yml 只统计这一帖并更新「📊 投票结果」；
   #213 新功能投票总楼里回复某一楼 → 派发 vote-tally.yml 只统计那一楼。本脚本只派发，不碰票数。
 
+    /update-market [url] [--tags a,b] [--featured|--no-featured] [--dry-run]
+
+* 只收 plugin-release（插件公告）分类的帖子，需要仓库 admin 权限；
+* 下载插件 zip（只认 https、挡内网地址、限 32 MB），验 ECDSA P-256 签名、核对 files[] 清单，
+  再把包内 dzhz.plugin.json 的信息写进 dzhz-server 的在线市场索引（Git Data API 一次提交）；
+* 省略 url 时从命令下方的正文、本帖最新的「## 插件直链」评论、主帖的「插件下载直链」里找；
+* 签名钥匙按 TOFU 钉在 dzhz-server 的 .github/plugin-market-keys.json，钥匙变了直接拒收。
+
 这是给以后更多讨论区命令用的最小框架：命令注册在 HANDLERS，每个 handler 只负责
 解析自己的参数并返回回复正文，GitHub 读写统一走 GitHub 类。
 """
@@ -57,6 +65,10 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     except (AttributeError, ValueError):
         pass
+
+# 同目录的在线市场模块；脚本按路径直接跑时 sys.path 里不一定有脚本目录。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import plugin_market  # noqa: E402
 
 # 评论里的时间统一按北京时间展示；固定偏移，避免 runner 缺 tzdata。
 BEIJING = timezone(timedelta(hours=8))
@@ -278,6 +290,18 @@ query($id: ID!) {
         category { name slug }
         author { login }
         repository { id }
+      }
+    }
+  }
+}
+"""
+
+DISCUSSION_COMMENTS_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    discussion(number: $number) {
+      comments(last: 50) {
+        nodes { url body createdAt }
       }
     }
   }
@@ -1187,10 +1211,219 @@ class TallyHandler(CommandHandler):
         log(f"已派发 {workflow}：{inputs}")
 
 
+PLUGIN_RELEASE_CATEGORY = "plugin-release"
+MARKET_PUBLIC_URL = "https://dzhz.top/plugin-market.json"
+
+UPDATE_MARKET_USAGE = """用法：
+
+`/update-market [url] [--tags a,b] [--featured|--no-featured] [--dry-run]`
+
+- `url`：插件包的 https 直链，省略时自动找：命令下方空一行的内容 → 本帖最新的「## 插件直链」评论 → 主帖的「插件下载直链」
+- `--tags`：覆盖这个插件的标签（逗号隔开），根 `tags` 里没有的会一起加进去；`--tags -` 清空
+- `--featured` / `--no-featured`：改精选状态，不写就保持原样
+- `--dry-run`：只下载校验、回帖预览，不提交索引
+- 只收 `plugin-release`（插件公告）分类的帖子；索引写进 dzhz-server，需要 admin 权限"""
+
+
+@dataclass
+class UpdateMarketArgs:
+    url: Optional[str] = None
+    tags: Optional[list[str]] = None
+    featured: Optional[bool] = None
+    dry_run: bool = False
+
+
+def parse_tags_arg(value: str) -> list[str]:
+    text = value.strip()
+    if text in ("-", "无", "none"):
+        return []
+    tags: list[str] = []
+    for item in re.split(r"[,，、]", text):
+        item = " ".join(item.split())
+        if not item:
+            continue
+        if len(item) > 12:
+            raise CommandFailure(f"标签太长：`{brief(item, 20)}`（最多 12 字）")
+        if item not in tags:
+            tags.append(item)
+    if not tags:
+        raise CommandFailure("`--tags` 至少给一个标签，想清空写 `--tags -`")
+    if len(tags) > 5:
+        raise CommandFailure("一个插件最多 5 个标签")
+    return tags
+
+
+def parse_update_market(args: list[str]) -> UpdateMarketArgs:
+    parsed = UpdateMarketArgs()
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in ("--dry-run", "-n"):
+            parsed.dry_run = True
+        elif arg == "--featured":
+            parsed.featured = True
+        elif arg in ("--no-featured", "--unfeatured"):
+            parsed.featured = False
+        elif arg == "--tags":
+            index += 1
+            if index >= len(args):
+                raise CommandFailure("`--tags` 后面要跟标签，多个用逗号隔开")
+            parsed.tags = parse_tags_arg(args[index])
+        elif arg.startswith("--tags="):
+            parsed.tags = parse_tags_arg(arg[len("--tags="):])
+        elif arg.startswith(("https://", "http://")):
+            if parsed.url:
+                raise CommandFailure("一次只能更新一个插件包")
+            parsed.url = arg
+        else:
+            raise CommandFailure(f"看不懂参数 `{brief(arg, 40)}`")
+        index += 1
+    return parsed
+
+
+def find_plugin_link(ctx: Context) -> Optional[str]:
+    """按 命令正文 → 本帖最新「## 插件直链」评论 → 主帖 的顺序找插件包直链。"""
+    comment = ctx.comment
+    discussion = comment.discussion
+    details = parse_details(comment.body, ctx.command_line_index)
+    if details:
+        links = plugin_market.extract_links(details)
+        if links:
+            return links[0]
+
+    try:
+        data = ctx.client.graphql(
+            DISCUSSION_COMMENTS_QUERY,
+            {"owner": ctx.owner, "name": ctx.repo, "number": discussion.number},
+        )
+    except GitHubError as error:
+        warn(f"读取本帖评论失败，只看主帖：{error}")
+        data = {}
+    nodes = (((data.get("repository") or {}).get("discussion") or {}).get("comments") or {}).get("nodes") or []
+    for node in reversed(nodes):
+        if node.get("url") == comment.url:
+            continue
+        links = plugin_market.section_links(node.get("body") or "")
+        if links:
+            return links[0]
+
+    links = plugin_market.section_links(discussion.body)
+    if links:
+        return links[0]
+    links = plugin_market.extract_links(discussion.body)
+    return links[0] if links else None
+
+
+def format_market_reply(result: plugin_market.UpdateResult) -> str:
+    entry = result.entry
+    if result.unchanged:
+        text = (
+            f"索引里已经是最新的：**{entry['name']}** `{entry['id']}` v{entry['version']}"
+            f"（versionCode {entry['versionCode']}），没有要更新的内容。"
+        )
+        if result.key_recorded:
+            text += f"\n\n顺手把这个包的签名公钥钉住了：`{result.package.key_sha256}`。"
+        if result.commit_url:
+            text += f"\n\n索引提交：{result.commit_url}"
+        return text
+    lines = [
+        ("🔍 预览（未提交）：" if result.dry_run else "✅ 已更新在线市场：")
+        + f"**{entry['name']}** `{entry['id']}` v{entry['version']}（versionCode {entry['versionCode']}）",
+        "",
+        f"- 类型 `{entry['type']}`，包 {plugin_market.human_size(entry['size'])}，SHA-256 `{entry['sha256']}`",
+        f"- 签名校验通过，公钥指纹 `{result.package.key_sha256}`（"
+        + (
+            ("首次收录，提交时钉住" if result.dry_run else "首次收录，已钉住")
+            if result.key_recorded
+            else "和已记录的一致"
+        )
+        + "）",
+        f"- 标签：{'、'.join(entry.get('tags') or []) or '无'}；精选：{'是' if entry.get('featured') else '否'}",
+    ]
+    if result.new_tags:
+        lines.append(f"- 根 `tags` 新增：{'、'.join(result.new_tags)}")
+    if result.previous is None:
+        lines.append("- 首次收录")
+    elif result.changes:
+        shown = result.changes[:8]
+        more = f"（还有 {len(result.changes) - 8} 项）" if len(result.changes) > 8 else ""
+        lines.append("- 变更：" + "；".join(shown) + more)
+    for warning in result.package.warnings:
+        lines.append(f"- ⚠️ {warning}")
+    if result.dry_run:
+        lines.append("- `--dry-run` 只是看了看，去掉参数再发一次就会真的提交。")
+    elif result.commit_url:
+        lines.append(f"- 索引提交：{result.commit_url}")
+    if not result.dry_run:
+        lines.append(f"- 市场：{os.environ.get('MARKET_PUBLIC_URL', MARKET_PUBLIC_URL)}")
+    return "\n".join(lines)
+
+
+class UpdateMarketHandler(CommandHandler):
+    """`/update-market`：把插件发布帖里的包收进在线市场索引（dzhz-server）。"""
+
+    name = "/update-market"
+    usage = UPDATE_MARKET_USAGE
+
+    def handle(self, ctx: Context, args: list[str]) -> str:
+        parsed = parse_update_market(args)
+        discussion = ctx.comment.discussion
+        category = os.environ.get("PLUGIN_CATEGORY", PLUGIN_RELEASE_CATEGORY)
+        if discussion.category_slug != category:
+            raise CommandFailure(f"只能在「插件公告」分类（`{category}`）的插件发布帖里用")
+
+        token = (os.environ.get("MARKET_SYNC_TOKEN") or "").strip()
+        if not token:
+            raise CommandFailure("机器人没有配 `MARKET_SYNC_TOKEN`，写不了索引——请联系仓库管理员", fatal=True)
+        repo = (os.environ.get("MARKET_REPO") or "xjtu-dzhz/dzhz-server").strip()
+        branch = (os.environ.get("MARKET_BRANCH") or "main").strip()
+        index_path = (os.environ.get("MARKET_INDEX_PATH") or "services/web/public/plugin-market.json").strip()
+        keys_path = (os.environ.get("MARKET_KEYS_PATH") or ".github/plugin-market-keys.json").strip()
+
+        link = parsed.url or find_plugin_link(ctx)
+        if not link:
+            raise CommandFailure(
+                "本帖里没找到插件直链：在命令下面空一行写直链，或者先跟帖「## 插件直链」把地址发出来"
+            )
+        if not link.lower().startswith("https://"):
+            raise CommandFailure("插件直链必须是 https 地址")
+
+        try:
+            package = plugin_market.fetch_package(link)
+        except plugin_market.MarketError as error:
+            raise CommandFailure(str(error)) from None
+
+        market = GitHub(token)
+        try:
+            result = plugin_market.update_market(
+                rest=market.rest,
+                repo=repo,
+                branch=branch,
+                index_path=index_path,
+                keys_path=keys_path,
+                package=package,
+                download_url=link,
+                project_url_fallback=discussion.url,
+                tags=parsed.tags,
+                featured=parsed.featured,
+                dry_run=parsed.dry_run,
+            )
+        except plugin_market.MarketError as error:
+            raise CommandFailure(str(error)) from None
+        except GitHubError as error:
+            log(f"::error::/update-market 调用 GitHub API 失败：{error}")
+            raise CommandFailure(public_api_message(error), fatal=True) from None
+
+        state = "预览" if parsed.dry_run else ("已提交" if result.commit_url else "无改动")
+        log(f"/update-market {package.manifest['id']} v{package.manifest['version']}：{state}")
+        return format_market_reply(result)
+
+
 HANDLERS: dict[str, CommandHandler] = {
     ToIssueHandler.name: ToIssueHandler(),
     AttachCommentHandler.name: AttachCommentHandler(),
     TallyHandler.name: TallyHandler(),
+    UpdateMarketHandler.name: UpdateMarketHandler(),
 }
 
 
@@ -1404,6 +1637,89 @@ def self_test() -> None:
     )
     assert parse_feedback_reply_comment("   ", disc_body) is None
 
+    # /update-market：参数
+    parsed_market = parse_update_market([])
+    assert parsed_market.url is None and parsed_market.tags is None
+    assert parsed_market.featured is None and not parsed_market.dry_run
+
+    parsed_market = parse_update_market(
+        ["https://e.com/p.zip", "--tags", "学习资料,工具", "--featured", "--dry-run"]
+    )
+    assert parsed_market.url == "https://e.com/p.zip"
+    assert parsed_market.tags == ["学习资料", "工具"] and parsed_market.featured is True
+    assert parsed_market.dry_run
+
+    parsed_market = parse_update_market(["--tags=-", "--no-featured"])
+    assert parsed_market.tags == [] and parsed_market.featured is False
+
+    for bad_market in (
+            ["--tags"],
+            ["--tags", " , "],
+            ["--tags", "一二三四五六七八九十十一十二十三"],
+            ["--wat"],
+            ["https://a/x.zip", "https://b/y.zip"],
+    ):
+        try:
+            parse_update_market(bad_market)
+        except CommandFailure:
+            pass
+        else:
+            raise AssertionError(f"应当拒绝：{bad_market!r}")
+
+    # /update-market：直链来源
+    class FakeClient:
+        def __init__(self, nodes: list[dict]) -> None:
+            self.nodes = nodes
+
+        def graphql(self, query: str, variables: Optional[dict] = None, retries: int = 3) -> dict:
+            return {"repository": {"discussion": {"comments": {"nodes": self.nodes}}}}
+
+    direct = make_comment("/update-market\n\nhttps://e.com/direct.zip")
+    ctx = Context(FakeClient([]), "o", "r", direct, 0)
+    assert find_plugin_link(ctx) == "https://e.com/direct.zip"
+
+    ctx = Context(
+        FakeClient([
+            {"url": "c1", "body": "## 插件直链\nhttps://e.com/v1.zip"},
+            {"url": "c2", "body": "## 插件直链\nhttps://e.com/v2.zip"},
+            {"url": "curl", "body": "/update-market"},
+        ]),
+        "o", "r", make_comment("/update-market"), 0,
+    )
+    assert find_plugin_link(ctx) == "https://e.com/v2.zip"
+
+    ctx = Context(FakeClient([{"url": "c1", "body": "随便聊聊"}]), "o", "r",
+                  make_comment("/update-market"), 0)
+    assert find_plugin_link(ctx) is None
+
+    # /update-market：回帖
+    market_package = plugin_market.Package(
+        manifest={"id": "x.y", "version": "1.0.0", "versionCode": 1},
+        size=2048,
+        sha256="a" * 64,
+        key_sha256="b" * 64,
+        warnings=["dex 插件没有填 `projectUrl`"],
+    )
+    market_entry = {
+        "id": "x.y", "name": "例子", "type": "web", "version": "1.0.0", "versionCode": 1,
+        "size": 2048, "sha256": "a" * 64, "featured": False, "tags": [],
+    }
+    reply = format_market_reply(plugin_market.UpdateResult(
+        entry=market_entry, package=market_package, previous=None, changes=[], new_tags=["工具"],
+        key_recorded=True, unchanged=False, dry_run=False, commit_url="https://github.com/c/1",
+    ))
+    assert "已更新在线市场" in reply and "首次收录" in reply and "已钉住" in reply
+    assert "根 `tags` 新增：工具" in reply and "索引提交" in reply
+    assert "projectUrl" in reply
+
+    reply = format_market_reply(plugin_market.UpdateResult(
+        entry=market_entry, package=market_package, previous=market_entry, changes=[], new_tags=[],
+        key_recorded=False, unchanged=True, dry_run=False, commit_url=None,
+    ))
+    assert "已经是最新" in reply
+
+    plugin_market.self_test()
+
     print("self-test ok")
 
 
@@ -1566,7 +1882,7 @@ def main() -> None:
         return
 
     name, command_args, line_index = found
-    # /toissue 和 /attachcomment 只需 triage；其他命令（目前包括 /tally）要求 admin。
+    # /toissue 和 /attachcomment 只需 triage；其他命令（/tally、/update-market）要求 admin。
     authorized = (
         can_manage_issues(client, owner, repo, comment)
         if name in ("/toissue", "/attachcomment")
