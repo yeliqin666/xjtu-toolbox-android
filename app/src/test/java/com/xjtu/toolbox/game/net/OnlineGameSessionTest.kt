@@ -183,7 +183,9 @@ class OnlineGameSessionTest {
         // 还能正常走子，说明会话语义没被这条重复包影响。events 没有 replay，先订阅再发。
         val moveArrived = async { withTimeout(5_000) { host.events.first { it is OnlineGameEvent.RemoteMove } } }
         guest.sendLocalMove("7,7")
-        moveArrived.await()
+        // 用 assertTrue 收尾（而不是 await() 的返回值）：用例方法必须返回 Unit，
+        // 否则 JUnit4 会在测例类初始化时抛 InvalidTestClassError。
+        assertTrue(moveArrived.await() is OnlineGameEvent.RemoteMove)
     }
 
     @Test
