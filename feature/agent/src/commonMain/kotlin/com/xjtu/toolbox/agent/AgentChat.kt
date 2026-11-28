@@ -288,10 +288,10 @@ internal fun ChatPanel(
                 ) {
             // 这一端的屁岱缺什么，放在对话最前面
             if (gapNote != null) {
-                item(key = "host-gap") { com.xjtu.toolbox.ui.components.GapNote(gapNote) }
+                item(key = "host-gap", contentType = "host-gap") { com.xjtu.toolbox.ui.components.GapNote(gapNote) }
             }
             if (messages.isEmpty()) {
-                item(key = "welcome") {
+                item(key = "welcome", contentType = "welcome") {
                     AgentWelcome(
                         host = host,
                         hero = hero,
@@ -305,7 +305,16 @@ internal fun ChatPanel(
                     )
                 }
             }
-            items(chatRows, key = { it.key }) { row ->
+            items(
+                chatRows,
+                key = { it.key },
+                contentType = {
+                    when (it) {
+                        is AgentRow.User -> "user"
+                        is AgentRow.Assistant -> "assistant"
+                    }
+                },
+            ) { row ->
                 when (row) {
                     is AgentRow.User -> MessageBubble(
                         msg = row.msg,

@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -71,6 +72,7 @@ import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.PageBottomTabsHost
 import com.xjtu.toolbox.ui.components.SkeletonList
+import com.xjtu.toolbox.ui.components.stableLazyListKeys
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
@@ -209,7 +211,7 @@ private fun ActivityList(vm: SsActivityViewModel, padding: PaddingValues, glassT
                 EmptyState(title = "没有找到活动", subtitle = "换个关键词试试", modifier = Modifier.fillMaxWidth().height(320.dp))
             }
             else -> {
-                items(vm.activities, key = { it.id }) { a ->
+                items(vm.activities, key = { "activity:${it.id}" }) { a ->
                     LaunchedEffect(a.id) { vm.prefetch(a.id) }
                     ActivityCard(a, vm, vm.cardInfo[a.id]) { vm.open(a.id) }
                     if (a.id == vm.activities.last().id) LaunchedEffect(a.id) { vm.loadMore() }
@@ -233,29 +235,34 @@ private fun MineList(vm: SsActivityViewModel, padding: PaddingValues, glassTop: 
         mine.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) {
             EmptyState(title = "还没有报名记录", subtitle = "在「活动」里找感兴趣的报名", modifier = Modifier.fillMaxSize())
         }
-        // 不设 key：同一活动可能有多条报名记录（重新提交、取消后再报），重复 key 会直接崩
-        else -> LazyColumn(
-            Modifier.fillMaxSize().overScrollVertical(),
-            state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
-            contentPadding = padding,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(mine) { m ->
-                Card(
-                    Modifier.fillMaxWidth(),
-                    pressFeedbackType = if (m.activityId.isNotBlank()) top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink else top.yukonga.miuix.kmp.utils.PressFeedbackType.None,
-                    onClick = if (m.activityId.isNotBlank()) ({ vm.open(m.activityId) }) else null,
-                ) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Cover(m.cover, vm, Modifier.padding(end = 12.dp).size(width = 72.dp, height = 54.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(m.title, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                listOf(m.start, m.activityStatus, m.review).filter { it.isNotBlank() }.joinToString(" · "),
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
+        else -> {
+            // 重复报名也逐行展示；审核状态变化时仍保留该行的身份。
+            val keys = remember(mine) {
+                mine.stableLazyListKeys { "apply:${it.activityId}:${it.start}:${it.title}" }
+            }
+            LazyColumn(
+                Modifier.fillMaxSize().overScrollVertical(),
+                state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
+                contentPadding = padding,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(mine, key = { index, _ -> keys[index] }) { _, m ->
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        pressFeedbackType = if (m.activityId.isNotBlank()) top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink else top.yukonga.miuix.kmp.utils.PressFeedbackType.None,
+                        onClick = if (m.activityId.isNotBlank()) ({ vm.open(m.activityId) }) else null,
+                    ) {
+                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Cover(m.cover, vm, Modifier.padding(end = 12.dp).size(width = 72.dp, height = 54.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(m.title, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    listOf(m.start, m.activityStatus, m.review).filter { it.isNotBlank() }.joinToString(" · "),
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                            }
                         }
                     }
                 }
