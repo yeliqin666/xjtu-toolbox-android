@@ -75,6 +75,9 @@ import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.board.Leaderboard
 import com.xjtu.toolbox.game.board.LeaderboardAskDialog
+import com.xjtu.toolbox.game.board.LeaderboardRun
+import com.xjtu.toolbox.game.board.RunAskDialog
+import com.xjtu.toolbox.game.board.rememberRunAsker
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.game.ui.PauseMenu
 import com.xjtu.toolbox.game.ui.RestartConfirmMenu
@@ -235,6 +238,10 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
     var over by remember { mutableStateOf(false) }
     // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
     var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
+    // 三种玩法各一个榜，账也按榜分开记
+    val recordId = blocksRecordId(mode)
+    // 这局还没上报就被撂下时的询问：中途退出 / 重开，以及上次异常退出的复盘
+    val asker = rememberRunAsker(recordId)
     var cellPx by remember { mutableFloatStateOf(1f) }
     var label by remember { mutableStateOf<ClearEvent?>(null) }
     val labelAnim = remember { Animatable(1f) }
@@ -254,6 +261,8 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
     }
 
     fun restart() {
+        // 新的一局：基线抬到当前最高分（这一局本地最高分已经算进去了）
+        LeaderboardRun.restart(recordId, score)
         game = BlocksGame(mode)
         paused = false
         confirmRestart = false
@@ -339,16 +348,26 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
         // 三种玩法各一个榜，报的是当前玩法的那个
         boardAsk = Leaderboard.report(blocksRecordId(mode), game.score)
     }
-    LaunchedEffect(score) { if (score > best) onRecord(score) }
+    LaunchedEffect(score) {
+        if (score > best) onRecord(score)
+        // 破纪录就先落一笔账，进程被杀后下次进这个玩法还能捞回来
+        if (!over) LeaderboardRun.progress(recordId, score)
+    }
 
     fun act(block: BlocksGame.() -> Unit) {
         if (paused || game.over) return
         game.block()
         frame++
     }
-    // 系统返回：对局中先暂停，暂停 / 结算时再按就退出；重开确认框里按返回等于取消
+    // 系统返回：对局中先暂停，暂停 / 结算时再按就退出；重开确认框里按返回等于取消。
+    // 一直暂停着退出也要过一遍「这局要不要上传」，否则这一局的分数就白打了
     BackHandler {
-        if (confirmRestart) confirmRestart = false else if (paused || over) onExit() else paused = true
+        when {
+            confirmRestart -> confirmRestart = false
+            over -> onExit()
+            paused -> asker.leave(score, onExit)
+            else -> paused = true
+        }
     }
 
     val focus = remember { FocusRequester() }
@@ -494,18 +513,21 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                 accent = accent, panel = palette.panel, ink = palette.ink,
             )
             confirmRestart -> RestartConfirmMenu(
-                onConfirm = { restart() }, onCancel = { confirmRestart = false },
+                onConfirm = { asker.leave(score) { restart() } }, onCancel = { confirmRestart = false },
                 accent = accent, panel = palette.panel, ink = palette.ink,
             )
             paused -> PauseMenu(
                 subtitle = "本局 $score 分",
-                onResume = { paused = false }, onRestart = { restart() }, onExit = onExit,
+                onResume = { paused = false },
+                onRestart = { asker.leave(score) { restart() } },
+                onExit = { asker.leave(score, onExit) },
                 accent = accent, panel = palette.panel, ink = palette.ink,
             )
         }
     }
 
     LeaderboardAskDialog(boardAsk) { boardAsk = null }
+    RunAskDialog(asker)
 }
 
 @Composable

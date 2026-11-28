@@ -37,6 +37,9 @@ import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.board.Leaderboard
 import com.xjtu.toolbox.game.board.LeaderboardAskDialog
+import com.xjtu.toolbox.game.board.LeaderboardRun
+import com.xjtu.toolbox.game.board.RunAskDialog
+import com.xjtu.toolbox.game.board.rememberRunAsker
 import com.xjtu.toolbox.game.ui.LeaveButton
 import com.xjtu.toolbox.game.ui.RestartConfirmMenu
 import com.xjtu.toolbox.game.ui.rememberLeaveGuard
@@ -82,6 +85,8 @@ fun MergeGameScreen(onBack: () -> Unit) {
     val finishedScore = remember { mutableStateOf<Int?>(null) }
     // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
     var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
+    // 这局还没上报就被撂下时的询问：中途退出 / 重开，以及上次异常退出的复盘
+    val asker = rememberRunAsker(GameIds.MERGE)
 
     LaunchedEffect(finishedScore.value) {
         finishedScore.value?.let { boardAsk = Leaderboard.report(GameIds.MERGE, it) }
@@ -91,10 +96,16 @@ fun MergeGameScreen(onBack: () -> Unit) {
     val progress = remember { mutableStateOf(0 to false) }
     val inProgress = progress.value.let { (score, over) -> score > 0 && !over }
     var confirmRestart by remember { mutableStateOf(false) }
-    val leave = rememberLeaveGuard(inProgress, onBack)
-    BackHandler(enabled = confirmRestart) { confirmRestart = false }
     fun runJs(code: String) = webViewRef.value?.evaluateJavascript(code, null)
-    val menuShown by rememberUpdatedState(leave.menuOpen || confirmRestart)
+    // 退出 / 重开都先过一遍「这局要不要上传」：没破纪录的话 asker 会直接放行。
+    // 已经结束（lose 过）的一局由结算流程负责，这里不再重复问
+    val leave = rememberLeaveGuard(inProgress) {
+        if (progress.value.second) onBack() else asker.leave(progress.value.first, onBack)
+    }
+    fun restartAfterAsk() = asker.leave(progress.value.first) { runJs("window.restartGame && window.restartGame();") }
+    BackHandler(enabled = confirmRestart) { confirmRestart = false }
+    // 弹着询问也得把物理循环停住，否则球在弹窗底下接着掉
+    val menuShown by rememberUpdatedState(leave.menuOpen || confirmRestart || asker.offer != null)
 
     // 页面不可见、或菜单盖在上面时暂停 JS 侧的物理循环，避免空跑耗电 / 球在菜单下面接着掉。
     LaunchedEffect(menuShown) {
@@ -163,7 +174,17 @@ fun MergeGameScreen(onBack: () -> Unit) {
                     // JS -> Kotlin 分数回传：游戏结束这一刻发生一次，事件驱动，
                     // 比 evaluateJavascript 轮询查状态更直接也更省资源。
                     addJavascriptInterface(
-                        MergeGameBridge(ctx, { finishedScore.value = it }) { score, over -> progress.value = score to over },
+                        MergeGameBridge(ctx, { finishedScore.value = it }) { score, over ->
+                            progress.value = score to over
+                            // 分数回零 = 新的一局（加载后自动开局、或页面里点了重开）：
+                            // 基线抬到当前本地最高分，上一局的账不该算到这一局头上
+                            when {
+                                score <= 0 -> LeaderboardRun.restart(GameIds.MERGE)
+                                !over -> LeaderboardRun.progress(GameIds.MERGE, score)
+                                // 结束这一下交给 report 处理：它会划账，失败时再记一笔待补
+                                else -> Unit
+                            }
+                        },
                         "AndroidGameBridge",
                     )
 
@@ -203,14 +224,16 @@ fun MergeGameScreen(onBack: () -> Unit) {
         )
         when {
             confirmRestart -> RestartConfirmMenu(
-                onConfirm = { confirmRestart = false; runJs("window.restartGame && window.restartGame();") },
+                onConfirm = { confirmRestart = false; restartAfterAsk() },
                 onCancel = { confirmRestart = false },
             )
-            else -> leave.Menu("本局 ${progress.value.first} 分") { runJs("window.restartGame && window.restartGame();") }
+            else -> leave.Menu("本局 ${progress.value.first} 分") { restartAfterAsk() }
         }
     }
 
     LeaderboardAskDialog(boardAsk) { boardAsk = null }
+    // 「本局要不要上传」：中途退出 / 重开，以及上次异常退出的复盘。和结算弹窗互斥（同一时刻只会有一种）
+    RunAskDialog(asker)
 }
 
 /** 一个空的 404 响应，用来挡掉不在白名单里的请求。 */

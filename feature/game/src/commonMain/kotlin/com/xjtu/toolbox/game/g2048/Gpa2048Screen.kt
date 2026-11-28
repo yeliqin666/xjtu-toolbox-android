@@ -58,6 +58,9 @@ import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.board.Leaderboard
 import com.xjtu.toolbox.game.board.LeaderboardAskDialog
+import com.xjtu.toolbox.game.board.LeaderboardRun
+import com.xjtu.toolbox.game.board.RunAskDialog
+import com.xjtu.toolbox.game.board.rememberRunAsker
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.game.ui.LeaveButton
 import com.xjtu.toolbox.game.ui.RestartConfirmMenu
@@ -117,11 +120,15 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     var winDismissed by remember { mutableStateOf(false) }
     // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
     var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
+    // 这局还没上报就被撂下时的询问：中途退出 / 重开，以及上次异常退出的复盘
+    val asker = rememberRunAsker(GameIds.G2048)
 
     LaunchedEffect(Unit) { best = GameStore.bestScore(GameIds.G2048) }
     LaunchedEffect(state.score) {
         GameStore.submitScore(GameIds.G2048, state.score)
         best = maxOf(best, state.score)
+        // 破纪录就先落一笔账，进程被杀后下次进这个游戏还能捞回来
+        if (!state.isOver) LeaderboardRun.progress(GameIds.G2048, state.score)
     }
     // 只在整局结束时报榜：中途的分数不往外发，够不够上榜由服务端那边说了算
     LaunchedEffect(state.isOver) {
@@ -134,6 +141,8 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     }
 
     fun restart() {
+        // 新的一局：基线抬到当前最高分（这一局本地最高分已经算进去了）
+        LeaderboardRun.restart(GameIds.G2048, state.score)
         stamp++
         state = newGame(Random.Default)
         tiles = tilesOf(state.board, TileKind.SPAWN)
@@ -207,7 +216,11 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     // 有分且没结束才算对局中：左上角是暂停，返回键先弹菜单；否则直接退出
     var confirmRestart by remember { mutableStateOf(false) }
     val inProgress = state.score > 0 && !state.isOver
-    val leave = rememberLeaveGuard(inProgress, onBack)
+    // 退出 / 重开都先过一遍「这局要不要上传」：没破纪录就什么都不问。
+    // 已经结束的一局由结算流程负责，这里不再重复问
+    val leave = rememberLeaveGuard(inProgress) {
+        if (state.isOver) onBack() else asker.leave(state.score, onBack)
+    }
     BackHandler(enabled = confirmRestart) { confirmRestart = false }
 
     Scaffold(
@@ -294,10 +307,10 @@ fun Gpa2048Screen(onBack: () -> Unit) {
                 overlay = {
                     when {
                         confirmRestart -> RestartConfirmMenu(
-                            onConfirm = { confirmRestart = false; restart() },
+                            onConfirm = { confirmRestart = false; asker.leave(state.score, ::restart) },
                             onCancel = { confirmRestart = false },
                         )
-                        leave.menuOpen -> leave.Menu("本局 ${state.score} 分", onRestart = ::restart)
+                        leave.menuOpen -> leave.Menu("本局 ${state.score} 分", onRestart = { asker.leave(state.score, ::restart) })
                         state.isOver -> GameMenu(
                             title = Gpa2048Texts.gameOverTitle(boardGpa(state.board)),
                             subtitle = "本局 ${state.score} 分",
@@ -329,6 +342,7 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     }
 
     LeaderboardAskDialog(boardAsk) { boardAsk = null }
+    RunAskDialog(asker)
 }
 
 /** 场上方块绩点的平均值，两位小数；空盘 0。 */
