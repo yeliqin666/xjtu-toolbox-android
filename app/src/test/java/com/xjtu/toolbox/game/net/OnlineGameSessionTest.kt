@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.game.net
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -180,12 +181,19 @@ class OnlineGameSessionTest {
         guestToHost.send(NetCodec.encode(NetCodec.helloAck(true, hostFirst = true)))
         delay(200)
         assertTrue(host.state.value is OnlineConnState.Playing)
-        // 还能正常走子，说明会话语义没被这条重复包影响。events 没有 replay，先订阅再发。
-        val moveArrived = async { withTimeout(5_000) { host.events.first { it is OnlineGameEvent.RemoteMove } } }
+        // 还能正常走子，说明会话语义没被这条重复包影响。
+        // events 没有 replay：必须先把订阅建好再发。用 UNDISPATCHED 让 collect 在挂起前就完成订阅，
+        // 否则 runBlocking 的线程在 sendLocalMove 之前没有真正的挂起点，订阅协程还没跑，
+        // 这一步就被漏掉，只能干等一个超时。
+        val received = java.util.concurrent.CopyOnWriteArrayList<OnlineGameEvent>()
+        val collectJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            host.events.collect { received.add(it) }
+        }
         guest.sendLocalMove("7,7")
-        // 用 assertTrue 收尾（而不是 await() 的返回值）：用例方法必须返回 Unit，
-        // 否则 JUnit4 会在测例类初始化时抛 InvalidTestClassError。
-        assertTrue(moveArrived.await() is OnlineGameEvent.RemoteMove)
+        withTimeout(5_000) {
+            while (received.none { it is OnlineGameEvent.RemoteMove }) yield()
+        }
+        collectJob.cancel()
     }
 
     @Test
