@@ -149,6 +149,82 @@ class ScheduleTermSwitchTest {
         }
     }
 
+    @Test
+    fun automaticTermChangeKeepsLateCourseAndExamRefreshesOffTheNewPage() {
+        val oldTermLookup = CompletableDeferred<String>()
+        val oldCourses = CompletableDeferred<SourceSchedule>()
+        val oldExams = CompletableDeferred<List<ExamItem>>()
+        var refreshing = false
+        val source = object : TermSwitchSource() {
+            override suspend fun currentTerm() = if (refreshing) "new" else oldTermLookup.await()
+            override suspend fun schedule(term: String?): SourceSchedule =
+                if (refreshing && term == "old") oldCourses.await()
+                else SourceSchedule(listOf(CourseItem(courseName = term.orEmpty())))
+
+            override suspend fun examSchedule(term: String?): List<ExamItem> =
+                if (refreshing && term == "old") oldExams.await()
+                else listOf(ExamItem(courseName = term.orEmpty()))
+        }
+
+        withSchedule(source) { vm, cache ->
+            ScheduleCache.writeLastTerm(cache, "old")
+            vm.bind()
+            runCurrent()
+            assertEquals("old", vm.selectedTermCode)
+            refreshing = true
+            vm.refreshSchedule()
+            vm.refreshExams()
+            runCurrent()
+
+            oldTermLookup.complete("new")
+            runCurrent()
+            assertEquals("new", vm.selectedTermCode)
+            val newCourse = CourseItem(courseName = "new")
+            val newExam = ExamItem(courseName = "new")
+            assertEquals(listOf(newCourse), vm.courses)
+            assertEquals(listOf(newExam), vm.exams)
+
+            oldCourses.complete(SourceSchedule(listOf(CourseItem(courseName = "old refresh"))))
+            oldExams.complete(listOf(ExamItem(courseName = "old refresh")))
+            runCurrent()
+            assertEquals(listOf(newCourse) to listOf(newExam), vm.courses to vm.exams)
+        }
+    }
+
+    @Test
+    fun refreshFiltersHolidaysUsingTheTermStartReceivedWhileItWasRunning() {
+        val start = LocalDate(2025, 9, 1)
+        val startResponse = CompletableDeferred<TermStartData>()
+        val refreshResponse = CompletableDeferred<SourceSchedule>()
+        val course = CourseItem(courseName = "数学", dayOfWeek = 1, weekBits = "11")
+        var refreshing = false
+        val source = object : TermSwitchSource() {
+            override suspend fun currentTerm() = "old"
+            override suspend fun termStart(term: String) = startResponse.await()
+            override suspend fun schedule(term: String?) =
+                if (refreshing) refreshResponse.await() else SourceSchedule(listOf(course))
+        }
+
+        withSchedule(source, holidays = mapOf(start to "假期")) { vm, cache ->
+            ScheduleCache.writeLastTerm(cache, "old")
+            vm.bind()
+            runCurrent()
+            assertEquals(listOf(course), vm.courses)
+            assertNull(vm.startOfTerm)
+            refreshing = true
+            vm.refreshSchedule()
+            runCurrent()
+            startResponse.complete(TermStartData("old", start.toString()))
+            runCurrent()
+            assertEquals(start, vm.startOfTerm)
+
+            refreshResponse.complete(SourceSchedule(listOf(course)))
+            runCurrent()
+            assertEquals(listOf(course), ScheduleCache.readRawCourses(cache, "old"))
+            assertEquals(listOf(course.copy(weekBits = "01")), ScheduleCache.readOptimizedCourses(cache, "old"))
+        }
+    }
+
     private abstract class TermSwitchSource : JwxtScheduleSource {
         override fun termNames() = emptyMap<String, String>()
         override fun termWeeksOf(term: String): Int? = null
@@ -162,6 +238,7 @@ class ScheduleTermSwitchTest {
 
     private fun withSchedule(
         source: JwxtScheduleSource? = null,
+        holidays: Map<LocalDate, String> = emptyMap(),
         check: TestScope.(ScheduleViewModel, ScheduleCacheStore) -> Unit,
     ) = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -188,7 +265,7 @@ class ScheduleTermSwitchTest {
                     ServedSchedule(source.schedule(termCode).courses, "jwxt")
             }
             override val holidays = object : HolidaySource {
-                override fun peekCached(cache: ScheduleCacheStore) = emptyMap<LocalDate, String>()
+                override fun peekCached(cache: ScheduleCacheStore) = holidays
                 override suspend fun refresh(cache: ScheduleCacheStore, force: Boolean) = peekCached(cache)
             }
             override fun cache(accountId: String?): ScheduleCacheStore = cache

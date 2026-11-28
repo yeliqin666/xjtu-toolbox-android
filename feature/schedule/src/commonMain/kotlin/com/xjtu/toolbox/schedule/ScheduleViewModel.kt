@@ -660,7 +660,6 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         val gen = loadGen
         val cache = this.cache
         val viewing = selectedTermCode
-        val start = startOfTerm
         viewModelScope.launch {
             try {
                 withContext(host.io) {
@@ -676,7 +675,11 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
                     }
                     try { ScheduleTermStore.merge(cache, source.termNames()) } catch (_: Exception) {}
                     val termCode = viewing.ifEmpty { actualCurrent }
-                    if (viewing.isEmpty() && termCode.isNotEmpty()) selectedTermCode = termCode
+                    if (viewing.isEmpty() && termCode.isNotEmpty()) {
+                        withContext(Dispatchers.Main.immediate) {
+                            if (gen == loadGen && selectedTermCode.isEmpty()) selectTerm(termCode)
+                        }
+                    }
                     val apiCourses = try {
                         fetchSchedule(source, termCode, userInitiated = true).courses
                     } catch (e: Exception) {
@@ -686,9 +689,10 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
                     if (gen != loadGen) return@withContext
                     ScheduleCache.writeRawCourses(cache, termCode, apiCourses)
                     // optimized 键也要跟上：首页 Hero 只认它
+                    val start = ScheduleCache.readStartDate(cache, termCode)
                     ScheduleCache.writeOptimizedCourses(cache, termCode, ScheduleCache.filterByHolidays(apiCourses, start, holidayDates))
                     withContext(Dispatchers.Main.immediate) {
-                        if (gen == loadGen) {
+                        if (gen == loadGen && selectedTermCode == termCode) {
                             courses = apiCourses
                             showingStaleData = false
                             host.onScheduleSynced()
@@ -718,7 +722,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
                 val fresh = withContext(host.io) {
                     source.examSchedule(term).also { ScheduleCache.writeExams(cache, term, it) }
                 }
-                if (gen == loadGen) exams = fresh
+                if (gen == loadGen && selectedTermCode == term) exams = fresh
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
