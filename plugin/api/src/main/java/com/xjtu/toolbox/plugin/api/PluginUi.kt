@@ -35,32 +35,34 @@ enum class UiAlign { Start, Center, End }
 /** 按钮外观。 */
 enum class UiButtonStyle { Filled, Tonal, Plain }
 
-/**
- * 竖向排列。[spacingDp] 是子节点间距，[alignment] 是水平对齐。
- *
- * [fillWidth] 为 true 时这一列撑满可用宽度——`alignment = End/Center` 只有撑满宽度才有意义，
- * 否则列的宽度是「最宽子节点」那么宽，对齐只是对齐到那一小块。默认 false，跟以前一样自适应。
- */
+/** 竖向排列。[spacingDp] 是子节点间距，[alignment] 是水平对齐。 */
 class UiColumnNode @JvmOverloads constructor(
     val children: List<UiNode>,
     val spacingDp: Int = 12,
     val alignment: UiAlign = UiAlign.Start,
-    val fillWidth: Boolean = false,
 ) : UiNode()
 
 /**
  * 横向排列。[horizontal] 决定子节点挨左边、居中还是靠右；
  * [vertical] 决定高矮不一时怎么对齐（Start = 顶部，End = 底部）。
- *
- * [fillWidth] 同 [UiColumnNode]：撑满可用宽度，`horizontal = End/Center` 才排得开。
  */
 class UiRowNode @JvmOverloads constructor(
     val children: List<UiNode>,
     val spacingDp: Int = 8,
     val horizontal: UiAlign = UiAlign.Start,
     val vertical: UiAlign = UiAlign.Center,
-    val fillWidth: Boolean = false,
 ) : UiNode()
+
+/**
+ * 让子节点撑满可用宽度。
+ *
+ * `UiColumnNode` / `UiRowNode` 自己的宽度等于最宽子节点，`alignment = End/Center` 只对齐到
+ * 那一小块；套一层这个再包 Column，`alignment` 才会相对整行 / 整张卡生效。文字也能用它撑开。
+ *
+ * 做成包装节点而不是给 Column 加字段：给已有节点的构造器加参数会改掉 Kotlin 默认参数合成
+ * 构造器的 JVM 签名，已经编译好的旧插件会链接失败。
+ */
+class UiFillWidthNode(val child: UiNode) : UiNode()
 
 /**
  * 一段文字。
