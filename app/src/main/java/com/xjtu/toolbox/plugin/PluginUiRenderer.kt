@@ -240,7 +240,10 @@ internal fun PluginUiTree(
             onClick = if (node.actionId.isEmpty()) null else ({ onAction(node.actionId, null) }),
         ) {
             CompositionLocalProvider(LocalUiTextAlign provides UiAlign.Start) {
-                Column(Modifier.padding(node.paddingDp.dp)) { PluginUiTree(node.child, onAction) }
+                // 撑满卡片宽度：否则内容列只有最宽子节点的宽度，里面的 End 对齐就只是对齐到那一小块
+                Column(Modifier.fillMaxWidth().padding(node.paddingDp.dp)) {
+                    PluginUiTree(node.child, onAction)
+                }
             }
         }
 
