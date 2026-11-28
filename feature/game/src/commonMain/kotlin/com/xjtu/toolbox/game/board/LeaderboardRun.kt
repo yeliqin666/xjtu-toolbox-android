@@ -83,9 +83,12 @@ class RunLedger(
         if (ended[game] == true) return null
         val base = baseOf(game)
         if (score <= 0 || score <= base) return null
-        save(game, score, base, RunEnd.ABANDONED)
-        persisted[game] = maxOf(persisted[game] ?: 0, score)
-        return RunOffer(game, score, RunEnd.ABANDONED)
+        // 结算后撤销回来的这一局，盘上可能躺着它撤销前的更高分：问就按那笔问，
+        // 别拿撤销后的分数把它盖掉（玩家确实打到过那个分）
+        val best = maxOf(score, parse(game)?.score ?: 0)
+        save(game, best, base, RunEnd.ABANDONED)
+        persisted[game] = maxOf(persisted[game] ?: 0, best)
+        return RunOffer(game, best, RunEnd.ABANDONED)
     }
 
     /**

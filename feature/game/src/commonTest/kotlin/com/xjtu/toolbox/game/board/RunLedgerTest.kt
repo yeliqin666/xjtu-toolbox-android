@@ -154,6 +154,9 @@ class RunLedgerTest {
         ledger.reopen("merge", 300)
         ledger.progress("merge", 450)
         assertEquals(500, ledger.pending("merge")?.score)
+        // 退出时问的也得是这局真打到过的 500，不是撤销后的 450
+        assertEquals(RunOffer("merge", 500, RunEnd.ABANDONED), ledger.abandon("merge", 450))
+        assertEquals(500, ledger.pending("merge")?.score)
     }
 
     @Test
