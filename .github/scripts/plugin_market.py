@@ -30,7 +30,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -841,6 +841,12 @@ def update_market(
         previous = next(
             (item for item in index.get("plugins") or [] if item.get("id") == package.manifest["id"]), None
         )
+        # 索引里已经有开源地址时，就别每次更新都重复念「清单没填 projectUrl」
+        if previous is not None and previous.get("projectUrl"):
+            package = replace(
+                package,
+                warnings=[w for w in package.warnings if not w.startswith("dex 插件没有填")],
+            )
 
         # 版本没变但第一次记钥匙时也只提交钉表；dry-run 什么都不写。
         needs_commit = not plan.unchanged or plan.keys_changed
@@ -1113,9 +1119,12 @@ def self_test() -> None:
             writes.append(f"{method} {path}")
         return fake_rest(method, path, body)
 
+    chatty = _sample_package(version="1.0.1", code=13, sha="0" * 64)
+    chatty.warnings.append("dex 插件没有填 `projectUrl`，索引里会退回用本讨论的链接——开源要求请自己把关")
     result = update_market(
         rest=watch_rest, repo="o/r", branch="main", index_path="index.json", keys_path="keys.json",
-        package=_sample_package(version="1.0.1", code=13, sha="0" * 64), download_url="https://e.com/old.zip",
+        package=chatty, download_url="https://e.com/old.zip",
         project_url_fallback="https://e.com/d", tags=None, featured=None, dry_run=False,
     )
     assert result.unchanged and result.commit_url is None and not writes, writes
+    assert result.package.warnings == [], "索引里已有 projectUrl 时不该反复提醒"
