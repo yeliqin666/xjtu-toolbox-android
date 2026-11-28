@@ -76,7 +76,7 @@ class OnlineGameSessionTest {
     }
 
     @Test
-    fun `口令不对，房主拒绝并断开`() = runBlocking {
+    fun `口令不对，加入方在挑战这一步就不认对面是房主`() = runBlocking {
         val (hostT, guestT) = connectedPair()
         val host = OnlineGameSession(
             OnlineRole.HOST, "TOKEN-RIGHT", GameKind.GOMOKU, ruleParam = null,
@@ -89,16 +89,18 @@ class OnlineGameSessionTest {
         host.start()
         guest.start()
 
+        // 两边口令不一样，房主算出的挑战证明加入方验不过——它必须当场断开，而不是硬着头皮往下走。
         withTimeout(5_000) {
-            val hostState = host.state.first { it is OnlineConnState.Disconnected }
-            assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("口令"))
+            val guestState = guest.state.first { it is OnlineConnState.Disconnected }
+            assertTrue((guestState as OnlineConnState.Disconnected).reason.contains("冒充"))
         }
+        delay(200)
+        assertTrue("没验过口令，房主不能进对局", host.state.value is OnlineConnState.Handshaking)
     }
 
     @Test
-    fun `房主在口令验过之前不给对方任何消息`() = runBlocking {
-        // 房主这一侧只坐着一个"抢先连上 GATT 的第三台设备"：它不知道该出示什么口令，
-        // 只是干等着收。只要房主肯主动发一条消息，口令就等于送出去了。
+    fun `房主在对方证明自己之前不发口令也不发对局参数`() = runBlocking {
+        // 房主这一侧只坐着一个"抢先连上 GATT 的第三台设备"：它不知道口令，只能瞎猜。
         val fromGuest = Channel<String>(Channel.UNLIMITED)
         val toGuest = Channel<String>(Channel.UNLIMITED)
         val host = OnlineGameSession(
@@ -106,25 +108,31 @@ class OnlineGameSessionTest {
             hostFirst = false, transport = FakeTransport(outbound = toGuest, inbound = fromGuest), scope = scope,
         )
         host.start()
+        // 没人说话之前，房主一个字节都不主动发
         delay(200)
-        assertTrue("房主在验完口令前不能主动发消息", toGuest.tryReceive().isFailure)
+        assertTrue("房主不能主动发消息", toGuest.tryReceive().isFailure)
 
-        // 没有口令的设备只能瞎猜，猜错就该被拒。
-        fromGuest.send(NetCodec.encode(NetCodec.hello(HandshakeAuth.newNonce(), "00".repeat(32), GameKind.GOMOKU)))
+        // 打个招呼：房主可以回挑战，但挑战里除了证明什么都不能有——
+        // 尤其不能有口令，也不能有棋盘大小这种还没到该给的时候的参数。
+        fromGuest.send(NetCodec.encode(NetCodec.hello(HandshakeAuth.newNonce(), GameKind.GOMOKU)))
+        val challenge = withTimeout(5_000) { toGuest.receive() }
+        assertFalse("挑战里不能有口令", challenge.contains("REAL-TOKEN"))
+        assertFalse("对方还没证明自己，不能把对局参数给它", challenge.contains("size"))
+        assertTrue("只是发了挑战，不能算握手完成", host.state.value is OnlineConnState.Handshaking)
+
+        // 答不上来（证明是编的）就该被拒。
+        fromGuest.send(NetCodec.encode(NetCodec.auth("00".repeat(32))))
         val hostState = withTimeout(5_000) { host.state.first { it is OnlineConnState.Disconnected } }
         assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("口令"))
-        // 回给它的拒绝里也不能夹带口令或对局参数。
+        // 拒绝包里也不能夹带对局参数
         val rejection = toGuest.tryReceive().getOrNull()
-        if (rejection != null) {
-            assertFalse(rejection.contains("REAL-TOKEN"))
-            assertFalse(rejection.contains("size"))
-        }
+        if (rejection != null) assertFalse(rejection.contains("size"))
     }
 
     @Test
     fun `加入方不会把口令交给冒充房主的设备`() = runBlocking {
         // 加入方只按服务 UUID 找房主，而这个 UUID 是公开广播的——对面完全可能是一台伪造的外设。
-        // 所以它发出去的第一包必须是"用口令算的证明"，不能是口令本身。
+        // 所以它发出去的第一包只能是"我要连"，不能带任何用口令算出来的东西。
         val guestToHost = Channel<String>(Channel.UNLIMITED)
         val hostToGuest = Channel<String>(Channel.UNLIMITED)
         val guest = OnlineGameSession(
@@ -135,18 +143,15 @@ class OnlineGameSessionTest {
 
         val hello = withTimeout(5_000) { guestToHost.receive() }
         assertFalse("口令本身不能出现在链路上", hello.contains("REAL-TOKEN"))
-        assertTrue("至少要带上一次性的 nonce 和证明", hello.contains("proof"))
+        assertTrue("至少要带上自己的 nonce", hello.contains("nonce"))
 
-        // 假房主不知道该出示什么：它拿不到真口令，只能编一段证明应答。
+        // 假房主不知道该出示什么：它拿不到真口令，只能编一段挑战。
         // 加入方验不过就必须断开，绝不能把棋盘打开——那样用户会对着一台不存在的对手下完一整盘。
         hostToGuest.send(
             NetCodec.encode(
-                NetCodec.helloAck(
-                    ok = true,
+                NetCodec.challenge(
                     nonce = HandshakeAuth.newNonce(),
-                    proof = HandshakeAuth.hostProof("GUESSED-TOKEN", "whatever", HandshakeAuth.newNonce()),
-                    rule = "{\"size\":19}",
-                    hostFirst = false,
+                    proof = HandshakeAuth.challengeProof("GUESSED-TOKEN", "whatever", "whatever2"),
                 ),
             ),
         )
@@ -154,7 +159,7 @@ class OnlineGameSessionTest {
         val state = withTimeout(5_000) { guest.state.first { it !is OnlineConnState.Handshaking } }
         assertTrue("假房主不能把加入方带进 Playing", state is OnlineConnState.Disconnected)
         assertTrue((state as OnlineConnState.Disconnected).reason.contains("冒充"))
-        // 假房主塞进来的对局参数一条也不能生效
+        // 假房主塞进来的东西一条也不能生效
         assertNull(guest.resolvedRuleParam)
         assertTrue(guest.resolvedHostFirst)
     }
@@ -217,26 +222,17 @@ class OnlineGameSessionTest {
         }
         assertEquals("{\"size\":9}", guest.resolvedRuleParam)
 
-        // 1) 往**房主**重发一条 hello：证明本身完全合法（口令对、nonce 新），只是口令早就被消费过。
-        //    没有"Playing 之后忽略握手包"这道门，房主会把它当成校验失败，把正在下的棋断掉。
-        val lateNonce = HandshakeAuth.newNonce()
-        guestToHost.send(
-            NetCodec.encode(NetCodec.hello(lateNonce, HandshakeAuth.guestProof("TOKEN1", lateNonce), GameKind.GOMOKU)),
-        )
+        // 1) 往**房主**重发一条 hello：对方早就验过了，口令也消费了。
+        //    没有"Playing 之后忽略握手包"这道门，房主会重新发挑战、把状态搅乱。
+        guestToHost.send(NetCodec.encode(NetCodec.hello(HandshakeAuth.newNonce(), GameKind.GOMOKU)))
         delay(200)
-        assertTrue("迟到的 hello 不能把正在下的对局打断", host.state.value is OnlineConnState.Playing)
+        assertTrue("迟到的 hello 不能把正在下的对局搅乱", host.state.value is OnlineConnState.Playing)
 
         // 2) 往**加入方**重发一条参数不同的 hello_ack。证明是编的也无所谓——门禁在验证明之前就该拦住它，
         //    否则房主下发的规则参数和先后手会被改写，两边按不同的盘开局。
         hostToGuest.send(
             NetCodec.encode(
-                NetCodec.helloAck(
-                    ok = true,
-                    nonce = HandshakeAuth.newNonce(),
-                    proof = "00".repeat(32),
-                    rule = "{\"size\":19}",
-                    hostFirst = false,
-                ),
+                NetCodec.helloAck(ok = true, proof = "00".repeat(32), rule = "{\"size\":19}", hostFirst = false),
             ),
         )
         delay(200)

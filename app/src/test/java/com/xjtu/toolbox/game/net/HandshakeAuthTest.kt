@@ -13,7 +13,8 @@ private fun ByteArray.hex(): String = joinToString("") { b ->
 
 /**
  * SHA-256 / HMAC 是手写的（commonMain 没有平台摘要可用），所以必须拿标准向量钉住——
- * 这类代码写错了不会崩，只会算出一个"看起来像哈希"的错值，握手照样跑不通但没人知道为什么。
+ * 这类代码写错了不会崩，只会算出一个"看起来像哈希"的错值，而两端用的是同一份实现，
+ * 握手照样能跑通，谁也不会发现。
  */
 class HandshakeAuthTest {
 
@@ -61,22 +62,52 @@ class HandshakeAuthTest {
     }
 
     @Test
-    fun `证明绑定 nonce，换个 nonce 就不是同一个证明`() {
+    fun `每段证明都绑死对方的 nonce，换个 nonce 就不是同一个证明`() {
         val token = "ABCDEFGHJKLM"
-        val n1 = HandshakeAuth.newNonce()
-        val n2 = HandshakeAuth.newNonce()
-        assertNotEquals(n1, n2)
-        assertNotEquals(HandshakeAuth.guestProof(token, n1), HandshakeAuth.guestProof(token, n2))
-        // 同一对 nonce 换个顺序也得不同：否则两端的证明能互换，方向就白分了
-        assertNotEquals(HandshakeAuth.hostProof(token, n1, n2), HandshakeAuth.hostProof(token, n2, n1))
+        val g1 = HandshakeAuth.newNonce()
+        val g2 = HandshakeAuth.newNonce()
+        val h1 = HandshakeAuth.newNonce()
+        val h2 = HandshakeAuth.newNonce()
+        assertNotEquals(g1, g2)
+        assertNotEquals(HandshakeAuth.challengeProof(token, g1, h1), HandshakeAuth.challengeProof(token, g2, h1))
+        assertNotEquals(HandshakeAuth.challengeProof(token, g1, h1), HandshakeAuth.challengeProof(token, g1, h2))
+        // 加入方的应答必须绑房主的 nonce：这是"抓包重放"那条洞的堵点
+        assertNotEquals(
+            HandshakeAuth.authProof(token, g1, h1, "gomoku"),
+            HandshakeAuth.authProof(token, g1, h2, "gomoku"),
+        )
+        // 同理，同一个 nonce 换个顺序也不能算出同一个值
+        assertNotEquals(
+            HandshakeAuth.challengeProof(token, g1, h1),
+            HandshakeAuth.challengeProof(token, h1, g1),
+        )
+    }
+
+    @Test
+    fun `对局参数进了房主的证明，改一个字段就对不上`() {
+        val token = "ABCDEFGHJKLM"
+        val g = HandshakeAuth.newNonce()
+        val h = HandshakeAuth.newNonce()
+        val base = HandshakeAuth.ackProof(token, g, h, "{\"size\":19}", true)
+        assertTrue(HandshakeAuth.sameProof(base, HandshakeAuth.ackProof(token, g, h, "{\"size\":19}", true)))
+        // 中继能原样转发证明，但改参数就再也算不出同一个值——加入方会当场断开
+        assertNotEquals(base, HandshakeAuth.ackProof(token, g, h, "{\"size\":9}", true))
+        assertNotEquals(base, HandshakeAuth.ackProof(token, g, h, "{\"size\":19}", false))
+        assertNotEquals(base, HandshakeAuth.ackProof(token, g, h, null, true))
+        // null 和空串是不同的参数，编码上不能撞在一起
+        assertNotEquals(
+            HandshakeAuth.ackProof(token, g, h, null, true),
+            HandshakeAuth.ackProof(token, g, h, "", true),
+        )
     }
 
     @Test
     fun `口令不对算出来的证明一定不对`() {
-        val nonce = HandshakeAuth.newNonce()
-        val right = HandshakeAuth.guestProof("RIGHT-TOKEN", nonce)
+        val g = HandshakeAuth.newNonce()
+        val h = HandshakeAuth.newNonce()
+        val right = HandshakeAuth.authProof("RIGHT-TOKEN", g, h, "gomoku")
         assertTrue(HandshakeAuth.sameProof(right, right))
-        assertFalse(HandshakeAuth.sameProof(right, HandshakeAuth.guestProof("WRONG-TOKEN", nonce)))
+        assertFalse(HandshakeAuth.sameProof(right, HandshakeAuth.authProof("WRONG-TOKEN", g, h, "gomoku")))
         assertFalse(HandshakeAuth.sameProof(right, null))
         assertFalse(HandshakeAuth.sameProof(right, right.dropLast(1))) // 长度不同直接否掉
         // 同长度、只差最后一位：换成的那个字符必须和原来不同，否则有 1/16 的概率"改成自己"

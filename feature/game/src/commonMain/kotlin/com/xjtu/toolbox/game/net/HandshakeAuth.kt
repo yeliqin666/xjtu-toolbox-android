@@ -11,15 +11,23 @@ import com.xjtu.toolbox.platform.secureRandomInt
  *    对方拿着它去连真房主、冒充对手，一次性消费也拦不住这一次（第一次永远是有效的）。
  * 2. BLE 没有配对就没有链路加密，明文口令本来就是广播着走的。
  *
- * 所以两个方向都改成"出示证明"：
- * - 加入方：`proof = HMAC(口令, "hello|nonceG")`，绑定自己刚生成的一次性随机数 → 伪造的房主
- *   拿到也重放不了（真房主那次用的是别的 nonce）；
- * - 房主：验过之后回 `proof = HMAC(口令, "ack|nonceG|nonceH")`，加入方据此确认"对面确实知道口令"
- *   ——不验就开棋盘的话，假外设能让加入方对着一台根本不存在的房主下棋。
+ * 四步走，两边的证明都必须是"对着**对方刚给的随机数**算的"，否则抓包重放就能冒名顶替：
  *
- * 剩下的边界：口令熵只有 [OneTimeToken.generate] 那么长，抓到握手的人可以离线爆破。
- * 12 位 × 32 字符表 ≈ 60 bit，配合"一局一码、握手期只有几秒"，是够的；再往上要短认证码
- * 或者配对上 LE Secure Connections，属于另一条线。
+ * | 步 | 方向 | 内容 | 这一步证明什么 |
+ * |----|------|------|----------------|
+ * | 1 | 加入方 → 房主 | `hello(nonceG, game)` | 只是打招呼，不含任何凭据 |
+ * | 2 | 房主 → 加入方 | `challenge(nonceH, HMAC(口令,"chal"…))` | 房主知道口令（加入方据此排掉假外设） |
+ * | 3 | 加入方 → 房主 | `auth(HMAC(口令,"auth"…))` | 加入方知道口令，且用的是**房主刚给的 nonceH** |
+ * | 4 | 房主 → 加入方 | `hello_ack(HMAC(口令,"ack"…), rule, hostFirst)` | 对局参数确实出自房主，没被中间人改过 |
+ *
+ * 第 3 步之所以必须绑 nonceH：如果加入方只用自己的 nonce 自证，任何人抓到一份完整 `hello`
+ * 都能原样重放给真房主，在口令被消费之前抢到那个位置。第 4 步之所以把 `rule`/`hostFirst`
+ * 写进证明：中继可以原样转发证明但改参数，加入方会照着被改过的盘面开局。
+ *
+ * 剩下的边界：
+ * - 口令熵只有 [OneTimeToken.generate] 那么长，抓到握手的人可以离线爆破（60 bit 是目前的答案）；
+ * - 只能防"冒名"和"改参数"，防不了全程中继（中继可以把对局中的每一手都改掉）——要彻底解决
+ *   得绑链路（BLE 配对 / LE Secure Connections）或者逐条消息加 MAC，是另一条线。
  */
 object HandshakeAuth {
     private const val NONCE_BYTES = 16
@@ -34,12 +42,37 @@ object HandshakeAuth {
         }
     }
 
-    /** 加入方出示的证明：证明"我知道二维码里的口令"，且只对本次 [guestNonce] 有效。 */
-    fun guestProof(token: String, guestNonce: String): String = hmacHex(token, "hello|$guestNonce")
+    /** 第 2 步：房主证明自己知道口令。绑定加入方的 nonce，别人抄走也重放不到另一次握手。 */
+    fun challengeProof(token: String, guestNonce: String, hostNonce: String): String =
+        hmacHex(token, "chal" + field(guestNonce) + field(hostNonce))
 
-    /** 房主回应的证明：同时绑定双方的 nonce，拿到旧的一对也重放不到下一次握手。 */
-    fun hostProof(token: String, guestNonce: String, hostNonce: String): String =
-        hmacHex(token, "ack|$guestNonce|$hostNonce")
+    /**
+     * 第 3 步：加入方证明自己知道口令。必须绑 [hostNonce]——它是房主刚给的、抓包的人猜不到的，
+     * 所以一份抓到的 `auth` 重放不出第二次。
+     */
+    fun authProof(token: String, guestNonce: String, hostNonce: String, game: String): String =
+        hmacHex(token, "auth" + field(guestNonce) + field(hostNonce) + field(game))
+
+    /**
+     * 第 4 步：房主确认对局参数。`rule`/`hostFirst` 直接进 MAC，中继能转发证明但改不了参数——
+     * 改了加入方就算不出同样的值，会当场断开而不是按被改过的盘面开局。
+     */
+    fun ackProof(
+        token: String,
+        guestNonce: String,
+        hostNonce: String,
+        rule: String?,
+        hostFirst: Boolean,
+    ): String = hmacHex(
+        token,
+        "ack" + field(guestNonce) + field(hostNonce) + field(rule) + field(if (hostFirst) "1" else "0"),
+    )
+
+    /**
+     * 带长度前缀的字段编码：`|长度:内容`。不加前缀的话 `rule` 里只要出现分隔符，
+     * 两组不同的参数就能编出同一串待签名数据（`{"a":"1|2"}` 与 `{"a":"1","b":"2"}` 这种）。
+     */
+    private fun field(value: String?): String = if (value == null) "|-1:" else "|${value.length}:$value"
 
     /**
      * 定长比较两段证明。用逐字节异或而不是 `==`，是为了不让"前几位对上"这件事从耗时里漏出去

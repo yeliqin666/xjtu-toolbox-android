@@ -12,7 +12,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 
-/** 我方在这局里的角色：房主先发 hello_ack，加入方先发 hello。 */
+/** 我方在这局里的角色。握手四步（hello → challenge → auth → hello_ack）由双方各走两步，见 [HandshakeAuth]。 */
 enum class OnlineRole { HOST, GUEST }
 
 /** 连接生命周期状态，UI 照这个换文案，不允许出现"一直转圈却不说明白"的状态。 */
@@ -61,8 +61,14 @@ class OnlineGameSession(
     private val heartbeat = HeartbeatTracker()
     private val hostToken = if (role == OnlineRole.HOST) OneTimeToken() else null
 
-    /** 加入方每次握手新生成的一次性随机数：证明绑在它上面，别人抄走也重放不了。 */
+    /** 加入方自己的一次性随机数（第 1 步带出去，后面两条证明都绑它）。 */
     private val guestNonce: String? = if (role == OnlineRole.GUEST) HandshakeAuth.newNonce() else null
+
+    /** 房主这一次握手用的随机数，和加入方的 nonce 一起进双方的证明。 */
+    private var hostNonce: String? = if (role == OnlineRole.HOST) HandshakeAuth.newNonce() else null
+
+    /** 加入方从 challenge 里收到并核对过的房主 nonce；房主侧则记住对方 hello 里的那个。 */
+    private var peerGuestNonce: String? = null
 
     private val _state = MutableStateFlow<OnlineConnState>(OnlineConnState.Handshaking)
     val state: StateFlow<OnlineConnState> = _state
@@ -91,15 +97,12 @@ class OnlineGameSession(
         running = true
         job = scope.launch {
             heartbeat.start(now())
-            // 加入方先出声：出示的是"用口令算出来的证明"，不是口令本身（见 [HandshakeAuth]）。
-            // 房主验完才回 hello_ack（棋种、规则参数、谁先手都在 ack 里）。
-            // 反过来（房主先发、把口令或证明送过去）是不行的：等 readyDeferred 的房主并不知道
-            // 连上来的是哪台设备，谁先连上就把东西给谁，第三台设备原样回传一遍就能顶替对手。
+            // 加入方先出声，但只说"我要连"（带自己的 nonce），一个字的口令凭据都不带：
+            // 对面是不是真房主还不知道，凭什么先交东西。房主回 challenge 证明自己之后，
+            // 加入方才对着房主给的 nonce 作答（见 [HandshakeAuth] 的四步表）。
             if (role == OnlineRole.GUEST) {
                 val nonce = guestNonce ?: error("加入方没有生成 nonce")
-                transport.send(
-                    NetCodec.encode(NetCodec.hello(nonce, HandshakeAuth.guestProof(token, nonce), gameKind)),
-                )
+                transport.send(NetCodec.encode(NetCodec.hello(nonce, gameKind)))
             }
             launch { heartbeatLoop() }
             readLoop()
@@ -143,11 +146,21 @@ class OnlineGameSession(
      */
     private val allowedBeforePlaying = setOf(
         NetMsgType.HELLO,
+        NetMsgType.CHALLENGE,
+        NetMsgType.AUTH,
         NetMsgType.HELLO_ACK,
         NetMsgType.RESUME,
         NetMsgType.PING,
         NetMsgType.PONG,
         NetMsgType.ERROR,
+    )
+
+    /** 握手报文：对局开始之后再收到就只能忽略（见 [handle] 里的门禁）。 */
+    private val handshakeTypes = setOf(
+        NetMsgType.HELLO,
+        NetMsgType.CHALLENGE,
+        NetMsgType.AUTH,
+        NetMsgType.HELLO_ACK,
     )
 
     private suspend fun handle(env: NetEnvelope) {
@@ -159,13 +172,15 @@ class OnlineGameSession(
             failAndClose("对方在握手完成前就发来了对局消息，已断开")
             return
         }
-        if (playing && (env.type == NetMsgType.HELLO || env.type == NetMsgType.HELLO_ACK)) {
+        if (playing && env.type in handshakeTypes) {
             // 握手只做一次。重复/迟到的握手包放着不管会重跑 onHandshakeDone（重复发 resume），
-            // 更糟的是房主侧口令已被消费，再来一条 hello_ack 会把正在下的棋当成校验失败断掉。
+            // 更糟的是房主侧口令已被消费，再来一条就按校验失败把正在下的棋断掉。
             return
         }
         when (env.type) {
             NetMsgType.HELLO -> handleHello(env)
+            NetMsgType.CHALLENGE -> handleChallenge(env)
+            NetMsgType.AUTH -> handleAuth(env)
             NetMsgType.HELLO_ACK -> handleHelloAck(env)
             NetMsgType.RESUME -> handleResume(env)
             NetMsgType.MOVE -> handleMove(env)
@@ -187,36 +202,90 @@ class OnlineGameSession(
      * 顺序是"先证明、后记账"：证明不对的请求一律不消费口令（[OneTimeToken.consume]），
      * 否则随便谁连上来乱发一包就能把这张码烧掉，真对手反而进不来——那是个比顶替更容易的拒绝服务。
      */
+    /**
+     * 第 1→2 步（房主侧）：收到 hello 就发出新鲜挑战，用证明告诉对方"我确实知道口令"。
+     *
+     * 这里**不消费口令、也不下发任何对局参数**：对方还没证明自己是谁，参数（棋盘大小、先后手）
+     * 留到第 4 步再给。挑战里除了一段 MAC 没有任何凭据，伪造房主的外设想冒充就得能算出它。
+     */
     private suspend fun handleHello(env: NetEnvelope) {
         if (role != OnlineRole.HOST) return
-        val sentNonce = env.nonce
-        if (sentNonce == null) {
-            rejectHandshake("口令不对", "口令校验失败，可能是别的设备误连")
-            return
-        }
-        // 证明对不上就是"不知道口令"：既不回任何对局参数，也不消费口令
-        // （否则随便谁乱发一包就能把这张码烧掉，比顶替还省事）。
-        if (!HandshakeAuth.sameProof(HandshakeAuth.guestProof(token, sentNonce), env.proof)) {
-            rejectHandshake("口令不对", "口令校验失败，可能是别的设备误连")
-            return
-        }
         if (env.game != gameKind.wireId) {
             rejectHandshake("棋种不一致", "对方棋种不一致")
+            return
+        }
+        val guestNonce = env.nonce
+        val myNonce = hostNonce
+        if (guestNonce == null || myNonce == null) {
+            rejectHandshake("协议错误", "对方发来的握手包缺少随机数")
+            return
+        }
+        peerGuestNonce = guestNonce
+        transport.send(
+            NetCodec.encode(
+                NetCodec.challenge(
+                    nonce = myNonce,
+                    proof = HandshakeAuth.challengeProof(token, guestNonce, myNonce),
+                ),
+            ),
+        )
+    }
+
+    /**
+     * 第 2→3 步（加入方侧）：验房主的证明，验过才把口令用于应答。
+     *
+     * 房主的证明对不上就断开——对面连口令都不知道，接下去无论怎么走都是在跟一台假外设下棋。
+     */
+    private suspend fun handleChallenge(env: NetEnvelope) {
+        if (role != OnlineRole.GUEST) return
+        val myNonce = guestNonce
+        val theirNonce = env.nonce
+        if (myNonce == null || theirNonce == null ||
+            !HandshakeAuth.sameProof(HandshakeAuth.challengeProof(token, myNonce, theirNonce), env.proof)
+        ) {
+            failAndClose("对方没能证明自己是房主，已断开（可能有设备在冒充）")
+            return
+        }
+        hostNonce = theirNonce
+        transport.send(
+            NetCodec.encode(NetCodec.auth(HandshakeAuth.authProof(token, myNonce, theirNonce, gameKind.wireId))),
+        )
+    }
+
+    /**
+     * 第 3→4 步（房主侧）：验加入方对着**自己刚给的 nonce** 算出的证明，通过后才消费口令、
+     * 下发对局参数、进入对局。
+     *
+     * 这一步是"顶替"的最后一道门：光抓到一份 hello 重放给房主是没用的，攻击者算不出这条 auth。
+     * 顺序上仍然是"先验证明、后消费口令"——证明不对就消费，等于谁都能把这张码烧掉。
+     */
+    private suspend fun handleAuth(env: NetEnvelope) {
+        if (role != OnlineRole.HOST) return
+        val guestNonce = peerGuestNonce
+        val myNonce = hostNonce
+        if (guestNonce == null || myNonce == null) {
+            // 没走 hello 就直接 auth：不是协议版本不对，就是有人跳步骤乱发。
+            rejectHandshake("协议错误", "对方在握手流程外发来了应答")
+            return
+        }
+        if (!HandshakeAuth.sameProof(
+                HandshakeAuth.authProof(token, guestNonce, myNonce, gameKind.wireId),
+                env.proof,
+            )
+        ) {
+            rejectHandshake("口令不对", "口令校验失败，可能是别的设备误连")
             return
         }
         if (hostToken?.consume() != true) {
             rejectHandshake("这张二维码已经被用过了", "这张二维码已经被别的设备用来连过了")
             return
         }
-        // 验过才把对局参数交出去，同时回一段绑定双方 nonce 的证明：加入方据此确认对面真是房主，
-        // 而不是一台照着广播的 UUID 伪造出来的外设。这之前房主一个字节都没发过。
-        val hostNonce = HandshakeAuth.newNonce()
+        // 参数进 MAC：中继能原样转发这段证明，但改一个字段就会让加入方算不出同样的值。
         transport.send(
             NetCodec.encode(
                 NetCodec.helloAck(
                     ok = true,
-                    nonce = hostNonce,
-                    proof = HandshakeAuth.hostProof(token, sentNonce, hostNonce),
+                    proof = HandshakeAuth.ackProof(token, guestNonce, myNonce, resolvedRuleParam, resolvedHostFirst),
                     rule = resolvedRuleParam,
                     hostFirst = resolvedHostFirst,
                 ),
@@ -231,20 +300,28 @@ class OnlineGameSession(
         failAndClose(display)
     }
 
+    /** 第 4 步（加入方侧）：验过参数上的证明才采用，验不过就断开，绝不按可疑参数开局。 */
     private suspend fun handleHelloAck(env: NetEnvelope) {
         if (role != OnlineRole.GUEST) return
         if (env.ok != true) {
             failAndClose(env.reason ?: "对方拒绝了连接")
             return
         }
-        // 先验房主的证明再开棋盘：证明对不上说明对面不知道口令，大概率是冒充房主的外设。
-        // 不验就进 Playing，用户会对着一台根本不存在的对手下完一整盘。
-        val mine = guestNonce
-        val hostNonce = env.nonce
-        if (mine == null || hostNonce == null ||
-            !HandshakeAuth.sameProof(HandshakeAuth.hostProof(token, mine, hostNonce), env.proof)
-        ) {
-            failAndClose("对方没能证明自己是房主，已断开（可能有设备在冒充）")
+        val guestSideNonce = guestNonce
+        val theirNonce = hostNonce
+        if (guestSideNonce == null || theirNonce == null) {
+            failAndClose("对方在握手流程外发来了确认，已断开")
+            return
+        }
+        val expected = HandshakeAuth.ackProof(
+            token,
+            guestSideNonce,
+            theirNonce,
+            env.rule,
+            env.hostFirst ?: resolvedHostFirst,
+        )
+        if (!HandshakeAuth.sameProof(expected, env.proof)) {
+            failAndClose("对局参数没能通过校验，已断开（可能有设备在中间改参数）")
             return
         }
         // 规则参数和先后手由房主在 ack 里给，握手完成前读 resolved* 拿到的只是占位值。
