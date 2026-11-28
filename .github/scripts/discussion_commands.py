@@ -1322,7 +1322,10 @@ def format_market_reply(result: plugin_market.UpdateResult) -> str:
             f"（versionCode {entry['versionCode']}），没有要更新的内容。"
         )
         if result.key_recorded:
-            text += f"\n\n顺手把这个包的签名公钥钉住了：`{result.package.key_sha256}`。"
+            if result.commit_url:
+                text += f"\n\n顺手把这个包的签名公钥钉住了：`{result.package.key_sha256}`。"
+            elif result.dry_run:
+                text += f"\n\n真提交的话会把这个包的签名公钥钉住：`{result.package.key_sha256}`。"
         if result.commit_url:
             text += f"\n\n索引提交：{result.commit_url}"
         return text
