@@ -1,0 +1,56 @@
+
+title: "[插件请求] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎提出插件需求！
+
+        本版块用于请求岱宗盒子中由开发者自建的插件。
+
+        **请注意：**
+        - 请优先考虑非通用但常用的功能。
+        - 通用功能应优先考虑加入盒子本体，而非通过插件实现。
+        - 插件开发需要一定时间，请尽量详细地描述需求。
+
+        **例如：**
+        - 图书馆座位预约：属于通用功能，应考虑加入本体。
+        - 荧光夜跑打卡：面向部分学生，适合申请插件。
+        - 科学计算器：实用工具类功能，适合申请插件。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 插件功能概述
+      description: 请详细描述你希望实现的功能、使用场景，以及希望解决的问题。
+      placeholder: |
+        我希望能够通过岱宗盒子查询图书馆的馆藏书目。
+        具体希望支持……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: plugin_type
+    attributes:
+      label: 推荐的插件形式
+      description: 如果不清楚技术实现方式，可以选择不确定。
+      options:
+        - dex
+        - web
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: organizations
+    attributes:
+      label: 可能需要联系合作的组织/机构及联系方式
+      description: |
+        如果功能涉及校内组织、机构或第三方服务，请提供相关信息。
+        如果暂时不清楚，可以填写“无”或“暂不清楚”。
+      placeholder: |
+        组织/机构：
+        联系方式：
+        可能需要的授权：
+    validations:
+      required: false

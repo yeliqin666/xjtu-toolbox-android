@@ -1,0 +1,120 @@
+
+title: "[插件发布] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎发布岱宗盒子的自建插件！
+
+        本版块适用于发布**计划开发**和**已发布稳定版本**的插件。
+
+        **请注意以下事项：**
+
+        1. 插件标题应与 ZIP 包内的插件声明保持一致。
+        2. 计划开发的插件应在帖子发布后的 **14 天内**完成开发，并在原帖下跟帖补充更新日志及插件直链，否则帖子可能因 `outdated` 被关闭。
+        3. 插件版本更新请通过原帖跟帖发布，不要重复创建发布帖。
+        4. 不接受未开源的 `dex` 插件，因为二进制文件难以审计。
+        5. 如果插件使用了用户个人信息，必须明确说明获取的信息及其用途。
+
+  - type: dropdown
+    id: release_status
+    attributes:
+      label: 发布状态
+      description: 请选择当前插件所处的阶段。
+      options:
+        - 计划开发
+        - 已发布稳定版本
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 插件功能概述
+      description: 请详细描述插件的功能、使用场景和主要特性。
+      placeholder: |
+        本插件用于……
+        主要功能包括……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: plugin_type
+    attributes:
+      label: 插件形式
+      description: 请选择插件的实现形式。
+      options:
+        - dex
+        - web
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 当前插件版本
+      description: 请填写当前版本号。计划开发的插件可以填写预计的首发版本。
+      placeholder: "例如：1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: personal_information
+    attributes:
+      label: 使用的个人信息
+      description: |
+        请说明插件获取或处理的用户个人信息及其用途。
+
+        如果没有使用任何个人信息，请填写“无”。
+        如果使用了小岱提供的信息获取工具，也需要在此说明。
+      placeholder: |
+        获取的信息：
+        使用目的：
+        保存方式及期限：
+      value: "无"
+    validations:
+      required: true
+
+  - type: input
+    id: project_url
+    attributes:
+      label: 项目地址
+      description: |
+        请提供任意开源平台上的代码仓库地址。
+
+        注意：不接受未开源的 dex 插件。
+      placeholder: "https://github.com/username/repository"
+    validations:
+      required: true
+
+  - type: input
+    id: plugin_url
+    attributes:
+      label: 插件下载直链
+      description: |
+        请填写插件 ZIP 包的直接下载地址。
+
+        已发布稳定版本的插件必须提供此地址；
+        计划开发阶段可以暂时留空。
+        尽量不要以 GitHub Discussion 附件形式上传，以免附件被清理。
+      placeholder: "https://example.com/plugin.zip"
+    validations:
+      required: false
+
+  - type: textarea
+    id: authorization
+    attributes:
+      label: 授权声明
+      description: |
+        如果插件涉及校内组织、机构或第三方服务，请说明是否已获得必要授权。
+
+        可以附上授权证明截图或相关人员的联系方式。
+        如果不涉及额外授权，请说明原因。
+
+        注意：分享截图时请隐藏无关个人信息。
+      placeholder: |
+        涉及的组织/机构：
+        授权情况：
+        授权证明或联系方式：
+    validations:
+      required: true
