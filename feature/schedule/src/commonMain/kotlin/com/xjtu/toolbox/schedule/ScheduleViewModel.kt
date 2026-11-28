@@ -871,8 +871,17 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         }
         if (ScheduleCache.isSealed(cache, term)) return
         try {
-            val freshCourses = fetchSchedule(source, term, userInitiated = true).courses
-            val freshExams = source.examSchedule(term)
+            var freshCourses: List<CourseItem>? = null
+            var freshExams: List<ExamItem>? = null
+            try {
+                freshCourses = fetchSchedule(source, term, userInitiated = true).courses
+                freshExams = source.examSchedule(term)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is SessionExpiredFailure || (freshCourses == null && !hasCachedCourses)) throw e
+                Log.w(TAG, "Partial schedule for $term, keeping cached entries", e)
+            }
             val start = try {
                 source.termStartDate(term)
             } catch (e: CancellationException) {
@@ -880,7 +889,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
             } catch (_: Exception) {
                 null
             }
-            val holidays = try {
+            val holidays = if (freshCourses == null) holidayDates else try {
                 host.holidays.refresh(cache, force = true)
             } catch (e: CancellationException) {
                 throw e
@@ -888,17 +897,25 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
                 emptyMap()
             }
             val effectiveStart = start ?: ScheduleCache.readStartDate(cache, term)
-            val optimized = ScheduleCache.filterByHolidays(freshCourses, effectiveStart, holidays)
-            ScheduleCache.writeExams(cache, term, freshExams)
-            if (term != currentTermCode) {
-                ScheduleCache.writeRawCourses(cache, term, freshCourses)
-                ScheduleCache.writeOptimizedCourses(cache, term, optimized)
+            val optimized = freshCourses?.let { raw ->
+                val filtered = ScheduleCache.filterByHolidays(raw, effectiveStart, holidays)
+                if (term != currentTermCode) {
+                    ScheduleCache.writeRawCourses(cache, term, raw)
+                    ScheduleCache.writeOptimizedCourses(cache, term, filtered)
+                }
+                filtered
             }
+            if (freshExams != null) ScheduleCache.writeExams(cache, term, freshExams)
             val freshWeeks = start?.let { source.termWeeksOf(term) }
             if (start != null) ScheduleCache.writeStartDate(cache, term, start, freshWeeks)
             withContext(Dispatchers.Main.immediate) {
-                courses = optimized
-                exams = freshExams
+                if (optimized != null) {
+                    courses = optimized
+                } else {
+                    showingStaleData = true
+                    send(ScheduleEvent.Message("网络异常，显示缓存数据"))
+                }
+                if (freshExams != null) exams = freshExams
                 holidayDates = holidays
                 if (freshWeeks != null) termWeeks = freshWeeks
                 effectiveStart?.let(::applyTermStart)

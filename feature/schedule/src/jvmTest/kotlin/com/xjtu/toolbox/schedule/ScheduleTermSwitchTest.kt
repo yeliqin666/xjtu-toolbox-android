@@ -116,6 +116,51 @@ class ScheduleTermSwitchTest {
     }
 
     @Test
+    fun termSwitchLoadsTheStartDateWhenCoursesOrExamsFallBackToCache() {
+        val start = LocalDate(2025, 9, 1)
+        val freshCourse = CourseItem(courseName = "数学", dayOfWeek = 1, weekBits = "1")
+        val cachedExam = ExamItem(courseName = "物理考试")
+        val source = object : TermSwitchSource() {
+            override suspend fun schedule(term: String?) =
+                if (term == "cachedOnly") throw java.io.IOException("课程接口不可用") else SourceSchedule(listOf(freshCourse))
+            override suspend fun examSchedule(term: String?): List<ExamItem> =
+                if (term == "old") throw java.io.IOException("考试接口不可用") else emptyList()
+            override suspend fun termStart(term: String) = TermStartData(term, start.toString())
+        }
+        withSchedule(source) { vm, cache ->
+            vm.bind()
+            runCurrent()
+            ScheduleCache.writeRawCourses(cache, "old", listOf(freshCourse.copy(courseName = "旧课")))
+            ScheduleCache.writeExams(cache, "old", listOf(cachedExam))
+            vm.switchTerm("old")
+            runCurrent()
+
+            assertEquals(start, vm.startOfTerm)
+            assertEquals(start, ScheduleCache.readStartDate(cache, "old"))
+            assertEquals(listOf(freshCourse), vm.courses)
+            assertEquals(listOf(cachedExam), vm.exams)
+            assertEquals(listOf(cachedExam), ScheduleCache.readExams(cache, "old"))
+            val ics = ScheduleExport.generateIcs(vm.courses, checkNotNull(vm.startOfTerm), vm.selectedTermCode)
+            assertTrue(ics.contains("DTSTART;TZID=Asia/Shanghai:20250901T"))
+
+            ScheduleCache.writeExams(cache, "empty", listOf(cachedExam))
+            vm.switchTerm("empty")
+            runCurrent()
+            assertTrue(vm.exams.isEmpty())
+            assertEquals(emptyList(), ScheduleCache.readExams(cache, "empty"))
+
+            val cachedCourse = freshCourse.copy(courseName = "缓存课")
+            ScheduleCache.writeRawCourses(cache, "cachedOnly", listOf(cachedCourse))
+            vm.switchTerm("cachedOnly")
+            runCurrent()
+            assertEquals(start, vm.startOfTerm)
+            assertEquals(start, ScheduleCache.readStartDate(cache, "cachedOnly"))
+            assertEquals(listOf(cachedCourse), vm.courses)
+            assertTrue(vm.showingStaleData)
+        }
+    }
+
+    @Test
     fun lateExamRefreshUpdatesOnlyTheOriginalTermsCache() {
         val oldExam = ExamItem(courseName = "数学", location = "教一")
         val movedExam = oldExam.copy(location = "教二")
