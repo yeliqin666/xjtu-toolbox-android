@@ -1,9 +1,16 @@
 name: PR Gate
 
-# 唯一的 PR 门禁：一次 Gradle 调用跑完安卓编译与各端测试，--continue 让所有失败一次报全。
-# 安卓出包由 build.yml 在推送时做；桌面安装包只在打包配置变动时由 desktop-*.yml 出。
+# 唯一的 PR 门禁：一次 Gradle 调用跑完安卓编译与各端测试。
+# dev 推送时预热 Gradle 缓存；PR 使用只读缓存。
+# PR 同时生成 Debug APK，供合并前真机验证。
 
 on:
+  push:
+    branches:
+      - dev
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   pull_request:
     paths-ignore:
       - '**.md'
@@ -26,7 +33,13 @@ jobs:
           java-version: "21"
           distribution: "temurin"
 
+      # main 和 dev 可以写入缓存，其他分支及 PR 只读。
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: >-
+            ${{ github.event_name == 'pull_request' ||
+                (github.ref != 'refs/heads/main' &&
+                 github.ref != 'refs/heads/dev') }}
 
       # 与 build.yml 一致：compileSdk 37 不在镜像里
       - name: 装 Android SDK 37
@@ -40,14 +53,28 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends fonts-noto-cjk
           fc-list :lang=zh | grep -q . || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
 
-      # :app:testDebugUnitTest 覆盖 app 自身的单元测试；jvmTest 按任务名选中所有 KMP 模块；
-      # :web:wasmJsBrowserTest 顺带证明 :core 等 commonMain 能编到 wasm。
-      - name: 编译与测试
+      # 一次 Gradle 调用完成编译、测试和 APK 构建。
+      - name: 编译、测试与构建 APK
         run: >-
           ./gradlew --continue
-          :app:compileDebugKotlin :app:testDebugUnitTest
-          jvmTest :server:test :desktop:test
+          -PdebugSuffix
+          :app:compileDebugKotlin
+          :app:testDebugUnitTest
+          :app:assembleDebug
+          jvmTest
+          :server:test
+          :desktop:test
           :web:wasmJsBrowserTest
+
+      # 即使测试失败，只要 APK 已生成就保留。
+      - name: 上传 Debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ github.event.pull_request.number || github.run_number }}-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: 失败时保留测试报告
         if: failure()
