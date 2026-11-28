@@ -86,12 +86,18 @@ fun LeaderboardAskDialog(pending: Leaderboard.PendingAsk?, onDone: () -> Unit) {
     var busy by remember(pending) { mutableStateOf(false) }
     // 出错时留在弹窗里显示的话；非空即说明上一次提交没成
     var err by remember(pending) { mutableStateOf<String?>(null) }
+    // 关掉（×、「这次不上榜」、返回键、点空白处）都等于这次不上榜：账当场划掉，
+    // 别拖到下次进游戏又问一遍同一件事
+    val decline = {
+        Leaderboard.decline(pending.game, pending.score)
+        onDone()
+    }
 
     WindowDialog(
         show = true,
         // 不能传 null：返回键由弹窗窗口自己处理，先藏内容再回调，没人接的话透明窗口会一直盖着页面。
         // 上传中不关（结果回来会走 onDone）
-        onDismissRequest = { if (!busy) onDone() },
+        onDismissRequest = { if (!busy) decline() },
     ) {
         Column(Modifier.fillMaxWidth().imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.fillMaxWidth()) {
@@ -113,7 +119,7 @@ fun LeaderboardAskDialog(pending: Leaderboard.PendingAsk?, onDone: () -> Unit) {
                     )
                 }
                 IconButton(
-                    onClick = { if (!busy) onDone() },
+                    onClick = { if (!busy) decline() },
                     modifier = Modifier.align(Alignment.TopEnd),
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "关闭", modifier = Modifier.size(20.dp))
@@ -184,7 +190,7 @@ fun LeaderboardAskDialog(pending: Leaderboard.PendingAsk?, onDone: () -> Unit) {
             }
             TextButton(
                 text = "这次不上榜",
-                onClick = onDone,
+                onClick = { if (!busy) decline() },
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )

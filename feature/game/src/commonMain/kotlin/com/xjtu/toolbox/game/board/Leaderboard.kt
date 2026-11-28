@@ -8,6 +8,10 @@ import com.xjtu.toolbox.game.blocks.BlocksMode
 import com.xjtu.toolbox.game.blocks.blocksRecordId
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.util.singletonState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * 小游戏全服榜。榜单的入口、询问时机、提交都从这里走，各游戏只管在开局/结束时叫一声。
@@ -17,6 +21,8 @@ import com.xjtu.toolbox.util.singletonState
  * 2. **身份只选一次**。玩家选了名字、或者勾了「后续上榜不再提示」，以后上榜就静默更新成绩，
  *    不再打断他。同一个身份在服务端是同一行，只用最高分。
  * 3. **失败了就装作没有这回事**。榜单是锦上添花，网络不通不该让玩家在结算页看到一个报错。
+ * 4. **没走完的一局也不白打**。中途退出、进程被杀、上报没成功，都由 [LeaderboardRun] 记一笔账，
+ *    下次打开同一个游戏再问一句要不要传（只在超过开局前的历史最高分时才问）。
  *
  * 上传的只有「游戏、分数、名字、一个设备级匿名 ID」，不含学号账号——为什么身份是设备级的、
  * 而不是按账户或学号派生，见 [LeaderboardStore.uid] 的说明。这是本项目唯一把
@@ -33,6 +39,14 @@ object Leaderboard {
     const val MAX_NAME = 12
 
     val enabled: Boolean get() = LeaderboardApi.configured
+
+    /**
+     * 榜单自己的作用域：上报不该跟着某个页面的生命周期一起死。
+     *
+     * 结算页的上报挂在页面的 `LaunchedEffect` 上，玩家退出得比网络快（拉榜 + 上报两次请求，
+     * 超时上限十五秒），协程被取消，这一局就白打了。所以「点上传就退出」那条路走这里。
+     */
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** 玩家主动打开的榜单浮层。全 App 一个，由 [LeaderboardHost] 渲染（挂在导航外层）。 */
     var sheet: Sheet? by singletonState { mutableStateOf(null) }
@@ -99,29 +113,82 @@ object Leaderboard {
      */
     suspend fun report(game: String, score: Int): PendingAsk? {
         if (!enabled || score <= 0) return null
+        // 这一局正常走到结算了：先只打「已结束」的标，**账先留着**。下面要拉一次榜、
+        // 可能还要等一次提交，这期间进程随时可能没；账在这里划掉，就正好丢在最需要它的时刻。
+        LeaderboardRun.end(game, score)
         val uid = LeaderboardStore.uid()
         // 先看一眼榜：分数够不着就闭嘴。这也是唯一一次「为了决定要不要说话」而发的请求。
         val snapshot = runCatching { LeaderboardApi.board(game, uid, LIMIT) }
-            .onFailure { Log.w(TAG, "拉榜失败，跳过上报：$game", it) }
-            .getOrNull() ?: return null
-        if (!snapshot.qualifies(score)) return null
+            // 拉不到榜不等于没资格上榜：判不出分数线的时候按够格处理。宁可多问一句，
+            // 也不能因为一次网络抖动就把人家一整局的分数丢掉（#602 的另一半）
+            .onFailure { Log.w(TAG, "拉榜失败，按够格处理：$game", it) }
+            .getOrNull()
+        // 够不着：这笔账没用了，划掉（盘上要是还留着更高的一局，settle 自己会让开）
+        if (snapshot != null && !snapshot.qualifies(score)) {
+            LeaderboardRun.settle(game, score)
+            return null
+        }
 
         val identity = LeaderboardStore.identity(game)
         return if (identity == null || !identity.silent) {
+            // 账留到玩家答完：他可能直接按返回退出去，下次进这个游戏还得能问一句
             PendingAsk(game, score)
         } else {
             val error = runCatching { LeaderboardApi.submit(game, uid, identity.name, score) }
                 .onFailure { Log.w(TAG, "静默上报失败：$game", it) }
                 .exceptionOrNull()
-            // 本机记下的名字被服务端拒了（多半是词表更新过，或名字被取消了独占）：忘掉它，
-            // 这次直接问玩家重新起一个，否则这个人以后每次上榜都会静静地失败
-            if (error is LeaderboardError && error.nameProblem) {
-                LeaderboardStore.forget(game)
-                PendingAsk(game, score)
-            } else {
-                null
+            when {
+                error == null -> {
+                    LeaderboardRun.settle(game, score)
+                    null
+                }
+                // 本机记下的名字被服务端拒了（多半是词表更新过，或名字被取消了独占）：忘掉它，
+                // 这次直接问玩家重新起一个，否则这个人以后每次上榜都会静静地失败
+                error is LeaderboardError && error.nameProblem -> {
+                    LeaderboardStore.forget(game)
+                    PendingAsk(game, score)
+                }
+                // 网络 / 服务端故障：留一笔账，下次进这个游戏再问要不要补传
+                else -> {
+                    LeaderboardRun.keepUnsent(game, score)
+                    null
+                }
             }
         }
+    }
+
+    /**
+     * 「本局要不要上传」里选了上传：沿用已有身份（没选过名字就匿名），失败留档下次补。
+     *
+     * 和 [answer] 的区别是**不等结果**：玩家点了上传就要退出 / 重开，页面马上销毁，
+     * 挂在页面作用域上的协程会被取消。所以这里用榜单自己的作用域发出去，
+     * 结果只影响盘上那笔账还在不在，不影响玩家看到的界面。
+     */
+    fun submitQuietly(game: String, score: Int) {
+        if (!enabled || score <= 0) return
+        val uid = LeaderboardStore.uid()
+        val identity = LeaderboardStore.identity(game)
+        background.launch {
+            val error = runCatching { LeaderboardApi.submit(game, uid, identity?.name, score) }
+                .onFailure { Log.w(TAG, "后台上报失败，留档待补：$game", it) }
+                .exceptionOrNull()
+            if (error == null) {
+                // 只划掉这笔账：玩家点完上传就重开了，盘上可能已经写着更高的一局
+                LeaderboardRun.settle(game, score)
+            } else {
+                if (error is LeaderboardError && error.nameProblem) LeaderboardStore.forget(game)
+                LeaderboardRun.keepUnsent(game, score)
+            }
+        }
+    }
+
+    /**
+     * 「本局要不要上传」里选了不上传（或直接关掉）：这局到此为止，把账划掉。
+     *
+     * 和 [answer] 不是一回事：[answer] 是玩家在结算卡上填名字，这里只是处理一局没走结算的成绩。
+     */
+    fun decline(game: String, score: Int) {
+        if (enabled) LeaderboardRun.settle(game, score)
     }
 
     /**
@@ -141,11 +208,19 @@ object Leaderboard {
             .onFailure { Log.w(TAG, "上榜失败：$game", it) }
             .exceptionOrNull()
         return when {
-            error == null -> AnswerResult.OK
+            error == null -> {
+                // 同一张卡上重试过：第一次失败留的 UNSENT 得一起划掉，否则下次进游戏又来问一遍
+                LeaderboardRun.settle(game, score)
+                AnswerResult.OK
+            }
             // 服务端有话说（名字有问题、或者审核没跑成要稍后再试）就原样转给玩家
             error is LeaderboardError && error.showableProblem ->
                 AnswerResult.Rejected(error.message ?: "这个名字不合适，换一个")
-            else -> AnswerResult.Failed
+            // 网络 / 服务端故障：弹窗里已经说清楚了，但玩家可能直接关掉，留笔账下次补
+            else -> {
+                LeaderboardRun.keepUnsent(game, score)
+                AnswerResult.Failed
+            }
         }
     }
 
