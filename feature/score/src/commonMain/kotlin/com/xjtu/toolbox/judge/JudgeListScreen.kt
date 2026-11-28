@@ -201,7 +201,7 @@ private fun <Q> AutoJudgeBlock(vm: JudgeViewModel<Q>, onClick: () -> Unit) {
                     modifier = Modifier.weight(1f)
                 )
                 if (!vm.isAutoJudging) {
-                    IconButton(onClick = { vm.autoJudgeMessage = "" }, modifier = Modifier.size(20.dp)) {
+                    IconButton(onClick = { vm.autoJudgeMessage = "" }, modifier = Modifier.size(44.dp)) {
                         Icon(
                             Icons.Default.Close,
                             contentDescription = "关闭",

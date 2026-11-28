@@ -343,9 +343,16 @@ fun CustomCourseDialog(
             }
             androidx.compose.animation.AnimatedVisibility(customWeeks) {
                 GroupCard {
-                    WeekCheckboxGrid(totalWeeks = totalWeeks, selectedWeeks = selectedWeeks, onToggle = { week ->
-                        selectedWeeks = if (week in selectedWeeks) selectedWeeks - week else selectedWeeks + week
-                    })
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // 只排某几周时先清空再点，省得从全选里一个个去掉
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            WeekPresetChip("清空", false, Modifier.weight(1f)) { selectedWeeks = emptySet() }
+                            WeekPresetChip("全选", false, Modifier.weight(1f)) { selectedWeeks = all }
+                        }
+                        WeekCheckboxGrid(totalWeeks = totalWeeks, selectedWeeks = selectedWeeks, onToggle = { week ->
+                            selectedWeeks = if (week in selectedWeeks) selectedWeeks - week else selectedWeeks + week
+                        })
+                    }
                 }
             }
         }

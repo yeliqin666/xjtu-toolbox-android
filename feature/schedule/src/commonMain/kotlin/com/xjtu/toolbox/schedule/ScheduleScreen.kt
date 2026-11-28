@@ -1261,27 +1261,30 @@ private fun WeekQuickSwitcherBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            // 左边减去热区多出的 6dp，圆钮仍对齐 16dp 边距
+            .padding(start = 10.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
+        // 圆钮画 32dp，可点区域 44dp
+        Box(
             modifier = Modifier
-                .size(32.dp)
+                .size(44.dp)
                 .clip(CircleShape)
                 .clickable(enabled = currentWeek > 1, onClick = onPrev),
-            shape = CircleShape,
-            color = com.xjtu.toolbox.ui.components.AppCardColor,
+            contentAlignment = Alignment.Center,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.Default.ChevronLeft,
-                    contentDescription = "上一周",
-                    tint = if (currentWeek > 1) MiuixTheme.colorScheme.onSurface else onVariant.copy(alpha = 0.35f),
-                    modifier = Modifier.size(18.dp),
-                )
+            Surface(modifier = Modifier.size(32.dp), shape = CircleShape, color = com.xjtu.toolbox.ui.components.AppCardColor) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.ChevronLeft,
+                        contentDescription = "上一周",
+                        tint = if (currentWeek > 1) MiuixTheme.colorScheme.onSurface else onVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(2.dp))
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
@@ -1304,22 +1307,23 @@ private fun WeekQuickSwitcherBar(
                 modifier = Modifier.size(16.dp),
             )
         }
-        Spacer(Modifier.width(8.dp))
-        Surface(
+        Spacer(Modifier.width(2.dp))
+        Box(
             modifier = Modifier
-                .size(32.dp)
+                .size(44.dp)
                 .clip(CircleShape)
                 .clickable(enabled = currentWeek < totalWeeks, onClick = onNext),
-            shape = CircleShape,
-            color = com.xjtu.toolbox.ui.components.AppCardColor,
+            contentAlignment = Alignment.Center,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = "下一周",
-                    tint = if (currentWeek < totalWeeks) MiuixTheme.colorScheme.onSurface else onVariant.copy(alpha = 0.35f),
-                    modifier = Modifier.size(18.dp),
-                )
+            Surface(modifier = Modifier.size(32.dp), shape = CircleShape, color = com.xjtu.toolbox.ui.components.AppCardColor) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "下一周",
+                        tint = if (currentWeek < totalWeeks) MiuixTheme.colorScheme.onSurface else onVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
         Spacer(Modifier.weight(1f))
