@@ -68,7 +68,6 @@ fun Application.serveModule(
             // （全文库的会话由 `jiaocai.lib` 那一侧桥接过来），**一个新站点都没注册**。
             // 页图与封面那两条不走信封（成功回 `image/jpeg`，失败仍回信封）。
             jiaocai1Routes(session)
-            iclassfaceRoutes(session)
 
             // 第三批（付款码拿码 / 反馈读 / 匹配交友的消费统计 / WebVPN 纯转换）：
             // 前两族各自有 `:data` 的实现、第三族落在校园卡流水上、第四族是纯函数。
