@@ -823,8 +823,23 @@ def format_changes(added: set[str], removed: set[str]) -> str:
     return "；".join(parts)
 
 
-def is_maintainer(client: GitHub, owner: str, repo: str, comment: Comment) -> bool:
-    """write 及以上权限。REST 读不了权限时按 authorAssociation 兜底。"""
+REPOSITORY_PERMISSION_LEVELS = {
+    "none": 0,
+    "read": 1,
+    "pull": 1,
+    "triage": 2,
+    "write": 3,
+    "maintain": 4,
+    "admin": 5,
+}
+
+
+def has_repository_permission(
+        client: GitHub, owner: str, repo: str, comment: Comment, required: str
+) -> bool:
+    """检查仓库权限；权限接口不可用时默认拒绝，避免用 authorAssociation 越权放行。"""
+    if required not in REPOSITORY_PERMISSION_LEVELS:
+        raise ValueError(f"未知的仓库权限级别：{required}")
     if comment.author_association == "OWNER":
         return True
     if not comment.author_login:
@@ -837,22 +852,27 @@ def is_maintainer(client: GitHub, owner: str, repo: str, comment: Comment) -> bo
     try:
         status, data = client.rest("GET", path)
     except GitHubError as error:
-        warn(f"读取 @{comment.author_login} 的仓库权限失败，按 authorAssociation 兜底：{error}")
-        return comment.author_association in ("MEMBER", "COLLABORATOR")
-
-    if status == 200:
-        return data.get("permission") in ("admin", "maintain", "write") or data.get("role_name") in (
-            "admin",
-            "maintain",
-            "write",
-        )
-    if status == 404:
+        warn(f"读取 @{comment.author_login} 的仓库权限失败，按无权限处理：{error}")
         return False
-    if status in (401, 403):
-        warn(f"读取 @{comment.author_login} 的仓库权限被拒绝（HTTP {status}），按 authorAssociation 兜底")
-    else:
-        warn(f"读取 @{comment.author_login} 的仓库权限失败（HTTP {status}），按 authorAssociation 兜底")
-    return comment.author_association in ("MEMBER", "COLLABORATOR")
+
+    if status != 200:
+        if status != 404:
+            warn(f"读取 @{comment.author_login} 的仓库权限失败（HTTP {status}），按无权限处理")
+        return False
+
+    permission = str(data.get("permission") or data.get("role_name") or "none").lower()
+    actual_level = REPOSITORY_PERMISSION_LEVELS.get(permission, 0)
+    return actual_level >= REPOSITORY_PERMISSION_LEVELS[required]
+
+
+def can_manage_issues(client: GitHub, owner: str, repo: str, comment: Comment) -> bool:
+    """Issue 管理命令要求仓库 triage 及以上权限。"""
+    return has_repository_permission(client, owner, repo, comment, "triage")
+
+
+def is_repository_admin(client: GitHub, owner: str, repo: str, comment: Comment) -> bool:
+    """管理类命令及反馈后端同步只允许仓库 admin。"""
+    return has_repository_permission(client, owner, repo, comment, "admin")
 
 
 def fetch_label_map(client: GitHub, owner: str, repo: str) -> dict[str, str]:
@@ -1282,6 +1302,13 @@ def self_test() -> None:
     assert LABEL_IN_PROGRESS in desired_labels(parse("bug 1 m @someone"))
     assert LABEL_TRIAGE in desired_labels(parse("bug 1 m t @someone"))
 
+    assert REPOSITORY_PERMISSION_LEVELS["triage"] >= REPOSITORY_PERMISSION_LEVELS["triage"]
+    assert REPOSITORY_PERMISSION_LEVELS["write"] >= REPOSITORY_PERMISSION_LEVELS["triage"]
+    assert REPOSITORY_PERMISSION_LEVELS["maintain"] >= REPOSITORY_PERMISSION_LEVELS["triage"]
+    assert REPOSITORY_PERMISSION_LEVELS["admin"] >= REPOSITORY_PERMISSION_LEVELS["triage"]
+    assert REPOSITORY_PERMISSION_LEVELS["write"] < REPOSITORY_PERMISSION_LEVELS["admin"]
+    assert REPOSITORY_PERMISSION_LEVELS["maintain"] < REPOSITORY_PERMISSION_LEVELS["admin"]
+
     for bad in ("", "bug", "bug 1", "bug 1 invalid", "bug 4 m", "bug 1 m @", "nope 1 m"):
         try:
             parse(bad)
@@ -1446,8 +1473,8 @@ def maybe_sync_feedback_reply(client: GitHub, owner: str, repo: str, comment: Co
     if not tm:
         log("反馈贴缺少工单标记，跳过")
         return
-    if not is_maintainer(client, owner, repo, comment):
-        log(f"@{comment.author_login or '(未知用户)'} 没有维护者权限，跳过同步回复")
+    if not is_repository_admin(client, owner, repo, comment):
+        log(f"@{comment.author_login or '(未知用户)'} 没有仓库 admin 权限，跳过同步回复")
         return
     parsed = parse_feedback_reply_comment(comment.body, disc.body)
     if parsed is None:
@@ -1538,11 +1565,18 @@ def main() -> None:
         maybe_sync_feedback_reply(client, owner, repo, comment)
         return
 
-    if not is_maintainer(client, owner, repo, comment):
-        log(f"@{comment.author_login or '(未知用户)'} 没有维护者权限，静默跳过")
+    name, command_args, line_index = found
+    # /toissue 和 /attachcomment 只需 triage；其他命令（目前包括 /tally）要求 admin。
+    authorized = (
+        can_manage_issues(client, owner, repo, comment)
+        if name in ("/toissue", "/attachcomment")
+        else is_repository_admin(client, owner, repo, comment)
+    )
+    if not authorized:
+        required = "triage 及以上" if name in ("/toissue", "/attachcomment") else "admin"
+        log(f"@{comment.author_login or '(未知用户)'} 没有仓库 {required} 权限，静默跳过")
         return
 
-    name, command_args, line_index = found
     handler = HANDLERS[name]
     ctx = Context(client, owner, repo, comment, line_index)
     try:
