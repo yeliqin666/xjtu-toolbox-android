@@ -663,7 +663,10 @@ class ServeAgentTest {
 
             hold.complete(Unit)
             assertEquals(200, running.get(30, TimeUnit.SECONDS).statusCode())
-            assertEquals(false, envelopeData(h.get(AGENT_STATUS_PATH)).optBoolean("running"))
+            // `endRun()` 在路由的 `finally` 里，也就是「客户端读到流结束」之后还要过一瞬才归位；
+            // 机器忙的时候这一发 GET 会赶在它前面（CI 上偶发过一次「期望 false 实际 true」）。
+            // 窗口在生产里是亚毫秒级（屏上每秒轮一次），这里等它归位，别把时序判成功能坏了。
+            awaitIdle(h)
         }
     }
 
@@ -919,6 +922,21 @@ class ServeAgentTest {
             Thread.sleep(20)
         }
         error("10 秒内那一轮都没开始跑")
+    }
+
+    /**
+     * 等到这一轮真的收尾（`running` 归 false）。
+     *
+     * 不能「读完 SSE 就立刻断言 false」：`endRun()` 在路由的 `finally` 里，与客户端读到流结束之间
+     * 有个极短的窗口，CI 上抢到过（同一提交重跑就绿）。超时 10 秒 —— 真没收尾才该红。
+     */
+    private fun awaitIdle(h: Harness) {
+        val until = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < until) {
+            if (envelopeData(h.get(AGENT_STATUS_PATH)).optBoolean("running") == false) return
+            Thread.sleep(20)
+        }
+        error("10 秒内那一轮都没收尾")
     }
 
     /** 一行一个 SSE 帧：[name] + 解析好的 `data`（注释帧的 `data` 是 null）。 */
