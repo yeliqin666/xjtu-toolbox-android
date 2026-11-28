@@ -74,7 +74,7 @@ object FeedbackStore {
     // ---- 拉取回复的节流 ----
 
     /**
-     * 该不该去飞书拉回复（按次计额度，月上限可能只有 1 万）。下拉（[manual]）只防连点，隔 [REPLY_FETCH_GAP_MANUAL_MS]；
+     * 该不该去后端拉回复。下拉（[manual]）只防连点，隔 [REPLY_FETCH_GAP_MANUAL_MS]；
      * 进页面自动拉只在有近期没回的工单时、每天一次——回复是维护者看了每天的日报才写的。
      */
     fun shouldFetchReplies(hasPending: Boolean, manual: Boolean = false): Boolean {
@@ -114,7 +114,7 @@ object FeedbackStore {
         store.putString(K_REPLY_CACHE, obj.toString())
     }
 
-    /** 「大家在问」读 Gitee 上的静态文件（不碰飞书），进页面每天拉一次：维护者手动重建后隔天就能看到；下拉刷新照拉。 */
+    /** 「大家在问」读后端 /public-qa，进页面每天拉一次；下拉刷新照拉。 */
     fun shouldFetchPublicQa(manual: Boolean): Boolean {
         val last = store.getString(K_PUBLIC_QA_AT)?.toLongOrNull() ?: 0L
         return manual || now() - last >= PUBLIC_QA_GAP_MS

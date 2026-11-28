@@ -24,7 +24,7 @@
 - 证书库密码：自签时随机生成并存为 `serve.p12.password`（`0600`）；自带证书库用环境变量 `XJTU_TOOLBOX_TLS_PASSWORD` 传，不要写在命令行上。
 - 证书缺失、密码不对、不是证书库、只给 `--cert` 不给 `--https`，一律报错退出（码 2），不回落成明文。
 - 想换自签证书：删掉 `tls/serve.p12` 与 `.password` 后重启。换访问令牌：删 `serve.properties`。
-- 反馈端点的飞书凭据在启动时从环境变量注入（见 `ServeFeedback`），没配全时反馈端点回 `502` 并给出指引。
+- 反馈后端地址在启动时从环境变量 `FEEDBACK_BASE_URL` 注入（见 `ServeFeedback`，默认 `https://api.dzhz.top/feedback`），显式置空时反馈端点回 `502` 并给出指引。
 
 ## 安全口径
 

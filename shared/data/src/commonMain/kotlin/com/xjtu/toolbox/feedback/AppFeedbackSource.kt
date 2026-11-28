@@ -8,7 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-/** `:core` 的 [FeedbackSource] 在 `:data` 里的实现 —— 包住 [FeedbackApi]（飞书开放平台多维表格）。 */
+/** `:core` 的 [FeedbackSource] 在 `:data` 里的实现 —— 包住 [FeedbackApi]（Cloudflare Workers + D1）。 */
 object AppFeedbackSource : FeedbackSource {
 
     override val isConfigured: Boolean
@@ -27,12 +27,13 @@ object AppFeedbackSource : FeedbackSource {
         FeedbackApi.replies(tickets)
 
     /**
-     * 读 Action 每 4 天从飞书生成一次的 feedback-qa.json（announce 分支，Gitee / GitHub），不让每台手机都去扫回复表。
-     * 两边都拿不到（比如文件还没生成）才直接查飞书。
+     * 优先读 Worker + D1 实时公开问答（边缘缓存 60s）；Worker 异常时降级读 announce 分支静态 `feedback-qa.json`。
      */
     override suspend fun publicQa(): List<FeedbackPublicQa> {
+        val live = runCatching { FeedbackApi.publicQa() }.getOrNull()
+        if (live != null) return live
         val ua = FeedbackApi.config?.versionLabel.orEmpty()
-        return BulletinApi.fetchFile(QA_FILE, ua)?.let(::parseQa) ?: FeedbackApi.publicQa()
+        return BulletinApi.fetchFile(QA_FILE, ua)?.let(::parseQa) ?: emptyList()
     }
 
     private fun parseQa(json: String): List<FeedbackPublicQa>? = runCatching {

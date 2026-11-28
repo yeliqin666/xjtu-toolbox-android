@@ -3,8 +3,8 @@ package com.xjtu.toolbox.feedback
 import com.xjtu.toolbox.bulletin.Bulletin
 
 /**
- * 反馈页「投票」区的数据端口。投票就是带选项的公告（见 [Bulletin.isPoll]），票写进飞书提交表
- * （类型「投票·公告 id」），结果每 4 天由 Action 写回公告。宿主不提供（桌面 / Web）时页面不显示投票区。
+ * 反馈页「投票」区的数据端口。投票就是带选项的公告（见 [Bulletin.isPoll]），票写进反馈后端，
+ * 结果每 4 天由 Action 写回公告。宿主不提供（桌面 / Web）时页面不显示投票区。
  */
 interface FeedbackPolls {
     /** 缓存里该给这台设备看的投票：进行中的，加往期的（截止看 [Bulletin.isClosedAt]）。 */

@@ -2,15 +2,15 @@ name: Announce
 
 # 讨论区公告分类（slug announcements）= App 公告的唯一编辑处（发帖表单见 .github/DISCUSSION_TEMPLATE/announcements.yml，
 # 文件名必须是分类的 slug，GitHub 不认中文 slug，所以分类名要保持英文 slug；
-# 解析和统计见 .github/scripts/announce.py）。生成的 JSON 提交到 GitHub 的 announce 分支，再把这个分支原样推到
-# Gitee，bulletin.json 再传一份到 OSS：App 同时读 OSS 和 Gitee、按 updatedAt 取较新的，都不行再读 GitHub。
+# 解析和统计见 .github/scripts/announce.py）。生成的 JSON 提交到 GitHub 的 announce 分支，再传一份到 OSS：
+# App 先读 OSS，读不到再读 GitHub。
 #
-#   讨论区有变动：重建 bulletin.json、帖子里回一条解析结果（不碰飞书）；关帖 = 删除
-#   每 4 天（北京时间 09:17，避开整点；每月 1、5、9…号）：统计投票（最终结果写进帖子后删掉飞书里的票）、
-#   过了截止时间的公告和投票关帖撤下、从飞书生成 feedback-qa.json（大家在问），再重建
-#   手动：workflow_dispatch = 每 4 天那一趟，可选 dry_run（只打印，不提交、不回帖、不写飞书）
+#   讨论区有变动：重建 bulletin.json、帖子里回一条解析结果（不碰反馈后端）；关帖 = 删除
+#   每 4 天（北京时间 09:17，避开整点；每月 1、5、9…号）：统计投票（最终结果写进帖子后删掉后端里的票）、
+#   过了截止时间的公告和投票关帖撤下、从反馈后端生成 feedback-qa.json（大家在问），再重建
+#   手动：workflow_dispatch = 每 4 天那一趟，可选 dry_run（只打印，不提交、不回帖、不写后端）
 #
-# GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce（它会传 OSS），这里自己推 Gitee。
+# GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce（它会传 OSS），这里自己传。
 # discussion 事件只认默认分支上的 workflow，改动要先合到 main。
 
 on:
@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: '只打印，不提交、不回帖、不写飞书'
+        description: '只打印，不提交、不回帖、不写反馈后端'
         type: boolean
         default: false
       poll:
@@ -62,11 +62,8 @@ jobs:
       - name: Build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
-          FEEDBACK_APP_SECRET: ${{ secrets.FEEDBACK_APP_SECRET }}
-          FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
-          FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
-          FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
+          FEEDBACK_BASE_URL: ${{ vars.FEEDBACK_BASE_URL || 'https://api.dzhz.top/feedback' }}
+          FEEDBACK_ADMIN_TOKEN: ${{ secrets.FEEDBACK_ADMIN_TOKEN }}
           # 定时触发时为空串，只有手动 / 评论区 /tally 派发才有值
           POLL_NUMBER: ${{ github.event.inputs.poll }}
         run: |
@@ -88,21 +85,12 @@ jobs:
           git push -q origin HEAD:announce
           echo "pushed=1" >> "$GITHUB_OUTPUT"
 
-      - name: Mirror to Gitee
-        if: steps.commit.outputs.pushed == '1'
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
-          GIT_TERMINAL_PROMPT: "0"
-        working-directory: announce
-        run: |
-          test -n "$GITEE_TOKEN" || { echo "::error::GITEE_ACCESS_TOKEN missing"; exit 1; }
-          bash "$GITHUB_WORKSPACE/.github/scripts/gitee_push.sh" HEAD refs/heads/announce
-
-      # 公告也放一份到 OSS：App 同时读 OSS 和 Gitee 取较新的（旧版本只读 OSS）。
+      # 公告放一份到 OSS（App 同时读 OSS 和 GitHub，取 updatedAt 较新的）。
       # GITHUB_TOKEN 推的提交不会触发 announce 分支上的 sync-announce，所以在这里自己传。
-      # 清单类对象在 ESA 上是不缓存的（见 docs/release.md），传完不需要刷缓存。
+      # 每趟都传、都刷：重传是幂等的，手动跑一次就能把 CDN 上的旧公告换掉。
       - name: Upload bulletin to OSS
-        if: steps.commit.outputs.pushed == '1'
+        id: oss
+        if: env.DRY_RUN != '1'
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -114,3 +102,22 @@ jobs:
           set -euo pipefail
           python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 oss2
           python3 .github/scripts/oss_upload.py announce/bulletin.json "xjtu-toolbox/bulletin.json" "no-cache"
+          if [ -f announce/feedback-qa.json ]; then
+            python3 .github/scripts/oss_upload.py announce/feedback-qa.json "xjtu-toolbox/feedback-qa.json" "no-cache"
+          fi
+
+      # ESA 实测会缓存 bulletin.json（命中时缓存期约 30 天），不认源站的 no-cache，传完必须主动刷
+      - name: Purge ESA cache for bulletin
+        if: steps.oss.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          ESA_SITE_ID: ${{ secrets.ESA_SITE_ID }}
+          ESA_ACCESS_KEY_ID: ${{ secrets.ESA_ACCESS_KEY_ID }}
+          ESA_ACCESS_KEY_SECRET: ${{ secrets.ESA_ACCESS_KEY_SECRET }}
+        run: |
+          if [ -n "$ESA_SITE_ID" ]; then
+            python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 alibabacloud_esa20240910 \
+              || { echo "::warning::装不上 ESA SDK，跳过缓存刷新"; exit 0; }
+          fi
+          python3 .github/scripts/esa_purge.py bulletin.json feedback-qa.json

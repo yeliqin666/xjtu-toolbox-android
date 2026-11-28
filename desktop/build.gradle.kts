@@ -12,33 +12,21 @@ val desktopPackageVersion = "6.2.3"
 /** 打包机是不是 Windows：jpackage 不能交叉构建，安装包与 app-image 都在本机系统上产出。 */
 val isWindowsHost = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
 
-/** 反馈后端的凭据（与 `:app` 同一份来源） */
-val desktopFeedbackConfig: Map<String, String> = run {
+/** 反馈后端地址（与 `:app` 的 `BuildConfig.FEEDBACK_BASE_URL` 同一份来源） */
+val desktopFeedbackBaseUrl: String = run {
     val fp = rootProject.file("feedback.properties")
     val props = Properties().apply { if (fp.exists()) fp.inputStream().use { load(it) } }
-    fun cfg(key: String): String {
-        val underscored = key.replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase()
-        val glued = key.uppercase()
-        listOf("FEEDBACK_$underscored", "FEEDBACK_$glued").distinct().forEach { name ->
-            System.getenv(name)?.takeIf { it.isNotBlank() }?.let { return it }
-        }
-        return props.getProperty(key)?.trim().orEmpty()
-    }
-    mapOf(
-        "APP_ID" to cfg("appId"),
-        "APP_SECRET" to cfg("appSecret"),
-        "BASE_TOKEN" to cfg("baseToken"),
-        "TABLE_SUBMIT" to cfg("tableSubmit"),
-        "TABLE_REPLY" to cfg("tableReply"),
-    )
+    System.getenv("FEEDBACK_BASE_URL")?.trim()
+        ?: props.getProperty("baseUrl")?.trim()
+        ?: "https://api.dzhz.top/feedback"
 }
 
-/** 把上面那份凭据生成成一个 Kotlin 常量对象（`DesktopBuildConfig`） */
+/** 把上面那份配置生成成一个 Kotlin 常量对象（`DesktopBuildConfig`） */
 val generateDesktopBuildConfig = tasks.register("generateDesktopBuildConfig") {
     val outDir = layout.buildDirectory.dir("generated/desktopBuildConfig/kotlin").get().asFile
-    val values = desktopFeedbackConfig
+    val feedbackBaseUrl = desktopFeedbackBaseUrl
     val version = desktopPackageVersion
-    inputs.property("feedback", values)
+    inputs.property("feedbackBaseUrl", feedbackBaseUrl)
     inputs.property("version", version)
     outputs.dir(outDir)
     doLast {
@@ -48,13 +36,11 @@ val generateDesktopBuildConfig = tasks.register("generateDesktopBuildConfig") {
             appendLine("package com.xjtu.toolbox.desktop")
             appendLine()
             appendLine("// 由 `:desktop` 的 `generateDesktopBuildConfig` 任务生成，**不要手改**：")
-            appendLine("// 值来自仓库根目录的 `feedback.properties`（gitignored）或环境变量，")
-            appendLine("// 与 `:app` 的 `BuildConfig.FEEDBACK_*` 同一份来源（见 desktop/build.gradle.kts）。")
+            appendLine("// 值来自仓库根目录的 `feedback.properties`（gitignored）或环境变量 `FEEDBACK_BASE_URL`，")
+            appendLine("// 与 `:app` 的 `BuildConfig.FEEDBACK_BASE_URL` 同一份来源（见 desktop/build.gradle.kts）。")
             appendLine("internal object DesktopBuildConfig {")
             appendLine("    const val VERSION_NAME = \"${esc(version)}\"")
-            values.forEach { (key, value) ->
-                appendLine("    const val FEEDBACK_$key = \"${esc(value)}\"")
-            }
+            appendLine("    const val FEEDBACK_BASE_URL = \"${esc(feedbackBaseUrl)}\"")
             appendLine("}")
         }
         File(pkgDir, "DesktopBuildConfig.kt").writeText(text)

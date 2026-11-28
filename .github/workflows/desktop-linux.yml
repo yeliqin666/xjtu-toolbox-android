@@ -36,12 +36,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: 打 .deb 与 tar.gz
-        env:
-          FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
-          FEEDBACK_APP_SECRET: ${{ secrets.FEEDBACK_APP_SECRET }}
-          FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
-          FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
-          FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
         run: ./gradlew :desktop:packageDeb :desktop:packageTarGz
 
       # linux.iconFile 指错不会报错，只会静默换成 Compose 默认图标，所以比对包里那张与仓库里的 md5

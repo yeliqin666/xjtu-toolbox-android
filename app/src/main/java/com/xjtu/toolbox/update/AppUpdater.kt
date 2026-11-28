@@ -25,7 +25,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
 import java.security.MessageDigest
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 data class AppUpdateInfo(
@@ -62,7 +61,6 @@ data class UpdateManifest(
 object AppUpdater {
     const val CHANNEL_ALIYUN = "aliyun"
     const val CHANNEL_CLOUDFLARE = "cloudflare"
-    const val CHANNEL_GITEE = "gitee"
     const val CHANNEL_GITHUB = "github"
     const val OSS_BASE_URL = "https://dzhz.zyxf.top/xjtu-toolbox"
     const val R2_BASE_URL = "https://dl.dzhz.top"
@@ -72,14 +70,12 @@ object AppUpdater {
         CHANNEL_ALIYUN,
         CHANNEL_CLOUDFLARE,
         CHANNEL_GITHUB,
-        CHANNEL_GITEE,
     )
 
     val channelLabels = listOf(
         "阿里云",
         "Cloudflare",
         "GitHub",
-        "Gitee",
     )
 
     private val client = HttpClients.base.newBuilder()
@@ -99,31 +95,23 @@ object AppUpdater {
 
     private val SHA256_REGEX = Regex("^[0-9a-f]{64}$")
 
-    private val githubDigestCache = ConcurrentHashMap<String, String>()
 
     fun normalizeChannel(channel: String?): String = when (channel?.trim()?.lowercase()) {
-        // 旧版本的 stable/beta 都走默认渠道；现在默认是阿里云。
-        CHANNEL_ALIYUN, "oss", "auto", "stable", "beta" -> CHANNEL_ALIYUN
+        // 旧版本的 stable/beta 和已下线的 Gitee 都走默认渠道阿里云。
         CHANNEL_CLOUDFLARE, "r2", "cf" -> CHANNEL_CLOUDFLARE
         CHANNEL_GITHUB, "github_latest" -> CHANNEL_GITHUB
-        CHANNEL_GITEE, "gitee_latest" -> CHANNEL_GITEE
         else -> CHANNEL_ALIYUN
     }
 
     fun channelLabel(channel: String?): String = when (normalizeChannel(channel)) {
-        CHANNEL_ALIYUN -> "阿里云"
         CHANNEL_CLOUDFLARE -> "Cloudflare"
         CHANNEL_GITHUB -> "GitHub"
-        CHANNEL_GITEE -> "Gitee"
         else -> "阿里云"
     }
 
-    fun releasesPageUrl(channel: String): String = when (normalizeChannel(channel)) {
-        CHANNEL_GITHUB -> "https://github.com/xjtu-dzhz/dzhz/releases/latest"
-        CHANNEL_GITEE -> "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases"
-        // 阿里云 / Cloudflare 清单自带 releaseUrl；拿不到时用 GitHub 发布页兜底。
-        else -> "https://github.com/xjtu-dzhz/dzhz/releases/latest"
-    }
+    /** 阿里云 / Cloudflare 清单自带 releaseUrl；拿不到时都用 GitHub 发布页兜底。 */
+    @Suppress("UNUSED_PARAMETER")
+    fun releasesPageUrl(channel: String): String = "https://github.com/xjtu-dzhz/dzhz/releases/latest"
 
     /**
      * 拉当前渠道的最新 Release，不跟本机版本比。
@@ -140,23 +128,14 @@ object AppUpdater {
                     ?: fetchFallbackLatest(includePreview)
                     ?: error("检查更新失败")
             }
-            CHANNEL_GITHUB -> fetchGithubLatest(includePreview)
-            else -> fetchGiteeLatest()
+            else -> fetchGithubLatest(includePreview)
         }
     }
 
     private suspend fun fetchFallbackLatest(includePreview: Boolean): AppUpdateInfo? =
-        if (includePreview) {
-            // 预览版只有 GitHub Pre-release 有兜底；不能先退 Gitee 的稳定版。
-            runCatching { fetchGithubLatest(true) }.getOrNull()
-                ?: runCatching { fetchGiteeLatest() }.getOrNull()
-        } else {
-            // 正式版优先 Gitee（国内更稳），再退 GitHub。
-            runCatching { fetchGiteeLatest() }.getOrNull()
-                ?: runCatching { fetchGithubLatest(false) }.getOrNull()
-        }
+        runCatching { fetchGithubLatest(includePreview) }.getOrNull()
 
-    /** 清单不可用或字段非法时返回 null，交给 Gitee/GitHub 兜底。 */
+    /** 清单不可用或字段非法时返回 null，交给 GitHub 兜底。 */
     private fun fetchManifestChannel(
         baseUrl: String,
         channel: String,
@@ -236,24 +215,7 @@ object AppUpdater {
             pickRelease(array, BuildConfig.VERSION_NAME, includePreview = true)
                 ?.let { return it }
         }
-        return fetchRelease(CHANNEL_GITHUB).info
-    }
-
-    private suspend fun fetchGiteeLatest(): AppUpdateInfo {
-        val primary = fetchRelease(CHANNEL_GITEE)
-        if (!primary.hasApkAsset) {
-            val github = runCatching { fetchRelease(CHANNEL_GITHUB) }.getOrNull()
-            if (github?.hasApkAsset == true) {
-                return primary.info.copy(
-                    downloadUrl = github.info.downloadUrl,
-                    sha256 = github.info.sha256,
-                )
-            }
-        }
-        if (primary.info.sha256 == null) {
-            return primary.info.copy(sha256 = fetchGithubDigestByTag(primary.info.version))
-        }
-        return primary.info
+        return fetchGithubRelease()
     }
 
     private fun fetchText(url: String, accept: String = "application/json"): String =
@@ -361,14 +323,9 @@ object AppUpdater {
         }
     }
 
-    private suspend fun fetchRelease(channel: String): ParsedRelease {
-        val url = if (channel == CHANNEL_GITHUB) {
-            "https://api.github.com/repos/xjtu-dzhz/dzhz/releases/latest"
-        } else {
-            "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
-        }
-        return AppJson.parseToJsonElement(fetchText(url)).jsonObject.toParsedRelease(channel)
-    }
+    private fun fetchGithubRelease(): AppUpdateInfo =
+        AppJson.parseToJsonElement(fetchText("https://api.github.com/repos/xjtu-dzhz/dzhz/releases/latest"))
+            .jsonObject.toUpdateInfo()
 
     private fun sha256Hex(file: File): String {
         val md = MessageDigest.getInstance("SHA-256")
@@ -496,12 +453,7 @@ object AppUpdater {
         )
     }
 
-    private data class ParsedRelease(
-        val info: AppUpdateInfo,
-        val hasApkAsset: Boolean,
-    )
-
-    private fun JsonObject.toParsedRelease(channel: String): ParsedRelease {
+    private fun JsonObject.toUpdateInfo(): AppUpdateInfo {
         val version = get("tag_name")?.stringValue?.removePrefix("v")
             ?: error("版本信息缺失")
         val apkAsset = arr("assets")
@@ -509,59 +461,21 @@ object AppUpdater {
             ?.firstOrNull { asset ->
                 asset.get("name")?.stringValue?.endsWith(".apk", ignoreCase = true) == true
             }
-        val downloadUrl = apkAsset?.get("browser_download_url")?.stringValue
-            ?: if (channel.startsWith("github")) {
-                "https://github.com/xjtu-dzhz/dzhz/releases/download/v$version/app-release.apk"
-            } else {
-                "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases/download/v$version/app-release.apk"
-            }
-        val sha256 = apkAsset
-            ?.get("digest")
-            ?.stringValue
-            ?.removePrefix("sha256:")
-            ?.trim()
-            ?.lowercase()
-            ?.takeIf { it.length == 64 }
-        return ParsedRelease(
-            info = AppUpdateInfo(
-                version = version,
-                notes = get("body")?.stringValue.orEmpty(),
-                downloadUrl = downloadUrl,
-                releaseUrl = get("html_url")?.stringValue.orEmpty(),
-                channel = channel,
-                channelLabel = channelLabel(channel),
-                sha256 = sha256,
-            ),
-            hasApkAsset = apkAsset != null,
+        return AppUpdateInfo(
+            version = version,
+            notes = get("body")?.stringValue.orEmpty(),
+            downloadUrl = apkAsset?.get("browser_download_url")?.stringValue
+                ?: "https://github.com/xjtu-dzhz/dzhz/releases/download/v$version/app-release.apk",
+            releaseUrl = get("html_url")?.stringValue.orEmpty(),
+            channel = CHANNEL_GITHUB,
+            channelLabel = channelLabel(CHANNEL_GITHUB),
+            sha256 = apkAsset
+                ?.get("digest")
+                ?.stringValue
+                ?.removePrefix("sha256:")
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it.length == 64 },
         )
-    }
-
-    private suspend fun fetchGithubDigestByTag(version: String): String? {
-        githubDigestCache[version]?.let { return it }
-        val digest = runCatching {
-            val url = "https://api.github.com/repos/xjtu-dzhz/dzhz/releases/tags/v$version"
-            val body = client.newCall(
-                Request.Builder()
-                    .url(url)
-                    .header("Accept", "application/json")
-                    .header("User-Agent", "XJTUToolBox/${BuildConfig.VERSION_NAME}")
-                    .build()
-            ).execute().use { response ->
-                if (!response.isSuccessful) return@runCatching null
-                response.body?.string() ?: return@runCatching null
-            }
-            AppJson.parseToJsonElement(body).jsonObject
-                .arr("assets")
-                ?.mapNotNull { it as? JsonObject }
-                ?.firstOrNull { it.get("name")?.stringValue?.endsWith(".apk", true) == true }
-                ?.get("digest")?.stringValue
-                ?.removePrefix("sha256:")?.lowercase()
-                ?.takeIf { it.length == 64 }
-        }.getOrNull()
-
-        if (digest != null) {
-            githubDigestCache[version] = digest
-        }
-        return digest
     }
 }

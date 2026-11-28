@@ -102,7 +102,7 @@ private fun printStartupBanner(
         "  反馈后端：    " + if (FeedbackApi.isConfigured) {
             "已配置（/api/feedback/* 可用）"
         } else {
-            "未配置 ⇒ /api/feedback/* 报 502；设 ${ServeFeedback.ENV_APP_ID} / ${ServeFeedback.ENV_APP_SECRET} / ${ServeFeedback.ENV_BASE_TOKEN} 再启动"
+            "已禁用（${ServeFeedback.ENV_BASE_URL} 为空）⇒ /api/feedback/* 报 502"
         },
     )
     println("  访问令牌：    $token")

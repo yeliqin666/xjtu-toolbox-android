@@ -38,33 +38,16 @@ android {
         // 插件系统的设备测试：样例 APK 作为 androidTest asset，见文件末尾的 preparePluginTestAssets
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
-        // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
-        // FeedbackApi.isConfigured 为 false，反馈页降级成 GitHub Issue。
-        //
-        // CI 用 GitHub Actions secrets，名字与 BuildConfig 字段一致：
-        // FEEDBACK_APP_ID / FEEDBACK_APP_SECRET / FEEDBACK_BASE_TOKEN /
-        // FEEDBACK_TABLE_SUBMIT / FEEDBACK_TABLE_REPLY。
-        // 也认旧写法 FEEDBACK_APPID（camelCase 键直接大写、没有下划线）。
-        //
-        // app_secret 终究是打进 APK 的，无法真正保密：这对凭据只有记录的检索与新增权限（没有删除），
-        // 拿到的人能读到两张表全部内容。反馈本来就会公开到 GitHub 日报，所以不再放联系方式。
+        // 反馈后端地址（Cloudflare Worker + D1，服务端在 dzhz-server 的 services/feedback）。
+        // 公开地址、不是密钥，默认直接指到正式环境 api.dzhz.top/feedback；本地联调可用
+        // 环境变量 FEEDBACK_BASE_URL 或 feedback.properties 的 baseUrl 覆盖；置空则降级成 GitHub Issue。
         run {
             val fp = rootProject.file("feedback.properties")
             val props = Properties().apply { if (fp.exists()) fp.inputStream().use { load(it) } }
-            fun cfg(key: String): String {
-                val underscored = key.replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase()
-                val glued = key.uppercase()
-                listOf("FEEDBACK_$underscored", "FEEDBACK_$glued").distinct().forEach { name ->
-                    System.getenv(name)?.takeIf { it.isNotBlank() }?.let { return it }
-                }
-                return props.getProperty(key)?.trim().orEmpty()
-            }
-            buildConfigField("String", "FEEDBACK_APP_ID", "\"${cfg("appId")}\"")
-            buildConfigField("String", "FEEDBACK_APP_SECRET", "\"${cfg("appSecret")}\"")
-            buildConfigField("String", "FEEDBACK_BASE_TOKEN", "\"${cfg("baseToken")}\"")
-            buildConfigField("String", "FEEDBACK_TABLE_SUBMIT", "\"${cfg("tableSubmit")}\"")
-            buildConfigField("String", "FEEDBACK_TABLE_REPLY", "\"${cfg("tableReply")}\"")
+            val fbUrl = System.getenv("FEEDBACK_BASE_URL")?.trim()
+                ?: props.getProperty("baseUrl")?.trim()
+                ?: "https://api.dzhz.top/feedback"
+            buildConfigField("String", "FEEDBACK_BASE_URL", "\"$fbUrl\"")
 
             // 小游戏全服榜的服务端地址（服务端在独立仓库 Guochaoo/dzhz-server 的 services/leaderboard）。
             //
@@ -198,7 +181,7 @@ android {
 
     packaging {
         // minSdk≥28 时 AGP 默认把 dex 不压缩、按页对齐存进 APK，好让 ART 直接 mmap。
-        // 本应用 dex 约 8.8MB，占 APK 八成，用户却是整包下载（Gitee/GitHub Release），
+        // 本应用 dex 约 8.8MB，占 APK 八成，用户却是整包下载（OSS / R2 / GitHub Release），
         // 压缩后下载体积约 10.8→6.4MB。代价是安装时 ART 把 dex 解到 vdex、多占约 9MB
         // 存储；运行时跑的是 AOT/JIT 产物，启动速度不受影响（同机交替 A/B 各 18 次冷启动，
         // 压缩 ~335ms vs 不压缩 ~332ms，差异在噪声内）。
@@ -297,7 +280,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.work.runtime.ktx)
-    // 本应用靠 GitHub/Gitee Release 侧载分发，走不到 Play 的安装期 AOT。
+    // 本应用靠 OSS / R2 / GitHub Release 侧载分发，走不到 Play 的安装期 AOT。
     // profileinstaller 在首启时把包里的 baseline-prof.txt 交给 ART 编译，
     // 少了它 profile 等于没打。
     implementation(libs.androidx.profileinstaller)

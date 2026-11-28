@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -105,7 +104,8 @@ internal fun PidaiOrb(
             .onGloballyPositioned { onBoundsChange(it.boundsInRoot()) }
             .then(
                 when (form) {
-                    ShellBarAccessoryForm.CLASSIC -> Modifier.fillMaxHeight().padding(horizontal = 14.dp)
+                    // 不能 fillMaxHeight：底栏的高度没封顶，会把整条栏撑成整屏
+                    ShellBarAccessoryForm.CLASSIC -> Modifier.padding(horizontal = 14.dp)
                     ShellBarAccessoryForm.RAIL -> Modifier.padding(top = 12.dp, bottom = 16.dp)
                     else -> Modifier
                 },

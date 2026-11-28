@@ -4,7 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/** 公告 OSS 与 Gitee 两份取较新的那条规则：过期的 OSS 缓存不能盖掉 Gitee 上的新公告。 */
+/** 公告 OSS 与 GitHub 两份取较新的那条规则：过期的 OSS 边缘缓存不能盖掉分支上的新公告。 */
 class BulletinApiNewerTest {
 
     private fun doc(updatedAt: String?) =
@@ -12,18 +12,18 @@ class BulletinApiNewerTest {
 
     @Test
     fun `较新的一份胜出，不管来自哪边`() {
-        val gitee = doc("2026-11-24T21:00:00+08:00")
+        val github = doc("2026-11-24T21:00:00+08:00")
         val oss = doc("2026-11-24T22:00:00+08:00")
-        assertEquals(oss, BulletinApi.newer(gitee, oss))
-        assertEquals(gitee, BulletinApi.newer(gitee, null))
+        assertEquals(oss, BulletinApi.newer(github, oss))
+        assertEquals(github, BulletinApi.newer(github, null))
     }
 
     @Test
-    fun `OSS 是旧缓存（没有时间或时间更早）时用 Gitee`() {
-        val gitee = doc("2026-11-24T21:00:00+08:00")
-        assertEquals(gitee, BulletinApi.newer(gitee, doc(null)))
-        assertEquals(gitee, BulletinApi.newer(gitee, doc("2026-10-23T17:04:16+08:00")))
-        assertEquals(gitee, BulletinApi.newer(gitee, gitee))
+    fun `OSS 是旧缓存（没有时间或时间更早）时用 GitHub`() {
+        val github = doc("2026-11-24T21:00:00+08:00")
+        assertEquals(github, BulletinApi.newer(github, doc(null)))
+        assertEquals(github, BulletinApi.newer(github, doc("2026-10-23T17:04:16+08:00")))
+        assertEquals(github, BulletinApi.newer(github, github))
     }
 
     @Test

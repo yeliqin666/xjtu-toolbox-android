@@ -179,7 +179,7 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 | `feat/*`、`fix/*`、`chore/*` 等 | 功能与修复分支 | 通过 PR 合回 `dev` |
 
 - 功能与修复分支从 `dev` 拉出，默认合回 `dev`；只有发版时才把 `dev` 合入 `main`。
-- 推送到 `main` 后，CI 用签名密钥构建 Release APK，并按 `versionName` 创建或更新对应的 GitHub / Gitee Release；Release 说明由 `AppChangelog.kt` 自动生成，其中 `issues` 字段写发版时仍存在的问题。
+- 推送到 `main` 后，CI 用签名密钥构建 Release APK，并按 `versionName` 创建或更新对应的 GitHub Release；Release 说明由 `AppChangelog.kt` 自动生成，其中 `issues` 字段写发版时仍存在的问题。
 - 校园系统临时故障或维护公告：对 `announce` 分支的 `bulletin.json` 提 PR，或开一个「校园系统状态」Issue。
 - 预览版的发与不发由 head commit 的 `[skip preview]` 或手动触发时的 `publish_preview` 输入决定；不要通过删除或修改已有 Release 来模拟跳过。
 - 不得直接向 `main` 推送日常开发提交；紧急热修复也应当通过分支与 PR 完成。

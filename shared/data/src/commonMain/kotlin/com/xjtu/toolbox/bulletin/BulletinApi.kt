@@ -14,16 +14,13 @@ import java.util.concurrent.TimeUnit
 /**
  * announce 分支上的文件（公告 `bulletin.json`、大家在问 `feedback-qa.json`）的取数。
  *
- * 公告同时问阿里云 OSS 和 Gitee，取 `updatedAt` 较新的那份：OSS 国内快，但边缘缓存可能还停在旧版本，
- * 不能让它盖掉 Gitee 上的新公告。两边都拿不到再问 GitHub。其余文件只在 Gitee / GitHub 上。
- * 分支由 announce.yml 从讨论区「通知公告」生成，生成后同步到 Gitee 和 OSS。
+ * 公告同时问阿里云 OSS 和 GitHub 上的 announce 分支，取 `updatedAt` 较新的那份：OSS 国内快，
+ * 但前面的 ESA 边缘缓存可能还停在旧版本，不能让它盖掉分支上的新公告。其余文件 OSS 优先、GitHub 兜底。
+ * 分支由 announce.yml 从讨论区「通知公告」生成，生成后同步到 OSS。
  */
 object BulletinApi {
     private const val TAG = "BulletinApi"
     private const val OSS_BASE = "https://dzhz.zyxf.top/xjtu-toolbox/"
-    // Gitee 的 api/v5 raw 接口对未登录请求一律 401（实测 2026-09-18）；
-    // 网页 raw 地址会 302 到 raw.giteeusercontent.com，可匿名访问，国内优先走它。
-    private const val GITEE_BASE = "https://gitee.com/yeliqin666/xjtu-toolbox-android/raw/announce/"
     private const val GITHUB_BASE = "https://raw.githubusercontent.com/xjtu-dzhz/dzhz/announce/"
 
     private val client = HttpClients.base.newBuilder()
@@ -40,27 +37,30 @@ object BulletinApi {
 
     suspend fun fetch(uaVersion: String): FetchResult? = withContext(Dispatchers.IO) {
         val json = coroutineScope {
+            val github = async { fetchUrl(GITHUB_BASE + BULLETIN_FILE, uaVersion) }
             val oss = async { fetchUrl(OSS_BASE + BULLETIN_FILE, uaVersion) }
-            val gitee = async { fetchUrl(GITEE_BASE + BULLETIN_FILE, uaVersion) }
-            newer(gitee.await(), oss.await())
-        } ?: fetchUrl(GITHUB_BASE + BULLETIN_FILE, uaVersion)
+            newer(github.await(), oss.await())
+        }
         json?.let { FetchResult(BulletinRules.parsePayload(it), it) }
-    }
-
-    /** announce 分支上的一个 JSON 文件（Gitee 优先，GitHub 兜底）；两边都拿不到返回 null。 */
-    suspend fun fetchFile(name: String, uaVersion: String): String? = withContext(Dispatchers.IO) {
-        fetchUrl(GITEE_BASE + name, uaVersion) ?: fetchUrl(GITHUB_BASE + name, uaVersion)
     }
 
     /**
      * 两份公告取较新的：比 `updatedAt`（announce.py 写的 ISO 时间，同一格式可直接按字符串比）。
-     * 没有这个字段的是旧文件，算最旧；一样新时用 [primary]（Gitee 与分支同步，最可信）。
+     * 没有这个字段的是旧文件，算最旧；一样新时用 [primary]（GitHub 分支是源头）。
      */
     internal fun newer(primary: String?, secondary: String?): String? {
         if (primary == null || secondary == null) return primary ?: secondary
         fun stamp(json: String) = json.safeParseJsonObject()["updatedAt"].safeString()
         return if (stamp(secondary) > stamp(primary)) secondary else primary
     }
+
+    /** announce 分支上的一个 JSON 文件（OSS 优先，GitHub 兜底）；两边都拿不到返回 null。 */
+    suspend fun fetchFile(name: String, uaVersion: String): String? = withContext(Dispatchers.IO) {
+        fetchFileNow(name, uaVersion)
+    }
+
+    private fun fetchFileNow(name: String, uaVersion: String): String? =
+        fetchUrl(OSS_BASE + name, uaVersion) ?: fetchUrl(GITHUB_BASE + name, uaVersion)
 
     private fun fetchUrl(url: String, uaVersion: String): String? {
         return try {
