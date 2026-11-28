@@ -2,6 +2,7 @@ package com.xjtu.toolbox.shell
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -257,37 +259,43 @@ fun ShellNavigationRail(
             ),
         )
     }
+    // 这里只是想换一个文案样式，但 MiuixTheme 会把 LocalIndication 一并换成 miuix 默认那份，
+    // 顶掉根上 provide 的 SlowPressIndication——侧栏按下去的手感就跟底栏不是一套了。
+    // miuix 的 LocalTextStyles 是 internal，没法只换样式不碰别的，所以在这儿原样放回去。
+    val indication = LocalIndication.current
     MiuixTheme(textStyles = railTextStyles) {
-        NavigationRail(
-            color = MiuixTheme.colorScheme.surface,
-            state = railState,
-            expandContentDescription = "展开导航栏",
-            collapseContentDescription = "收起导航栏",
-        ) {
-            nav.tabs.tabs.forEach { tab ->
-                if (tabArt.handles(tab)) {
-                    tabArt.railTab(
-                        current = nav.selected,
-                        tab = tab,
-                        expanded = railState.isExpanded,
-                        variant = ShellTabVariant(
-                            diameter = 40.dp,
-                            paper = MiuixTheme.colorScheme.surface,
-                            vertical = true,
+        CompositionLocalProvider(LocalIndication provides indication) {
+            NavigationRail(
+                color = MiuixTheme.colorScheme.surface,
+                state = railState,
+                expandContentDescription = "展开导航栏",
+                collapseContentDescription = "收起导航栏",
+            ) {
+                nav.tabs.tabs.forEach { tab ->
+                    if (tabArt.handles(tab)) {
+                        tabArt.railTab(
+                            current = nav.selected,
+                            tab = tab,
+                            expanded = railState.isExpanded,
+                            variant = ShellTabVariant(
+                                diameter = 40.dp,
+                                paper = MiuixTheme.colorScheme.surface,
+                                vertical = true,
+                                onClick = { nav.onSelect(tab) },
+                            ),
+                        )
+                    } else {
+                        NavigationRailItem(
+                            selected = nav.selected?.id == tab.id,
                             onClick = { nav.onSelect(tab) },
-                        ),
-                    )
-                } else {
-                    NavigationRailItem(
-                        selected = nav.selected?.id == tab.id,
-                        onClick = { nav.onSelect(tab) },
-                        icon = tab.icon,
-                        label = tab.label,
-                        badge = nav.badge(tab),
-                    )
+                            icon = tab.icon,
+                            label = tab.label,
+                            badge = nav.badge(tab),
+                        )
+                    }
                 }
+                accessory?.invoke(ShellBarAccessoryForm.RAIL)
             }
-            accessory?.invoke(ShellBarAccessoryForm.RAIL)
         }
     }
 }
