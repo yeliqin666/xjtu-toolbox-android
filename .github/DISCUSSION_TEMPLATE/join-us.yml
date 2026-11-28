@@ -1,0 +1,94 @@
+# 加入我们专区（slug 必须是 join-us，文件名跟 slug 走）
+# 用于申请加入 GitHub Organization: xjtu-dzhz 的团队。
+# 支持申请加入 dzhz-dev（开发团队）和 dzhz-mod（社区管理团队）。
+# 提交后由对应 Team 的维护者审核。
+# 注意：提交申请不代表自动获得 Team 成员资格或仓库权限。
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎加入岱宗盒子！🎉
+
+        岱宗盒子是一个开放协作的开源项目，我们欢迎更多志同道合的朋友参与建设。
+
+        目前开放申请的团队：
+
+        - **dzhz-dev · 开发团队**：负责客户端、服务端及配套设施的开发、维护、测试和文档建设。
+        - **dzhz-mod · 社区管理团队**：负责社区秩序维护、Discussion 管理、用户反馈处理及社区协作。
+
+        **申请须知：**
+        - 可以同时申请两个团队。
+        - 申请不代表自动获得组织成员资格或仓库权限。
+        - 团队维护者会根据申请内容进行审核。
+        - 请勿在公开申请中填写密码、验证码或其他敏感信息。
+
+  - type: checkboxes
+    id: teams
+    attributes:
+      label: 申请加入的团队
+      description: 可以同时申请多个团队
+      options:
+        - label: "dzhz-dev · 开发团队"
+          required: false
+        - label: "dzhz-mod · 社区管理团队"
+          required: false
+    validations:
+      required: true
+
+  - type: textarea
+    id: introduction
+    attributes:
+      label: 自我介绍
+      description: 简单介绍自己，以及为什么希望加入岱宗盒子
+      placeholder: |
+        例如：
+        - 对岱宗盒子的了解
+        - 希望参与项目的原因
+        - 自己感兴趣的方向
+    validations:
+      required: true
+
+  - type: textarea
+    id: experience
+    attributes:
+      label: 相关经验与能力
+      description: 根据申请的团队介绍自己的相关经验；没有相关经验也可以说明希望学习的内容
+      placeholder: |
+        dzhz-dev：
+        - 熟悉的语言、框架、工具
+        - 开源项目或开发经历
+
+        dzhz-mod：
+        - 社区管理、协作组织经验
+        - GitHub Issues / Discussions 使用经验
+        - 沟通与问题处理经验
+    validations:
+      required: true
+
+  - type: textarea
+    id: contribution
+    attributes:
+      label: 希望参与的工作
+      description: 你希望在团队中承担什么工作？有什么具体计划或想法？
+      placeholder: |
+        例如：
+        - 参与 Android 客户端功能开发
+        - 维护项目文档与教程
+        - 协助处理社区反馈
+        - 参与 Discussion 分类与管理
+    validations:
+      required: true
+
+  - type: input
+    id: contact
+    attributes:
+      label: 其他联系方式
+      description: 可选，方便团队维护者在需要时联系你
+      placeholder: Email / 其他联系方式
+
+  - type: textarea
+    id: other
+    attributes:
+      label: 其他补充
+      description: 其他想法、问题或希望说明的内容
