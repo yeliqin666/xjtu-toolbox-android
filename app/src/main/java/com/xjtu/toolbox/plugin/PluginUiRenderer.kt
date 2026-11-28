@@ -24,6 +24,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
@@ -53,6 +54,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -108,30 +111,34 @@ internal fun PluginUiTree(
     modifier: Modifier = Modifier,
 ) {
     when (node) {
-        is UiColumnNode -> Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
-            horizontalAlignment = node.alignment.toHorizontalAlignment(),
-        ) {
-            node.children.forEach { PluginUiTree(it, onAction) }
+        is UiColumnNode -> CompositionLocalProvider(LocalUiTextAlign provides node.alignment) {
+            Column(
+                modifier = modifier,
+                verticalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
+                horizontalAlignment = node.alignment.toHorizontalAlignment(),
+            ) {
+                node.children.forEach { PluginUiTree(it, onAction) }
+            }
         }
 
-        is UiRowNode -> Row(
-            modifier = modifier,
-            horizontalArrangement = Arrangement.spacedBy(
-                node.spacingDp.dp,
-                node.horizontal.toHorizontalAlignment(),
-            ),
-            verticalAlignment = node.vertical.toVerticalAlignment(),
-        ) {
-            node.children.forEach { child ->
-                // 权重节点只在 Row 里有意义：分到 weight 份宽度
-                if (child is UiWeightNode) {
-                    Box(Modifier.weight(child.weight.coerceAtLeast(0.01f))) {
-                        PluginUiTree(child.child, onAction)
+        is UiRowNode -> CompositionLocalProvider(LocalUiTextAlign provides node.horizontal) {
+            Row(
+                modifier = modifier,
+                horizontalArrangement = Arrangement.spacedBy(
+                    node.spacingDp.dp,
+                    node.horizontal.toHorizontalAlignment(),
+                ),
+                verticalAlignment = node.vertical.toVerticalAlignment(),
+            ) {
+                node.children.forEach { child ->
+                    // 权重节点只在 Row 里有意义：分到 weight 份宽度
+                    if (child is UiWeightNode) {
+                        Box(Modifier.weight(child.weight.coerceAtLeast(0.01f))) {
+                            PluginUiTree(child.child, onAction)
+                        }
+                    } else {
+                        PluginUiTree(child, onAction)
                     }
-                } else {
-                    PluginUiTree(child, onAction)
                 }
             }
         }
@@ -139,20 +146,24 @@ internal fun PluginUiTree(
         is UiWeightNode -> PluginUiTree(node.child, onAction, modifier)
 
         // 横滑行：子节点按内容宽度排，给个上限免得一张卡占满整行
-        is UiScrollRowNode -> Row(
-            modifier = modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            node.children.forEach { child ->
-                Box(Modifier.widthIn(max = 280.dp)) { PluginUiTree(child, onAction) }
+        is UiScrollRowNode -> CompositionLocalProvider(LocalUiTextAlign provides UiAlign.Start) {
+            Row(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                node.children.forEach { child ->
+                    Box(Modifier.widthIn(max = 280.dp)) { PluginUiTree(child, onAction) }
+                }
             }
         }
 
-        is UiFlowRowNode -> FlowRowLayout(spacing = node.spacingDp.dp, modifier = modifier) {
-            node.children.forEach { PluginUiTree(it, onAction) }
+        is UiFlowRowNode -> CompositionLocalProvider(LocalUiTextAlign provides UiAlign.Start) {
+            FlowRowLayout(spacing = node.spacingDp.dp, modifier = modifier) {
+                node.children.forEach { PluginUiTree(it, onAction) }
+            }
         }
 
         is UiTextNode -> Text(
@@ -182,6 +193,7 @@ internal fun PluginUiTree(
             textDecoration = textDecorationOf(node.underline, node.strikeThrough),
             maxLines = node.maxLines.takeIf { it > 0 } ?: Int.MAX_VALUE,
             overflow = TextOverflow.Ellipsis,
+            textAlign = LocalUiTextAlign.current.toTextAlign(),
         )
 
         is UiRichTextNode -> Text(
@@ -215,6 +227,7 @@ internal fun PluginUiTree(
             },
             modifier = modifier,
             style = node.style.toMiuixStyle(),
+            textAlign = LocalUiTextAlign.current.toTextAlign(),
         )
 
         // 可点的卡与宿主列表卡一致：下沉按压 + 按压遮罩
@@ -226,7 +239,9 @@ internal fun PluginUiTree(
             showIndication = node.actionId.isNotEmpty(),
             onClick = if (node.actionId.isEmpty()) null else ({ onAction(node.actionId, null) }),
         ) {
-            Column(Modifier.padding(node.paddingDp.dp)) { PluginUiTree(node.child, onAction) }
+            CompositionLocalProvider(LocalUiTextAlign provides UiAlign.Start) {
+                Column(Modifier.padding(node.paddingDp.dp)) { PluginUiTree(node.child, onAction) }
+            }
         }
 
         is UiButtonNode -> run {
@@ -333,16 +348,18 @@ internal fun PluginUiTree(
 
         is UiGridNode -> {
             val columns = node.columns.coerceIn(1, 4)
-            Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                node.children.chunked(columns).forEach { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        row.forEach { child ->
-                            Box(Modifier.weight(1f)) { PluginUiTree(child, onAction) }
+            CompositionLocalProvider(LocalUiTextAlign provides UiAlign.Start) {
+                Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    node.children.chunked(columns).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            row.forEach { child ->
+                                Box(Modifier.weight(1f)) { PluginUiTree(child, onAction) }
+                            }
+                            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -484,6 +501,22 @@ private fun UiAlign.toHorizontalAlignment(): Alignment.Horizontal = when (this) 
     UiAlign.Start -> Alignment.Start
     UiAlign.Center -> Alignment.CenterHorizontally
     UiAlign.End -> Alignment.End
+}
+
+/**
+ * 当前容器给文字用的水平对齐：Column 传 [com.xjtu.toolbox.plugin.api.UiColumnNode.alignment]，
+ * Row 传 [com.xjtu.toolbox.plugin.api.UiRowNode.horizontal]。
+ *
+ * 文本节点自己填满宽度时，靠修改器对齐是没用的（Compose 的 Text 默认左起排），
+ * 所以把对齐透传给它，`UiColumnNode(alignment = End)` 里的长文本才真的靠右。
+ * 卡片、网格、横滑行、流式换行这些容器内部按 Start 排，进去重置成 Start。
+ */
+private val LocalUiTextAlign = compositionLocalOf { UiAlign.Start }
+
+private fun UiAlign.toTextAlign(): TextAlign = when (this) {
+    UiAlign.Start -> TextAlign.Start
+    UiAlign.Center -> TextAlign.Center
+    UiAlign.End -> TextAlign.End
 }
 
 /** Row 的垂直对齐：Start 是顶部，End 是底部。 */

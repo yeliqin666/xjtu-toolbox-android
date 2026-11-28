@@ -141,6 +141,8 @@ class TemplatePage(private val ctx: PluginContext) : PluginPage() {
 | `UiDividerNode()` / `UiSpacerNode(heightDp)` | 分隔线 / 留白 |
 | `UiLoadingNode(text)` / `UiEmptyNode(title, subtitle)` | 加载中 / 空状态 |
 
+> 文字对齐跟着所在 `Column` / `Row` 的水平对齐走：`alignment = End` 的竖排里，长文本也真的靠右排；卡片、网格、横滑行、流式换行内部按左起排。
+
 **字阶**：`Display`（页面大标题）、`Title`（分区）、`Section`（卡片标题）、`Body`（正文）、`Caption`（脚注）。
 
 **颜色**：`UiTextColor.{Default, Secondary, Primary, Success, Warning, Error}`，或者直接给 `argb`（自己适配深浅色）。
