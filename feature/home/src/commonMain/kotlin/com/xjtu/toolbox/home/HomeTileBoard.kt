@@ -22,6 +22,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -91,7 +92,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -1218,18 +1221,25 @@ internal fun HomeTileFaceBox(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    ExpressiveIcon(
-                        icon = face.icon,
-                        color = iconColor,
-                        size = (if (liveSpan == null) (minOf(w, h) * 42f).coerceIn(36f, 46f) else 42f).dp,
-                        iconSize = (if (liveSpan == null) (minOf(w, h) * 24f).coerceIn(20f, 26f) else 24f).dp,
-                        modifier = if (liveSpan == null) Modifier else Modifier.graphicsLayer {
-                            val span = liveSpan()
-                            val scale = (minOf(span.x, span.y) * 42f).coerceIn(36f, 46f) / 42f
-                            scaleX = scale
-                            scaleY = scale
-                        },
-                    )
+                    // 图标占名称之外剩下的高度：系统字号放大后标题那一行从 13dp 长到 19.5dp（1.5x），
+                    // 图标就跟着小一圈，而不是让名称被卡片底边切掉（#622）。字号正常时仍是 42dp。
+                    Box(
+                        Modifier.weight(1f, fill = false).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ExpressiveIcon(
+                            icon = face.icon,
+                            color = iconColor,
+                            size = (if (liveSpan == null) (minOf(w, h) * 42f).coerceIn(36f, 46f) else 42f).dp,
+                            iconSize = (if (liveSpan == null) (minOf(w, h) * 24f).coerceIn(20f, 26f) else 24f).dp,
+                            modifier = if (liveSpan == null) Modifier else Modifier.graphicsLayer {
+                                val span = liveSpan()
+                                val scale = (minOf(span.x, span.y) * 42f).coerceIn(36f, 46f) / 42f
+                                scaleX = scale
+                                scaleY = scale
+                            },
+                        )
+                    }
                     Spacer(Modifier.height(5.dp))
                     Text(
                         face.title,
@@ -1242,47 +1252,72 @@ internal fun HomeTileFaceBox(
                     )
                 }
 
-                // 横条（2×1 起）：图标在左，右边是「小号名称 + 主要数据 + 一行说明」
-                HomeTileShape.Wide -> Row(
+                // 横条（2×1 起）：图标在左，右边是「小号名称 + 主要数据 + 一行说明」。
+                // 一格见方高 ~76dp，去掉上下 8dp 只剩 60dp，系统字号放大后三行放不下：
+                // 按重要程度从上往下留——先砍说明，再砍小号名称，大字保底（#622）。
+                HomeTileShape.Wide -> BoxWithConstraints(
                     Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    ExpressiveIcon(icon = face.icon, color = iconColor, size = 40.dp, iconSize = 22.dp)
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            face.labelText,
-                            fontSize = 10.sp,
-                            lineHeight = 13.sp,
-                            color = muted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            // 状态让给了明细（通知的状态就是最新一条）时，横条上还是给那一条，不退回静态副标题
-                            face.stat?.takeIf { it.isNotBlank() } ?: lines.firstOrNull()?.text ?: face.heroText,
-                            style = if (figure) {
-                                Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
-                            } else {
-                                MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
-                            },
-                            color = statColor,
-                            maxLines = if (figure || !face.statDetail.isNullOrBlank()) 1 else 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        // 说明只跟着大字数据走：一句话型的状态本身就是完整的一句，再加一行反而碎。
-                        // 没有说明时拿明细第一条补上（课表大字「5 门课」下面就是下一节）
-                        val wideDetail = face.statDetail?.takeIf { it.isNotBlank() } ?: lines.firstOrNull()?.text
-                        if (figure && wideDetail != null) {
+                    val fontScale = LocalDensity.current.fontScale
+                    val labelHeight = HomeTileType.line(13f, fontScale)
+                    val detailHeight = HomeTileType.line(12f, fontScale)
+                    val statText = face.stat?.takeIf { it.isNotBlank() } ?: lines.firstOrNull()?.text ?: face.heroText
+                    val figureStyle = Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
+                    // 大字是给「¥128.50」「12 周」这种短数据准备的：字号放大后长一点的状态一行放不下，
+                    // 与其切成「今天 3…」，不如退回正文排——它还能折两行（#622）
+                    val figureWidth = rememberTextMeasurer().measure(AnnotatedString(statText), figureStyle, maxLines = 1).size.width
+                    val useFigure = figure &&
+                        figureWidth <= with(LocalDensity.current) { (maxWidth - 50.dp).toPx() }
+                    val statHeight = HomeTileType.line(if (useFigure) 23f else 16f, fontScale)
+                    // 说明只跟着大字数据走：一句话型的状态本身就是完整的一句，再加一行反而碎。
+                    // 没有说明时拿明细第一条补上（课表大字「5 门课」下面就是下一节）
+                    val wideDetail = face.statDetail?.takeIf { it.isNotBlank() } ?: lines.firstOrNull()?.text
+                    val showDetail = useFigure && wideDetail != null &&
+                        labelHeight + statHeight + detailHeight + 3.dp <= maxHeight
+                    val showLabel = labelHeight + statHeight + 3.dp +
+                        (if (showDetail) detailHeight else 0.dp) <= maxHeight
+                    // 一句话型最多两行，但两行也得放得下才给——1.5x 时 2×1 只塞得下一行
+                    val sentenceLines = if (labelHeight + 3.dp + statHeight * 2f <= maxHeight) 2 else 1
+                    Row(
+                        Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 40.dp, iconSize = 22.dp)
+                        Column(Modifier.weight(1f)) {
+                            if (showLabel) {
+                                Text(
+                                    face.labelText,
+                                    fontSize = 10.sp,
+                                    lineHeight = 13.sp,
+                                    color = muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(3.dp))
+                            }
                             Text(
-                                wideDetail,
-                                fontSize = 9.5.sp,
-                                lineHeight = 12.sp,
-                                color = muted,
-                                maxLines = 1,
+                                // 状态让给了明细（通知的状态就是最新一条）时，横条上还是给那一条，不退回静态副标题
+                                statText,
+                                style = if (useFigure) {
+                                    figureStyle
+                                } else {
+                                    MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
+                                },
+                                color = statColor,
+                                maxLines = if (useFigure || !face.statDetail.isNullOrBlank()) 1 else sentenceLines,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            if (showDetail) {
+                                Text(
+                                    wideDetail,
+                                    fontSize = 9.5.sp,
+                                    lineHeight = 12.sp,
+                                    color = muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }
@@ -1477,7 +1512,13 @@ private fun TileLines(
     brief: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val rowHeight = if (compact) 16.dp else 20.dp
+    // 行高按字号算：13sp 的行在 1.25x 下要 16.25dp，还按原来的 16dp 排就会被切掉（#622）。
+    // 行高随字号一起长，FitRows 也就自然少放几行，不会摆出半截。
+    val rowHeight = HomeTileType.row(
+        lineHeightSp = if (compact) 13f else 15f,
+        paddingDp = if (compact) 3f else 5f,
+        fontScale = LocalDensity.current.fontScale,
+    )
     FitRows(rowHeight, modifier) {
         lines.take(MAX_TILE_LINE_ROWS).forEach { line ->
             val link = line.link
@@ -1651,7 +1692,13 @@ private fun TileLinesRich(
     modifier: Modifier = Modifier,
 ) {
     val anyDetail = lines.any { !it.detail.isNullOrBlank() }
-    val rowHeight = if (anyDetail) 40.dp else 26.dp
+    // 一条两行（正文 16sp + 说明 14sp）时两行都得按字号放出来，原来写死 40dp / 26dp（#622）。
+    val fontScale = LocalDensity.current.fontScale
+    val rowHeight = if (anyDetail) {
+        HomeTileType.line(16f, fontScale) + HomeTileType.line(14f, fontScale) + 10.dp
+    } else {
+        HomeTileType.row(16f, 10f, fontScale)
+    }
     FitRows(rowHeight, modifier) {
         lines.take(MAX_TILE_LINE_ROWS * columns).chunked(columns).forEach { row ->
             Row(Modifier.fillMaxWidth().height(rowHeight), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
