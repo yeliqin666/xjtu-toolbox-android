@@ -25,3 +25,47 @@ internal fun parseAbsoluteUrl(raw: String): Url? {
     if (trimmed.contains('\\')) return null
     return runCatching { URLBuilder().takeFrom(trimmed).build() }.getOrNull()
 }
+
+/**
+ * 把 `Url.host` 折算成「**真正发请求的那一层**（OkHttp）会看到的样子」；折算不了就 `null`。
+ *
+ * 为什么需要这一层（#597 复审）：Ktor 与 OkHttp 对主机里的百分号编码处理**不一样**。
+ * Ktor 原样保留，OkHttp 解码后再发 —— 实测（okhttp 5.5.0）：
+ * `http://%31%32%37.0.0.1:8080/` → host `127.0.0.1`，`http://127%2e0%2e0%2e1/` → `127.0.0.1`，
+ * `http://%6c%6f%63%61%6c%68%6f%73%74/` → `localhost`。按 Ktor 的字符串判「是不是本机」，
+ * 这几条都能过去（`%31…` 既不是 `localhost` 也不全是数字点），换到发送端就成了回环地址。
+ *
+ * 所以判之前先解码，再做三件事：
+ * - 解完还带 `%`（`%25%33%31` 这种双层编码）或出现非 ASCII ⇒ 一律 `null`：合法主机名里不该有这些；
+ * - **去掉尾随的点**：`localhost.` / `127.0.0.1.` 在 DNS 里与不带点的同一个主机，
+ *   但按字符串比就绕过了「等于 localhost」那一条；
+ * - 统一小写（[Url.host] 已经小写，这里只是兜底）。
+ */
+internal fun canonicalHostForRequest(rawHost: String): String? {
+    val decoded = percentDecode(rawHost) ?: return null
+    val host = decoded.trimEnd('.')
+    if (host.isEmpty()) return null
+    if (host.any { it == '%' || it.code > 0x7F }) return null
+    return host.lowercase()
+}
+
+/** 只解码主机里出现的 `%XX` 三元组；畸形（截断 / 非十六进制）返回 `null`。 */
+private fun percentDecode(raw: String): String? {
+    if ('%' !in raw) return raw
+    val out = StringBuilder(raw.length)
+    var i = 0
+    while (i < raw.length) {
+        val c = raw[i]
+        if (c != '%') {
+            out.append(c)
+            i++
+            continue
+        }
+        if (i + 2 >= raw.length) return null
+        val hi = raw[i + 1].digitToIntOrNull(16) ?: return null
+        val lo = raw[i + 2].digitToIntOrNull(16) ?: return null
+        out.append(((hi shl 4) or lo).toChar())
+        i += 3
+    }
+    return out.toString()
+}

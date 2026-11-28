@@ -414,23 +414,28 @@ private const val DOWNLOAD_LOCAL_HOST_MESSAGE =
  *   全在这一条里。serve 默认只听本机，但这台机器**自己能打到**的内网不只有它自己；
  * - `localhost` / `*.localhost` 同上（`hosts` 文件里那一行就是它）。
  *
+ * 主机判之前先经 [canonicalHostForRequest] 折算成 OkHttp 实际会发的那一份：Ktor 保留百分号编码、
+ * OkHttp 解码，`%31%32%37.0.0.1` 在这一层看着像域名、到发送端就是 `127.0.0.1`（#597 复审）。
+ *
  * ## 如实边界
  *
  * 域名解析到私网地址（DNS rebinding）这一层挡不住：要挡得在连接层按**解析结果**判，那需要自建
  * DNS 或自定义 `Dns` 实现，与「只支持直链」这一族的体量不匹配。默认只听本机的部署风险有限；
  * 用 `--host 0.0.0.0` 对外开的机器仍应自己收紧防火墙（见 #597 的优先级说明）。
+ *
+ * 被放行的公网地址**重定向**到内网这一条也挡不住（引擎的 client 默认跟随重定向），同上按部署收紧。
  */
 internal fun downloadUrlProblem(url: String): String? {
     if (url.contains(".m3u8", ignoreCase = true)) return DOWNLOAD_M3U8_MESSAGE
     val parsed = parseAbsoluteUrl(url) ?: return DOWNLOAD_URL_MESSAGE
     if (parsed.protocol != URLProtocol.HTTP && parsed.protocol != URLProtocol.HTTPS) return DOWNLOAD_URL_MESSAGE
     if (!parsed.user.isNullOrEmpty() || !parsed.password.isNullOrEmpty()) return DOWNLOAD_URL_MESSAGE
-    val host = parsed.host
-    if (host.isEmpty() || isLocalOrLiteralIp(host)) return DOWNLOAD_LOCAL_HOST_MESSAGE
+    val host = canonicalHostForRequest(parsed.host) ?: return DOWNLOAD_URL_MESSAGE
+    if (isLocalOrLiteralIp(host)) return DOWNLOAD_LOCAL_HOST_MESSAGE
     return null
 }
 
-/** 本机名，或「浏览器也认」的 IP 字面量写法（点分四段 / 纯数字 / 带冒号的 IPv6）。 */
+/** 本机名，或「浏览器也认」的 IP 字面量写法（点分四段 / 纯数字 / 带冒号的 IPv6）。传进来的应当已折算过。 */
 private fun isLocalOrLiteralIp(host: String): Boolean {
     val lower = host.lowercase()
     if (lower == "localhost" || lower.endsWith(".localhost")) return true
