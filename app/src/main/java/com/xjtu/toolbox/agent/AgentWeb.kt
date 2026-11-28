@@ -24,8 +24,8 @@ internal object AgentWeb {
     /** 只为防 OOM 截读；超了按已读部分转 Markdown，不整页拒绝。smolagents 则是转完再截字符。 */
     const val HTML_READ_BYTES = 8L * 1024 * 1024
 
-    /** smolagents VisitWebpageTool 默认 40_000；本地模型上下文更紧，用硬上限。 */
-    const val MARKDOWN_CHARS = ContextBudget.HARD_CAP
+    /** smolagents VisitWebpageTool 默认 40_000；本地模型上下文更紧，取 16_000。 */
+    const val MARKDOWN_CHARS = 16_000
 
     private val BINARY_TYPES = listOf(
         "application/pdf", "application/zip", "application/gzip", "application/octet-stream",

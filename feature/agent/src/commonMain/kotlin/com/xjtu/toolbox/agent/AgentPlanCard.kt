@@ -21,7 +21,7 @@ internal object AgentPlanCard {
     private val HHMM = Regex("""([01]?\d|2[0-3]):[0-5]\d""")
 
     fun definition(): JsonObject = agentTool(TOOL,
-        "把日程、待办列成卡片，用户逐条点「加入」才写入。返回时卡片已展示。",
+        "把日程、待办列成卡片，用户逐条点「加入」才写入。返回时卡片已展示。${AgentRunner.DISPLAY_ENDS_TURN}",
         buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
@@ -32,7 +32,7 @@ internal object AgentPlanCard {
                         put("type", "object")
                         putJsonObject("properties") {
                             put("title", agentStrProp("事项，不超过 20 字。"))
-                            put("type", agentEnumProp("event 占一段时间、到点去做；todo 只需在某时刻前办完。", "event", "todo"))
+                            put("type", agentEnumProp("event=有起止时间的日程；todo=有截止时间的待办，包括只知道日期、没定几点的事项。", "event", "todo"))
                             put("date", agentStrProp("yyyy-MM-dd。"))
                             put("start", agentStrProp("HH:mm。event 必填；todo 为截止时刻，可空（当天截止）。"))
                             put("end", agentStrProp("HH:mm。event 缺省：开始后 1 小时。"))

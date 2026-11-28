@@ -120,6 +120,17 @@ class AgentRunner(
         /** 只在熔断那一刻告诉模型，平时不提次数，免得它束手束脚。 */
         fun remainingToolHint(used: Int): String? =
             if (used >= TOOL_CALL_FUSE) "\n（工具次数已用尽）" else null
+
+        /**
+         * 只改界面、模型不必读回执的工具：一轮里只有它们且正文已写好时直接结束，省一次请求。
+         * 这条规则写在它们的工具描述里（[DISPLAY_ENDS_TURN]），模型知道要先查完再展示。
+         * 改标题不算：它常和「我先查一下」一起出现在开头，后面还有正事；被锁拒绝时模型也得读到。
+         */
+        internal const val DISPLAY_ENDS_TURN = "与回复正文在同一次回复里调用时，展示完本轮回答即结束，不再继续调用工具。"
+
+        private val DISPLAY_ONLY_TOOLS = setOf(
+            AgentWidgetPresentation.TOOL, AgentPlanCard.TOOL, AgentPostCard.TOOL,
+        )
     }
 
     /** 站点 -> 上次调用时刻，用于按站点限流。 */
@@ -279,11 +290,25 @@ class AgentRunner(
             val toolResults = ArrayList<JsonObject>(sr.toolCalls.size)
             var activeCallIndex = 0
             var executingCall = false
+            // 整轮只有展示类调用且正文已写好：不触发工具气泡（界面不拆气泡），成功就直接收尾
+            val displayBatch = sr.content.isNotBlank() && sr.finishReason != "length" &&
+                toolCallCount + sr.toolCalls.size <= TOOL_CALL_FUSE &&
+                sr.toolCalls.all { it.name in DISPLAY_ONLY_TOOLS }
+            var displayOnly = displayBatch
             try {
             for ((callIndex, tc) in sr.toolCalls.withIndex()) {
                 activeCallIndex = callIndex
                 executingCall = false
-                onToolCall(tc.name)
+                // 一次返回多个调用时也守住上限：超出的不执行
+                if (toolCallCount >= TOOL_CALL_FUSE) {
+                    toolResults.add(buildJsonObject {
+                        put("role", "tool")
+                        put("tool_call_id", tc.id)
+                        put("content", "status: not_started; reason: tool_limit")
+                    })
+                    continue
+                }
+                if (!displayBatch) onToolCall(tc.name)
                 // 限流按**站点**算，不再全局一刀切。
                 // 原来是 `if (toolCallCount > 0) delay(1000L)`：不管这次打的是哪个系统都先等 1 秒。
                 // 而连环问（"几点下课 / 哪有空教室 / 图书馆还有座"）恰恰打的是不同系统，
@@ -320,10 +345,13 @@ class AgentRunner(
                         val args = AppJson.parseToJsonElement(tc.arguments).jsonObject
                         val title = args.argStr("title")
                         if (title.isNullOrBlank()) ToolReply.missing("title") else retitle(title, args.argBool("requested_by_user") == true)
-                    } else interruptible { tools.execute(tc.name, tc.arguments) }
+                    } else interruptible { tools.execute(tc.name, withoutUserConfirmed(tc.arguments)) }
                 }
                 // 查询保留快照，展示在拿到结果后单独决定。
-                val made = if (tc.name == AgentWidgetPresentation.TOOL || tc.name == AgentPlanCard.TOOL || tc.name == AgentPostCard.TOOL) emptyList() else tools.drainWidgets()
+                val drained = if (tc.name == AgentWidgetPresentation.TOOL || tc.name == AgentPlanCard.TOOL || tc.name == AgentPostCard.TOOL) emptyList() else tools.drainWidgets()
+                // 确认卡直接展示，和待办卡一样不经 present_result；单独的 key，免得被同一调用的快照展示替换掉
+                val (confirms, made) = drained.partition { it is ActivityConfirmWidget }
+                if (confirms.isNotEmpty()) present("${tc.id}#confirm", confirms)
                 var result: String
                 val toolErrorMsg: String?
                 if (toolResult.isSuccess) {
@@ -353,7 +381,13 @@ class AgentRunner(
                     result = "工具调用出错：${e?.message ?: "未知异常"}"
                     toolErrorMsg = e?.message ?: "未知异常"
                 }
-                onToolResult(tc.name, toolErrorMsg == null, toolErrorMsg)
+                if (!displayBatch) onToolResult(tc.name, toolErrorMsg == null, toolErrorMsg)
+                else if (toolErrorMsg != null) {
+                    // 展示失败要再请求一轮：补发回调，让界面在这里拆开气泡并显示失败
+                    displayOnly = false
+                    onToolCall(tc.name)
+                    onToolResult(tc.name, false, toolErrorMsg)
+                }
                 toolCallCount++
                 toolResults.add(buildJsonObject {
                     put("role", "tool")
@@ -405,6 +439,11 @@ class AgentRunner(
                     }
                 })
             })
+            // 历史停在 tool 消息上，下一条 user 接着发是合法序列
+            if (displayOnly && !canSee) {
+                assembled.append(sr.content)
+                return assembled.toString()
+            }
         }
     }
 
@@ -412,6 +451,12 @@ class AgentRunner(
      * 只有 OpenAI 官方删 `reasoning_content`（它不认这个字段）。自定义端点原样回传：思维链就是它自己返回的，
      * 而 DeepSeek 系模型带 tools 时要求历史思维链完整回传，删了会 400。
      */
+    /** 去掉只有卡片按钮能带的确认参数：模型自己带上也不算用户确认。 */
+    private fun withoutUserConfirmed(args: String): String {
+        val obj = runCatching { AppJson.parseToJsonElement(args).jsonObject }.getOrNull() ?: return args
+        return if (USER_CONFIRMED_ARG in obj) JsonObject(obj - USER_CONFIRMED_ARG).toString() else args
+    }
+
     private fun messagesForProvider(messages: List<JsonElement>, config: AgentConfig): JsonArray {
         if (config.provider != AgentConfig.PROVIDER_OPENAI) return JsonArray(messages)
         return buildJsonArray {

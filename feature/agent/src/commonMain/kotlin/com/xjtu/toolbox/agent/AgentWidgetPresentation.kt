@@ -27,7 +27,7 @@ internal object AgentWidgetPresentation {
 
     fun schema(kind: String? = null): JsonObject {
         val props = linkedMapOf(
-            "rows" to arrayProp("原始结果从 1 开始的条目编号，按此顺序选取；不得编造。空数组不显示任何条目。", "integer"),
+            "rows" to arrayProp("要显示的条目，填原始结果中从 1 开始的编号，按所给顺序显示。空数组不显示任何条目。", "integer"),
             "limit" to agentIntProp("最多展示 1–30 条，默认 12。"),
             "fields" to arrayProp("显示的可选字段；不填显示全部。各类型字段见对应选项。"),
         )
@@ -56,7 +56,7 @@ internal object AgentWidgetPresentation {
         }
         forKind("attendance") { props["statuses"] = arrayProp("normal/late/absence/leave/unknown，或对应中文；只看异常可传 late,absence。fields: date,location,status。") }
         forKind("card") {
-            props["view"] = agentEnumProp("余额、收支汇总、流水或全部；汇总和流水须查询 days。fields: balance,summary,transactions。", "all", "balance", "summary", "transactions")
+            props["view"] = agentEnumProp("余额、收支汇总、流水或全部；汇总和流水要求查询时给了 days。fields: balance,summary,transactions。", "all", "balance", "summary", "transactions")
             props["direction"] = agentEnumProp("流水方向。", "all", "expense", "income")
         }
         forKind("files") { props["kind"] = agentEnumProp("只显示文件、目录或全部。fields: path,size。", "all", "files", "folders") }
@@ -70,9 +70,9 @@ internal object AgentWidgetPresentation {
         }
         forKind("notices") {
             props["sources"] = arrayProp("按真实来源名筛选。fields: source,date,why。标题与原文链接始终保留。")
-            props["caption"] = agentStrProp("仅通知卡片：最多 120 字的总括，可留空；事实须来自查询结果。")
+            props["caption"] = agentStrProp("仅通知卡片：卡片上方的总括，最多 120 字，可留空。")
             props["annotations"] = buildJsonObject {
-                put("type", "array"); put("description", "推荐理由与重要程度。标题、来源、日期、链接沿用查询结果；需要详情时先读原文。")
+                put("type", "array"); put("description", "逐条的推荐理由与重要程度。标题、来源、日期、链接固定取自查询结果。")
                 put("items", buildJsonObject {
                     put("type", "object")
                     put("properties", buildJsonObject {
@@ -115,7 +115,7 @@ internal object AgentWidgetPresentation {
     }
 
     fun toolDefinition(results: Map<String, String>) = agentTool(TOOL,
-        "先查看查询结果，再用本轮 result_id 展示。数据结果显示卡片和页面入口；仅有页面入口的结果显示入口。display 可筛选已有数据。重复展示替换旧卡。",
+        "把本轮某次查询的结果展示成卡片和页面入口（没有数据卡片的结果只显示入口）。display 可筛选、排序已有数据；对同一结果再次调用会替换旧卡片。${AgentRunner.DISPLAY_ENDS_TURN}",
         agentParams("result_id" to agentEnumProp("查询完成后返回的 result_id。", *results.keys.toTypedArray()),
             "display" to schema(results.values.mapNotNull { kinds[it] }.distinct().singleOrNull()), required = listOf("result_id")))
 
@@ -141,6 +141,7 @@ internal object AgentWidgetPresentation {
             is CampusMapWidget -> w.places
             is PlanWidget -> w.items.map { "${it.date} ${it.start}｜${it.title}" }
             is PostWidget -> listOf("${w.category}｜${w.title}")
+            is ActivityConfirmWidget -> listOf("${w.action}｜${w.title}")
             is BusWidget -> w.items.map { "${it.time} ${it.line}｜${it.route}｜余${it.seatsLeft}" }
             is LmsFileWidget -> w.items.map { it.name + if (it.mine) "｜用户提交" else "｜老师发布" }
         }
@@ -173,7 +174,7 @@ internal object AgentWidgetPresentation {
         require(options.keys.all { it in known }) { "不支持的展示选项：${(options.keys - known).joinToString()}" }
         return widgets.map { w ->
             val kind = when (w) {
-                is PlanWidget, is PostWidget -> return@map w   // 由 propose_plan / propose_post 直接出卡，没有筛选项
+                is PlanWidget, is PostWidget, is ActivityConfirmWidget -> return@map w   // 直接出卡，没有筛选项
                 is NoticeWidget -> "notices"
                 is GradeWidget -> "grades"; is ScheduleWidget -> "schedule"; is ExamWidget -> "exams"
                 is RoomWidget, is LiveRoomWidget -> "rooms"; is AttendanceWidget -> "attendance"
@@ -306,7 +307,7 @@ internal object AgentWidgetPresentation {
                     val areas = if (w.areas.isEmpty()) w.areas else o.select(w.areas)
                     w.copy(areas = areas, highlightedSeats = ids, display = o.display(w.seats.size, view = view))
                 }
-                is PlanWidget, is PostWidget -> w
+                is PlanWidget, is PostWidget, is ActivityConfirmWidget -> w
                 is CampusMapWidget -> {
                     val names = o.strings("place_names")
                     require(names == null || names.all { it in w.places }) { "place_names 只能选择本次结果已有地点" }

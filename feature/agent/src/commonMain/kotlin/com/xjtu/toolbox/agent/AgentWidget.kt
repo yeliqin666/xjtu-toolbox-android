@@ -103,6 +103,7 @@ fun AgentWidgetView(
         is CampusMapWidget  -> CampusMapWidgetView(widget, modifier)
         is PlanWidget       -> PlanWidgetView(widget, modifier, onTool)
         is PostWidget       -> PostWidgetView(widget, modifier, onTool, onNavigate)
+        is ActivityConfirmWidget -> ActivityConfirmWidgetView(widget, modifier, onTool)
         is BusWidget        -> BusWidgetView(widget, modifier, onNavigate)
         is LmsFileWidget    -> LmsFileWidgetView(widget, host, modifier, onNavigate, onTool)
     }
@@ -970,6 +971,76 @@ private object PostPublishedLog {
     }
     fun put(w: PostWidget, number: Int) = store.putString(keyOf(w), number.toString())
     fun cancel(w: PostWidget) = store.putString(keyOf(w), CANCELLED)
+}
+
+// ── 活动报名确认 ─────────────────────────────────────────────────────
+
+/** 提交过的确认卡按卡记在本机：重绘历史消息时仍显示已完成；同一活动后来新出的卡不受影响。 */
+private object ActivityConfirmLog {
+    private val store get() = com.xjtu.toolbox.platform.keyValueStore("agent_activity_confirm" + com.xjtu.toolbox.account.AccountContext.safeSuffix())
+    private fun keyOf(w: ActivityConfirmWidget) = w.action + "|" + w.id + "|" + w.cardId
+    fun done(w: ActivityConfirmWidget) = store.getString(keyOf(w)) != null
+    fun put(w: ActivityConfirmWidget) = store.putString(keyOf(w), "1")
+}
+
+@Composable
+private fun ActivityConfirmWidgetView(w: ActivityConfirmWidget, modifier: Modifier, onTool: (suspend (String, String) -> String)?) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val apply = w.action == "apply"
+    var state by remember(w) { androidx.compose.runtime.mutableStateOf(if (ActivityConfirmLog.done(w)) PlanAddState.Added else PlanAddState.Idle) }
+    var error by remember(w) { androidx.compose.runtime.mutableStateOf("") }
+    val done = state == PlanAddState.Added
+    WidgetCard(
+        title = if (apply) "确认报名" else "确认取消报名", icon = Icons.Default.EventAvailable, accent = MiuixTheme.colorScheme.primary,
+        subtitle = when {
+            done -> if (apply) "已报名" else "已取消报名"
+            onTool == null -> "智慧社区活动"
+            else -> "点下方按钮才会提交"
+        },
+        modifier = modifier,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(com.xjtu.toolbox.ui.components.AppInsetColor)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(w.title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val meta = listOf(w.start, w.place, w.note).filter { it.isNotBlank() }.joinToString(" · ")
+            if (meta.isNotEmpty()) Text(meta, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
+        if (error.isNotEmpty()) Text(error, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 8.dp))
+        if (onTool != null || done) {
+            Row(Modifier.padding(top = 10.dp)) {
+                com.xjtu.toolbox.ui.components.PidaiChip(
+                    when {
+                        done -> if (apply) "已报名" else "已取消"
+                        state == PlanAddState.Busy -> "提交中"
+                        else -> if (apply) "确认报名" else "确认取消报名"
+                    },
+                    icon = if (done) Icons.Default.Check else Icons.Default.EventAvailable,
+                    emphasized = !done,
+                    enabled = !done && state != PlanAddState.Busy && onTool != null,
+                    onClick = {
+                        val run = onTool ?: return@PidaiChip
+                        scope.launch {
+                            state = PlanAddState.Busy
+                            error = ""
+                            val args = """{"action":"${w.action}","id":${kotlinx.serialization.json.JsonPrimitive(w.id)},"$USER_CONFIRMED_ARG":true}"""
+                            val reply = runCatching { run("activity", args) }.getOrElse { "error: ${it.message}" }
+                            if (reply.startsWith("ok:")) {
+                                ActivityConfirmLog.put(w)
+                                state = PlanAddState.Added
+                            } else {
+                                state = PlanAddState.Failed
+                                error = reply.removePrefix("error:").trim().ifBlank { "没提交成功，可再试一次" }
+                            }
+                        }
+                    },
+                )
+            }
+        }
+    }
 }
 
 private sealed interface PostState {
