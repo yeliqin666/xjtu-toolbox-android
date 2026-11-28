@@ -32,11 +32,13 @@ object NetMsgType {
 @Serializable
 data class NetEnvelope(
     val type: String = "",
-    // hello：**由加入方先发**，把二维码里的口令出示给房主。房主在验证通过前一个字节都不发，
-    // 所以"抢在真对手之前连上 GATT"这件事不再能换到口令。
-    val token: String? = null,
+    // 握手：**口令本身永远不上链路**，两个方向传的都是"用口令算出来的证明"（见 [HandshakeAuth]）。
+    // 曾经这里是明文口令，问题不止被动嗅探：加入方按服务 UUID 认房主，而这个 UUID 是公开广播的，
+    // 谁伪造一台同 UUID 的外设，加入方就把口令送给谁，对方随后能拿着它去连真房主冒充对手。
+    val nonce: String? = null,
+    val proof: String? = null,
     val game: String? = null,
-    // hello_ack：房主验证通过后回给加入方，顺带下发对局参数——加入方扫二维码时只知道
+    // hello_ack：房主验过加入方的证明后回给加入方，顺带下发对局参数——加入方扫二维码时只知道
     // 连接方式和口令，棋种之外的规则参数（围棋路数等）和先后手只能由房主告知。
     val rule: String? = null,
     val hostFirst: Boolean? = null,
@@ -58,11 +60,30 @@ object NetCodec {
     fun decode(line: String): NetEnvelope? =
         runCatching { AppJson.decodeFromString<NetEnvelope>(line) }.getOrNull()?.takeIf { it.type.isNotEmpty() }
 
-    fun hello(token: String, game: GameKind) =
-        NetEnvelope(NetMsgType.HELLO, token = token, game = game.wireId)
+    /** 加入方的 hello：只出证明，不出口令。 */
+    fun hello(nonce: String, proof: String, game: GameKind) =
+        NetEnvelope(NetMsgType.HELLO, nonce = nonce, proof = proof, game = game.wireId)
 
-    fun helloAck(ok: Boolean, rule: String? = null, hostFirst: Boolean? = null, reason: String? = null) =
-        NetEnvelope(NetMsgType.HELLO_ACK, ok = ok, rule = rule, hostFirst = hostFirst, reason = reason)
+    /**
+     * 房主的回应：成功时带自己的 [nonce] 和 [proof]，加入方据此确认对面真知道口令；
+     * 失败时 [ok]=false 且不带证明（拒绝的理由给一句能显示的话即可，不含任何秘密）。
+     */
+    fun helloAck(
+        ok: Boolean,
+        nonce: String? = null,
+        proof: String? = null,
+        rule: String? = null,
+        hostFirst: Boolean? = null,
+        reason: String? = null,
+    ) = NetEnvelope(
+        NetMsgType.HELLO_ACK,
+        ok = ok,
+        nonce = nonce,
+        proof = proof,
+        rule = rule,
+        hostFirst = hostFirst,
+        reason = reason,
+    )
 
     fun move(seq: Int, code: String) = NetEnvelope(NetMsgType.MOVE, seq = seq, move = code)
 
