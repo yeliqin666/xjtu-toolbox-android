@@ -362,7 +362,8 @@ internal fun PluginPageScreen(pluginId: String, pageId: String, onBack: () -> Un
                     when (current) {
                         "error" -> PluginUiTree(UiEmptyNode("插件加载失败", error.orEmpty()), onAction)
                         "loading" -> PluginUiTree(UiLoadingNode("正在加载插件…"), onAction)
-                        else -> tree?.let { PluginUiTree(it, onAction) }
+                        // 根节点撑满可用宽度，插件根 Column 的 alignment 才是相对整页的
+                        else -> tree?.let { PluginUiTree(it, onAction, Modifier.fillMaxWidth()) }
                     }
                 }
             }
