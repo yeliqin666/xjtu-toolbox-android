@@ -2,6 +2,7 @@ package com.xjtu.toolbox.shell
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,6 +25,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.glass.GlassBottomTabs
 import com.xjtu.toolbox.ui.glass.GlassTab
@@ -144,12 +149,14 @@ fun GlassBottomBar(
                             }
                         }
                         // 文字对齐 COUI 底栏：10sp / 行高 12sp / Medium
+                        // 五格分下来一格只有几十 dp，字号调大后标签会被硬切，末尾改成省略号（#622）
                         Text(
                             tab.label,
                             fontSize = 10.sp,
                             lineHeight = 12.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = tint,
                         )
                     }
@@ -220,6 +227,18 @@ fun FloatingBottomBar(
     }
 }
 
+/**
+ * 侧栏标签的行高。钉死是因为标签字号随展开进度插值（miuix 的 12sp → 16sp），行高要是跟着字号走，
+ * 条目高度里带着的那个标签高度就逐帧按整像素跳，所有格子跟着抖一下。
+ *
+ * 钉死的值必须比最大字号宽出一截：标签展开到底就是 16sp，行盒等于 em 盒的话，CJK 的
+ * ascent + descent（约 1.2em）上下各被切掉一点，中文看起来发挤。22sp ≈ 16sp 的 1.35 倍。
+ *
+ * 收起态标签字号 12sp、也吃这条行高，所以每个格子比原来高 6dp 左右；展开态条目高度取
+ * `max(图标 28dp, 标签)`，这一档仍由图标定，高度不变。
+ */
+private val RAIL_LABEL_LINE_HEIGHT = 22.sp
+
 /** 宽屏可展开侧栏。 */
 @Composable
 fun ShellNavigationRail(
@@ -228,49 +247,58 @@ fun ShellNavigationRail(
     tabArt: ShellTabArt = ShellTabArt.None,
     accessory: (@Composable (ShellBarAccessoryForm) -> Unit)? = null,
 ) {
-    // 钉死行高：字号随展开进度插值时，文字高度按整像素跳变会让所有格子抖一下
-    val railTextStyles = MiuixTheme.textStyles.let { ts ->
-        ts.copy(
-            main = ts.main.copy(
-                lineHeight = 16.sp,
-                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
-                    alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
-                    trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.None,
+    // 缓存住：TextStyles 里是 14 个 MutableState，`copy` 一次就是 14 个新 state、一个新实例。
+    // 不只是每次重组白分配——嵌套的 MiuixTheme 拿到的参数每次都「变了」，它内部会把 14 个字段
+    // 全量同步一遍（updateTextStylesFrom）。缓存之后参数不变，那层整块能跳过。
+    val base = MiuixTheme.textStyles
+    val railTextStyles = remember(base) {
+        base.copy(
+            main = base.main.copy(
+                lineHeight = RAIL_LABEL_LINE_HEIGHT,
+                lineHeightStyle = LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.None,
                 ),
             ),
         )
     }
+    // 这里只是想换一个文案样式，但 MiuixTheme 会把 LocalIndication 一并换成 miuix 默认那份，
+    // 顶掉根上 provide 的 SlowPressIndication——侧栏按下去的手感就跟底栏不是一套了。
+    // miuix 的 LocalTextStyles 是 internal，没法只换样式不碰别的，所以在这儿原样放回去。
+    val indication = LocalIndication.current
     MiuixTheme(textStyles = railTextStyles) {
-        NavigationRail(
-            color = MiuixTheme.colorScheme.surface,
-            state = railState,
-            expandContentDescription = "展开导航栏",
-            collapseContentDescription = "收起导航栏",
-        ) {
-            nav.tabs.tabs.forEach { tab ->
-                if (tabArt.handles(tab)) {
-                    tabArt.railTab(
-                        current = nav.selected,
-                        tab = tab,
-                        expanded = railState.isExpanded,
-                        variant = ShellTabVariant(
-                            diameter = 40.dp,
-                            paper = MiuixTheme.colorScheme.surface,
-                            vertical = true,
+        CompositionLocalProvider(LocalIndication provides indication) {
+            NavigationRail(
+                color = MiuixTheme.colorScheme.surface,
+                state = railState,
+                expandContentDescription = "展开导航栏",
+                collapseContentDescription = "收起导航栏",
+            ) {
+                nav.tabs.tabs.forEach { tab ->
+                    if (tabArt.handles(tab)) {
+                        tabArt.railTab(
+                            current = nav.selected,
+                            tab = tab,
+                            expanded = railState.isExpanded,
+                            variant = ShellTabVariant(
+                                diameter = 40.dp,
+                                paper = MiuixTheme.colorScheme.surface,
+                                vertical = true,
+                                onClick = { nav.onSelect(tab) },
+                            ),
+                        )
+                    } else {
+                        NavigationRailItem(
+                            selected = nav.selected?.id == tab.id,
                             onClick = { nav.onSelect(tab) },
-                        ),
-                    )
-                } else {
-                    NavigationRailItem(
-                        selected = nav.selected?.id == tab.id,
-                        onClick = { nav.onSelect(tab) },
-                        icon = tab.icon,
-                        label = tab.label,
-                        badge = nav.badge(tab),
-                    )
+                            icon = tab.icon,
+                            label = tab.label,
+                            badge = nav.badge(tab),
+                        )
+                    }
                 }
+                accessory?.invoke(ShellBarAccessoryForm.RAIL)
             }
-            accessory?.invoke(ShellBarAccessoryForm.RAIL)
         }
     }
 }

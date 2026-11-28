@@ -7,7 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.error.FriendlyError
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -47,6 +49,8 @@ class Jiaocai1ViewModel(
      */
     var shelfError by mutableStateOf<String?>(null)
     private var searchJob: Job? = null
+    /** 当前列表的检索条件（关键词、字段、分类）：第 1 页时定下，翻页沿用，不读输入框里没提交的新词。 */
+    private var listQuery = Triple("", Jiaocai1SearchField.BOOK_NAME, "")
     private var bound = false
 
     /** 订阅书架（`observeAll()` 是热流，屏幕上一直挂着）。 */
@@ -63,6 +67,9 @@ class Jiaocai1ViewModel(
     }
 
     fun search(page: Int) {
+        if (page > 1 && loading) return   // 新检索还没回来，旧列表不再续页
+        if (page == 1) listQuery = Triple(keyword.trim(), field, cls)
+        val (kw, f, c) = listQuery
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             if (page == 1) {
@@ -74,22 +81,27 @@ class Jiaocai1ViewModel(
             moreFailed = false
             try {
                 val r = source.search(
-                    keyword = keyword.trim(),
-                    field = field,
-                    cls = cls,
+                    keyword = kw,
+                    field = f,
+                    cls = c,
                     page = page,
                 )
                 if (page > 1 && r.books.isEmpty()) moreFailed = true
                 result = r
                 books = if (page == 1) r.books else books + r.books
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // `:core` 抓不到 `:app`/`:data` 的 `AuthExpiredException` ⇒ 按 `:core` 的标记接口
                 // 会话失效交给宿主重新认证。
                 if (e is SessionExpiredFailure) authExpired = true
                 else if (page == 1) error = FriendlyError.of(e, "检索") else moreFailed = true
             } finally {
-                loading = false
-                loadingMore = false
+                // 被新检索顶掉时别把新检索的加载态清了
+                if (isActive) {
+                    loading = false
+                    loadingMore = false
+                }
             }
         }
     }

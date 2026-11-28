@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.formatTwoDigits
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 
 /** ICS 日历文件的文本生成（纯逻辑，不落盘、不分享）。 */
 object ScheduleExport {
@@ -101,9 +103,12 @@ object ScheduleExport {
     }
 
     /** `yyyyMMdd'T'HHmmss`（秒按 0 补）。 */
-    private fun icsStamp(date: LocalDate, hour: Int, minute: Int): String =
-        "${date.year}${formatTwoDigits(date.monthNumber)}${formatTwoDigits(date.dayOfMonth)}" +
-            "T${formatTwoDigits(hour)}${formatTwoDigits(minute)}00"
+    /** 24:00 这类越界钟点进位到次日：RFC 5545 不认 `T240000`。 */
+    private fun icsStamp(date: LocalDate, hour: Int, minute: Int): String {
+        val d = date.plus(hour / 24, DateTimeUnit.DAY)
+        return "${d.year}${formatTwoDigits(d.monthNumber)}${formatTwoDigits(d.dayOfMonth)}" +
+            "T${formatTwoDigits(hour % 24)}${formatTwoDigits(minute)}00"
+    }
 
     /**
      * 一条事件的稳定 ID：同一条课（同一课程号 + 课名 + 起始节次）在同一天必然得到同一个串。

@@ -438,15 +438,25 @@ object SelfTodoStore {
     /**
      * 撤销完成或删除：把操作前的那份 [snapshot] 原样放回去，收纳里「已忽略」的记录一并拿掉。
      * 完成留下的「已完成」记录不用管：条目重新报上来时收纳自己会把它拿掉。
+     * [importance] 是撤销删除时 [delete] 交回的重要程度（删除会把它一并清掉）。
      */
-    fun restore(snapshot: SelfTodo, account: String? = AccountContext.activeAccountId) {
-        InboxStore.unignoreTodo(SelfTodoRules.inboxId(snapshot.id), account)
+    fun restore(
+        snapshot: SelfTodo,
+        importance: Int = InboxRules.IMPORTANCE_NONE,
+        account: String? = AccountContext.activeAccountId,
+    ) {
+        val inboxId = SelfTodoRules.inboxId(snapshot.id)
+        InboxStore.unignoreTodo(inboxId, account)
+        if (importance != InboxRules.IMPORTANCE_NONE) InboxStore.setImportance(inboxId, importance, account)
         update(account) { list -> list.filter { it.id != snapshot.id } + snapshot }
     }
 
-    /** 删除：从收纳与自建待办存储里彻底移除，不进「已完成」。 */
-    fun delete(id: String, account: String? = AccountContext.activeAccountId) {
-        InboxStore.dropTodo(SelfTodoRules.inboxId(id), account)
+    /** 删除：从收纳与自建待办存储里彻底移除，不进「已完成」。返回删除前的重要程度，撤销时交给 [restore]。 */
+    fun delete(id: String, account: String? = AccountContext.activeAccountId): Int {
+        val inboxId = SelfTodoRules.inboxId(id)
+        val importance = InboxRules.importanceOf(InboxStore.load(account), inboxId)
+        InboxStore.dropTodo(inboxId, account)
         update(account) { list -> list.filter { it.id != id } }
+        return importance
     }
 }

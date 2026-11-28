@@ -1528,8 +1528,10 @@ private fun EditorialMasthead(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
+            // 40dp 是 30sp/38sp 刊头在 1x 下的行高；字号放大后行高要跟着长，
+            // 否则「晚上好」的顶会被这一行切掉（#622）
             Row(
-                Modifier.fillMaxWidth().height(40.dp),
+                Modifier.fillMaxWidth().heightIn(min = 40.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -1541,7 +1543,7 @@ private fun EditorialMasthead(
                 )
             }
             Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(dateLabel, fontSize = 12.sp, color = muted, maxLines = 1)
                 if (weekNumber in 1..MAX_TEACHING_WEEK) {
                     Text("  ", fontSize = 12.sp, color = muted.copy(alpha = 0.5f))
@@ -1908,6 +1910,8 @@ private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLo
             style = MiuixTheme.textStyles.footnote2,
             color = muted,
             maxLines = 1,
+            // 左边那条待办标题占着 weight(1f)，字号放大后这一格会被挤没，末尾给省略号（#622）
+            overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.width(2.dp))
         Icon(

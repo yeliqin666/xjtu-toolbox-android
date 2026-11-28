@@ -62,7 +62,7 @@ fun DismissibleTipBanner(
             border = BorderStroke(0.5.dp, accent.copy(alpha = if (dark) 0.28f else 0.16f)),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 11.dp, bottom = 11.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 2.dp, top = 11.dp, bottom = 11.dp),
                 verticalAlignment = Alignment.Top,
             ) {
                 Icon(
@@ -89,7 +89,7 @@ fun DismissibleTipBanner(
                 }
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(40.dp)   // 图标 16dp，可点区域放大到 40dp
                         .clip(CircleShape)
                         .clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center,

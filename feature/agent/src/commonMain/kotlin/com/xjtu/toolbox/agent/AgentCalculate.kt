@@ -8,6 +8,8 @@ import kotlin.math.pow
 /** `calculate` 工具：极简安全表达式求值（四则、括号、幂 `^`、一元正负），不依赖任何脚本引擎。 */
 fun agentCalculate(expr: String): String {
     if (expr.isBlank()) return ToolReply.missing("expression")
+    // 递归下降每层至少吃一个字符，限长即限深：深层括号会 StackOverflowError，catch Exception 接不住
+    if (expr.length > MAX_EXPR_LENGTH) return "无法计算：表达式超过 $MAX_EXPR_LENGTH 个字符"
     return try {
         val v = ExprEval(expr).parse()
         val s = if (v.isFinite() && v == floor(v) && abs(v) < 1e15)
@@ -18,6 +20,8 @@ fun agentCalculate(expr: String): String {
         "无法计算「$expr」：${e.message ?: "表达式有误"}"
     }
 }
+
+private const val MAX_EXPR_LENGTH = 500
 
 /** 极简安全表达式求值：四则、括号、幂(^)、一元正负。不依赖任何脚本引擎。 */
 private class ExprEval(private val s: String) {

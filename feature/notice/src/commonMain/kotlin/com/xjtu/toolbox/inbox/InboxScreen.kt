@@ -208,8 +208,8 @@ fun InboxScreen(
                 offerUndo("已完成") { SelfTodoStore.restore(snapshot) }
             }
             action == InboxSwipeAction.DELETE -> {
-                SelfTodoStore.delete(snapshot.id)
-                offerUndo("已删除") { SelfTodoStore.restore(snapshot) }
+                val importance = SelfTodoStore.delete(snapshot.id)
+                offerUndo("已删除") { SelfTodoStore.restore(snapshot, importance) }
             }
         }
     }
@@ -398,8 +398,8 @@ fun InboxScreen(
                                                     },
                                                     RowAction("删除", danger = true) {
                                                         val snapshot = SelfTodoStore.all().firstOrNull { t -> t.id == selfId }
-                                                        SelfTodoStore.delete(selfId)
-                                                        if (snapshot != null) offerUndo("已删除") { SelfTodoStore.restore(snapshot) }
+                                                        val importance = SelfTodoStore.delete(selfId)
+                                                        if (snapshot != null) offerUndo("已删除") { SelfTodoStore.restore(snapshot, importance) }
                                                     },
                                                 ),
                                                 todoId = selfId,

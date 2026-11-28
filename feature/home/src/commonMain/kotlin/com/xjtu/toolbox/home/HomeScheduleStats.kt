@@ -23,7 +23,8 @@ object HomeScheduleStats {
         // ── 校历 / 教学周：由学期开始日期本地推算，不需要网络 ──
         runCatching {
             ScheduleCache.readStartDate(cache, termCode)?.let { start ->
-                val week = ((today.toEpochDays() - start.toEpochDays()) / 7 + 1).toInt()
+                // 向下取整：开学前几天是第 0 周，不显示
+                val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(start, today)
                 if (week in 1..30) {
                     out[AppRoute.SchoolCalendar.id] = HomeStat("第 $week 周", "$termCode 学期")
                 }

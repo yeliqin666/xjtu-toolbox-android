@@ -736,7 +736,9 @@ private fun GpaStatColumn(
             fontWeight = FontWeight.Bold,
             color = textColor,
             maxLines = 1,
-            softWrap = false
+            softWrap = false,
+            // 三列平分一行，字号放大后长数字会顶出格子，末尾给省略号而不是硬切（#622）
+            overflow = TextOverflow.Ellipsis
         )
         Spacer(Modifier.height(2.dp))
         Text(
@@ -744,6 +746,7 @@ private fun GpaStatColumn(
             style = MiuixTheme.textStyles.footnote1,
             color = textColor.copy(alpha = 0.5f),
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             letterSpacing = 0.5.sp
         )
     }
