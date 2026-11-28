@@ -125,21 +125,21 @@ class OnlineGameSessionTest {
     fun `加入方不会把口令交给冒充房主的设备`() = runBlocking {
         // 加入方只按服务 UUID 找房主，而这个 UUID 是公开广播的——对面完全可能是一台伪造的外设。
         // 所以它发出去的第一包必须是"用口令算的证明"，不能是口令本身。
-        val fromGuest = Channel<String>(Channel.UNLIMITED)
-        val toGuest = Channel<String>(Channel.UNLIMITED)
+        val guestToHost = Channel<String>(Channel.UNLIMITED)
+        val hostToGuest = Channel<String>(Channel.UNLIMITED)
         val guest = OnlineGameSession(
             OnlineRole.GUEST, "REAL-TOKEN", GameKind.GOMOKU, ruleParam = null,
-            hostFirst = true, transport = FakeTransport(outbound = toGuest, inbound = fromGuest), scope = scope,
+            hostFirst = true, transport = FakeTransport(outbound = guestToHost, inbound = hostToGuest), scope = scope,
         )
         guest.start()
 
-        val hello = withTimeout(5_000) { fromGuest.receive() }
+        val hello = withTimeout(5_000) { guestToHost.receive() }
         assertFalse("口令本身不能出现在链路上", hello.contains("REAL-TOKEN"))
         assertTrue("至少要带上一次性的 nonce 和证明", hello.contains("proof"))
 
         // 假房主不知道该出示什么：它拿不到真口令，只能编一段证明应答。
         // 加入方验不过就必须断开，绝不能把棋盘打开——那样用户会对着一台不存在的对手下完一整盘。
-        toGuest.send(
+        hostToGuest.send(
             NetCodec.encode(
                 NetCodec.helloAck(
                     ok = true,
