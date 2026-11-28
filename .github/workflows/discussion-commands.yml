@@ -23,6 +23,7 @@ name: Handle discussion commands
 #     验 ECDSA P-256 签名、核对 files[] 清单、按 versionCode 防回退，用 Git Data API 一次提交；
 #     签名钥匙按 TOFU 钉在 dzhz-server 的 .github/plugin-market-keys.json。
 #     只收 plugin-release（插件公告）分类，要求仓库 admin 权限，写索引用 MARKET_SYNC_TOKEN。
+#     推荐在对应版本的更新跟帖下面回复；顶层也能跑，但会退到最新的跟帖并提醒一次。
 #
 # 只有仓库 write / maintain / admin 权限的作者会触发；权限不足静默跳过。
 # GitHub 不允许回复楼中楼，所以对楼中楼命令的回复会落在同一线程顶层，并引用具体评论。
