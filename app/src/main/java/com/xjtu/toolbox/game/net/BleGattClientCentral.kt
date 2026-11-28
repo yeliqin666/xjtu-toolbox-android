@@ -189,7 +189,12 @@ class BleGattClientCentral(private val context: Context) {
                         @Suppress("DEPRECATION")
                         gattRef?.writeCharacteristic(char) == true
                     }
-                    if (!ok2) break
+                    if (!ok2) {
+                        // 写调用失败 = 链路已不可用。关掉通道让会话立刻判死，
+                        // 而不是让 send 正常返回、上层以为这条消息发出去了。
+                        close()
+                        return@withLock
+                    }
                     withTimeoutOrNull(2_000) { ack.await() }
                 }
             }
