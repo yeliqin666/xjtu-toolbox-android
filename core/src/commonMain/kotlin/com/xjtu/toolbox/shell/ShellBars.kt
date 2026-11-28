@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.glass.GlassBottomTabs
@@ -148,12 +149,14 @@ fun GlassBottomBar(
                             }
                         }
                         // 文字对齐 COUI 底栏：10sp / 行高 12sp / Medium
+                        // 五格分下来一格只有几十 dp，字号调大后标签会被硬切，末尾改成省略号（#622）
                         Text(
                             tab.label,
                             fontSize = 10.sp,
                             lineHeight = 12.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = tint,
                         )
                     }
