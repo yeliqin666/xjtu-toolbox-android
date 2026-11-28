@@ -67,7 +67,7 @@ class OnlineGameSession(
     private val _events = MutableSharedFlow<OnlineGameEvent>(extraBufferCapacity = 16)
     val events = _events
 
-    /** 对方是不是先手：由房主决定并写进 hello，加入方从 hello 里读到。UI 用它来分配棋子颜色。 */
+    /** 对方是不是先手：由房主决定并写进 hello_ack，加入方从 ack 里读到。UI 用它来分配棋子颜色。 */
     var resolvedHostFirst: Boolean = hostFirst
         private set
 
@@ -88,11 +88,12 @@ class OnlineGameSession(
         running = true
         job = scope.launch {
             heartbeat.start(now())
-            // 房主先发 hello：棋种、规则参数（比如围棋盘大小）、谁先手，全部由房主决定，
-            // 加入方只负责核对口令并接受这些参数——这些信息加入方在扫码那一刻并不知道
-            // （二维码里只放了连接方式和口令，没有塞对局参数），只能等连上之后由房主告知。
-            if (role == OnlineRole.HOST) {
-                transport.send(NetCodec.encode(NetCodec.hello(token, gameKind, ruleParam, hostFirst)))
+            // 加入方先发 hello：口令由**扫过二维码的那一端**出示，房主验完才回 hello_ack
+            // （棋种、规则参数、谁先手都在 ack 里）。
+            // 反过来（房主先发 hello 把口令送过去）是不行的：等 readyDeferred 的房主并不知道
+            // 连上来的是哪台设备，谁先连上就把口令给谁，第三台设备拿到口令原样回传一遍就能顶替对手。
+            if (role == OnlineRole.GUEST) {
+                transport.send(NetCodec.encode(NetCodec.hello(token, gameKind)))
             }
             launch { heartbeatLoop() }
             readLoop()
@@ -115,7 +116,7 @@ class OnlineGameSession(
      * 等握手结束：成功返回 true；超时、口令不对、对方断开都返回 false（此时会话已关闭）。
      *
      * 连接编排层（[OnlineController]）必须等到这里返回 true 才把会话交给 UI——
-     * 加入方的先后手、规则参数都在房主的 hello 里，握手前读 [resolvedHostFirst] 拿到的只是占位值，
+     * 加入方的先后手、规则参数都在房主的 hello_ack 里，握手前读 [resolvedHostFirst] 拿到的只是占位值，
      * UI 据此分配棋子颜色就会两边对不上。
      */
     suspend fun awaitHandshake(timeoutMs: Long): Boolean {
@@ -145,30 +146,36 @@ class OnlineGameSession(
         }
     }
 
+    /**
+     * 房主侧验口令：加入方出示的 [NetEnvelope.token] 必须与二维码里那串一致，
+     * 且一局只用一次（[OneTimeToken]）——之后再有别的设备拿同一份二维码来连，一律拒绝。
+     */
     private suspend fun handleHello(env: NetEnvelope) {
-        if (role != OnlineRole.GUEST) return
-        val tokenOk = env.token == token
+        if (role != OnlineRole.HOST) return
+        // 先验口令、再看棋种：口令是"你是不是扫过这张码"的唯一凭据，棋种只是参数兼容性检查。
+        val tokenOk = hostToken?.tryConsume(env.token) == true
         val gameOk = env.game == gameKind.wireId
         if (!tokenOk || !gameOk) {
             transport.send(NetCodec.encode(NetCodec.helloAck(false, reason = if (!tokenOk) "口令不对" else "棋种不一致")))
             failAndClose(if (!tokenOk) "口令校验失败，可能是别的设备误连" else "对方棋种不一致")
             return
         }
-        resolvedRuleParam = env.rule
-        resolvedHostFirst = env.hostFirst ?: true
-        transport.send(NetCodec.encode(NetCodec.helloAck(true, token = token)))
+        // 校验通过才把对局参数交出去；这之前房主没发过任何消息，口令也就不会被"顺手抄走"。
+        transport.send(
+            NetCodec.encode(NetCodec.helloAck(true, rule = resolvedRuleParam, hostFirst = resolvedHostFirst)),
+        )
         onHandshakeDone()
     }
 
     private suspend fun handleHelloAck(env: NetEnvelope) {
-        if (role != OnlineRole.HOST) return
-        // 房主是先手发 hello 的一方，这时候才第一次核实"回话的确实是拿到同一份口令的设备"——
-        // 万一是恰好先连上 socket/GATT 的第三台设备，口令对不上，直接断开，不让它顶替真正的对手。
-        val tokenOk = hostToken?.tryConsume(env.token) == true
-        if (env.ok != true || !tokenOk) {
-            failAndClose(if (!tokenOk) "口令校验失败，可能是别的设备误连" else (env.reason ?: "对方拒绝了连接"))
+        if (role != OnlineRole.GUEST) return
+        if (env.ok != true) {
+            failAndClose(env.reason ?: "对方拒绝了连接")
             return
         }
+        // 规则参数和先后手由房主在 ack 里给，握手完成前读 resolved* 拿到的只是占位值。
+        resolvedRuleParam = env.rule
+        resolvedHostFirst = env.hostFirst ?: true
         onHandshakeDone()
     }
 

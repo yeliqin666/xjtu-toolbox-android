@@ -416,7 +416,7 @@ private fun GoBoardView(
     }
 }
 
-/** 联机能选的路数。二维码之后的 hello 里带着它，加入方按房主的来。 */
+/** 联机能选的路数。二维码之后的 hello_ack 里带着它，加入方按房主的来。 */
 private val ONLINE_GO_SIZES = listOf(9, 13, 19)
 
 /**
@@ -523,7 +523,7 @@ private class GoOnlineMatch {
 /**
  * 联机对战：接入 `game/net` 模块，逻辑结构跟五子棋那份是同一套（见 `GomokuScreen.kt`）。
  *
- * 路数由房主开房前选（9 / 13 / 19），写进 hello 的规则参数，加入方握手后按房主的来。
+ * 路数由房主开房前选（9 / 13 / 19），写进 hello_ack 的规则参数，加入方握手后按房主的来。
  *
  * 数子阶段的"点棋子标死活"是同屏双人才有的手动步骤，联机对局不同步这一步——双方棋盘
  * 保证完全一致，连续两次虚手之后直接按"全部按活子处理"跑一次确定性数子
@@ -546,7 +546,7 @@ private fun GoOnlineSection(
             kind = GameKind.GO,
             ruleParam = "${match.hostSize}",
             onSessionReady = { s, isHost, hostFirst, rule ->
-                // 加入方的 rule 来自房主的 hello；认不出就退回 9 路（两边都会按 hello 里的值建盘）
+                // 加入方的 rule 来自房主的 hello_ack；认不出就退回 9 路（两边都会按 ack 里的值建盘）
                 val size = rule?.toIntOrNull()?.takeIf { it in ONLINE_GO_SIZES } ?: match.hostSize.takeIf { isHost } ?: 9
                 match.begin(s, iAmFirst = isHost == hostFirst, size = size)
             },

@@ -9,14 +9,13 @@ class NetProtocolTest {
 
     @Test
     fun `hello 消息编解码往返`() {
-        val original = NetCodec.hello("TOKEN123", GameKind.GOMOKU, "{}", hostFirst = true)
+        val original = NetCodec.hello("TOKEN123", GameKind.GOMOKU)
         val line = NetCodec.encode(original)
         assertTrue("编码结果不能带换行", !line.contains("\n"))
         val decoded = NetCodec.decode(line)
         assertEquals(NetMsgType.HELLO, decoded?.type)
         assertEquals("TOKEN123", decoded?.token)
         assertEquals(GameKind.GOMOKU.wireId, decoded?.game)
-        assertEquals(true, decoded?.hostFirst)
     }
 
     @Test
@@ -36,10 +35,13 @@ class NetProtocolTest {
     }
 
     @Test
-    fun `hello_ack 能带上 token 供房主核实`() {
-        val line = NetCodec.encode(NetCodec.helloAck(true, token = "ABC"))
+    fun `hello_ack 下发对局参数且不带口令`() {
+        val line = NetCodec.encode(NetCodec.helloAck(true, rule = "{\"size\":19}", hostFirst = false))
         val decoded = NetCodec.decode(line)
         assertEquals(true, decoded?.ok)
-        assertEquals("ABC", decoded?.token)
+        assertEquals("{\"size\":19}", decoded?.rule)
+        assertEquals(false, decoded?.hostFirst)
+        // 口令只在加入方 → 房主这一个方向出现；房主回包带上它就等于把口令又发了一遍。
+        assertNull(decoded?.token)
     }
 }

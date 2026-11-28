@@ -3,6 +3,7 @@ package com.xjtu.toolbox.game.net
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -87,6 +89,54 @@ class OnlineGameSessionTest {
         withTimeout(5_000) {
             val hostState = host.state.first { it is OnlineConnState.Disconnected }
             assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("口令"))
+        }
+    }
+
+    @Test
+    fun `房主在口令验过之前不给对方任何消息`() = runBlocking {
+        // 房主这一侧只坐着一个"抢先连上 GATT 的第三台设备"：它不知道该出示什么口令，
+        // 只是干等着收。只要房主肯主动发一条消息，口令就等于送出去了。
+        val fromGuest = Channel<String>(Channel.UNLIMITED)
+        val toGuest = Channel<String>(Channel.UNLIMITED)
+        val host = OnlineGameSession(
+            OnlineRole.HOST, "REAL-TOKEN", GameKind.GOMOKU, ruleParam = "{\"size\":19}",
+            hostFirst = false, transport = FakeTransport(outbound = toGuest, inbound = fromGuest), scope = scope,
+        )
+        host.start()
+        delay(200)
+        assertTrue("房主在验完口令前不能主动发消息", toGuest.tryReceive().isFailure)
+
+        // 没有口令的设备只能瞎猜，猜错就该被拒。
+        fromGuest.send(NetCodec.encode(NetCodec.hello("GUESS", GameKind.GOMOKU)))
+        val hostState = withTimeout(5_000) { host.state.first { it is OnlineConnState.Disconnected } }
+        assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("口令"))
+        // 回给它的拒绝里也不能夹带口令或对局参数。
+        val rejection = toGuest.tryReceive().getOrNull()
+        if (rejection != null) {
+            assertFalse(rejection.contains("REAL-TOKEN"))
+            assertFalse(rejection.contains("size"))
+        }
+    }
+
+    @Test
+    fun `加入方从 hello_ack 拿到房主的规则参数和先后手`() = runBlocking {
+        val (hostT, guestT) = connectedPair()
+        val host = OnlineGameSession(
+            OnlineRole.HOST, "TOKEN1", GameKind.GO, ruleParam = "{\"size\":19}",
+            hostFirst = false, transport = hostT, scope = scope,
+        )
+        val guest = OnlineGameSession(
+            OnlineRole.GUEST, "TOKEN1", GameKind.GO, ruleParam = null,
+            hostFirst = true, transport = guestT, scope = scope,
+        )
+        host.start()
+        guest.start()
+
+        withTimeout(5_000) {
+            host.state.first { it is OnlineConnState.Playing }
+            guest.state.first { it is OnlineConnState.Playing }
+            assertEquals("{\"size\":19}", guest.resolvedRuleParam)
+            assertFalse("先后手由房主决定，不能停在占位值 true 上", guest.resolvedHostFirst)
         }
     }
 

@@ -32,13 +32,15 @@ object NetMsgType {
 @Serializable
 data class NetEnvelope(
     val type: String = "",
-    // hello
+    // hello：**由加入方先发**，把二维码里的口令出示给房主。房主在验证通过前一个字节都不发，
+    // 所以"抢在真对手之前连上 GATT"这件事不再能换到口令。
     val token: String? = null,
     val game: String? = null,
+    // hello_ack：房主验证通过后回给加入方，顺带下发对局参数——加入方扫二维码时只知道
+    // 连接方式和口令，棋种之外的规则参数（围棋路数等）和先后手只能由房主告知。
     val rule: String? = null,
     val hostFirst: Boolean? = null,
-    // hello_ack（token 在这里回传一遍，房主据此核实"接进来的确实是拿到同一份二维码的那台设备"，
-    // 而不是恰好先连上 socket/GATT 的第三台设备——见 OnlineGameSession 里 hostToken 的用法）
+    // hello_ack 的结果位；[reason] 是失败时能直接展示给用户的一句话。
     val ok: Boolean? = null,
     val reason: String? = null,
     // move
@@ -56,11 +58,11 @@ object NetCodec {
     fun decode(line: String): NetEnvelope? =
         runCatching { AppJson.decodeFromString<NetEnvelope>(line) }.getOrNull()?.takeIf { it.type.isNotEmpty() }
 
-    fun hello(token: String, game: GameKind, rule: String?, hostFirst: Boolean) =
-        NetEnvelope(NetMsgType.HELLO, token = token, game = game.wireId, rule = rule, hostFirst = hostFirst)
+    fun hello(token: String, game: GameKind) =
+        NetEnvelope(NetMsgType.HELLO, token = token, game = game.wireId)
 
-    fun helloAck(ok: Boolean, token: String? = null, reason: String? = null) =
-        NetEnvelope(NetMsgType.HELLO_ACK, ok = ok, token = token, reason = reason)
+    fun helloAck(ok: Boolean, rule: String? = null, hostFirst: Boolean? = null, reason: String? = null) =
+        NetEnvelope(NetMsgType.HELLO_ACK, ok = ok, rule = rule, hostFirst = hostFirst, reason = reason)
 
     fun move(seq: Int, code: String) = NetEnvelope(NetMsgType.MOVE, seq = seq, move = code)
 
