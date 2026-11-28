@@ -58,7 +58,7 @@ class RunAsker internal constructor(private val game: String) {
     /** 上传沿用已有身份（没选过名字就匿名），失败留档下次补 —— 这里不弹名字框。 */
     fun answer(upload: Boolean) {
         val pending = offer ?: return
-        if (upload) Leaderboard.submitQuietly(game, pending.score) else LeaderboardRun.clear(game)
+        if (upload) Leaderboard.submitQuietly(game, pending.score) else Leaderboard.decline(game, pending.score)
         offer = null
         val next = then
         then = null
@@ -83,11 +83,13 @@ fun RunAskDialog(asker: RunAsker) {
         title = when (pending.end) {
             RunEnd.ABANDONED -> "本局还没上报"
             RunEnd.INTERRUPTED -> "检测到上次异常退出"
+            RunEnd.ENDED -> "上次有一局没传到榜上"
             RunEnd.UNSENT -> "上次有一局没传上去"
         },
         summary = when (pending.end) {
             RunEnd.ABANDONED -> "本局 ${pending.score} 分，超过了你之前的最高分。要上传到全服榜吗？"
             RunEnd.INTERRUPTED -> "上一局 ${pending.score} 分没走到结算就中断了。如果那是你打的，要上传吗？"
+            RunEnd.ENDED -> "上一局 ${pending.score} 分结算时没来得及上传。要补传一次吗？"
             RunEnd.UNSENT -> "上一局 ${pending.score} 分当时没上传成功，要补传一次吗？"
         },
     ) {

@@ -3,7 +3,7 @@ package com.xjtu.toolbox.game.board
 import com.xjtu.toolbox.game.GameStore
 
 /**
- * 一局成绩「没走到结算」的原因。三种都只在**这局超过开局前本地最高分**时才会被记下来——
+ * 一局成绩「还挂在账上」的原因。都只在**这局超过开局前本地最高分**时才会被记下来——
  * 没破纪录的一局本来也不配上榜，没必要留账。
  */
 enum class RunEnd {
@@ -12,6 +12,9 @@ enum class RunEnd {
 
     /** 没走正常流程就没了：杀进程、崩溃、WebView 渲染进程被回收。 */
     INTERRUPTED,
+
+    /** 走到结算了，但玩家在「要不要上传」那张卡上直接退了页面，成绩还没有去处。 */
+    ENDED,
 
     /** 结算时报过，但网络 / 服务端没接住，等下次补传。 */
     UNSENT,
@@ -26,14 +29,21 @@ data class RunOffer(val game: String, val score: Int, val end: RunEnd)
  * 修的是这么一类丢分（#602）：全服榜只在一局**正常结束**时上报，玩家中途退出、重开、
  * 切后台被杀，四万分就只留在本地最高分里，榜上永远看不见。
  *
- * 三件事分开做：
- * 1. [resume] 进页面时拍一个**基线**（这局开始前的本地最高分）。本地最高分是随打随写的，
- *    拿它当基准没意义——必须留下开局那一刻的值，才判得出「这局破没破纪录」。
- * 2. [progress] 每破一次纪录就往盘上记一笔 [RunEnd.INTERRUPTED]。进程被杀时来不及跑任何回调，
- *    只能靠平时记的这笔账，下次进同一个游戏才捞得回来。
- * 3. [abandon] 玩家主动退出 / 重开时问一句要不要传；[finish] 正常结算时把账划掉。
+ * 一局的完整生命周期（改之前先读，顺序错了就会丢账）：
+ * ```
+ * resume        进页面：拍基线（这局开始前的本地最高分），捞上次残留的账
+ * progress      实时分数：只有破纪录才写盘，供进程被杀后恢复
+ * abandon       退出 / 重开：这局破纪录就先问一句
+ * end           走到结算：只打「已结束」的标，**盘上那笔账先留着**
+ * settle        成绩有去处了（不够格 / 玩家不上传 / 提交成功）：划账
+ * keepUnsent    没传成功：留一笔等下次
+ * reopen        结算后又撤销回未结束（2048 的撤销一步）：这一局继续
+ * ```
  *
- * 只存分数和基线，不存名字——名字仍由 [LeaderboardStore] 管，这里不碰身份。
+ * **`end` 与 `settle` 分开是必须的**。结算要先拉一次榜才知道够不够格、再等一次提交，
+ * 这中间进程随时可能没；以前在拉榜前就把账划了，正好把这半局的分数丢在最需要它的时刻。
+ *
+ * 盘上只存分数和基线，不存名字——名字仍由 [LeaderboardStore] 管，这里不碰身份。
  */
 class RunLedger(
     private val bestScore: (String) -> Int,
@@ -87,41 +97,73 @@ class RunLedger(
         ended[game] = false
     }
 
-    /** 正常结算：这一局的账清了（真要没传成功，[keepUnsent] 会立刻重新记一笔）。 */
-    fun finish(game: String) {
-        ended[game] = true
-        write(key(game), null)
-        persisted[game] = 0
+    /**
+     * 结算之后玩家又撤销回未结束（2048 的「撤销一步」）：把这一局接回来。
+     * 基线保持开局那个值——用 [restart] 会把基线抬到刚结束的分数，这局后面再破纪录也不记账了。
+     */
+    fun reopen(game: String) {
+        ended[game] = false
     }
 
-    /** 结算 / 补传没成功：记一笔等下次，别让分数静悄悄没了。 */
+    /**
+     * 走到结算了。这里**只打标、不划账**：够不够格要先拉一次榜，够格还要等玩家回答或一次提交，
+     * 账得留到成绩真有去处（[settle]）为止。
+     *
+     * 顺手把盘上那笔本局自己记的原因从 [RunEnd.INTERRUPTED] 改成 [RunEnd.ENDED]：
+     * 这样玩家在询问卡上直接退出去、下次再问时，文案说的是「没来得及上传」而不是「异常退出」。
+     */
+    fun end(game: String, score: Int) {
+        ended[game] = true
+        val record = parse(game) ?: return
+        if (record.score > score || record.end != RunEnd.INTERRUPTED) return
+        save(game, record.score, record.base, RunEnd.ENDED)
+    }
+
+    /**
+     * 这笔账有去处了：划掉。不够格、玩家选了不上传、提交成功，都走这里。
+     *
+     * [score] 传本局分数。**盘上那笔比它高就不动**——那已经不是这笔账了：后台提交不等结果，
+     * 玩家可能已经重开并打出更高的一局，旧提交的返回不能把它抹掉。
+     */
+    fun settle(game: String, score: Int) {
+        val record = parse(game) ?: return
+        if (record.score > score) return
+        write(key(game), null)
+    }
+
+    /** 结算 / 补传没成功：记一笔等下次，别让分数静悄悄没了。同样不覆盖更高的一笔。 */
     fun keepUnsent(game: String, score: Int) {
         if (score <= 0) return
-        save(game, score, 0, RunEnd.UNSENT)
-    }
-
-    /** 玩家答完了（传了 / 不传了）：清掉盘上那笔账，但不动「这一局结束没结束」——那由 [finish] 说了算。 */
-    fun clear(game: String) {
-        write(key(game), null)
-        persisted[game] = 0
+        val record = parse(game)
+        if (record == null) {
+            save(game, score, 0, RunEnd.UNSENT)
+            return
+        }
+        if (record.score > score) return
+        save(game, score, record.base, RunEnd.UNSENT)
     }
 
     /** 盘上那笔账；分数没超过当时的基线就当没有（顺手清掉）。 */
     fun pending(game: String): RunOffer? {
-        val raw = read(key(game)) ?: return null
-        val parts = raw.split('|')
-        val score = parts.getOrNull(0)?.toIntOrNull()
+        val record = parse(game)
+        if (record == null) {
+            if (read(key(game)) != null) write(key(game), null)
+            return null
+        }
+        if (record.end != RunEnd.UNSENT && record.score <= record.base) {
+            write(key(game), null)
+            return null
+        }
+        return RunOffer(game, record.score, record.end)
+    }
+
+    /** 盘上那笔账，只读不动盘。格式坏的当没有。 */
+    private fun parse(game: String): Record? {
+        val parts = read(key(game))?.split('|') ?: return null
+        val score = parts.getOrNull(0)?.toIntOrNull() ?: return null
         val base = parts.getOrNull(1)?.toIntOrNull() ?: 0
-        val end = parts.getOrNull(2)?.let { name -> RunEnd.entries.firstOrNull { it.name == name } }
-        if (score == null || end == null) {
-            write(key(game), null)
-            return null
-        }
-        if (end != RunEnd.UNSENT && score <= base) {
-            write(key(game), null)
-            return null
-        }
-        return RunOffer(game, score, end)
+        val end = parts.getOrNull(2)?.let { name -> RunEnd.entries.firstOrNull { it.name == name } } ?: return null
+        return Record(score, base, end)
     }
 
     private fun baseOf(game: String): Int = baseline.getOrPut(game) { bestScore(game) }
@@ -131,6 +173,9 @@ class RunLedger(
     }
 
     private fun key(game: String) = "run_pending_$game"
+
+    /** 盘上那笔账的样子。`base` 只在内部用来判断这笔账还作不作数，不往外传。 */
+    private data class Record(val score: Int, val base: Int, val end: RunEnd)
 }
 
 /**
@@ -160,15 +205,21 @@ object LeaderboardRun {
         if (Leaderboard.enabled) ledger.restart(game, previous)
     }
 
-    fun finish(game: String) {
-        if (Leaderboard.enabled) ledger.finish(game)
+    fun reopen(game: String) {
+        if (Leaderboard.enabled) ledger.reopen(game)
+    }
+
+    fun end(game: String, score: Int) {
+        if (Leaderboard.enabled) ledger.end(game, score)
+    }
+
+    fun settle(game: String, score: Int) {
+        if (Leaderboard.enabled) ledger.settle(game, score)
     }
 
     fun keepUnsent(game: String, score: Int) {
         if (Leaderboard.enabled) ledger.keepUnsent(game, score)
     }
 
-    fun clear(game: String) {
-        if (Leaderboard.enabled) ledger.clear(game)
-    }
+    fun pending(game: String): RunOffer? = if (Leaderboard.enabled) ledger.pending(game) else null
 }

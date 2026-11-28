@@ -208,6 +208,9 @@ fun Gpa2048Screen(onBack: () -> Unit) {
         tiles = snap.tiles.map { it.copy(kind = TileKind.STILL, stamp = stamp) }
         undoLeft--
         lastGain = 0
+        // 撤销把这一局又续上了：账本也回到「进行中」，否则接下来再破纪录不记账、退出时也不再问
+        // 要不要上传（基线仍是开局那个值，不跟着抬高）
+        LeaderboardRun.reopen(GameIds.G2048)
     }
 
     val focusRequester = remember { FocusRequester() }

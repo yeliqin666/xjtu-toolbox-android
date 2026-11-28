@@ -113,8 +113,9 @@ object Leaderboard {
      */
     suspend fun report(game: String, score: Int): PendingAsk? {
         if (!enabled || score <= 0) return null
-        // 这一局正常走到结算了：先前给「异常退出」留的账一笔勾销。下面真没传成功的话再重新记
-        LeaderboardRun.finish(game)
+        // 这一局正常走到结算了：先只打「已结束」的标，**账先留着**。下面要拉一次榜、
+        // 可能还要等一次提交，这期间进程随时可能没；账在这里划掉，就正好丢在最需要它的时刻。
+        LeaderboardRun.end(game, score)
         val uid = LeaderboardStore.uid()
         // 先看一眼榜：分数够不着就闭嘴。这也是唯一一次「为了决定要不要说话」而发的请求。
         val snapshot = runCatching { LeaderboardApi.board(game, uid, LIMIT) }
@@ -122,17 +123,25 @@ object Leaderboard {
             // 也不能因为一次网络抖动就把人家一整局的分数丢掉（#602 的另一半）
             .onFailure { Log.w(TAG, "拉榜失败，按够格处理：$game", it) }
             .getOrNull()
-        if (snapshot != null && !snapshot.qualifies(score)) return null
+        // 够不着：这笔账没用了，划掉（盘上要是还留着更高的一局，settle 自己会让开）
+        if (snapshot != null && !snapshot.qualifies(score)) {
+            LeaderboardRun.settle(game, score)
+            return null
+        }
 
         val identity = LeaderboardStore.identity(game)
         return if (identity == null || !identity.silent) {
+            // 账留到玩家答完：他可能直接按返回退出去，下次进这个游戏还得能问一句
             PendingAsk(game, score)
         } else {
             val error = runCatching { LeaderboardApi.submit(game, uid, identity.name, score) }
                 .onFailure { Log.w(TAG, "静默上报失败：$game", it) }
                 .exceptionOrNull()
             when {
-                error == null -> null
+                error == null -> {
+                    LeaderboardRun.settle(game, score)
+                    null
+                }
                 // 本机记下的名字被服务端拒了（多半是词表更新过，或名字被取消了独占）：忘掉它，
                 // 这次直接问玩家重新起一个，否则这个人以后每次上榜都会静静地失败
                 error is LeaderboardError && error.nameProblem -> {
@@ -164,12 +173,22 @@ object Leaderboard {
                 .onFailure { Log.w(TAG, "后台上报失败，留档待补：$game", it) }
                 .exceptionOrNull()
             if (error == null) {
-                LeaderboardRun.clear(game)
+                // 只划掉这笔账：玩家点完上传就重开了，盘上可能已经写着更高的一局
+                LeaderboardRun.settle(game, score)
             } else {
                 if (error is LeaderboardError && error.nameProblem) LeaderboardStore.forget(game)
                 LeaderboardRun.keepUnsent(game, score)
             }
         }
+    }
+
+    /**
+     * 「本局要不要上传」里选了不上传（或直接关掉）：这局到此为止，把账划掉。
+     *
+     * 和 [answer] 不是一回事：[answer] 是玩家在结算卡上填名字，这里只是处理一局没走结算的成绩。
+     */
+    fun decline(game: String, score: Int) {
+        if (enabled) LeaderboardRun.settle(game, score)
     }
 
     /**
@@ -189,7 +208,11 @@ object Leaderboard {
             .onFailure { Log.w(TAG, "上榜失败：$game", it) }
             .exceptionOrNull()
         return when {
-            error == null -> AnswerResult.OK
+            error == null -> {
+                // 同一张卡上重试过：第一次失败留的 UNSENT 得一起划掉，否则下次进游戏又来问一遍
+                LeaderboardRun.settle(game, score)
+                AnswerResult.OK
+            }
             // 服务端有话说（名字有问题、或者审核没跑成要稍后再试）就原样转给玩家
             error is LeaderboardError && error.showableProblem ->
                 AnswerResult.Rejected(error.message ?: "这个名字不合适，换一个")

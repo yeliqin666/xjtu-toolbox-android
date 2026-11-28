@@ -280,8 +280,10 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
     // 屏幕常亮：平台能力（Android = View.keepScreenOn，其余端空实现）
     KeepScreenOn(enabled = !paused && !over)
 
-    LaunchedEffect(game, paused) {
-        if (paused) {
+    LaunchedEffect(game, paused, asker.offer) {
+        // 复盘询问盖在棋盘上时也得停住：冲分是整局倒计时、别的玩法有重力，
+        // 不能背着玩家把时间 / 方块走掉
+        if (paused || asker.offer != null) {
             game.softDropping = false
             return@LaunchedEffect
         }
