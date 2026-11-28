@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -44,6 +45,7 @@ import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.SkeletonList
+import com.xjtu.toolbox.ui.components.stableLazyListKeys
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DateTimeUnit
@@ -154,9 +156,13 @@ fun IclassfaceScreen(
             topPadding = glassTop,
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
+        val shownRecords = records
+        val recordKeys = remember(shownRecords) {
+            shownRecords.stableLazyListKeys { "checkin:${it.time}:${it.type}:${it.location}" }
+        }
         when {
             loading -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { SkeletonList(Modifier.fillMaxSize()) }
-            error != null && records.isEmpty() -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
+            error != null && shownRecords.isEmpty() -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 ErrorState(
                     message = error!!,
                     onRetry = { load(selectedDate) },
@@ -171,7 +177,7 @@ fun IclassfaceScreen(
                 contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                item {
+                item(key = "date_switch") {
                     DateSwitchRow(
                         date = selectedDate,
                         isToday = isToday,
@@ -179,28 +185,30 @@ fun IclassfaceScreen(
                         onPickDate = { showDatePicker = true }
                     )
                 }
-                item {
+                item(key = "checkin_status") {
                     StatusHero(
-                        checkedIn = records.isNotEmpty(),
+                        checkedIn = shownRecords.isNotEmpty(),
                         isToday = isToday,
-                        latestTime = records.firstOrNull()?.time
+                        latestTime = shownRecords.firstOrNull()?.time
                     )
                 }
-                if (records.isEmpty()) {
-                    item {
+                if (shownRecords.isEmpty()) {
+                    item(key = "checkin_empty") {
                         EmptyState(
                             title = if (isToday) "今天还没有签到/刷卡记录" else "当天没有签到/刷卡记录",
                         )
                     }
                 } else {
-                    item {
+                    item(key = "checkin_count") {
                         Text(
-                            "共 ${records.size} 条记录",
+                            "共 ${shownRecords.size} 条记录",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
-                    items(records) { record -> RecordCard(record) }
+                    itemsIndexed(shownRecords, key = { index, _ -> recordKeys[index] }) { _, record ->
+                        RecordCard(record)
+                    }
                 }
             }
         }
@@ -245,8 +253,7 @@ private fun DateSwitchRow(
                 contentPadding = PaddingValues(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(days.size) { i ->
-                    val d = days[i]
+                items(days, key = { it.toString() }) { d ->
                     DateCell(
                         date = d,
                         selected = d == date,

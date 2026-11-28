@@ -2,6 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.GapNote
+import com.xjtu.toolbox.ui.components.stableLazyListKeys
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
@@ -47,6 +48,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.lms.remaining
 import com.xjtu.toolbox.nav.AppRoute
@@ -126,6 +130,7 @@ fun TodayTimeline(
         val fromCourses = courses.filter { it.dayOfWeek == dow }.map { c ->
             val (start, end) = c.clockMinutes(isSummer)
             TimelineEntry(
+                identity = "course:${c.courseCode.ifBlank { c.courseName }}:${c.dayOfWeek}:$start:$end",
                 startMinute = start,
                 endMinute = end,
                 title = c.courseName,
@@ -139,6 +144,7 @@ fun TodayTimeline(
             .filter { ExamCountdown.parseDate(it.examDate) == today }
             .map { e ->
                 TimelineEntry(
+                    identity = "exam:${e.courseCode.ifBlank { e.courseName }}:${e.examDate}:${e.examTime}",
                     // 考试时间是 "14:30-16:30" 这类文本，解析不出就排到最后，
                     // 不猜时间——排错位置比排在末尾更误导人。
                     startMinute = parseExamStart(e.examTime) ?: 24 * 60,
@@ -160,6 +166,7 @@ fun TodayTimeline(
                 val zoned = deadline.toLocalDateTime(CampusTimeZone)
                 if (zoned.date != today) return@mapNotNull null
                 TimelineEntry(
+                    identity = "homework:${hw.courseId}:${hw.activityId}",
                     startMinute = zoned.hour * 60 + zoned.minute,
                     endMinute = 0,
                     title = "[${hw.courseName}] ${stripDatePrefix(hw.title)}",
@@ -173,6 +180,7 @@ fun TodayTimeline(
         val fromCalendar = calendarSlicesOn(today, calendarEvents).map { slice ->
             val e = slice.event
             TimelineEntry(
+                identity = "calendar:$e",
                 startMinute = slice.startMinute,
                 endMinute = slice.endMinute,
                 title = stripDatePrefix(e.title),
@@ -188,6 +196,7 @@ fun TodayTimeline(
         }
         val fromTodos = timedTodos.map { (t, minute) ->
             TimelineEntry(
+                identity = "todo:${t.id}",
                 startMinute = minute,
                 endMinute = 0,
                 title = stripDatePrefix(t.title),
@@ -201,6 +210,14 @@ fun TodayTimeline(
         // 全天的排最前面：它不占某个时刻，是这一天的背景（画的时候单独成一组，不进时间轴）
         (fromCourses + fromExams + fromHomework + fromCalendar + fromTodos)
             .sortedWith(compareBy<TimelineEntry> { !it.allDay }.thenBy { it.startMinute })
+    }
+
+    val allDayEntries = remember(entries) { entries.filter { it.allDay } }
+    val timedEntries = remember(entries) { entries.filterNot { it.allDay } }
+    val allDayKeys = remember(allDayEntries) { allDayEntries.stableLazyListKeys { "all_day:${it.identity}" } }
+    val timedKeys = remember(timedEntries) { timedEntries.stableLazyListKeys { "timed:${it.identity}" } }
+    val upcomingKeys = remember(upcoming) {
+        upcoming.stableLazyListKeys { "upcoming:${it.kind}:${it.at}:${it.route ?: it.title}" }
     }
 
     // 屁岱排今天：本地已有的课、考试、截止直接交给它
@@ -288,19 +305,19 @@ fun TodayTimeline(
         }
         val todoBase = if (untimedTodos.isEmpty()) 0 else untimedTodos.size + 1
         // 全天日程单独一组放在最上面，不占时间轴上的某个钟点
-        val allDayEntries = entries.filter { it.allDay }
-        val timedEntries = entries.filterNot { it.allDay }
         if (allDayEntries.isNotEmpty()) {
             item(key = "all_day_label") { Box(Modifier.enterOnce(todoBase)) { SectionLabel("全天") } }
-            itemsIndexed(allDayEntries) { i, e -> Box(Modifier.enterOnce(todoBase + 1 + i)) { AllDayRow(e) } }
+            itemsIndexed(allDayEntries, key = { index, _ -> allDayKeys[index] }) { i, e ->
+                Box(Modifier.enterOnce(todoBase + 1 + i)) { AllDayRow(e) }
+            }
         }
         val timedBase = todoBase + if (allDayEntries.isEmpty()) 0 else allDayEntries.size + 1
         if (entries.isEmpty() && untimedTodos.isEmpty()) {
             // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
             // 别让页面看着像没加载出来。
-            item { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
+            item(key = "no_courses_today") { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
         } else {
-            itemsIndexed(timedEntries) { i, e ->
+            itemsIndexed(timedEntries, key = { index, _ -> timedKeys[index] }) { i, e ->
                 // 已经过去的条目压暗。今天这一级的价值就是"接下来干什么"，
                 // 上午的课到了下午还跟没上过一样醒目，等于每次都要自己再筛一遍。
                 val past = e.endMinute in 1 until nowMinute
@@ -317,10 +334,12 @@ fun TodayTimeline(
         }
         if (upcoming.isNotEmpty()) {
             val base = (timedBase + timedEntries.size).coerceAtLeast(1)
-            item { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
-            itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item, onNavigate) } }
+            item(key = "upcoming_label") { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
+            itemsIndexed(upcoming, key = { index, _ -> upcomingKeys[index] }) { i, item ->
+                Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item, onNavigate) }
+            }
         }
-        dueHomeworkGap?.let { gap -> item { GapNote(gap) } }
+        dueHomeworkGap?.let { gap -> item(key = "homework_gap") { GapNote(gap) } }
     }
 }
 
@@ -355,6 +374,7 @@ private fun todayTodosOf(todos: List<SelfTodo>, today: LocalDate): Pair<List<Sel
 }
 
 private data class TimelineEntry(
+    val identity: String,
     val startMinute: Int,
     val endMinute: Int,
     val title: String,
@@ -510,7 +530,7 @@ private fun TimelineRow(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     e.todo?.let { todo ->
-                        TodoCheck(accent, onCheck = { onTodoCheck(todo) })
+                        TodoCheck(accent, e.title, onCheck = { onTodoCheck(todo) })
                         Spacer(Modifier.width(8.dp))
                     }
                     val badge = when (e.kind) {
@@ -562,13 +582,14 @@ private fun TimelineRow(
 
 /** 待办前面的空心圆：点一下就勾掉（勾完这条会从今日里消失，收纳里进「已完成」）。 */
 @Composable
-private fun TodoCheck(accent: Color, onCheck: () -> Unit) {
+private fun TodoCheck(accent: Color, title: String, onCheck: () -> Unit) {
     Box(
         Modifier
             .size(20.dp)
             .clip(CircleShape)
             .border(1.6.dp, accent, CircleShape)
-            .clickable(onClickLabel = "完成", onClick = onCheck),
+            .clickable(role = Role.Button, onClickLabel = "完成", onClick = onCheck)
+            .semantics { contentDescription = "完成待办：$title" },
     )
 }
 
@@ -582,7 +603,7 @@ private fun TodoRow(todo: SelfTodo, onCheck: () -> Unit, onClick: () -> Unit) {
         onClick = onClick,
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            TodoCheck(TodoAccent, onCheck)
+            TodoCheck(TodoAccent, stripDatePrefix(todo.title), onCheck)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -940,16 +961,16 @@ fun SemesterCourseList(
             // 全考完时不再报「还有 N 场」——那句话在这个场景下没有意义，
             // 直接就是那一行折叠的「已结束 N 场」。
             if (examData.active.isNotEmpty()) {
-                item { SectionLabel("考试安排 · 还有 ${examData.active.size} 场") }
+                item(key = "semester_exam_label") { SectionLabel("考试安排 · 还有 ${examData.active.size} 场") }
             }
             examListItems(examData, examsEndedExpanded, { examsEndedExpanded = !examsEndedExpanded })
         }
         // 只有一段时不写分组标题
         val labelled = examData.total > 0 || activeSchedules.isNotEmpty() || ended.isNotEmpty()
-        if (labelled && activeCourses.isNotEmpty()) item { SectionLabel("本学期课程 · ${activeCourses.size} 门") }
-        items(activeCourses) { row -> SemesterRowCard(row, textbooks, onCourseClick) }
-        if (activeSchedules.isNotEmpty()) item { SectionLabel("日程 · ${activeSchedules.size} 项") }
-        items(activeSchedules) { row -> SemesterRowCard(row, textbooks, onCourseClick) }
+        if (labelled && activeCourses.isNotEmpty()) item(key = "semester_courses_label") { SectionLabel("本学期课程 · ${activeCourses.size} 门") }
+        items(activeCourses, key = { it.listKey }) { row -> SemesterRowCard(row, textbooks, onCourseClick) }
+        if (activeSchedules.isNotEmpty()) item(key = "semester_schedules_label") { SectionLabel("日程 · ${activeSchedules.size} 项") }
+        items(activeSchedules, key = { it.listKey }) { row -> SemesterRowCard(row, textbooks, onCourseClick) }
         if (ended.isNotEmpty()) item(key = "semester_ended_group") {
             Card(
                 modifier = Modifier.fillMaxWidth().animateContentSize(),
@@ -1051,6 +1072,8 @@ private data class SemesterRow(
     /** (星期, (起始节, 结束节))，已按星期、节次排序。 */
     val slots: List<Pair<Int, Pair<Int, Int>>>,
 ) {
+    val listKey: String get() = "semester:${course.courseCode.ifBlank { course.courseName }}"
+
     /** 不是课而是日程：自建的，或教务排的活动（没有课程号，或没有老师且只排一两周，如舍长大会）。 */
     val isSchedule: Boolean
         get() = course.isUserCreated || course.courseCode.isBlank() || (course.teacher.isBlank() && weeks.size <= 2)

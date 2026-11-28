@@ -85,7 +85,7 @@ internal class SsActivityViewModel(site: SiteSession) : ViewModel() {
                     page++
                     endReached = more.size < PAGE
                     val seen = activities.mapTo(HashSet()) { it.id }
-                    activities = activities + more.filter { it.id !in seen }
+                    activities = activities + more.filter { seen.add(it.id) }
                 }
                 .onFailure { toast = message(it) }
         }

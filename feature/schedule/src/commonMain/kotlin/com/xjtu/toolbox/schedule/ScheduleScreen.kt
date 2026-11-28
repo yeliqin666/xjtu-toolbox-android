@@ -82,11 +82,13 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
-import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.SkeletonList
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.GapNote
 import top.yukonga.miuix.kmp.basic.VerticalDivider
@@ -620,7 +622,7 @@ fun ScheduleScreen(
                 }
             }
             if (vm.isLoading) {
-                LoadingState(message = "\u52a0\u8f7d\u65e5\u7a0b\u2026", modifier = Modifier.fillMaxSize())
+                SkeletonList(Modifier.fillMaxSize().semantics { contentDescription = "正在加载日程" })
             } else if (vm.errorMessage != null) {
                 ErrorState(
                     message = vm.errorMessage!!,

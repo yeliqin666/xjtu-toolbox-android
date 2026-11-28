@@ -40,12 +40,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.AnimatedBar
+import com.xjtu.toolbox.ui.components.SkeletonList
+import com.xjtu.toolbox.ui.components.stableLazyListKeys
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.components.HeroMesh
@@ -65,7 +69,6 @@ import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlin.math.roundToInt
 import kotlinx.datetime.LocalDate
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
@@ -159,18 +162,11 @@ fun SchoolCalendarScreen(
         val glassTop = padding.glassTop(glass)
         Box(Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize()) {
             when {
-                isLoading -> {
-                    Box(Modifier.fillMaxSize().padding(top = glassTop), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(size = 40.dp, strokeWidth = 3.dp)
-                            Spacer(Modifier.height(12.dp))
-                            Text(
-                                "正在加载校历…",
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
-                        }
-                    }
-                }
+                isLoading -> SkeletonList(
+                    Modifier.fillMaxSize().padding(top = glassTop)
+                        .semantics { contentDescription = "正在加载校历" },
+                    rowHeight = 80.dp,
+                )
                 errorMessage != null -> {
                     Column(
                         Modifier.fillMaxSize().padding(top = glassTop).padding(32.dp),
@@ -230,11 +226,14 @@ private fun TermContent(
 
     // 宽屏两栏：左边是「这学期现在到哪了」（学期切换、状态卡、统计），右边是整学期的日程时间轴。
     // 以前整页限宽 720 居中，平板横屏左右各空一大块，时间轴还得滚过状态卡才看得到。
+    val eventKeys = remember(currentTerm.id, currentTerm.events) {
+        currentTerm.events.stableLazyListKeys { "calendar_event:${currentTerm.id}:${it.id}" }
+    }
     val wide = isWideLayout()
     // 状态区：英雄卡片（当前状态 + 进度）+ 统计信息行；学期切换在顶栏右上角
     val statusItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
         // 整页依次登场：学期卡 → 统计 → 日程标题 → 时间轴前几项
-        item {
+        item(key = "calendar_hero") {
             Box(Modifier.enterOnce(0)) {
                 HeroCard(
                     currentTerm = currentTerm,
@@ -248,7 +247,7 @@ private fun TermContent(
                 )
             }
         }
-        item {
+        item(key = "calendar_stats") {
             Box(Modifier.enterOnce(1)) {
                 StatsRow(
                     totalWeeks = currentTerm.totalWeeks,
@@ -269,7 +268,7 @@ private fun TermContent(
     }
     // ── 事件时间轴 ──────────────────────────────────
     val timelineItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
-        item {
+        item(key = "calendar_timeline_label") {
             // 分组小标题：和设置页各组同一种（小号、次要色），不再用一行粗体大字压在列表上
             Text(
                 "日程安排 · ${currentTerm.events.size} 项",
@@ -280,7 +279,7 @@ private fun TermContent(
             )
         }
 
-        itemsIndexed(currentTerm.events) { index, event ->
+        itemsIndexed(currentTerm.events, key = { index, _ -> eventKeys[index] }) { index, event ->
             val isPast = today > event.endDate
             val isCurrent = today >= event.startDate && today <= event.endDate
             EventTimelineItem(

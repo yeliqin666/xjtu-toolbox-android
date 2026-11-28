@@ -860,7 +860,10 @@ private fun EditPasswordDialog(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 trailingIcon = {
                     IconButton(onClick = { visible = !visible }) {
-                        Icon(if (visible) MiuixIcons.Ok else MiuixIcons.Edit, contentDescription = null)
+                        Icon(
+                            if (visible) MiuixIcons.Ok else MiuixIcons.Edit,
+                            contentDescription = if (visible) "隐藏密码" else "显示密码",
+                        )
                     }
                 }
             )
