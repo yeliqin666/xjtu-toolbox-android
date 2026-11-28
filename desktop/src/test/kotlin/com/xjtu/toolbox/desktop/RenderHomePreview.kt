@@ -86,9 +86,13 @@ fun main(args: Array<String>) {
         ShellTab("PROFILE", "我的", Icons.Default.Person, ShellTarget.Custom("profile")),
     ))
 
-    data class Preview(val name: String, val width: Int, val height: Int, val dark: Boolean = false)
+    /** [fontScale] 是系统字号倍率：手机设置里「大」档一般 1.15~1.3，超大 1.5 以上。 */
+    data class Preview(val name: String, val width: Int, val height: Int, val dark: Boolean = false, val fontScale: Float = 1f)
     for (spec in listOf(
         Preview("home-mobile.png", 412, 915),
+        // 系统字号调大后的首页：卡片该把字收进格子里，而不是切掉半行（#622）
+        Preview("home-large-font.png", 412, 915, fontScale = 1.3f),
+        Preview("home-large-font-xl.png", 412, 915, fontScale = 1.5f),
         Preview("home-full.png", 412, 1690),
         Preview("home-dark.png", 412, 1690, dark = true),
         Preview("home-wide.png", 1100, 1150),
@@ -101,7 +105,7 @@ fun main(args: Array<String>) {
         } else fixture
         lateinit var scene: ImageComposeScene
         SwingUtilities.invokeAndWait {
-            scene = ImageComposeScene(spec.width, spec.height, Density(1f)) {
+            scene = ImageComposeScene(spec.width, spec.height, Density(1f, spec.fontScale)) {
                 XJTUToolBoxTheme(darkModeOverride = if (spec.dark) "dark" else "light") {
                     CompositionLocalProvider(LocalIsWideLayout provides (spec.width >= 840)) {
                         Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
