@@ -34,10 +34,10 @@ data class RunOffer(val game: String, val score: Int, val end: RunEnd)
  * resume        进页面：拍基线（这局开始前的本地最高分），捞上次残留的账
  * progress      实时分数：只有破纪录才写盘，供进程被杀后恢复
  * abandon       退出 / 重开：这局破纪录就先问一句
- * end           走到结算：只打「已结束」的标，**盘上那笔账先留着**
+ * end           走到结算：补记最终分数、只打「已结束」的标（账先留着）
  * settle        成绩有去处了（不够格 / 玩家不上传 / 提交成功）：划账
  * keepUnsent    没传成功：留一笔等下次
- * reopen        结算后又撤销回未结束（2048 的撤销一步）：这一局继续
+ * reopen        结算后又撤销回未结束（2048 的撤销一步）：这一局继续，并补记当前分数
  * ```
  *
  * **`end` 与 `settle` 分开是必须的**。结算要先拉一次榜才知道够不够格、再等一次提交，
@@ -84,6 +84,7 @@ class RunLedger(
         val base = baseOf(game)
         if (score <= 0 || score <= base) return null
         save(game, score, base, RunEnd.ABANDONED)
+        persisted[game] = maxOf(persisted[game] ?: 0, score)
         return RunOffer(game, score, RunEnd.ABANDONED)
     }
 
@@ -99,24 +100,36 @@ class RunLedger(
 
     /**
      * 结算之后玩家又撤销回未结束（2048 的「撤销一步」）：把这一局接回来。
-     * 基线保持开局那个值——用 [restart] 会把基线抬到刚结束的分数，这局后面再破纪录也不记账了。
+     *
+     * [score] 是撤销之后盘面上的分数，在这里**当场补记一笔**——不能指望后面还会有人来叫
+     * [progress]：分没变的时候，页面上「分数变了」那个 effect 根本不会再跑。
+     * 基线保持开局那个值，不用 [restart]——那会把基线抬到刚结束的分数，这局后面再破纪录也不记账了。
      */
-    fun reopen(game: String) {
+    fun reopen(game: String, score: Int) {
         ended[game] = false
+        val base = baseOf(game)
+        // 盘上要是还留着更高的一笔（上一局没传成功的），别覆盖它
+        if (score <= base || score <= (parse(game)?.score ?: 0)) return
+        save(game, score, base, RunEnd.INTERRUPTED)
+        persisted[game] = score
     }
 
     /**
-     * 走到结算了。这里**只打标、不划账**：够不够格要先拉一次榜，够格还要等玩家回答或一次提交，
+     * 走到结算了。这里**不当场划账**：够不够格要先拉一次榜，够格还要等玩家回答或一次提交，
      * 账得留到成绩真有去处（[settle]）为止。
      *
-     * 顺手把盘上那笔本局自己记的原因从 [RunEnd.INTERRUPTED] 改成 [RunEnd.ENDED]：
-     * 这样玩家在询问卡上直接退出去、下次再问时，文案说的是「没来得及上传」而不是「异常退出」。
+     * 同时把最终分数补记一笔：最后一分常常是跟「结束」同一帧产生的，各游戏都在 `isOver` 时
+     * 跳过 [progress]，那一分就从没落过盘；玩家在询问卡上直接退出去的话，下次只能捞到旧分数。
+     * 盘上已经躺着更高的一局（或上一局没传上去的账）就不动它。
      */
     fun end(game: String, score: Int) {
         ended[game] = true
-        val record = parse(game) ?: return
-        if (record.score > score || record.end != RunEnd.INTERRUPTED) return
-        save(game, record.score, record.base, RunEnd.ENDED)
+        if (parse(game)?.let { it.score > score } == true) return
+        val base = baseOf(game)
+        if (score <= base) return
+        save(game, score, base, RunEnd.ENDED)
+        // 限流的水位得跟着走：撤销回来接着打时，[progress] 才不会拿更低的分数盖掉这一笔
+        persisted[game] = maxOf(persisted[game] ?: 0, score)
     }
 
     /**
@@ -136,6 +149,9 @@ class RunLedger(
         if (score <= 0) return
         val record = parse(game)
         if (record == null) {
+            // 盘上没有账，说明这一局连开局那关都没过（结算时拉榜失败也可能走到这里）：
+            // 没超过开局最高分的一局不配补传，别拿它去骚扰玩家
+            if (score <= baseOf(game)) return
             save(game, score, 0, RunEnd.UNSENT)
             return
         }
@@ -205,8 +221,8 @@ object LeaderboardRun {
         if (Leaderboard.enabled) ledger.restart(game, previous)
     }
 
-    fun reopen(game: String) {
-        if (Leaderboard.enabled) ledger.reopen(game)
+    fun reopen(game: String, score: Int) {
+        if (Leaderboard.enabled) ledger.reopen(game, score)
     }
 
     fun end(game: String, score: Int) {

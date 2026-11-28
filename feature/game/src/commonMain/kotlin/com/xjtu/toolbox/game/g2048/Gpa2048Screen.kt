@@ -202,15 +202,16 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     fun undo() {
         val snap = history.lastOrNull() ?: return
         if (undoLeft <= 0) return
+        // 结算之后的撤销等于把这一局续上：账本也得跟着回到「进行中」，并把撤销后的分数补记一笔
+        // （分数没变的话，下面的 progress 那个 effect 不会再跑）。基线仍是开局那个值，不跟着抬高。
+        val wasOver = state.isOver
         stamp++
         history = history.dropLast(1)
         state = snap.state
         tiles = snap.tiles.map { it.copy(kind = TileKind.STILL, stamp = stamp) }
         undoLeft--
         lastGain = 0
-        // 撤销把这一局又续上了：账本也回到「进行中」，否则接下来再破纪录不记账、退出时也不再问
-        // 要不要上传（基线仍是开局那个值，不跟着抬高）
-        LeaderboardRun.reopen(GameIds.G2048)
+        if (wasOver) LeaderboardRun.reopen(GameIds.G2048, state.score)
     }
 
     val focusRequester = remember { FocusRequester() }

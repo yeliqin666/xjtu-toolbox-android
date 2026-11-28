@@ -125,16 +125,51 @@ class RunLedgerTest {
     }
 
     @Test
-    fun undoReopensTheRunAndKeepsTheOpeningBaseline() {
+    fun endRecordsTheFinalScoreThatProgressMissed() {
+        best = 100
+        ledger.resume("merge")
+        ledger.progress("merge", 400) // 中途记过一笔
+        // 最后一分是跟「结束」同一帧产生的，各游戏在 isOver 时都会跳过 progress
+        ledger.end("merge", 500)
+        assertEquals(RunOffer("merge", 500, RunEnd.ENDED), ledger.pending("merge"))
+    }
+
+    @Test
+    fun aRunBelowTheBaselineIsNotKeptAsUnsent() {
+        best = 9000
+        ledger.resume("merge")
+        // 只打了 100 分：结算时拉榜失败、提交再失败，也不该给它记一笔补传去骚扰玩家
+        ledger.end("merge", 100)
+        ledger.keepUnsent("merge", 100)
+        assertNull(ledger.pending("merge"))
+    }
+
+    @Test
+    fun undoAfterEndKeepsTheFinalScoreOfTheRun() {
+        best = 100
+        ledger.resume("merge")
+        ledger.progress("merge", 400)
+        ledger.end("merge", 500)
+        // 撤销回 300 接着打：盘上那笔 500 是这局真打出来的，不该被后面的 450 盖掉
+        ledger.reopen("merge", 300)
+        ledger.progress("merge", 450)
+        assertEquals(500, ledger.pending("merge")?.score)
+    }
+
+    @Test
+    fun undoAfterSettlingBringsTheRunBack() {
         best = 100
         ledger.resume("merge")
         ledger.progress("merge", 500)
         ledger.end("merge", 500)
-        // 结算之后又「撤销一步」：这一局继续，账本也得回到进行中
-        ledger.reopen("merge")
-        // 基线仍是开局那个 100，不是刚结束的 500——否则续打的分数就不记账了
-        ledger.progress("merge", 600)
-        assertEquals(600, ledger.pending("merge")?.score)
-        assertEquals(RunOffer("merge", 600, RunEnd.ABANDONED), ledger.abandon("merge", 600))
+        ledger.settle("merge", 500) // 玩家选了不上传，账划掉了
+        // 结算之后又「撤销一步」，撤到 300 接着打
+        ledger.reopen("merge", 300)
+        assertEquals(RunOffer("merge", 300, RunEnd.INTERRUPTED), ledger.pending("merge"))
+        // 基线仍是开局那个 100（不是刚结束的 500），限流也退回来了：400 分照样记账
+        ledger.progress("merge", 400)
+        assertEquals(400, ledger.pending("merge")?.score)
+        // 退出时也照常问一句，不再被「已结束」挡住
+        assertEquals(RunOffer("merge", 400, RunEnd.ABANDONED), ledger.abandon("merge", 400))
     }
 }
