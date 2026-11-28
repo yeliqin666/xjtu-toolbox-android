@@ -79,7 +79,9 @@ class HandshakeAuthTest {
         assertFalse(HandshakeAuth.sameProof(right, HandshakeAuth.guestProof("WRONG-TOKEN", nonce)))
         assertFalse(HandshakeAuth.sameProof(right, null))
         assertFalse(HandshakeAuth.sameProof(right, right.dropLast(1))) // 长度不同直接否掉
-        assertFalse(HandshakeAuth.sameProof(right, right.dropLast(1) + "0"))
+        // 同长度、只差最后一位：换成的那个字符必须和原来不同，否则有 1/16 的概率"改成自己"
+        val other = if (right.last() == '0') "1" else "0"
+        assertFalse(HandshakeAuth.sameProof(right, right.dropLast(1) + other))
     }
 
     @Test
