@@ -694,7 +694,7 @@ private fun DesktopPage(
             onBack = back,
             onOpenFeedback = { onNavigate(DesktopTarget.App(AppRoute.Feedback)) },
         )
-        // 反馈：上游是飞书开放平台，不套 `DesktopSiteGate`；凭据没配时表单隐藏、只剩外链。
+        // 反馈：上游是自家反馈后端（api.dzhz.top/feedback），不套 `DesktopSiteGate`；地址置空时表单隐藏、只剩外链。
         AppRoute.Feedback -> FeedbackScreen(
             source = remember { AppFeedbackSource },
             onOpenUrl = { url -> if (url.isNotBlank()) openInBrowser(url) },

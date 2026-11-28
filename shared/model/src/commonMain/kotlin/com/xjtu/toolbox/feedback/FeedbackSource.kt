@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.feedback
 
-/** 反馈的取数端口 —— `:core` 的反馈屏只认它，不认任何具体后端（现在是飞书多维表格，见 `:data` 的 `FeedbackApi` / `AppFeedbackSource`）。 */
+/** 反馈的取数端口 —— `:core` 的反馈屏只认它，不认任何具体后端（现在是 Cloudflare Workers + D1 的反馈后端，见 `:data` 的 `FeedbackApi` / `AppFeedbackSource`）。 */
 interface FeedbackSource {
 
     /** 后端凭据是否配全。 */

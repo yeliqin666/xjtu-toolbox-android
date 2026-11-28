@@ -158,11 +158,9 @@ class LaunchNotices(
     internal fun submitPoll(bulletin: Bulletin, selected: List<String>) {
         scope.launch {
             val ok = runCatching {
-                FeedbackApi.submit(
-                    ticket = FeedbackStore.newTicket(),
-                    category = "投票·${bulletin.id}",
-                    content = selected.joinToString("、"),
-                    contact = "",
+                FeedbackApi.vote(
+                    pollId = bulletin.id,
+                    selected = selected,
                     anonId = FeedbackStore.anonId(),
                 )
             }.isSuccess

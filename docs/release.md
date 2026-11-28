@@ -6,8 +6,8 @@
 
 | 分支 | 构建 | 发布 |
 |---|---|---|
-| `main` | `release` 变体 | `vX.Y.Z` tag、GitHub Latest Release、`stable.json`，同步 Gitee，附桌面安装包 |
-| `dev` | `preview` 变体 | `vX.Y.Z-beta.N` tag、GitHub Pre-release（`make_latest: false`）、`preview.json`，不同步 Gitee |
+| `main` | `release` 变体 | `vX.Y.Z` tag、GitHub Latest Release、`stable.json`，附桌面安装包 |
+| `dev` | `preview` 变体 | `vX.Y.Z-beta.N` tag、GitHub Pre-release（`make_latest: false`）、`preview.json` |
 
 `preview` 构建类型 `initWith(release)`：混淆、资源收缩与正式版同一套，能提前暴露只在 R8 后才出现的 keep / 序列化问题；非 debuggable；正式签名、同包名，可与正式版互相覆盖安装。堆栈是混淆过的，CI 按版本上传 `mapping.txt` 供 retrace。
 
@@ -18,7 +18,7 @@
 在 Actions 运行 `Build & Release` 并选 `dev`：
 
 - `publish_preview`：补发 `dev` 上累积的改动，不受 `[skip preview]` 影响。
-- `release_preview`：改用 `release` 变体（命令与正式发布一致）构建预览版，用于正式版上线前连验几轮。也可在 head commit 写 `[release preview]` 触发。它仍是预览渠道：只写 `preview.json`、发 Pre-release，不动 `stable.json`、`latest` 别名和 Gitee。
+- `release_preview`：改用 `release` 变体（命令与正式发布一致）构建预览版，用于正式版上线前连验几轮。也可在 head commit 写 `[release preview]` 触发。它仍是预览渠道：只写 `preview.json`、发 Pre-release，不动 `stable.json` 和 `latest` 别名。
 
 ### 推送范围
 
@@ -74,7 +74,7 @@ CDN（`dzhz.zyxf.top`，阿里云 ESA）的缓存以线上规则为准（2026-11
 
 ## Cloudflare R2 更新渠道
 
-客户端更新渠道可选 `阿里云`（默认）、`Cloudflare`、`GitHub`、`Gitee`。其中 `Cloudflare` 渠道读取 R2 自定义域名 `https://dl.dzhz.top`（桶 `dzhz-releases`，对象路径不带 `xjtu-toolbox/` 前缀，直接为 `stable.json`、`preview.json`、`apk/...`、`history/...`）。
+客户端更新渠道可选 `阿里云`（默认）、`Cloudflare`、`GitHub`（Gitee 已下线，旧设置自动落到阿里云）。其中 `Cloudflare` 渠道读取 R2 自定义域名 `https://dl.dzhz.top`（桶 `dzhz-releases`，对象路径不带 `xjtu-toolbox/` 前缀，直接为 `stable.json`、`preview.json`、`apk/...`、`history/...`）。
 
 CI 通过 [`.github/scripts/r2_publish.py`](../.github/scripts/r2_publish.py) 同步正式版与预览版，预览版同样仅保留最近 5 个版本目录；以下 secrets 任一未配置时自动跳过、不影响发版：
 

@@ -163,6 +163,6 @@ internal const val FEEDBACK_PARAM_ANON_ID = "anonId"
 /** 一次最多认几个工单号（同 `FeedbackApi.replies` 的 `take(20)`）。 */
 private const val FEEDBACK_MAX_TICKETS = 20
 
-/** 凭据没配全时那句话。 */
+/** 反馈后端未配置时那句话。 */
 internal const val FEEDBACK_UNCONFIGURED_MESSAGE =
-    "反馈后端凭据没配全：启动 serve 前设 FEEDBACK_APP_ID / FEEDBACK_APP_SECRET / FEEDBACK_BASE_TOKEN（可选 FEEDBACK_TABLE_SUBMIT / FEEDBACK_TABLE_REPLY）"
+    "反馈后端未配置：若需开启请不要把 FEEDBACK_BASE_URL 置为空（默认指向 https://api.dzhz.top/feedback）"

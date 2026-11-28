@@ -176,14 +176,14 @@ class CredentialStore(context: Context) {
 
     /**
      * 老版本默认渠道是 gitee；升级后第一次读设置时把旧默认值迁到阿里云。
-     * 迁移只做一次，之后用户手动选 Gitee 不会被再次覆盖。
+     * Gitee 已下线，之后存着的 gitee 也由 [AppUpdater.normalizeChannel] 落到阿里云。
      */
     private fun migrateUpdateChannelIfNeeded() {
         if (appPrefs.getBoolean(KEY_UPDATE_CHANNEL_MIGRATED, false)) return
         val stored = appPrefs.getString(KEY_UPDATE_CHANNEL, null)?.trim()?.lowercase()
         val migrated = when (stored) {
             // 空值、旧默认 gitee、旧版 stable/beta 都视为「没有主动选过」。
-            null, "", AppUpdater.CHANNEL_GITEE, "stable", "beta", "gitee_latest" -> CHANNEL_ALIYUN
+            null, "", "gitee", "stable", "beta", "gitee_latest" -> CHANNEL_ALIYUN
             AppUpdater.CHANNEL_GITHUB, "github_latest" -> CHANNEL_GITHUB
             else -> AppUpdater.normalizeChannel(stored)
         }
@@ -275,7 +275,6 @@ class CredentialStore(context: Context) {
         const val NETWORK_DIRECT = SettingsStore.NETWORK_DIRECT
         const val NETWORK_VPN = SettingsStore.NETWORK_VPN
         const val CHANNEL_ALIYUN = AppUpdater.CHANNEL_ALIYUN
-        const val CHANNEL_GITEE = AppUpdater.CHANNEL_GITEE
         const val CHANNEL_GITHUB = AppUpdater.CHANNEL_GITHUB
     }
 }

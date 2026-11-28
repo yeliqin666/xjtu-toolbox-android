@@ -234,7 +234,7 @@ class ServePayFeedbackWebvpnApiTest {
         assertFailsWith<IllegalStateException> { api.fromVpnUrl("empty") }
     }
 
-    /** 这三族在 campus-api 里没有端点（付款码走 `:data` 的 okhttp 借校园卡会话、反馈直连飞书、 WebVPN 是本地的纯函数） */
+    /** 这三族在 campus-api 里没有端点（付款码走 `:data` 的 okhttp 借校园卡会话、反馈直连自家后端、 WebVPN 是本地的纯函数） */
     @Test
     fun campusApiModeThrowsInsteadOfFakingEmptyData() = runTest {
         val engine = engineFor(
@@ -315,7 +315,7 @@ class ServePayFeedbackWebvpnApiTest {
             createToolboxClient(
                 engine = MockEngine {
                     respond(
-                        """{"code":502,"message":"反馈后端凭据没配全：启动 serve 前设 FEEDBACK_APP_ID …"}""",
+                        """{"code":502,"message":"反馈后端未配置：若需开启请不要把 FEEDBACK_BASE_URL 置为空…"}""",
                         HttpStatusCode.BadGateway,
                         JSON_HEADERS,
                     )
@@ -327,7 +327,7 @@ class ServePayFeedbackWebvpnApiTest {
         val five = assertFailsWith<IllegalStateException> {
             gateway.submit(ticket = "T1A2B3C4D5", category = "使用", content = "内容", contact = "", anonId = "a")
         }
-        assertTrue(five.message!!.contains("FEEDBACK_APP_ID"), "502 要原样带出「去哪儿配」：${five.message}")
+        assertTrue(five.message!!.contains("FEEDBACK_BASE_URL"), "502 要原样带出「去哪儿配」：${five.message}")
     }
 
 }

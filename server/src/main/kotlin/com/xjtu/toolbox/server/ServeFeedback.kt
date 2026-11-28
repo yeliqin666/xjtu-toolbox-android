@@ -2,26 +2,22 @@ package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.feedback.FeedbackApi
 
-/** 把反馈后端的凭据交给 `:data` 的 [FeedbackApi]（serve 端那一份）。 */
+/** 把反馈后端地址交给 `:data` 的 [FeedbackApi]（serve 端那一份）。 */
 internal object ServeFeedback {
 
-    /** 幂等：在 [Main] 里启动前调一次。 */
+    /**
+     * 幂等：在 [Main] 里启动前调一次。
+     * 未显式设 [ENV_BASE_URL] 时默认指到正式 Worker（[FeedbackApi.DEFAULT_BASE_URL]）；
+     * 显式设成空串则视为禁用反馈功能（`FeedbackApi.config = null`）。
+     */
     fun install(env: Map<String, String> = System.getenv()) {
-        fun cfg(name: String): String = env[name].orEmpty().trim()
-
-        val appId = cfg(ENV_APP_ID)
-        val appSecret = cfg(ENV_APP_SECRET)
-        val baseToken = cfg(ENV_BASE_TOKEN)
-        FeedbackApi.config = if (appId.isEmpty() || appSecret.isEmpty() || baseToken.isEmpty()) {
-            // 三个必填缺一个 ⇒ 整条链不可用（`FeedbackApi.isConfigured` 的判据就是这三个非空）
+        val raw = env[ENV_BASE_URL]
+        val baseUrl = (raw ?: FeedbackApi.DEFAULT_BASE_URL).trim()
+        FeedbackApi.config = if (baseUrl.isEmpty()) {
             null
         } else {
             FeedbackApi.Config(
-                appId = appId,
-                appSecret = appSecret,
-                baseToken = baseToken,
-                submitTable = cfg(ENV_TABLE_SUBMIT),
-                replyTable = cfg(ENV_TABLE_REPLY),
+                baseUrl = baseUrl,
                 versionLabel = VERSION_LABEL,
                 deviceLabel = "${osName()} ${System.getProperty("os.arch").orEmpty()}".trim(),
                 osLabel = "${osName()} ${System.getProperty("os.version").orEmpty()}" +
@@ -35,9 +31,5 @@ internal object ServeFeedback {
     /** 「版本」列的值：serve 没有自己的版本号，写这一端的名字。 */
     private const val VERSION_LABEL = "serve"
 
-    internal const val ENV_APP_ID = "FEEDBACK_APP_ID"
-    internal const val ENV_APP_SECRET = "FEEDBACK_APP_SECRET"
-    internal const val ENV_BASE_TOKEN = "FEEDBACK_BASE_TOKEN"
-    internal const val ENV_TABLE_SUBMIT = "FEEDBACK_TABLE_SUBMIT"
-    internal const val ENV_TABLE_REPLY = "FEEDBACK_TABLE_REPLY"
+    internal const val ENV_BASE_URL = "FEEDBACK_BASE_URL"
 }

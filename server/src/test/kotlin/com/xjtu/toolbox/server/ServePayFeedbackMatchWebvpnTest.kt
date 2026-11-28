@@ -182,8 +182,9 @@ class ServePayFeedbackMatchWebvpnTest {
             assertEquals(FeedbackFakeUpstream.QA_CATEGORY, item.optString("category"))
             assertFalse(qa.body().contains(FeedbackFakeUpstream.QA_PRIVATE_QUESTION), "没勾「公开」的不该出现")
 
-            // 两发都是 search（读），提交（写）一枪都没打
-            assertTrue(fake.feedback.searchCalls.get() >= 2, "回复与公开问答各是一发 search")
+            // 两发都是读，提交（写）一枪都没打
+            assertEquals(1, fake.feedback.repliesCalls.get())
+            assertEquals(1, fake.feedback.publicQaCalls.get())
             assertEquals(0, fake.feedback.submitCalls.get(), "提交是写路径 ⇒ serve 模式下没有端点，一枪都不该发")
         }
 
@@ -200,25 +201,24 @@ class ServePayFeedbackMatchWebvpnTest {
             assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(bad))
             assertTrue(envelopeMessage(bad).orEmpty().contains(FEEDBACK_PARAM_TICKETS), "文案要说清缺哪个参数")
         }
-        assertEquals(0, fake.feedback.searchCalls.get(), "参数不对那一枪不该到上游")
+        assertEquals(0, fake.feedback.repliesCalls.get(), "参数不对那一枪不该到上游")
     }
 
     @Test
-    fun `反馈：凭据按环境变量注入（三个必填缺一个就如实「没配」）`() {
+    fun `反馈：按环境变量注入后端地址（未设用默认正式地址，显式置空视为禁用）`() {
         ServeFeedback.install(feedbackEnv())
-        val cfg = assertNotNull(FeedbackApi.config, "五个环境变量都在 ⇒ 必须有 config")
-        assertEquals(FeedbackFakeUpstream.APP_ID, cfg.appId)
-        assertEquals(FeedbackFakeUpstream.APP_SECRET, cfg.appSecret)
-        assertEquals(FeedbackFakeUpstream.BASE_TOKEN, cfg.baseToken)
-        assertEquals(FeedbackFakeUpstream.REPLY_TABLE, cfg.replyTable)
+        val cfg = assertNotNull(FeedbackApi.config, "配了 FEEDBACK_BASE_URL ⇒ 必须有 config")
+        assertEquals(FeedbackFakeUpstream.BASE, cfg.baseUrl)
         assertEquals("serve", cfg.versionLabel, "版本那一列在 serve 上就是这一端的名字（没有包版本号）")
         assertTrue(cfg.deviceLabel.isNotBlank(), "机型列要报这台机器（不假装是手机）：${cfg.deviceLabel}")
         assertTrue(cfg.osLabel.contains("Java"), "系统列带 Java 版本：${cfg.osLabel}")
         assertTrue(FeedbackApi.isConfigured)
 
-        // 三个必填缺一个 ⇒ config 置 null（`isConfigured` 的判据就是那三个非空），不是拿半份顶上
-        ServeFeedback.install(feedbackEnv() - ServeFeedback.ENV_BASE_TOKEN)
-        assertNull(FeedbackApi.config, "缺 FEEDBACK_BASE_TOKEN ⇒ 如实「没配」")
+        ServeFeedback.install(emptyMap())
+        assertEquals(FeedbackApi.DEFAULT_BASE_URL, FeedbackApi.config?.baseUrl)
+
+        ServeFeedback.install(mapOf(ServeFeedback.ENV_BASE_URL to ""))
+        assertNull(FeedbackApi.config, "显式置空 FEEDBACK_BASE_URL ⇒ 如实「没配」")
         assertFalse(FeedbackApi.isConfigured)
     }
 
@@ -416,13 +416,9 @@ class ServePayFeedbackMatchWebvpnTest {
         const val MATCH_DINING_PATH = "/api/match/dining"
         const val WEBVPN_CONVERT_PATH = "/api/webvpn/convert"
 
-        /** 反馈那一族的凭据（`ServeFeedback` 认的那五个环境变量名，值就是夹具里那套编出来的）。 */
+        /** 反馈那一族的后端地址。 */
         fun feedbackEnv(): Map<String, String> = mapOf(
-            ServeFeedback.ENV_APP_ID to FeedbackFakeUpstream.APP_ID,
-            ServeFeedback.ENV_APP_SECRET to FeedbackFakeUpstream.APP_SECRET,
-            ServeFeedback.ENV_BASE_TOKEN to FeedbackFakeUpstream.BASE_TOKEN,
-            ServeFeedback.ENV_TABLE_SUBMIT to FeedbackFakeUpstream.SUBMIT_TABLE,
-            ServeFeedback.ENV_TABLE_REPLY to FeedbackFakeUpstream.REPLY_TABLE,
+            ServeFeedback.ENV_BASE_URL to FeedbackFakeUpstream.BASE,
         )
 
         /** 隐私红线的钉子组（全是夹具里的编造值，不是真人）：登录学号、校园卡上的姓名与学号、卡账号，以及几个一眼能认出来的身份键名。 */
