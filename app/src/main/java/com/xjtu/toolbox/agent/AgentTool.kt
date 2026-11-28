@@ -446,7 +446,8 @@ class AgentToolRegistry(
                 getLibrarySeats(args.argStr("campus"), args.argStr("area"))
             "get_textbooks" -> getTextbooks(args.argStr("course"), args.argStr("term"))
             "get_coupons" -> getCoupons(args.argStr("status"))
-            "activity" -> ssActivity(args.argStr("action"), args.argStr("keyword"), args.argStr("id"), args.argStr("order"))
+            "activity" -> ssActivity(args.argStr("action"), args.argStr("keyword"), args.argStr("id"), args.argStr("order"),
+                confirmed = args.argBool(USER_CONFIRMED_ARG) == true)
             "get_lms" -> {
                 val course = (args.argStr("course")).orEmpty()
                 when {
@@ -1622,8 +1623,11 @@ class AgentToolRegistry(
         }
     }
 
-    /** 智慧社区活动（#465）：查、看、报、取消、我的报名。报名前自己再核一遍报名时间，不全指望模型。 */
-    private suspend fun ssActivity(action: String?, keyword: String?, id: String?, order: String?): String {
+    /**
+     * 智慧社区活动（#465）：查、看、报、取消、我的报名。报名前自己再核一遍报名时间，不全指望模型。
+     * apply / cancel 没有 [confirmed]（只有卡片按钮能带）时只核对条件、出确认卡，不提交。
+     */
+    private suspend fun ssActivity(action: String?, keyword: String?, id: String?, order: String?, confirmed: Boolean): String {
         val site = ensureSite(LoginType.SS) ?: return loginHint(LoginType.SS)
         val api = com.xjtu.toolbox.ss.SsActivityApi(site)
         fun line(a: com.xjtu.toolbox.ss.SsActivity) = listOf(
@@ -1647,15 +1651,22 @@ class AgentToolRegistry(
                 "detail", "apply", "cancel" -> {
                     val hd = id?.trim()?.takeIf { it.isNotEmpty() } ?: return ToolReply.missing("id")
                     val d = api.detail(hd)
+                    fun confirmCard(note: String): String {
+                        pendingWidgets += ActivityConfirmWidget(hd, action, d.base.title, d.base.start, d.place, note,
+                            cardId = kotlin.random.Random.nextLong().toULong().toString(36))
+                        return ToolReply.CARD_SHOWN + "\ncard_display: activity_confirm; action=$action; user_taps_to_confirm; not_submitted_yet"
+                    }
                     when (action) {
                         "apply" -> {
                             d.applyBlocker(com.xjtu.toolbox.util.nowOnCampus())?.let { return ToolReply.failed("apply", it) }
+                            if (!confirmed) return confirmCard(if (d.needReview) "报名后需审核" else "")
                             api.apply(hd)
                             "ok: applied; ${d.base.title}${if (d.needReview) "; 需审核，结果看 mine" else ""}"
                         }
                         "cancel" -> {
                             if (!d.applied) return ToolReply.failed("cancel", "还没报名")
                             if (!d.canCancel) return ToolReply.failed("cancel", "这个活动不允许取消报名")
+                            if (!confirmed) return confirmCard("")
                             api.cancel(hd)
                             "ok: cancelled; ${d.base.title}"
                         }

@@ -22,7 +22,7 @@ object AgentPostCard {
     private const val MAX_BODY = 4000
 
     fun definition(): JsonObject = agentTool(TOOL,
-        "给 App 社区（GitHub Discussions）起草帖子预览卡，用户点「发布」才用他的社区账号发出。返回时卡片已展示。",
+        "给 App 社区（GitHub Discussions）起草帖子预览卡，用户点「发布」后才以用户本人的社区账号发出。返回时卡片已展示。${AgentRunner.DISPLAY_ENDS_TURN}",
         agentParams(
             "title" to agentStrProp("标题，30 字以内。"),
             "body" to agentStrProp("正文，Markdown。"),

@@ -21,7 +21,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
         "校历与作息：当前教学周、当前和下一节次、今天的作息时间、开学天数、放假与考试周。",
         agentParams("term" to agentStrProp("学年或学期，如 2025-2026、第一学期。缺省：当前学期。"))))
     arr.add(agentTool("get_schedule",
-        "课表，含用户自建日程。",
+        "本人课表，含自建日程。",
         agentParams(
             "date" to agentStrProp("yyyy-MM-dd，只看这一天。缺省：本周；给了 term 则整学期。"),
             "term" to agentStrProp("学期代码，如 2024-2025-1。缺省：当前学期。"),
@@ -48,7 +48,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "limit" to agentIntProp("条数，默认 10，上限 20。"),
         )))
     arr.add(agentTool("get_empty_rooms",
-        "空闲教室，可按楼、日期、节次筛。",
+        "空闲教室，可按教学楼、日期、节次筛选。",
         agentParams(
             "campus"   to agentEnumProp("缺省：兴庆校区。", "兴庆校区", "雁塔校区", "曲江校区", "创新港校区"),
             "building" to agentStrProp("楼名，如 主楼A、1号巨构。缺省：全校区。"),
@@ -62,7 +62,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
         "本学期考勤记录：正常、迟到、缺勤、请假。需考勤登录。",
         agentParams("limit" to agentIntProp("条数，默认 20，上限 200。"))))
     arr.add(agentTool("get_grades",
-        "成绩与加权 GPA。需教务登录。",
+        "本人成绩与加权 GPA。需教务登录。",
         agentParams("term" to agentStrProp("学期代码，如 2024-2025-1。缺省：全部学期。"))))
     arr.add(agentTool("get_card_info",
         "校园卡余额；给 days 再附这段时间的消费流水和收支汇总。需校园卡登录。",
@@ -101,7 +101,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     // web_search / web_fetch 在 `:data` 的 DeepSeekWebTools 里，配了 DeepSeek Key 的端由 AgentHost.tools 并进来
     if (AgentCapability.ALARM in honored) {
         arr.add(agentTool("set_alarm",
-            "用系统闹钟定一个闹钟。",
+            "在系统时钟里设一个闹钟。",
             agentParams(
                 "hour" to agentIntProp("0–23。"),
                 "minute" to agentIntProp("0–59。缺省：0。"),
@@ -112,7 +112,8 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     }
     if (AgentCapability.SCHEDULE_EVENT_WRITE in honored) {
         arr.add(agentTool("add_schedule_event",
-            "往日程里加一段占时间的安排，仅限当前学期。和课程或已有日程冲突时不加、返回冲突；force=true 强制加。",
+            "往本学期日程里添加一段有起止时间的安排。只有截止时间的待办没有直接写入的工具，只能用 propose_plan 列卡片由用户加入。" +
+                "与课程或已有日程冲突时不添加并返回冲突；force=true 时强制添加。",
             agentParams(
                 "title" to agentStrProp("标题。"),
                 "date" to agentStrProp("yyyy-MM-dd。"),
@@ -132,13 +133,13 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "area" to agentStrProp("区域名，模糊，如 北楼二层外文库。缺省：列出全部区域和空座数。"),
         )))
     arr.add(agentTool("list_zyxf",
-        "仲英学辅资料站（同学共享的历年卷、复习资料、课件、笔记）：给 keyword 按文件名、目录名搜，否则浏览目录。返回的文件 ID 交给 read_zyxf_file。",
+        "仲英学辅资料站（同学共享的历年卷、复习资料、课件、笔记）：给 keyword 时按文件名和目录名搜索，否则浏览目录。返回的文件 ID 用于 read_zyxf_file。",
         agentParams(
-            "keyword" to agentStrProp("关键词，宜用课程名。"),
+            "keyword" to agentStrProp("关键词。文件和目录多以课程名命名。"),
             "folder_id" to agentIntProp("目录 ID。缺省：根目录。"),
         )))
     arr.add(agentTool("read_zyxf_file",
-        "读学辅文件。长 PDF 先用 info 看每页首行或 search 找页，再按页读。$DOC_READ_NOTE",
+        "读取学辅文件内容。长 PDF 可用 info 或 search 定位页码。$DOC_READ_NOTE",
         agentParams(
             "file_id" to agentIntProp("来自 list_zyxf。"),
             "pages" to agentStrProp(DOC_PAGES_PROP),
@@ -189,11 +190,11 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
         )))
     if (AgentCapability.SS_ACTIVITY in honored) {
         arr.add(agentTool("activity",
-            "智慧社区活动报名，集体活动证明和课外学分（本科共需 8 分）的主要来源。讲座、报告会、分享会通常能开集体活动证明，但描述里很少写明；" +
-                "积分能否认定以学院、书院规定为准。apply / cancel 会真实报名或取消，须用户明确同意。需智慧社区登录。",
+            "智慧社区活动：搜索、详情、本人报名记录、报名与取消报名。这里的活动是集体活动证明和课外学分（本科共需 8 分）的主要来源；" +
+                "讲座、报告会、分享会通常能开集体活动证明，但活动描述里很少写明，积分认定以学院、书院规定为准。apply / cancel 核对条件后展示确认卡片，用户点卡片上的按钮才提交。需智慧社区登录。",
             agentParams(
                 "action" to agentEnumProp(
-                    "search=按名称搜，不给 keyword 列近期；group_proof=搜还没结束、通常能开集体活动证明的活动；detail=详情（报名时间、名额、是否已报、地点、积分）；mine=本人报名记录；apply=报名；cancel=取消报名。",
+                    "search=按名称搜，不给 keyword 列近期；group_proof=搜还没结束、通常能开集体活动证明的活动；detail=详情（报名时间、名额、是否已报、地点、积分）；mine=本人报名记录；apply=报名（出确认卡片）；cancel=取消报名（出确认卡片）。",
                     "group_proof", "search", "detail", "apply", "cancel", "mine",
                 ),
                 "keyword" to agentStrProp("search 的活动名关键词。"),
@@ -238,7 +239,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             agentParams()))
     }
     arr.add(agentTool("calculate",
-        "算一个表达式：+ - * / ^ 和括号。",
+        "计算算术表达式，支持 + - * / ^ 和括号。",
         agentParams("expression" to agentStrProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))
     return JsonArray(arr.map(AgentWidgetPresentation::queryDefinition)).toString()
 }

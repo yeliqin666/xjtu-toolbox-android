@@ -225,6 +225,26 @@ data class PostWidget(
     val caption: String = "",
 ) : AgentWidget
 
+/**
+ * 活动报名 / 取消报名的确认卡：模型调 `activity` 的 apply / cancel 只出这张卡，
+ * 用户点卡上的按钮才带 [USER_CONFIRMED_ARG] 真正提交。[action] 为 apply 或 cancel。
+ */
+@Serializable
+@SerialName("activity_confirm")
+data class ActivityConfirmWidget(
+    val id: String = "",
+    val action: String = "",
+    val title: String = "",
+    val start: String = "",
+    val place: String = "",
+    val note: String = "",
+    /** 每张卡唯一：完成状态按卡记，同一活动报了又取消后再出的新卡不继承旧卡状态。 */
+    val cardId: String = "",
+) : AgentWidget
+
+/** 只有卡片按钮能带的参数；AgentRunner 会从模型的调用里剥掉它，模型绕不过确认。 */
+const val USER_CONFIRMED_ARG = "user_confirmed"
+
 /** 类型名是存盘格式的一部分（沿用旧版的类名），不要改。 */
 fun AgentWidget.toStored(): StoredWidget = when (this) {
     is NoticeWidget -> StoredWidget("NoticeWidget", AppJson.encodeToString(this))
@@ -242,6 +262,7 @@ fun AgentWidget.toStored(): StoredWidget = when (this) {
     is PostWidget -> StoredWidget("PostWidget", AppJson.encodeToString(this))
     is BusWidget -> StoredWidget("BusWidget", AppJson.encodeToString(this))
     is LmsFileWidget -> StoredWidget("LmsFileWidget", AppJson.encodeToString(this))
+    is ActivityConfirmWidget -> StoredWidget("ActivityConfirmWidget", AppJson.encodeToString(this))
 }
 
 /** 读不回来（旧版半截写入、未知类型）就丢掉这张卡片，不影响整段会话。 */
@@ -262,6 +283,7 @@ fun storedToWidget(stored: StoredWidget): AgentWidget? = runCatching {
         "PostWidget" -> AppJson.decodeFromString<PostWidget>(stored.json)
         "BusWidget" -> AppJson.decodeFromString<BusWidget>(stored.json)
         "LmsFileWidget" -> AppJson.decodeFromString<LmsFileWidget>(stored.json)
+        "ActivityConfirmWidget" -> AppJson.decodeFromString<ActivityConfirmWidget>(stored.json)
         else -> null
     }
 }.getOrNull()

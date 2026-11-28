@@ -521,6 +521,100 @@ class AgentRunnerTest {
         assertEquals("page_entry: shown; tool: get_coupons", responses.last())
     }
 
+    @Test fun 正文和展示同一轮给出时不再多请求一次() = runBlocking {
+        val tools = FakeTools { _, _ -> "没有加餐券" }
+        val history = messages()
+        val transport = FakeTransport(listOf(
+            reply("", listOf(call("coupons", "get_coupons")), finish = "tool_calls"),
+            reply("目前没有可领的加餐券。", listOf(call("show", "present_result", """{"result_id":"coupons"}""")), finish = "tool_calls"),
+        ))
+        val toolCalls = mutableListOf<String>()
+        val runner = AgentRunner(tools, transport)
+        val out = runner.run(history, AgentConfig(), onToolCall = { toolCalls += it })
+        assertEquals("目前没有可领的加餐券。", out)
+        assertEquals(2, transport.bodies.size)
+        assertEquals(listOf("get_coupons"), runner.shownTools)
+        // 展示调用不触发工具气泡，界面不会把正文拆成两段
+        assertEquals(listOf("get_coupons"), toolCalls)
+        assertEquals("tool", history.last().role())
+    }
+
+    @Test fun 展示失败时照常再请求一轮() = runBlocking {
+        val history = messages()
+        val transport = FakeTransport(listOf(
+            reply("给你看看", listOf(call("show", "present_result", """{"result_id":"nope"}""")), finish = "tool_calls"),
+            reply("没查到可展示的结果"),
+        ))
+        val toolResults = mutableListOf<Boolean>()
+        val out = AgentRunner(FakeTools { _, _ -> "" }, transport)
+            .run(history, AgentConfig(), onToolResult = { _, ok, _ -> toolResults += ok })
+        assertEquals("没查到可展示的结果", out)
+        assertEquals(2, transport.bodies.size)
+        assertEquals(listOf(false), toolResults)
+    }
+
+    @Test fun 改标题加预告不会提前结束() = runBlocking {
+        val transport = FakeTransport(listOf(
+            reply("我先查一下成绩", listOf(call("t", AgentRetitle.TOOL, """{"title":"查成绩"}""")), finish = "tool_calls"),
+            reply("", listOf(call("g", "get_grades")), finish = "tool_calls"),
+            reply("高数 90"),
+        ))
+        val out = AgentRunner(FakeTools { _, _ -> "高数 90" }, transport)
+            .run(messages(), AgentConfig(), retitle = { _, _ -> "ok" })
+        assertEquals("高数 90", out)
+        assertEquals(3, transport.bodies.size)
+    }
+
+    @Test fun 正文被截断时不走展示收尾() = runBlocking {
+        val tools = FakeTools { _, _ -> "没有加餐券" }
+        val transport = FakeTransport(listOf(
+            reply("", listOf(call("coupons", "get_coupons")), finish = "tool_calls"),
+            reply("目前没有可领", listOf(call("show", "present_result", """{"result_id":"coupons"}""")), finish = "length"),
+            reply("的加餐券。"),
+        ))
+        val out = AgentRunner(tools, transport).run(messages(), AgentConfig())
+        assertEquals("的加餐券。", out)
+        assertEquals(3, transport.bodies.size)
+    }
+
+    @Test fun 确认卡直接展示且模型带不了确认参数() = runBlocking {
+        val seenArgs = mutableListOf<String>()
+        val tools = object : AgentTools {
+            private val pending = mutableListOf<AgentWidget>()
+            override val toolDefinitions = """[{"type":"function","function":{"name":"activity"}}]"""
+            override fun rateLimitKeyOf(toolName: String): String? = null
+            override suspend fun execute(name: String, argsJson: String): String {
+                seenArgs += argsJson
+                pending += ActivityConfirmWidget("42", "apply", "讲座")
+                return "card ready"
+            }
+            override fun drainWidgets() = pending.toList().also { pending.clear() }
+        }
+        val transport = FakeTransport(listOf(
+            reply("", listOf(call("a", "activity", """{"action":"apply","id":"42","$USER_CONFIRMED_ARG":true}""")), finish = "tool_calls"),
+            reply("点卡片确认报名"),
+        ))
+        val runner = AgentRunner(tools, transport)
+        runner.run(messages(), AgentConfig())
+        assertFalse(USER_CONFIRMED_ARG in seenArgs.single())
+        assertTrue(runner.shownWidgets.single() is ActivityConfirmWidget)
+    }
+
+    @Test fun 一轮里超出上限的调用不执行() = runBlocking {
+        val n = AgentRunner.TOOL_CALL_FUSE + 3
+        val transport = FakeTransport(listOf(
+            reply("", List(n) { call("c$it", "get_grades") }, finish = "tool_calls"),
+            reply("就这些"),
+        ))
+        val history = messages()
+        val tools = FakeTools { _, _ -> "结果" }
+        AgentRunner(tools, transport).run(history, AgentConfig())
+        assertEquals(AgentRunner.TOOL_CALL_FUSE, tools.calls.size)
+        val toolMsgs = history.filter { it.role() == "tool" }.map { it.jsonObject.text("content") }
+        assertEquals(n, toolMsgs.size, "每个 tool_call 都要有回应")
+        assertTrue(toolMsgs.last().startsWith("status: not_started; reason: tool_limit"))
+    }
+
     @Test
     fun 流被打断保留正文和标记但不回传半段思考() = runBlocking {
         val transport = object : AgentTransport {
