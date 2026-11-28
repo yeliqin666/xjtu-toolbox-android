@@ -30,6 +30,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import com.xjtu.toolbox.plugin.api.UiBadgeNode
 import com.xjtu.toolbox.plugin.api.UiBadgeTone
+import com.xjtu.toolbox.plugin.api.UiFillWidthNode
 import com.xjtu.toolbox.plugin.api.UiGridNode
 import com.xjtu.toolbox.plugin.api.UiKeyValueNode
 import com.xjtu.toolbox.plugin.api.UiProgressNode
@@ -145,6 +146,9 @@ internal fun PluginUiTree(
 
         is UiWeightNode -> PluginUiTree(node.child, onAction, modifier)
 
+        // 撑满宽度：modifier 会一路传给子节点自己的 Column / Text
+        is UiFillWidthNode -> PluginUiTree(node.child, onAction, modifier.fillMaxWidth())
+
         // 横滑行：子节点按内容宽度排，给个上限免得一张卡占满整行
         is UiScrollRowNode -> CompositionLocalProvider(LocalUiTextAlign provides UiAlign.Start) {
             Row(
@@ -240,7 +244,10 @@ internal fun PluginUiTree(
             onClick = if (node.actionId.isEmpty()) null else ({ onAction(node.actionId, null) }),
         ) {
             CompositionLocalProvider(LocalUiTextAlign provides UiAlign.Start) {
-                Column(Modifier.padding(node.paddingDp.dp)) { PluginUiTree(node.child, onAction) }
+                // 撑满卡片宽度：否则内容列只有最宽子节点的宽度，里面的 End 对齐就只是对齐到那一小块
+                Column(Modifier.fillMaxWidth().padding(node.paddingDp.dp)) {
+                    PluginUiTree(node.child, onAction)
+                }
             }
         }
 

@@ -54,6 +54,20 @@ class UiRowNode @JvmOverloads constructor(
 ) : UiNode()
 
 /**
+ * 让子节点撑满可用宽度。
+ *
+ * `UiColumnNode` / `UiRowNode` 自己的宽度等于最宽子节点，`alignment = End/Center` 只对齐到
+ * 那一小块；套一层这个再包 Column，`alignment` 才会相对整行 / 整张卡生效。文字也能用它撑开。
+ *
+ * 做成包装节点而不是给 Column 加字段：给已有节点的构造器加参数会改掉 Kotlin 默认参数合成
+ * 构造器的 JVM 签名，已经编译好的旧插件会链接失败。
+ *
+ * 放在 [UiRowNode] 里时别拿它包 [UiWeightNode]：权重只认 Row 的直接子节点，被包住就不生效。
+ * 要权重就把 [UiWeightNode] 套在外面：`UiWeightNode(1f, UiFillWidthNode(child))`。
+ */
+class UiFillWidthNode(val child: UiNode) : UiNode()
+
+/**
  * 一段文字。
  *
  * [secondary] 用次要色（说明、辅助信息）；[maxLines] 为 0 表示不限行数；
