@@ -233,6 +233,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         currentJob?.cancel(); applyLoading(false)   // 切换前停掉旧生成，避免两个会话内容串台
         val convo = store.load(id) ?: return
         currentSessionId = id
+        draftContext = null
         messages.clear()
         convo.messages.forEach { m ->
             messages.add(ChatMessage(

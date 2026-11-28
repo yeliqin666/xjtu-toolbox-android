@@ -287,6 +287,7 @@ abstract class SiteSession(
             if (target === backend) return
             backend = target
             bindEpoch++
+            ktorClient = null   // 旧的包着旧 backend 的 OkHttp（Cookie/拦截器），只丢引用不 close
             resetState()
             restorePending = true
         }

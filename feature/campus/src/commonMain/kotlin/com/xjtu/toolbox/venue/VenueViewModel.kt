@@ -9,7 +9,9 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
@@ -47,6 +49,7 @@ internal class VenueViewModel(
     var slotsRefreshing by mutableStateOf(false); private set
     var slotsError by mutableStateOf<String?>(null); private set
     var selectedSlots by mutableStateOf<Set<AreaSlot>>(emptySet()); private set
+    private var slotsJob: Job? = null
 
     var showCaptcha by mutableStateOf(false); private set
     var bookingInProgress by mutableStateOf(false); private set
@@ -138,7 +141,8 @@ internal class VenueViewModel(
     fun selectDate(date: LocalDate) {
         if (date == selectedDate) return
         selectedDate = date
-        if (selectedVenue != null && page == VenuePage.SlotSelection) loadSlots(silent = availableSlots.isNotEmpty())
+        selectedSlots = emptySet()
+        if (selectedVenue != null && page == VenuePage.SlotSelection) loadSlots()
     }
 
     /** 选中/取消一个时段。只读端（[VenueSource.canBook] = false）屏上根本不给勾，这里再兜一层。 */
@@ -149,13 +153,19 @@ internal class VenueViewModel(
         selectedSlots = if (slot in selectedSlots) selectedSlots - slot else selectedSlots + slot
     }
 
+    /** [silent] = 同一场馆同一天的下拉刷新，列表和已选留着；否则（换场馆、换日期、重试）整份重来。 */
     fun loadSlots(silent: Boolean = false) {
         val venueId = selectedVenue?.id ?: return
         if (silent) slotsRefreshing = true else slotsLoading = true
         slotsError = null
-        if (!silent) selectedSlots = emptySet()
+        if (!silent) {
+            selectedSlots = emptySet()
+            availableSlots = emptyList()
+        }
         val date = selectedDate.toString()
-        viewModelScope.launch {
+        // 只认最近一次：快速换日期时旧请求晚回来不能盖掉新日期
+        slotsJob?.cancel()
+        slotsJob = viewModelScope.launch {
             try {
                 availableSlots = source.slots(venueId, date)
             } catch (e: CancellationException) {
@@ -164,8 +174,10 @@ internal class VenueViewModel(
                 if (e is SessionExpiredFailure) send(VenueEvent.AuthExpired)
                 else slotsError = FriendlyError.of(e, "加载时段")
             } finally {
-                slotsLoading = false
-                slotsRefreshing = false
+                if (isActive) {
+                    slotsLoading = false
+                    slotsRefreshing = false
+                }
             }
         }
     }
@@ -174,6 +186,13 @@ internal class VenueViewModel(
     fun startBooking() {
         val venue = selectedVenue ?: return
         if (!source.canBook) return
+        // 已选时段必须都属于当前场馆和日期，否则可能订错天
+        val date = selectedDate.toString()
+        if (selectedSlots.isEmpty() || selectedSlots.any { it.date != date || it.serviceid != venue.id.toString() }) {
+            selectedSlots = emptySet()
+            send(VenueEvent.Message("所选时段已失效，请重新选择"))
+            return
+        }
         showCaptcha = true
         val token = beginCaptcha()
         pendingOrder = null

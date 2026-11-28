@@ -513,8 +513,8 @@ object InboxStore {
         update(AccountContext.activeAccountId) { it.copy(swipe = it.swipe.with(kind, left, action)) }
 
     /** 给一条待办标重要程度；只影响角标与通知措辞，不影响排序。 */
-    fun setImportance(id: String, level: Int) =
-        update(AccountContext.activeAccountId) { InboxRules.setImportance(it, id, level) }
+    fun setImportance(id: String, level: Int, account: String? = AccountContext.activeAccountId) =
+        update(account) { InboxRules.setImportance(it, id, level) }
 
     fun markBubbled(id: String) = update(AccountContext.activeAccountId) { it.copy(bubbled = it.bubbled + id) }
 
