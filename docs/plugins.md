@@ -126,6 +126,8 @@ class TemplatePage(private val ctx: PluginContext) : PluginPage() {
 | `UiFlowRowNode(children, spacingDp)` | 流式换行 |
 | `UiWeightNode(weight, child)` | Row 里按权重分宽度 |
 | `UiCardNode(child, actionId, paddingDp)` | 卡片，可整张点 |
+
+> 文字对齐跟着所在 `Column` / `Row` 的水平对齐走：`alignment = End` 的竖排里，长文本也真的靠右排；卡片、网格、横滑行、流式换行内部按左起排。
 | `UiTextNode(text, style, secondary, maxLines, color, argb, bold, italic, underline, strikeThrough, actionId)` | 文字；给了 `actionId` 默认用主色 |
 | `UiRichTextNode(spans, style)` | 混排：一段话里不同样式和链接 |
 | `UiButtonNode(label, actionId, style, enabled, fillWidth)` | 按钮（Filled / Tonal / Plain）；`fillWidth = true` 撑满一行 |
