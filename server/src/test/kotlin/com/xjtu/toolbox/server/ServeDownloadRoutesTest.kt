@@ -17,6 +17,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 /**
  * 下载那一族的契约测试（`docs/api-contract.md`）。
@@ -280,6 +282,92 @@ class ServeDownloadRoutesTest {
         assertEquals(200, ok.statusCode())
         runBlocking { withTimeout(10_000) { engine.started.await() } }
         assertEquals(1, engine.calls.get())
+    }
+
+    @Test
+    fun `直链形状：非 http(s)、本机与 IP 字面量、带 userinfo 一律 400（#597）`() = withFakeProxy {
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val root = Files.createTempDirectory("serve-download-url").toFile()
+        val engine = GatedEngine()
+        val http = serve(session, token, newManager(root, engine))
+        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+
+        // serve 会**真的去取**这条链 ⇒ 形状不对的当场拒，一条都不建、引擎一次都不叫
+        for (url in listOf(
+            "file:///etc/passwd",
+            "ftp://lms.example.com/replay/1.mp4",
+            "http://127.0.0.1:8080/a.mp4",
+            "http://localhost/a.mp4",
+            "http://[::1]/a.mp4",
+            "http://169.254.169.254/latest/meta-data/",
+            "https://user:pw@lms.example.com/replay/1.mp4",
+            // #597 复审：主机里的百分号编码 —— Ktor 保留、OkHttp 解码，只按 Ktor 的字符串判会漏
+            "http://%31%32%37.0.0.1:8080/a.mp4",
+            "http://%6c%6f%63%61%6c%68%6f%73%74/a.mp4",
+            "http://127%2e0%2e0%2e1/a.mp4",
+            "http://%25%33%31%32%37.0.0.1/a.mp4",
+            // 尾随的根点：`localhost.` 与 `localhost` 是同一个主机
+            "http://localhost./a.mp4",
+            "http://127.0.0.1./a.mp4",
+        )) {
+            val response = http.postJson(DOWNLOAD_PATH, """{"url":"$url"}""")
+            assertEquals(400, response.statusCode(), url)
+            assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(response), url)
+            assertTrue(
+                envelopeMessage(response).orEmpty().contains("url"),
+                "400 要说出是 url 的问题：$url → ${envelopeMessage(response)}",
+            )
+        }
+
+        // m3u8 不看大小写（旧的 `contains(".m3u8")` 会漏掉大写）
+        val upper = http.postJson(DOWNLOAD_PATH, """{"url":"https://lms.example.com/replay/INDEX.M3U8"}""")
+        assertEquals(400, upper.statusCode())
+        assertTrue(envelopeMessage(upper).orEmpty().contains("m3u8"), "大写也要认出来：${envelopeMessage(upper)}")
+
+        assertEquals(0, envelopeData(http.get(DOWNLOAD_PATH)).optInt("count"), "400 那几枪一条都不该建")
+        assertEquals(0, engine.calls.get(), "400 那几枪都不该到引擎")
+    }
+
+    /**
+     * #597 复审：主机要按**发送端（OkHttp）**的读法判，不能按 Ktor 解析出来的原始字符串判。
+     *
+     * 这条测试把「两边的读法确实不一样」钉住：哪天真有人把 [canonicalHostForRequest] 那层折算删掉，
+     * 第一段先红；哪天 OkHttp 改成不解码了，第二段才该放宽。
+     */
+    @Test
+    fun `百分号编码的主机：按 OkHttp 的读法折算后再判本地地址（#597 复审）`() {
+        // 前提：OkHttp 会把主机里的 %XX 解码后再连（Ktor 不动，所以判的那一层看着像个域名）
+        val encoded = mapOf(
+            "http://%31%32%37.0.0.1:8080/a.mp4" to "127.0.0.1",
+            "http://127%2e0%2e0%2e1/a.mp4" to "127.0.0.1",
+            "http://%6c%6f%63%61%6c%68%6f%73%74/a.mp4" to "localhost",
+        )
+        for ((url, expected) in encoded) {
+            assertEquals(expected, url.toHttpUrl().host, "OkHttp 会把它读成 $expected：$url")
+            // Ktor 那一侧保持编码原样 —— 这正是漏判的来源
+            assertEquals(
+                url.substringAfter("://").substringBefore(':').substringBefore('/'),
+                parseAbsoluteUrl(url)?.host,
+                "Ktor 不解码：$url",
+            )
+            assertNotNull(downloadUrlProblem(url), "折算后是本机地址，应当拒：$url")
+            assertEquals("localhost", canonicalHostForRequest("%6c%6f%63%61%6c%68%6f%73%74"))
+            assertEquals("127.0.0.1", canonicalHostForRequest("127%2e0%2e0%2e1"))
+        }
+
+        // 尾随的根点：DNS 里与不带点的是同一个主机
+        assertEquals("localhost", canonicalHostForRequest("localhost."))
+        assertNotNull(downloadUrlProblem("http://localhost./a.mp4"))
+        assertNotNull(downloadUrlProblem("http://127.0.0.1./a.mp4"))
+        // 双层编码（解一层还剩 `%`）⇒ 一律当可疑
+        assertNull(canonicalHostForRequest("%25%33%31%32%37.0.0.1"))
+        assertNotNull(downloadUrlProblem("http://%25%33%31%32%37.0.0.1/a.mp4"))
+
+        // 正常 CDN 仍然放行：折算不能把它误伤
+        assertNull(downloadUrlProblem("https://cdn.example.com/replay/1.mp4"))
+        assertNull(downloadUrlProblem("https://cdn.example.com./replay/1.mp4"), "尾随点在公网域名上也无害")
+        assertEquals("cdn.example.com", canonicalHostForRequest("CDN.Example.COM"))
     }
 
     @Test
