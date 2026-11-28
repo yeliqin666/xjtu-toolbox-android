@@ -63,7 +63,7 @@ import com.xjtu.toolbox.ui.markdown.GithubMarkdown
 
 private const val FEEDBACK_GITHUB_ISSUE_URL =
     "https://github.com/xjtu-dzhz/dzhz/issues/new"
-/** 与 `.github/scripts/feedback_digest.py` 的 DIAGNOSTICS_SEPARATOR 一致。 */
+/** 诊断信息与正文之间的分隔线。 */
 private const val DIAGNOSTICS_SEPARATOR = "———— 诊断信息 ————"
 private const val FEEDBACK_DISCUSSIONS_URL =
     "https://github.com/xjtu-dzhz/dzhz/discussions"
@@ -72,7 +72,7 @@ private const val FEEDBACK_DISCUSSIONS_URL =
 private val CATEGORIES = listOf("有bug", "待改进", "新点子", "其他")
 
 /**
- * 反馈页：页内提交走飞书多维表格（见 [FeedbackSource] 的实现方），开发者回复也显示在这里。
+ * 反馈页：页内提交走反馈后端（见 [FeedbackSource] 的实现方），开发者回复也显示在这里。
  * 凭据没配时（[FeedbackSource.isConfigured]）表单隐藏，只剩 GitHub 外链。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -117,8 +117,8 @@ fun FeedbackScreen(
     var pollTick by remember { mutableStateOf(0) }
 
     /**
-     * 拉一次回复和公共问答。回复按工单号查飞书（一次调用），进页面有待回的才每天一次，下拉立即，见 [FeedbackStore.shouldFetchReplies]；
-     * 公共问答读 Gitee，每天一次或下拉才拉。
+     * 拉一次回复和公共问答。回复按工单号查后端（一次调用），进页面有待回的才每天一次，下拉立即，见 [FeedbackStore.shouldFetchReplies]；
+     * 公共问答读后端 /public-qa，每天一次或下拉才拉。
      *
      * @param manual 下拉刷新。
      */
@@ -130,7 +130,7 @@ fun FeedbackScreen(
                 val got = runCatching { source.replies(tickets.map { it.id }) }.getOrNull()
                 if (got != null) {
                     FeedbackStore.markRepliesFetched()
-                    // 查的是全部工单，以飞书为准整份替换：回复表里删掉的回复这里也要消失
+                    // 查的是全部工单，以后端为准整份替换：回复表里删掉的回复这里也要消失
                     FeedbackStore.cacheReplies(got)
                     replies = got
                     FeedbackStore.markRead(got.keys)
@@ -279,7 +279,7 @@ fun FeedbackScreen(
                         )
                         Text(
                             buildAnnotatedString {
-                                append("反馈将经过 AI 审核并公开，勿留个人信息。条件允许仍建议前往")
+                                append("反馈提交后将实时进入后台，精选回复会公开到「大家在问」，勿留个人信息。也可前往")
                                 withLink(
                                     LinkAnnotation.Clickable("community", linkStyle) {
                                         onOpenCommunity?.invoke() ?: open(FEEDBACK_DISCUSSIONS_URL)

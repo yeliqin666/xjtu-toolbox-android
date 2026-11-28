@@ -170,7 +170,7 @@ ArrowPreference(
 
 OverlayDropdownPreference(
     title = "更新渠道",
-    items = listOf("Gitee 稳定版", "GitHub 稳定版"),
+    items = listOf("阿里云", "GitHub"),
     selectedIndex = selectedIndex,
     summary = "当前：GitHub 稳定版",
     onSelectedIndexChange = { selectedIndex = it },

@@ -16,6 +16,7 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.settings.SettingsStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -82,7 +83,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
     var textbooksBackgroundError by mutableStateOf<String?>(null); private set
     private var examsRefreshing = false
     var isLoading by mutableStateOf(true); private set
-    /** 学期切换中：保留旧日程显示。 */
+    /** 正在读取所选学期。 */
     var isSwitching by mutableStateOf(false); private set
     /** 缓存已显示，后台刷新中。 */
     var isRefreshingFromNetwork by mutableStateOf(false); private set
@@ -392,16 +393,38 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         }
     }
 
-    /** 磁盘缓存立刻上屏，不碰网络。 */
-    private fun paintCache(termCode: String): Int {
-        if (termCode.isEmpty()) return -1
-        selectedTermCode = termCode
-        currentTermCode = termCode
-        ScheduleCache.readCourses(cache, termCode)?.let { courses = it }
-        ScheduleCache.readExams(cache, termCode)?.let { exams = it }
-        termWeeks = ScheduleCache.totalWeeks(cache, termCode, emptyList())
-        ScheduleCache.readStartDate(cache, termCode)?.let { applyTermStart(it) }
-        return courses.size
+    private fun selectTerm(newTermCode: String) {
+        if (selectedTermCode == newTermCode) return
+        selectedTermCode = newTermCode
+        courses = emptyList()
+        customCourses = emptyList()
+        exams = emptyList()
+        textbooksLoaded = false
+        textbooks = emptyList()
+        startOfTerm = null
+        termWeeks = 0
+        currentWeek = 1
+        realCurrentWeek = 0
+        weekNote = null
+        showAllWeeks = false
+    }
+
+    /** 只画这个学期自己的数据；返回是否缓存过课程，空课表也算。 */
+    private suspend fun paintCache(term: String): Boolean {
+        if (term.isEmpty()) return false
+        val cachedCourses = ScheduleCache.readCourses(cache, term)
+        val cachedExams = ScheduleCache.readExams(cache, term)
+        val start = ScheduleCache.readStartDate(cache, term)
+        val weeks = ScheduleCache.totalWeeks(cache, term, emptyList())
+        withContext(Dispatchers.Main.immediate) {
+            selectTerm(term)
+            courses = cachedCourses.orEmpty()
+            exams = cachedExams.orEmpty()
+            termWeeks = weeks
+            startOfTerm = start
+            start?.let(::applyTermStart)
+        }
+        return cachedCourses != null
     }
 
     /** 初始加载：有缓存先上屏，课表接口一到就停转圈；考试 / 学期列表后台补。 */
@@ -412,13 +435,14 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         isRefreshingFromNetwork = false
         showingStaleData = false
         val gen = ++loadGen
+        isSwitching = false
         loadedAt = Clock.System.now().toEpochMilliseconds()
         val source = activeSource
         // 切账号时 SessionManager 原地重配，source 背后的站点会换成新账号的会话；
         // 每次联网结果落地前核对账号，变了就按取消处理，既不刷界面也不写缓存
         val jobAccount = AccountContext.activeAccountId
         fun ensureSameAccount() {
-            if (AccountContext.activeAccountId != jobAccount) throw CancellationException("account switched during schedule load")
+            if (gen != loadGen || AccountContext.activeAccountId != jobAccount) throw CancellationException("schedule load superseded")
         }
         var suggestion: String? = null
         loadJob = viewModelScope.launch {
@@ -427,13 +451,15 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
                     val cachedTerms = readCachedTerms()
                     if (cachedTerms.isNotEmpty()) termList = cachedTerms
                     val lastTerm = ScheduleCache.readLastTerm(cache) ?: cachedTerms.firstOrNull().orEmpty()
-                    if (lastTerm.isNotEmpty() && paintCache(lastTerm) > 0) {
+                    currentTermCode = ScheduleCache.readCurrentTerm(cache).orEmpty()
+                    val hasCachedCourses = paintCache(lastTerm)
+                    if (hasCachedCourses) {
                         isLoading = false
                         isRefreshingFromNetwork = source != null
                         showingStaleData = true
                     }
                     if (source == null) {
-                        if (courses.isEmpty()) throw RuntimeException("暂无缓存日程")
+                        if (!hasCachedCourses) throw RuntimeException("所选学期暂无缓存课表，请联网后重试")
                         showingStaleData = true
                         return@withContext
                     }
@@ -549,11 +575,11 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         // 用户本次主动切过学期时，不要再把视图拽回当前学期
         val keepUserTerm = userPickedTerm && lastTerm.isNotEmpty() && lastTerm != termCode
         if (!keepUserTerm) {
-            selectedTermCode = termCode
+            withContext(Dispatchers.Main.immediate) { selectTerm(termCode) }
             ScheduleCache.writeLastTerm(cache, termCode)
         }
         if (!keepUserTerm && termCode != lastTerm && lastTerm.isNotEmpty()) {
-            if (paintCache(termCode) > 0) {
+            if (paintCache(termCode)) {
                 isLoading = false
                 isRefreshingFromNetwork = true
                 showingStaleData = true
@@ -607,7 +633,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         suggestion
     }
 
-    private fun fallBackToCache(e: Exception) {
+    private suspend fun fallBackToCache(e: Exception) {
         if (courses.isNotEmpty()) {
             showingStaleData = true
             isRefreshingFromNetwork = false
@@ -620,8 +646,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         val terms = readCachedTerms()
         if (terms.isNotEmpty()) termList = terms
         val fallbackTerm = selectedTermCode.ifEmpty { terms.firstOrNull().orEmpty() }
-        if (fallbackTerm.isNotEmpty()) paintCache(fallbackTerm)
-        if (courses.isEmpty()) throw RuntimeException("网络不可用且无缓存数据，请连网后重试")
+        if (!paintCache(fallbackTerm)) throw RuntimeException("所选学期暂无缓存课表，请联网后重试")
         showingStaleData = true
         isRefreshingFromNetwork = false
         send(ScheduleEvent.Message("网络异常 · 显示缓存日程", long = true))
@@ -632,43 +657,55 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         val source = activeSource ?: return
         if (isRefreshingFromNetwork) return
         isRefreshingFromNetwork = true
+        val gen = loadGen
+        val cache = this.cache
+        val viewing = selectedTermCode
         viewModelScope.launch {
             try {
                 withContext(host.io) {
-                    val viewing = selectedTermCode
                     val actualCurrent = try {
                         source.currentTerm()
                     } catch (e: Exception) {
                         viewing.ifEmpty { readCachedTerms().firstOrNull() ?: throw e }
                     }
+                    if (gen != loadGen) return@withContext
                     if (actualCurrent.isNotEmpty()) {
                         currentTermCode = actualCurrent
                         ScheduleCache.writeCurrentTerm(cache, actualCurrent)
                     }
                     try { ScheduleTermStore.merge(cache, source.termNames()) } catch (_: Exception) {}
                     val termCode = viewing.ifEmpty { actualCurrent }
-                    if (viewing.isEmpty() && termCode.isNotEmpty()) selectedTermCode = termCode
+                    if (viewing.isEmpty() && termCode.isNotEmpty()) {
+                        withContext(Dispatchers.Main.immediate) {
+                            if (gen == loadGen && selectedTermCode.isEmpty()) selectTerm(termCode)
+                        }
+                    }
                     val apiCourses = try {
                         fetchSchedule(source, termCode, userInitiated = true).courses
                     } catch (e: Exception) {
                         Log.w(TAG, "refreshSchedule getSchedule failed", e)
                         return@withContext
                     }
-                    // courses 只放教务结果，自定义日程另外拼，免得刷新后重复
-                    courses = apiCourses
-                    showingStaleData = false
+                    if (gen != loadGen) return@withContext
                     ScheduleCache.writeRawCourses(cache, termCode, apiCourses)
                     // optimized 键也要跟上：首页 Hero 只认它
-                    ScheduleCache.writeOptimizedCourses(cache, termCode, ScheduleCache.filterByHolidays(apiCourses, startOfTerm, holidayDates))
-                    host.onScheduleSynced()
+                    val start = ScheduleCache.readStartDate(cache, termCode)
+                    ScheduleCache.writeOptimizedCourses(cache, termCode, ScheduleCache.filterByHolidays(apiCourses, start, holidayDates))
+                    withContext(Dispatchers.Main.immediate) {
+                        if (gen == loadGen && selectedTermCode == termCode) {
+                            courses = apiCourses
+                            showingStaleData = false
+                            host.onScheduleSynced()
+                        }
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "refreshSchedule failed", e)
-                errorMessage = FriendlyError.of(e, "刷新课表")
+                if (gen == loadGen) errorMessage = FriendlyError.of(e, "刷新课表")
             } finally {
-                isRefreshingFromNetwork = false
+                if (gen == loadGen) isRefreshingFromNetwork = false
             }
         }
     }
@@ -678,12 +715,14 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         val term = selectedTermCode
         if (term.isEmpty() || examsRefreshing) return
         examsRefreshing = true
+        val gen = loadGen
+        val cache = this.cache
         viewModelScope.launch {
             try {
                 val fresh = withContext(host.io) {
                     source.examSchedule(term).also { ScheduleCache.writeExams(cache, term, it) }
                 }
-                exams = fresh
+                if (gen == loadGen && selectedTermCode == term) exams = fresh
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -793,17 +832,17 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
     fun switchTerm(newTermCode: String, byUser: Boolean = true) {
         if (newTermCode == selectedTermCode) return
         if (byUser) userPickedTerm = true
-        selectedTermCode = newTermCode
+        loadJob?.cancel()
+        val gen = ++loadGen
+        selectTerm(newTermCode)
         ScheduleCache.writeLastTerm(cache, newTermCode)
-        textbooksLoaded = false
-        textbooks = emptyList()
-        // 考试也要清：新学期没缓存时留着上学期的考试，比空着更糟
-        exams = emptyList()
         showingStaleData = false
+        errorMessage = null
+        isLoading = false
+        isRefreshingFromNetwork = false
+        isSwitching = true
         val source = activeSource
-        viewModelScope.launch {
-            isSwitching = true
-            errorMessage = null
+        loadJob = viewModelScope.launch {
             try {
                 withContext(host.io) { loadTerm(source, newTermCode) }
             } catch (e: CancellationException) {
@@ -812,66 +851,87 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
                 if (e is SessionExpiredFailure) eventChannel.send(ScheduleEvent.AuthExpired)
                 else errorMessage = FriendlyError.of(e, "切换学期")
             } finally {
-                isSwitching = false
-                host.onScheduleSynced()
+                if (gen == loadGen) {
+                    isSwitching = false
+                    host.onScheduleSynced()
+                }
             }
         }
     }
 
     private suspend fun loadTerm(source: JwxtScheduleSource?, term: String) {
-        val isOldTerm = term != currentTermCode
-        termWeeks = ScheduleCache.totalWeeks(cache, term, emptyList())
-        ScheduleCache.readCourses(cache, term)?.let { cached ->
-            courses = cached
-            ScheduleCache.readExams(cache, term, ScheduleCache.TERM_TTL_MS)?.let { exams = it }
+        val cache = this.cache
+        val hasCachedCourses = paintCache(term)
+        if (source == null) {
+            withContext(Dispatchers.Main.immediate) {
+                showingStaleData = hasCachedCourses
+                if (!hasCachedCourses) errorMessage = "所选学期暂无缓存课表，请联网后重试"
+            }
+            return
         }
-        // 已结束且本地是全的：一个请求都不发，想强制重拉走下拉刷新
-        val sealed = ScheduleCache.isSealed(cache, term)
-        if (source != null && !sealed) {
+        if (ScheduleCache.isSealed(cache, term)) return
+        try {
+            var freshCourses: List<CourseItem>? = null
+            var freshExams: List<ExamItem>? = null
             try {
-                val freshCourses = fetchSchedule(source, term, userInitiated = true).courses
-                exams = source.examSchedule(term)
-                val freshStartDate = try { source.termStartDate(term) } catch (_: Exception) { null }
-                val freshHolidays = try { host.holidays.refresh(cache, force = true) } catch (_: Exception) { emptyMap() }
-                holidayDates = freshHolidays
-                courses = ScheduleCache.filterByHolidays(freshCourses, freshStartDate, freshHolidays)
-                // 考试不分当前 / 历史一律落盘：否则这学期看过的考试等它封存后就再也拿不到
-                ScheduleCache.writeExams(cache, term, exams)
-                if (isOldTerm) {
-                    ScheduleCache.writeRawCourses(cache, term, freshCourses)
-                    ScheduleCache.writeOptimizedCourses(cache, term, courses)
-                    if (freshStartDate != null) saveTermStart(source, term, freshStartDate)
-                }
-                if (freshStartDate != null) startOfTerm = freshStartDate
+                freshCourses = fetchSchedule(source, term, userInitiated = true).courses
+                freshExams = source.examSchedule(term)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (courses.isEmpty()) throw e
-                showingStaleData = true
-                send(ScheduleEvent.Message("网络异常，显示缓存数据"))
+                if (e is SessionExpiredFailure || (freshCourses == null && !hasCachedCourses)) throw e
+                Log.w(TAG, "Partial schedule for $term, keeping cached entries", e)
             }
-        } else if (source == null) {
-            showingStaleData = true
-        }
-        // 当前周
-        try {
-            val startDate = if (source != null && !sealed) {
-                try { source.termStartDate(term) } catch (_: Exception) { null }
-            } else {
-                ScheduleCache.readStartDate(cache, term)
+            val start = try {
+                source.termStartDate(term)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
             }
-            if (startDate != null) {
-                startOfTerm = startDate
-                if (source != null) saveTermStart(source, term, startDate)
-                val status = TermWeeks.statusOf(startOfTerm = startDate, totalWeeks = totalWeeks, firstTeachWeek = TermWeeks.firstTeachWeekOf(courses))
-                if (status is TermWeeks.Status.AfterTerm) showAllWeeks = true
-                currentWeek = TermWeeks.displayWeekOf(status)
-                weekNote = TermWeeks.noteOf(status)
-            } else {
-                currentWeek = 1; weekNote = null
+            val holidays = if (freshCourses == null) holidayDates else try {
+                host.holidays.refresh(cache, force = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyMap()
             }
-        } catch (_: Exception) {
-            currentWeek = 1; weekNote = null
+            val effectiveStart = start ?: ScheduleCache.readStartDate(cache, term)
+            val optimized = freshCourses?.let { raw ->
+                val filtered = ScheduleCache.filterByHolidays(raw, effectiveStart, holidays)
+                if (term != currentTermCode) {
+                    ScheduleCache.writeRawCourses(cache, term, raw)
+                    ScheduleCache.writeOptimizedCourses(cache, term, filtered)
+                }
+                filtered
+            }
+            if (freshExams != null) ScheduleCache.writeExams(cache, term, freshExams)
+            val freshWeeks = start?.let { source.termWeeksOf(term) }
+            if (start != null) ScheduleCache.writeStartDate(cache, term, start, freshWeeks)
+            withContext(Dispatchers.Main.immediate) {
+                if (optimized != null) {
+                    courses = optimized
+                } else {
+                    showingStaleData = true
+                    send(ScheduleEvent.Message("网络异常，显示缓存数据"))
+                }
+                if (freshExams != null) exams = freshExams
+                holidayDates = holidays
+                if (freshWeeks != null) termWeeks = freshWeeks
+                effectiveStart?.let(::applyTermStart)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (!hasCachedCourses && e is SessionExpiredFailure) throw e
+            withContext(Dispatchers.Main.immediate) {
+                if (hasCachedCourses) {
+                    showingStaleData = true
+                    send(ScheduleEvent.Message("网络异常，显示缓存数据"))
+                } else {
+                    errorMessage = "所选学期暂无缓存课表，${FriendlyError.of(e, "加载课表")}"
+                }
+            }
         }
     }
 

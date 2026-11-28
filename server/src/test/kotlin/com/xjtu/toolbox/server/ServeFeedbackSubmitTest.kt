@@ -64,7 +64,6 @@ class ServeFeedbackSubmitTest {
             assertTrue(envelopeMessage(shape).orEmpty().contains("ticket"), "工单号那条 400 要说清是哪一格")
 
             assertEquals(0, fake.feedback.submitCalls.get(), "参数不对的那几枪不该到上游")
-            assertEquals(0, fake.feedback.tokenCalls.get(), "参数不对的那几枪连令牌都不该去换")
         }
 
     @Test
@@ -89,26 +88,25 @@ class ServeFeedbackSubmitTest {
         assertEquals(FeedbackFakeUpstream.TICKET, data.optString("ticket"))
 
         assertEquals(1, fake.feedback.submitCalls.get(), "成功那一发真打了上游的提交接口")
-        val fields = assertNotNull(fake.feedback.lastSubmitFields).parseJsonObject()
-            .getValue("fields").jsonObject
-        // 五格来自请求，三格（版本 / 机型 / 系统）由 serve 那份 Config 顶上 —— 一个不多一个不少
+        val fields = assertNotNull(fake.feedback.lastSubmitBody).parseJsonObject()
+        // 五格来自请求，三格（version / device / system）由 serve 那份 Config 顶上 —— 一个不多一个不少
         assertEquals(
-            setOf("工单号", "类型", "内容", "联系方式", "匿名ID", "版本", "机型", "系统"),
+            setOf("ticket", "category", "content", "contact", "anonId", "version", "device", "system"),
             fields.keys,
-            "提交进上游的格子数要与 `:data` 的 submit 一致",
+            "提交进上游的字段要与 Worker submit 契约一致",
         )
-        assertEquals(FeedbackFakeUpstream.TICKET, fields.text("工单号"))
-        assertEquals(CATEGORY, fields.text("类型"))
-        assertEquals(CONTENT, fields.text("内容"))
-        assertEquals(CONTACT, fields.text("联系方式"))
-        assertEquals(ANON_ID, fields.text("匿名ID"))
-        assertEquals("serve", fields.text("版本"))
-        assertTrue(fields.text("机型").isNotBlank(), "机型如实填这台机器，不留空")
-        assertTrue(fields.text("系统").contains("Java"), "系统那一格如实带上 Java 版本")
+        assertEquals(FeedbackFakeUpstream.TICKET, fields.text("ticket"))
+        assertEquals(CATEGORY, fields.text("category"))
+        assertEquals(CONTENT, fields.text("content"))
+        assertEquals(CONTACT, fields.text("contact"))
+        assertEquals(ANON_ID, fields.text("anonId"))
+        assertEquals("serve", fields.text("version"))
+        assertTrue(fields.text("device").isNotBlank(), "机型如实填这台机器，不留空")
+        assertTrue(fields.text("system").contains("Java"), "系统那一格如实带上 Java 版本")
     }
 
     @Test
-    fun `提交反馈：凭据没配全 502 且不打上游 · 上游拒收也是 502 并把上游那句话交给用户`() =
+    fun `提交反馈：未配置 502 且不打上游 · 上游拒收也是 502 并把上游那句话交给用户`() =
         withFakeProxy { fake ->
             val token = AccessToken.newToken()
             val (server, http) = startEndpointServer(token) { feedbackRoutes() }
@@ -119,10 +117,10 @@ class ServeFeedbackSubmitTest {
             assertEquals(502, unconfigured.statusCode())
             assertEquals(ApiErrors.UPSTREAM_FAILED, envelopeCode(unconfigured))
             assertTrue(
-                envelopeMessage(unconfigured).orEmpty().contains(ServeFeedback.ENV_APP_ID),
-                "502 的文案要说清去哪儿配：$SERVE_FEEDBACK_ENV_HINT",
+                envelopeMessage(unconfigured).orEmpty().contains(ServeFeedback.ENV_BASE_URL),
+                "502 的文案要说清配置项：$SERVE_FEEDBACK_ENV_HINT",
             )
-            assertEquals(0, fake.feedback.submitCalls.get(), "凭据没配全那一枪不该到上游")
+            assertEquals(0, fake.feedback.submitCalls.get(), "未配置那一枪不该到上游")
 
             // ② 上游拒写 ⇒ 502，message 是上游那句话
             ServeFeedback.install(feedbackEnv())
@@ -157,16 +155,12 @@ class ServeFeedbackSubmitTest {
         const val CONTACT = "示例联系方式：tester@example.invalid"
         const val ANON_ID = "anonfaketest01"
 
-        /** serve 那一侧要看的那个环境变量名（`ServeFeedback` 里那三个必填之一）。 */
-        const val SERVE_FEEDBACK_ENV_HINT = "FEEDBACK_APP_ID"
+        /** serve 那一侧要看的环境变量名。 */
+        const val SERVE_FEEDBACK_ENV_HINT = "FEEDBACK_BASE_URL"
 
-        /** 反馈那一族的凭据（`ServeFeedback` 认的那五个环境变量名，值就是夹具里那套编出来的）。 */
+        /** 反馈那一族的后端地址。 */
         fun feedbackEnv(): Map<String, String> = mapOf(
-            ServeFeedback.ENV_APP_ID to FeedbackFakeUpstream.APP_ID,
-            ServeFeedback.ENV_APP_SECRET to FeedbackFakeUpstream.APP_SECRET,
-            ServeFeedback.ENV_BASE_TOKEN to FeedbackFakeUpstream.BASE_TOKEN,
-            ServeFeedback.ENV_TABLE_SUBMIT to FeedbackFakeUpstream.SUBMIT_TABLE,
-            ServeFeedback.ENV_TABLE_REPLY to FeedbackFakeUpstream.REPLY_TABLE,
+            ServeFeedback.ENV_BASE_URL to FeedbackFakeUpstream.BASE,
         )
 
         /** 隐私红线的钉子组（全是夹具里的编造值，不是真人）。 */

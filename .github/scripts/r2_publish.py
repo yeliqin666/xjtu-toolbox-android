@@ -129,7 +129,6 @@ def publish_stable(client, cfg, args) -> None:
         "mirrors": [
             f"{oss_base}/apk/{version}/app-release.apk",
             f"https://github.com/{repo}/releases/download/v{version}/app-release.apk",
-            f"https://gitee.com/{repo}/releases/download/v{version}/app-release.apk",
         ],
         "sha256": sha256,
         "size": size,

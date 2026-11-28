@@ -77,7 +77,7 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
 
     /** 回放视频的假直链（`video-download.xjtu.edu.cn`，明文 http） */
     val download: DownloadFakeUpstream = DownloadFakeUpstream()
-    /** 反馈：上游是飞书开放平台 `open.feishu.cn`（https），与学校站点无关，也不套 `DesktopSiteGate`（没有校园会话要建）。 */
+    /** 反馈：上游是自家反馈后端 `api.dzhz.top/feedback`（https），与学校站点无关，也不套 `DesktopSiteGate`（没有校园会话要建）。 */
     val feedback: FeedbackFakeUpstream = FeedbackFakeUpstream()
 
     /** 教材全文库：两个域名一个夹具。 */
