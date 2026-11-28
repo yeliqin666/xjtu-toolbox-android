@@ -1305,7 +1305,9 @@ internal fun HomeTileFaceBox(
                                     MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
                                 },
                                 color = statColor,
-                                maxLines = if (useFigure || !face.statDetail.isNullOrBlank()) 1 else sentenceLines,
+                                // 大字排固定一行（它旁边的说明才是第二行）；一旦退回正文，说明就不显示了，
+                                // 省下的高度该让正文多折一行，别按 statDetail 有没有内容把行数锁死（#622）
+                                maxLines = if (useFigure) 1 else sentenceLines,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             if (showDetail) {
