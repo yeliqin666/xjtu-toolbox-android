@@ -404,6 +404,12 @@ fun ScheduleScreen(
                     option("导出日历 (ICS)", icon = Icons.Default.Event) { showBriefMessage(shareGap) }
                 } else if (ScheduleCapability.SHARE_FILE in host.honored) {
                     option("导出日历 (ICS)", icon = Icons.Default.Event) {
+                        val term = vm.selectedTermCode
+                        val error = vm.errorMessage
+                        if (error != null && filteredMergedCourses.isEmpty()) {
+                            showBriefMessage(error)
+                            return@option
+                        }
                         val st = vm.startOfTerm
                         if (st == null) {
                             showBriefMessage("缺少开学日期，下拉刷新后再导出")
@@ -414,12 +420,12 @@ fun ScheduleScreen(
                             try {
                                 val holidays = host.holidays
                                     .refresh(host.cache(host.login.accountId.ifEmpty { null })).keys
-                                val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, holidays)
-                                host.shareFile(ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
+                                val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, term, holidays)
+                                host.shareFile(ics, "${term}_日程.ics", "text/calendar")
                             } catch (e: Exception) {
                                 showBriefMessage("节假日获取失败，已按普通课表导出")
-                                val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, emptySet())
-                                host.shareFile(ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
+                                val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, term, emptySet())
+                                host.shareFile(ics, "${term}_日程.ics", "text/calendar")
                             }
                         }
                     }
