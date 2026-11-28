@@ -1,27 +1,33 @@
 package com.xjtu.toolbox.game.net
 
-import kotlin.math.ceil
-
 /**
  * BLE 单次 GATT 写入/通知有长度上限（MTU 协商前只有 20 字节出头，协商后常见也就
  * 到 200～500 字节），而协议是"一行 JSON"，稍微长一点的着法/规则参数就装不下一片，
  * 所以 BLE 通道要在应用层自己分片重组，不能像局域网 TCP 那样直接按行读写。
  *
  * 帧格式：`[msgId 1B][total 1B][index 1B][payload...]`——3 字节头，msgId 0~255 循环，
- * total/index 也是 0~255（够用：极端情况下一条几百 KB 的消息才会超过 255 片，
- * 这里的消息不会有那么大）。
+ * total/index 也是 0~255，因此一条消息最多 255 片。超了就**报错**，不能截断：
+ * 截断只会让对方拼出一条被砍掉尾巴的 JSON，然后解码失败、当成噪声忽略，表现成
+ * "对方忽然不说话了"，比直接失败难查得多。
  */
 object BleFraming {
     const val HEADER_SIZE = 3
 
+    /** total/index 各占 1 字节，所以一条消息最多切成这么多片。 */
+    const val MAX_FRAGMENTS = 255
+
     /** 把 [payload] 按 [mtu]（一次能发的总字节数，含头）切片。 */
     fun fragment(msgId: Int, payload: ByteArray, mtu: Int): List<ByteArray> {
         val chunkSize = (mtu - HEADER_SIZE).coerceAtLeast(1)
-        val total = ceil(payload.size.coerceAtLeast(1) / chunkSize.toDouble()).toInt().coerceIn(1, 255)
+        val maxPayload = chunkSize * MAX_FRAGMENTS
+        require(payload.size <= maxPayload) {
+            "单条消息 ${payload.size} 字节，超过 BLE 分片上限 $maxPayload 字节（$MAX_FRAGMENTS 片 × $chunkSize 字节）"
+        }
+        val total = ((payload.size + chunkSize - 1) / chunkSize).coerceAtLeast(1)
         return (0 until total).map { i ->
             val start = i * chunkSize
             val end = minOf(start + chunkSize, payload.size)
-            val chunk = if (start < payload.size) payload.copyOfRange(start, end) else ByteArray(0)
+            val chunk = payload.copyOfRange(start, end)
             ByteArray(HEADER_SIZE + chunk.size).also {
                 it[0] = msgId.toByte()
                 it[1] = total.toByte()

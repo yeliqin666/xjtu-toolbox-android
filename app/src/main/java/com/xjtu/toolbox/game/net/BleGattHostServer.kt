@@ -206,7 +206,14 @@ class BleGattHostServer(private val context: Context) {
             val bytes = line.toByteArray(Charsets.UTF_8)
             val msgId = nextOutMsgId
             nextOutMsgId = (nextOutMsgId + 1) and 0xFF
-            val fragments = BleFraming.fragment(msgId, bytes, negotiatedMtu)
+            val fragments = try {
+                BleFraming.fragment(msgId, bytes, negotiatedMtu)
+            } catch (_: IllegalArgumentException) {
+                // 装不下就不发（见 BleFraming 的说明）：关掉通道让心跳把会话判成断开，
+                // 而不是发一半让对方拼出被砍断的报文。
+                close()
+                return@withLock
+            }
             for (fragment in fragments) {
                 val ack = CompletableDeferred<Boolean>()
                 pendingNotifyAck = ack
