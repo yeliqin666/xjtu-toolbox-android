@@ -1102,3 +1102,20 @@ def self_test() -> None:
         project_url_fallback="https://e.com/d", tags=None, featured=None, dry_run=True,
     )
     assert result.dry_run and result.commit_url is None
+
+    # 索引和钥匙都没变化：一次提交都不该产生
+    state["index"] = _sample_index()
+    state["keys"] = _dump_keys({"top.dzhz.plugin.template": "3" * 64})
+    writes: list[str] = []
+
+    def watch_rest(method: str, path: str, body: Optional[dict[str, Any]] = None):
+        if method != "GET":
+            writes.append(f"{method} {path}")
+        return fake_rest(method, path, body)
+
+    result = update_market(
+        rest=watch_rest, repo="o/r", branch="main", index_path="index.json", keys_path="keys.json",
+        package=_sample_package(version="1.0.1", code=13, sha="0" * 64), download_url="https://e.com/old.zip",
+        project_url_fallback="https://e.com/d", tags=None, featured=None, dry_run=False,
+    )
+    assert result.unchanged and result.commit_url is None and not writes, writes
