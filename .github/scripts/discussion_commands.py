@@ -33,7 +33,10 @@ admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正�
 * 只收 plugin-release（插件公告）分类的帖子，需要仓库 admin 权限；
 * 下载插件 zip（只认 https、挡内网地址、限 32 MB），验 ECDSA P-256 签名、核对 files[] 清单，
   再把包内 dzhz.plugin.json 的信息写进 dzhz-server 的在线市场索引（Git Data API 一次提交）；
-* 省略 url 时从命令下方的正文、本帖最新的「## 插件直链」评论、主帖的「插件下载直链」里找；
+* 推荐在对应版本的更新跟帖下面回复：直链只从被回复的那条评论里取，标题写的版本和包内 version
+  不一致就拒绝；
+* 顶层也能跑，但直链会退到「本帖最新的更新跟帖 / 主帖」，回帖里会用 GitHub 提示块提醒一次；
+* 更新帖作者和主帖作者不一致时只警告（维护者会代发），签名钥匙才是最终防线；
 * 签名钥匙按 TOFU 钉在 dzhz-server 的 .github/plugin-market-keys.json，钥匙变了直接拒收。
 
 这是给以后更多讨论区命令用的最小框架：命令注册在 HANDLERS，每个 handler 只负责
@@ -301,7 +304,7 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     discussion(number: $number) {
       comments(last: 50) {
-        nodes { url body createdAt }
+        nodes { url body createdAt author { login } }
       }
     }
   }
@@ -1218,7 +1221,9 @@ UPDATE_MARKET_USAGE = """用法：
 
 `/update-market [url] [--tags a,b] [--featured|--no-featured] [--dry-run]`
 
-- `url`：插件包的 https 直链，省略时自动找：命令下方空一行的内容 → 本帖最新的「## 插件直链」评论 → 主帖的「插件下载直链」
+- 位置：**推荐在对应版本的更新跟帖下面回复**。这时直链只取被回复的评论，还会核对标题里的版本号
+- 顶层也能跑，但会退到「本帖最新的更新跟帖 / 主帖」取直链，并回帖提醒一次
+- `url`：插件包的 https 直链，写明了就优先用（命令下方空一行也可以）
 - `--tags`：覆盖这个插件的标签（逗号隔开），根 `tags` 里没有的会一起加进去；`--tags -` 清空
 - `--featured` / `--no-featured`：改精选状态，不写就保持原样
 - `--dry-run`：只下载校验、回帖预览，不提交索引
@@ -1281,16 +1286,54 @@ def parse_update_market(args: list[str]) -> UpdateMarketArgs:
     return parsed
 
 
-def find_plugin_link(ctx: Context) -> Optional[str]:
-    """按 命令正文 → 本帖最新「## 插件直链」评论 → 主帖 的顺序找插件包直链。"""
+@dataclass
+class MarketLink:
+    """插件包直链，以及它是从哪儿翻出来的。"""
+
+    url: str
+    origin: str                                   # details / parent / latest / post
+    author: Optional[str] = None                  # 提供直链的那条评论的作者
+    body: str = ""                                # 提供直链的那条评论正文
+
+    @property
+    def from_comment(self) -> bool:
+        return self.origin in ("parent", "latest")
+
+
+def github_alert(kind: str, text: str) -> str:
+    """GitHub 的 `> [!WARNING]` 提示块；kind 取 NOTE / TIP / IMPORTANT / WARNING / CAUTION。"""
+    lines = text.strip().splitlines() or [""]
+    return "\n".join([f"> [!{kind.upper()}]"] + [f"> {line}".rstrip() for line in lines])
+
+
+def version_from_heading(body: str) -> Optional[str]:
+    """更新跟帖标题里的版本号：`## v1.2.2 更新` → `1.2.2`。"""
+    match = re.search(r"(?m)^#{1,6}\s*v(\d+\.\d+\.\d+)\b", body or "")
+    return match.group(1) if match else None
+
+
+def find_plugin_link(ctx: Context) -> Optional[MarketLink]:
+    """按 命令正文 → 被回复的跟帖 → 本帖最新的跟帖 → 主帖 的顺序找插件包直链。"""
     comment = ctx.comment
     discussion = comment.discussion
+
     details = parse_details(comment.body, ctx.command_line_index)
     if details:
         links = plugin_market.extract_links(details)
         if links:
-            return links[0]
+            return MarketLink(links[0], "details")
 
+    # 楼中楼只认被回复的那条评论：版本对不上比乱猜更糟
+    if comment.reply_to_id is not None:
+        links = plugin_market.section_links(comment.reply_to_body)
+        if not links:
+            raise CommandFailure(
+                "你回复的这条评论里没有「## 插件直链」。请回到对应版本的更新跟帖下面回复，"
+                "或者写成 `/update-market <url>` 直接指定包地址"
+            )
+        return MarketLink(links[0], "parent", comment.reply_to_author_login, comment.reply_to_body)
+
+    # 顶层：退到本帖最新的更新跟帖
     try:
         data = ctx.client.graphql(
             DISCUSSION_COMMENTS_QUERY,
@@ -1305,16 +1348,14 @@ def find_plugin_link(ctx: Context) -> Optional[str]:
             continue
         links = plugin_market.section_links(node.get("body") or "")
         if links:
-            return links[0]
+            author = (node.get("author") or {}).get("login") or None
+            return MarketLink(links[0], "latest", author, node.get("body") or "")
 
-    links = plugin_market.section_links(discussion.body)
-    if links:
-        return links[0]
-    links = plugin_market.extract_links(discussion.body)
-    return links[0] if links else None
+    links = plugin_market.section_links(discussion.body) or plugin_market.extract_links(discussion.body)
+    return MarketLink(links[0], "post") if links else None
 
 
-def format_market_reply(result: plugin_market.UpdateResult) -> str:
+def format_market_reply(result: plugin_market.UpdateResult, notes: Optional[list[str]] = None) -> str:
     entry = result.entry
     if result.unchanged:
         text = (
@@ -1328,38 +1369,42 @@ def format_market_reply(result: plugin_market.UpdateResult) -> str:
                 text += f"\n\n真提交的话会把这个包的签名公钥钉住：`{result.package.key_sha256}`。"
         if result.commit_url:
             text += f"\n\n索引提交：{result.commit_url}"
-        return text
-    lines = [
-        ("🔍 预览（未提交）：" if result.dry_run else "✅ 已更新在线市场：")
-        + f"**{entry['name']}** `{entry['id']}` v{entry['version']}（versionCode {entry['versionCode']}）",
-        "",
-        f"- 类型 `{entry['type']}`，包 {plugin_market.human_size(entry['size'])}，SHA-256 `{entry['sha256']}`",
-        f"- 签名校验通过，公钥指纹 `{result.package.key_sha256}`（"
-        + (
-            ("首次收录，提交时钉住" if result.dry_run else "首次收录，已钉住")
-            if result.key_recorded
-            else "和已记录的一致"
-        )
-        + "）",
-        f"- 标签：{'、'.join(entry.get('tags') or []) or '无'}；精选：{'是' if entry.get('featured') else '否'}",
-    ]
-    if result.new_tags:
-        lines.append(f"- 根 `tags` 新增：{'、'.join(result.new_tags)}")
-    if result.previous is None:
-        lines.append("- 首次收录")
-    elif result.changes:
-        shown = result.changes[:8]
-        more = f"（还有 {len(result.changes) - 8} 项）" if len(result.changes) > 8 else ""
-        lines.append("- 变更：" + "；".join(shown) + more)
-    for warning in result.package.warnings:
-        lines.append(f"- ⚠️ {warning}")
-    if result.dry_run:
-        lines.append("- `--dry-run` 只是看了看，去掉参数再发一次就会真的提交。")
-    elif result.commit_url:
-        lines.append(f"- 索引提交：{result.commit_url}")
-    if not result.dry_run:
-        lines.append(f"- 市场：{os.environ.get('MARKET_PUBLIC_URL', MARKET_PUBLIC_URL)}")
-    return "\n".join(lines)
+    else:
+        lines = [
+            ("🔍 预览（未提交）：" if result.dry_run else "✅ 已更新在线市场：")
+            + f"**{entry['name']}** `{entry['id']}` v{entry['version']}（versionCode {entry['versionCode']}）",
+            "",
+            f"- 类型 `{entry['type']}`，包 {plugin_market.human_size(entry['size'])}，SHA-256 `{entry['sha256']}`",
+            f"- 签名校验通过，公钥指纹 `{result.package.key_sha256}`（"
+            + (
+                ("首次收录，提交时钉住" if result.dry_run else "首次收录，已钉住")
+                if result.key_recorded
+                else "和已记录的一致"
+            )
+            + "）",
+            f"- 标签：{'、'.join(entry.get('tags') or []) or '无'}；精选：{'是' if entry.get('featured') else '否'}",
+        ]
+        if result.new_tags:
+            lines.append(f"- 根 `tags` 新增：{'、'.join(result.new_tags)}")
+        if result.previous is None:
+            lines.append("- 首次收录")
+        elif result.changes:
+            shown = result.changes[:8]
+            more = f"（还有 {len(result.changes) - 8} 项）" if len(result.changes) > 8 else ""
+            lines.append("- 变更：" + "；".join(shown) + more)
+        if result.dry_run:
+            lines.append("- `--dry-run` 只是看了看，去掉参数再发一次就会真的提交。")
+        elif result.commit_url:
+            lines.append(f"- 索引提交：{result.commit_url}")
+        if not result.dry_run:
+            lines.append(f"- 市场：{os.environ.get('MARKET_PUBLIC_URL', MARKET_PUBLIC_URL)}")
+        text = "\n".join(lines)
+
+    blocks = [github_alert("WARNING", warning) for warning in result.package.warnings]
+    blocks.extend(notes or [])
+    if blocks:
+        text += "\n\n" + "\n\n".join(blocks)
+    return text
 
 
 class UpdateMarketHandler(CommandHandler):
@@ -1383,18 +1428,41 @@ class UpdateMarketHandler(CommandHandler):
         index_path = (os.environ.get("MARKET_INDEX_PATH") or "services/web/public/plugin-market.json").strip()
         keys_path = (os.environ.get("MARKET_KEYS_PATH") or ".github/plugin-market-keys.json").strip()
 
-        link = parsed.url or find_plugin_link(ctx)
-        if not link:
+        source = MarketLink(parsed.url, "details") if parsed.url else find_plugin_link(ctx)
+        if source is None:
             raise CommandFailure(
                 "本帖里没找到插件直链：在命令下面空一行写直链，或者先跟帖「## 插件直链」把地址发出来"
             )
-        if not link.lower().startswith("https://"):
+        if not source.url.lower().startswith("https://"):
             raise CommandFailure("插件直链必须是 https 地址")
 
         try:
-            package = plugin_market.fetch_package(link)
+            package = plugin_market.fetch_package(source.url)
         except plugin_market.MarketError as error:
             raise CommandFailure(str(error)) from None
+
+        if source.origin == "parent":
+            expected = version_from_heading(source.body)
+            if expected and expected != package.manifest["version"]:
+                raise CommandFailure(
+                    f"父评论的标题写的是 v{expected}，包里的版本是 v{package.manifest['version']}。\n\n"
+                    + github_alert("CAUTION", "八成是回复错帖了：回到这个版本对应的更新跟帖下面再发一次。")
+                )
+
+        notes: list[str] = []
+        if source.from_comment and source.author and discussion.author_login \
+                and source.author.lower() != discussion.author_login.lower():
+            notes.append(github_alert(
+                "WARNING",
+                f"这条更新帖是 @{source.author} 发的，不是主帖作者 @{discussion.author_login}——"
+                "请确认是作者本人或维护者代发。",
+            ))
+        if ctx.comment.reply_to_id is None and source.origin != "details":
+            notes.append(github_alert(
+                "NOTE",
+                "这次是从「最新的更新跟帖 / 主帖」里取的直链。推荐在对应版本的更新跟帖下面回复 "
+                "`/update-market`，这样能确定更新的是哪个版本的包。",
+            ))
 
         market = GitHub(token)
         try:
@@ -1405,7 +1473,7 @@ class UpdateMarketHandler(CommandHandler):
                 index_path=index_path,
                 keys_path=keys_path,
                 package=package,
-                download_url=link,
+                download_url=source.url,
                 project_url_fallback=discussion.url,
                 tags=parsed.tags,
                 featured=parsed.featured,
@@ -1419,7 +1487,7 @@ class UpdateMarketHandler(CommandHandler):
 
         state = "预览" if parsed.dry_run else ("已提交" if result.commit_url else "无改动")
         log(f"/update-market {package.manifest['id']} v{package.manifest['version']}：{state}")
-        return format_market_reply(result)
+        return format_market_reply(result, notes)
 
 
 HANDLERS: dict[str, CommandHandler] = {
@@ -1679,21 +1747,58 @@ def self_test() -> None:
 
     direct = make_comment("/update-market\n\nhttps://e.com/direct.zip")
     ctx = Context(FakeClient([]), "o", "r", direct, 0)
-    assert find_plugin_link(ctx) == "https://e.com/direct.zip"
+    assert find_plugin_link(ctx).url == "https://e.com/direct.zip"
+    assert find_plugin_link(ctx).origin == "details"
 
     ctx = Context(
         FakeClient([
-            {"url": "c1", "body": "## 插件直链\nhttps://e.com/v1.zip"},
-            {"url": "c2", "body": "## 插件直链\nhttps://e.com/v2.zip"},
+            {"url": "c1", "body": "## 插件直链\nhttps://e.com/v1.zip", "author": {"login": "someone"}},
+            {"url": "c2", "body": "## v1.2.0 更新\n\n## 插件直链\nhttps://e.com/v2.zip",
+             "author": {"login": "someone"}},
             {"url": "curl", "body": "/update-market"},
         ]),
         "o", "r", make_comment("/update-market"), 0,
     )
-    assert find_plugin_link(ctx) == "https://e.com/v2.zip"
+    latest = find_plugin_link(ctx)
+    assert latest.url == "https://e.com/v2.zip" and latest.origin == "latest"
+    assert latest.author == "someone"
 
     ctx = Context(FakeClient([{"url": "c1", "body": "随便聊聊"}]), "o", "r",
                   make_comment("/update-market"), 0)
     assert find_plugin_link(ctx) is None
+
+    # 楼中楼：只认被回复的那条评论，哪怕更新的跟帖里有别的版本
+    parent_body = "## v1.2.0 更新\n\n## 插件直链\nhttps://e.com/v120.zip"
+    ctx = Context(
+        FakeClient([{"url": "c2", "body": "## v1.3.0 更新\n\n## 插件直链\nhttps://e.com/v130.zip",
+                     "author": {"login": "someone"}}]),
+        "o", "r",
+        make_comment("/update-market", reply_to_id=9, parent_body=parent_body, parent_author="someone"),
+        0,
+    )
+    parent = find_plugin_link(ctx)
+    assert parent.url == "https://e.com/v120.zip" and parent.origin == "parent"
+    assert parent.author == "someone" and "v1.2.0" in parent.body
+
+    # 楼中楼但父评论没有直链：直接拒绝，不许乱猜
+    ctx = Context(FakeClient([]), "o", "r",
+                  make_comment("/update-market", reply_to_id=9, parent_body="随便聊聊"), 0)
+    try:
+        find_plugin_link(ctx)
+    except CommandFailure as error:
+        assert "插件直链" in error.message
+    else:
+        raise AssertionError("父评论没有直链时应当拒绝")
+
+    # 标题版本号
+    assert version_from_heading("## v1.2.2 更新\n\n正文") == "1.2.2"
+    assert version_from_heading("### v0.1.0") == "0.1.0"
+    assert version_from_heading("## 插件直链\nhttps://e.com/p.zip") is None
+    assert version_from_heading("") is None
+
+    # GitHub 提示块
+    assert github_alert("warning", "第一行\n第二行") == "> [!WARNING]\n> 第一行\n> 第二行"
+    assert github_alert("NOTE", "  ") == "> [!NOTE]\n>"
 
     # /update-market：回帖
     market_package = plugin_market.Package(
@@ -1713,7 +1818,13 @@ def self_test() -> None:
     ))
     assert "已更新在线市场" in reply and "首次收录" in reply and "已钉住" in reply
     assert "根 `tags` 新增：工具" in reply and "索引提交" in reply
-    assert "projectUrl" in reply
+    assert "> [!WARNING]" in reply and "projectUrl" in reply
+
+    reply = format_market_reply(plugin_market.UpdateResult(
+        entry=market_entry, package=market_package, previous=None, changes=[], new_tags=[],
+        key_recorded=False, unchanged=False, dry_run=False, commit_url="https://github.com/c/2",
+    ), [github_alert("NOTE", "建议在更新跟帖下回复")])
+    assert reply.rstrip().endswith("> 建议在更新跟帖下回复")
 
     reply = format_market_reply(plugin_market.UpdateResult(
         entry=market_entry, package=market_package, previous=market_entry, changes=[], new_tags=[],
