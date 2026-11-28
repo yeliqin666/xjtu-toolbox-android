@@ -113,7 +113,7 @@ internal fun PluginUiTree(
     when (node) {
         is UiColumnNode -> CompositionLocalProvider(LocalUiTextAlign provides node.alignment) {
             Column(
-                modifier = modifier,
+                modifier = if (node.fillWidth) modifier.fillMaxWidth() else modifier,
                 verticalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
                 horizontalAlignment = node.alignment.toHorizontalAlignment(),
             ) {
@@ -123,7 +123,7 @@ internal fun PluginUiTree(
 
         is UiRowNode -> CompositionLocalProvider(LocalUiTextAlign provides node.horizontal) {
             Row(
-                modifier = modifier,
+                modifier = if (node.fillWidth) modifier.fillMaxWidth() else modifier,
                 horizontalArrangement = Arrangement.spacedBy(
                     node.spacingDp.dp,
                     node.horizontal.toHorizontalAlignment(),

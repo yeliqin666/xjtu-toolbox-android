@@ -119,8 +119,8 @@ class TemplatePage(private val ctx: PluginContext) : PluginPage() {
 
 | 节点 | 用途 |
 |---|---|
-| `UiColumnNode(children, spacingDp, alignment)` | 竖排，可设水平对齐 |
-| `UiRowNode(children, spacingDp, horizontal, vertical)` | 横排，两端对齐 / 居中 / 靠右 |
+| `UiColumnNode(children, spacingDp, alignment, fillWidth)` | 竖排，可设水平对齐；要 `End`/`Center` 真生效就开 `fillWidth` |
+| `UiRowNode(children, spacingDp, horizontal, vertical, fillWidth)` | 横排，两端对齐 / 居中 / 靠右；可用 `fillWidth` 撑满 |
 | `UiGridNode(columns, children)` | 网格，1–4 列等宽 |
 | `UiScrollRowNode(children, spacingDp)` | 横滑一行（子节点按内容宽度，上限 280dp） |
 | `UiFlowRowNode(children, spacingDp)` | 流式换行 |
@@ -141,7 +141,7 @@ class TemplatePage(private val ctx: PluginContext) : PluginPage() {
 | `UiDividerNode()` / `UiSpacerNode(heightDp)` | 分隔线 / 留白 |
 | `UiLoadingNode(text)` / `UiEmptyNode(title, subtitle)` | 加载中 / 空状态 |
 
-> 文字对齐跟着所在 `Column` / `Row` 的水平对齐走：`alignment = End` 的竖排里，长文本也真的靠右排；卡片、网格、横滑行、流式换行内部按左起排。
+> 文字对齐跟着所在 `Column` / `Row` 的水平对齐走；容器要开 `fillWidth`，`alignment = End` 才是相对整行/整卡靠右，否则只对齐到自己那一小块。卡片、网格、横滑行、流式换行内部按左起排。
 
 **字阶**：`Display`（页面大标题）、`Title`（分区）、`Section`（卡片标题）、`Body`（正文）、`Caption`（脚注）。
 
