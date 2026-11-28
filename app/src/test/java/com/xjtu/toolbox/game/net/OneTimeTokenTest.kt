@@ -8,26 +8,21 @@ import org.junit.Test
 class OneTimeTokenTest {
 
     @Test
-    fun `第一次口令对了才通过`() {
-        val token = OneTimeToken("ABCD1234")
-        assertFalse(token.tryConsume("不对的口令"))
-        assertTrue(token.tryConsume("ABCD1234"))
-    }
-
-    @Test
-    fun `一次性——用过一次之后再对的口令也不再通过`() {
-        val token = OneTimeToken("ABCD1234")
-        assertTrue(token.tryConsume("ABCD1234"))
-        // 第三台设备（甚至是同一台再连一次）用同一份口令，一律拒绝
-        assertFalse(token.tryConsume("ABCD1234"))
+    fun `第一次消费成功，之后恒为 false`() {
+        val token = OneTimeToken()
+        assertFalse(token.isConsumed())
+        assertTrue(token.consume())
         assertTrue(token.isConsumed())
+        // 第三台设备（甚至是同一台再连一次）拿同一份码再来，一律拒绝
+        assertFalse(token.consume())
     }
 
     @Test
     fun `生成的口令长度固定且不含易混字符`() {
         repeat(20) {
             val t = OneTimeToken.generate()
-            assertEquals(8, t.length)
+            // 长度即熵：12 位 × 32 字符表 ≈ 60 bit，抓到握手的人做离线爆破才不划算
+            assertEquals(12, t.length)
             assertTrue(t.none { c -> c in "0O1I" })
         }
     }

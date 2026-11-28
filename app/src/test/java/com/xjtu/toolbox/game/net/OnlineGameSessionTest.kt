@@ -15,6 +15,7 @@ import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -109,7 +110,7 @@ class OnlineGameSessionTest {
         assertTrue("房主在验完口令前不能主动发消息", toGuest.tryReceive().isFailure)
 
         // 没有口令的设备只能瞎猜，猜错就该被拒。
-        fromGuest.send(NetCodec.encode(NetCodec.hello("GUESS", GameKind.GOMOKU)))
+        fromGuest.send(NetCodec.encode(NetCodec.hello(HandshakeAuth.newNonce(), "00".repeat(32), GameKind.GOMOKU)))
         val hostState = withTimeout(5_000) { host.state.first { it is OnlineConnState.Disconnected } }
         assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("口令"))
         // 回给它的拒绝里也不能夹带口令或对局参数。
@@ -118,6 +119,44 @@ class OnlineGameSessionTest {
             assertFalse(rejection.contains("REAL-TOKEN"))
             assertFalse(rejection.contains("size"))
         }
+    }
+
+    @Test
+    fun `加入方不会把口令交给冒充房主的设备`() = runBlocking {
+        // 加入方只按服务 UUID 找房主，而这个 UUID 是公开广播的——对面完全可能是一台伪造的外设。
+        // 所以它发出去的第一包必须是"用口令算的证明"，不能是口令本身。
+        val fromGuest = Channel<String>(Channel.UNLIMITED)
+        val toGuest = Channel<String>(Channel.UNLIMITED)
+        val guest = OnlineGameSession(
+            OnlineRole.GUEST, "REAL-TOKEN", GameKind.GOMOKU, ruleParam = null,
+            hostFirst = true, transport = FakeTransport(outbound = toGuest, inbound = fromGuest), scope = scope,
+        )
+        guest.start()
+
+        val hello = withTimeout(5_000) { fromGuest.receive() }
+        assertFalse("口令本身不能出现在链路上", hello.contains("REAL-TOKEN"))
+        assertTrue("至少要带上一次性的 nonce 和证明", hello.contains("proof"))
+
+        // 假房主不知道该出示什么：它拿不到真口令，只能编一段证明应答。
+        // 加入方验不过就必须断开，绝不能把棋盘打开——那样用户会对着一台不存在的对手下完一整盘。
+        toGuest.send(
+            NetCodec.encode(
+                NetCodec.helloAck(
+                    ok = true,
+                    nonce = HandshakeAuth.newNonce(),
+                    proof = HandshakeAuth.hostProof("GUESSED-TOKEN", "whatever", HandshakeAuth.newNonce()),
+                    rule = "{\"size\":19}",
+                    hostFirst = false,
+                ),
+            ),
+        )
+
+        val state = withTimeout(5_000) { guest.state.first { it !is OnlineConnState.Handshaking } }
+        assertTrue("假房主不能把加入方带进 Playing", state is OnlineConnState.Disconnected)
+        assertTrue((state as OnlineConnState.Disconnected).reason.contains("冒充"))
+        // 假房主塞进来的对局参数一条也不能生效
+        assertNull(guest.resolvedRuleParam)
+        assertTrue(guest.resolvedHostFirst)
     }
 
     @Test
@@ -159,11 +198,11 @@ class OnlineGameSessionTest {
     }
 
     @Test
-    fun `重复的 hello_ack 不会打断已经开下的对局`() = runBlocking {
+    fun `已开下的对局忽略重复和迟到的握手包`() = runBlocking {
         val guestToHost = Channel<String>(Channel.UNLIMITED)
         val hostToGuest = Channel<String>(Channel.UNLIMITED)
         val host = OnlineGameSession(
-            OnlineRole.HOST, "TOKEN1", GameKind.GOMOKU, ruleParam = null,
+            OnlineRole.HOST, "TOKEN1", GameKind.GOMOKU, ruleParam = "{\"size\":9}",
             hostFirst = true, transport = FakeTransport(outbound = hostToGuest, inbound = guestToHost), scope = scope,
         )
         val guest = OnlineGameSession(
@@ -176,20 +215,43 @@ class OnlineGameSessionTest {
             host.state.first { it is OnlineConnState.Playing }
             guest.state.first { it is OnlineConnState.Playing }
         }
+        assertEquals("{\"size\":9}", guest.resolvedRuleParam)
 
-        // 迟到的重复握手包：房主侧口令早就被消费过，按老逻辑会当成校验失败把对局断掉。
-        guestToHost.send(NetCodec.encode(NetCodec.helloAck(true, hostFirst = true)))
+        // 1) 往**房主**重发一条 hello：证明本身完全合法（口令对、nonce 新），只是口令早就被消费过。
+        //    没有"Playing 之后忽略握手包"这道门，房主会把它当成校验失败，把正在下的棋断掉。
+        val lateNonce = HandshakeAuth.newNonce()
+        guestToHost.send(
+            NetCodec.encode(NetCodec.hello(lateNonce, HandshakeAuth.guestProof("TOKEN1", lateNonce), GameKind.GOMOKU)),
+        )
         delay(200)
-        assertTrue(host.state.value is OnlineConnState.Playing)
-        // 还能正常走子，说明会话语义没被这条重复包影响。
+        assertTrue("迟到的 hello 不能把正在下的对局打断", host.state.value is OnlineConnState.Playing)
+
+        // 2) 往**加入方**重发一条参数不同的 hello_ack。证明是编的也无所谓——门禁在验证明之前就该拦住它，
+        //    否则房主下发的规则参数和先后手会被改写，两边按不同的盘开局。
+        hostToGuest.send(
+            NetCodec.encode(
+                NetCodec.helloAck(
+                    ok = true,
+                    nonce = HandshakeAuth.newNonce(),
+                    proof = "00".repeat(32),
+                    rule = "{\"size\":19}",
+                    hostFirst = false,
+                ),
+            ),
+        )
+        delay(200)
+        assertTrue("迟到的 hello_ack 不能让加入方掉线", guest.state.value is OnlineConnState.Playing)
+        assertEquals("已确认的规则参数不能被改写", "{\"size\":9}", guest.resolvedRuleParam)
+        assertTrue("已确认的先后手不能被改写", guest.resolvedHostFirst)
+
+        // 3) 对局还得能正常走：会话语义没被这两条迟到包破坏。
         // events 没有 replay：必须先把订阅建好再发。用 UNDISPATCHED 让 collect 在挂起前就完成订阅，
-        // 否则 runBlocking 的线程在 sendLocalMove 之前没有真正的挂起点，订阅协程还没跑，
-        // 这一步就被漏掉，只能干等一个超时。
+        // 否则 runBlocking 的线程在 sendLocalMove 之前没有真正的挂起点，订阅协程还没跑，这一步就被漏掉。
         val received = java.util.concurrent.CopyOnWriteArrayList<OnlineGameEvent>()
         val collectJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            host.events.collect { received.add(it) }
+            guest.events.collect { received.add(it) }
         }
-        guest.sendLocalMove("7,7")
+        host.sendLocalMove("7,7")
         withTimeout(5_000) {
             while (received.none { it is OnlineGameEvent.RemoteMove }) yield()
         }
