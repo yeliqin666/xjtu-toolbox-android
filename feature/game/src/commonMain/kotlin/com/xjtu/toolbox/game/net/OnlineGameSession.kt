@@ -128,7 +128,36 @@ class OnlineGameSession(
         return false
     }
 
+    /**
+     * 握手完成前允许处理的消息：握手本身、断线补发的对齐、心跳、以及断开前给对方的一句理由。
+     *
+     * [NetMsgType.RESUME] 也在里面，是因为房主的 [`Playing`][OnlineConnState.Playing] 要等 hello_ack
+     * 真正发出去之后才置位，加入方收到 ack 立刻回的那条 resume 可能赶在置位之前到达；
+     * 全新对局 moveLog 是空的，这时补发等于空操作，放过去没有副作用。
+     */
+    private val allowedBeforePlaying = setOf(
+        NetMsgType.HELLO,
+        NetMsgType.HELLO_ACK,
+        NetMsgType.RESUME,
+        NetMsgType.PING,
+        NetMsgType.PONG,
+        NetMsgType.ERROR,
+    )
+
     private suspend fun handle(env: NetEnvelope) {
+        val playing = _state.value is OnlineConnState.Playing
+        if (!playing && env.type !in allowedBeforePlaying) {
+            // 握手没走完就来着法 / 悔棋 / 认输 / 求和：要么对面是顶替上来的第三台设备，要么协议版本不对。
+            // 不能只是"忽略"——handleMove 会把 seq 记进 moveLog，之后对方的正常着法全部被当成跳号，
+            // 两边棋盘静默分叉，谁也不会报错。直接断开，让问题当场暴露。
+            failAndClose("对方在握手完成前就发来了对局消息，已断开")
+            return
+        }
+        if (playing && (env.type == NetMsgType.HELLO || env.type == NetMsgType.HELLO_ACK)) {
+            // 握手只做一次。重复/迟到的握手包放着不管会重跑 onHandshakeDone（重复发 resume），
+            // 更糟的是房主侧口令已被消费，再来一条 hello_ack 会把正在下的棋当成校验失败断掉。
+            return
+        }
         when (env.type) {
             NetMsgType.HELLO -> handleHello(env)
             NetMsgType.HELLO_ACK -> handleHelloAck(env)

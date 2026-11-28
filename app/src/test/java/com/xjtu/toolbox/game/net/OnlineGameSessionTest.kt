@@ -2,6 +2,7 @@ package com.xjtu.toolbox.game.net
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -138,6 +139,51 @@ class OnlineGameSessionTest {
             assertEquals("{\"size\":19}", guest.resolvedRuleParam)
             assertFalse("先后手由房主决定，不能停在占位值 true 上", guest.resolvedHostFirst)
         }
+    }
+
+    @Test
+    fun `握手没完成就收到着法直接断开`() = runBlocking {
+        val fromGuest = Channel<String>(Channel.UNLIMITED)
+        val toGuest = Channel<String>(Channel.UNLIMITED)
+        val host = OnlineGameSession(
+            OnlineRole.HOST, "TOKEN1", GameKind.GOMOKU, ruleParam = null,
+            hostFirst = true, transport = FakeTransport(outbound = toGuest, inbound = fromGuest), scope = scope,
+        )
+        host.start()
+        // 绕过握手直接来一步棋。要是让它记进 moveLog，后面对方的正常着法会全部被当成跳号。
+        fromGuest.send(NetCodec.encode(NetCodec.move(1, "7,7")))
+
+        val hostState = withTimeout(5_000) { host.state.first { it is OnlineConnState.Disconnected } }
+        assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("握手"))
+    }
+
+    @Test
+    fun `重复的 hello_ack 不会打断已经开下的对局`() = runBlocking {
+        val guestToHost = Channel<String>(Channel.UNLIMITED)
+        val hostToGuest = Channel<String>(Channel.UNLIMITED)
+        val host = OnlineGameSession(
+            OnlineRole.HOST, "TOKEN1", GameKind.GOMOKU, ruleParam = null,
+            hostFirst = true, transport = FakeTransport(outbound = hostToGuest, inbound = guestToHost), scope = scope,
+        )
+        val guest = OnlineGameSession(
+            OnlineRole.GUEST, "TOKEN1", GameKind.GOMOKU, ruleParam = null,
+            hostFirst = true, transport = FakeTransport(outbound = guestToHost, inbound = hostToGuest), scope = scope,
+        )
+        host.start()
+        guest.start()
+        withTimeout(5_000) {
+            host.state.first { it is OnlineConnState.Playing }
+            guest.state.first { it is OnlineConnState.Playing }
+        }
+
+        // 迟到的重复握手包：房主侧口令早就被消费过，按老逻辑会当成校验失败把对局断掉。
+        guestToHost.send(NetCodec.encode(NetCodec.helloAck(true, hostFirst = true)))
+        delay(200)
+        assertTrue(host.state.value is OnlineConnState.Playing)
+        // 还能正常走子，说明会话语义没被这条重复包影响。events 没有 replay，先订阅再发。
+        val moveArrived = async { withTimeout(5_000) { host.events.first { it is OnlineGameEvent.RemoteMove } } }
+        guest.sendLocalMove("7,7")
+        moveArrived.await()
     }
 
     @Test
