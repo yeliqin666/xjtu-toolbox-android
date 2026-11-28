@@ -625,48 +625,33 @@ def plan_update(
             raise MarketError(
                 f"版本回退：包里是 versionCode {manifest['versionCode']}，索引里已经是 {old_code}"
             )
-        if manifest["versionCode"] == old_code:
-            if old_sha != package.sha256 or previous.get("version") != manifest["version"]:
-                raise MarketError(
-                    f"versionCode {old_code} 已经在索引里了，但包内容不一样——请提升 versionCode 再发"
-                )
-            entry = dict(previous)
-            if tags is not None:
-                entry["tags"] = list(tags)
-            if featured is not None:
-                entry["featured"] = featured
-            return Plan(
-                entry=entry,
-                raw=raw,
-                keys=new_keys,
-                keys_changed=key_recorded,
-                changes=[],
-                new_tags=[],
-                key_recorded=key_recorded,
-                unchanged=True,
-                message=f"Update online market: {plugin_id} v{manifest['version']}",
+        same_version = manifest["versionCode"] == old_code
+        if same_version and (old_sha != package.sha256 or previous.get("version") != manifest["version"]):
+            raise MarketError(
+                f"versionCode {old_code} 已经在索引里了，但包内容不一样——请提升 versionCode 再发"
             )
 
         entry = dict(previous)
-        updates = {
-            "name": manifest["name"],
-            "summary": manifest["summary"],
-            "type": manifest["type"],
-            "version": manifest["version"],
-            "versionCode": manifest["versionCode"],
-            "minAppVersionCode": manifest["minAppVersionCode"],
-            "author": manifest["author"]["name"],
-            "authorUrl": manifest["author"]["url"],
-            "download": download_url,
-            "sha256": package.sha256,
-            "size": package.size,
-        }
-        for key, value in updates.items():
-            old = entry.get(key)
-            if old != value:
-                changes.append(f"`{key}`：{_short(old)} → {_short(value)}")
-            entry[key] = value
-        entry.setdefault("mirrors", [])
+        if not same_version:
+            updates = {
+                "name": manifest["name"],
+                "summary": manifest["summary"],
+                "type": manifest["type"],
+                "version": manifest["version"],
+                "versionCode": manifest["versionCode"],
+                "minAppVersionCode": manifest["minAppVersionCode"],
+                "author": manifest["author"]["name"],
+                "authorUrl": manifest["author"]["url"],
+                "download": download_url,
+                "sha256": package.sha256,
+                "size": package.size,
+            }
+            for key, value in updates.items():
+                old = entry.get(key)
+                if old != value:
+                    changes.append(f"`{key}`：{_short(old)} → {_short(value)}")
+                entry[key] = value
+            entry.setdefault("mirrors", [])
     else:
         entry = {
             "id": plugin_id,
@@ -692,7 +677,7 @@ def plan_update(
         entry["tags"] = list(tags)
     if featured is not None:
         entry["featured"] = bool(featured)
-    if previous is not None and tags is not None:
+    if previous is not None and tags is not None and list(previous.get("tags") or []) != list(tags):
         changes.append(f"`tags`：{_short(previous.get('tags'))} → {_short(tags)}")
     if previous is not None and featured is not None and previous.get("featured") != bool(featured):
         changes.append(f"`featured`：{_short(previous.get('featured'))} → {_short(bool(featured))}")
@@ -701,6 +686,20 @@ def plan_update(
         if tag not in root_tags:
             root_tags.append(tag)
             new_tags.append(tag)
+
+    # 版本没变、标签和精选也没变：真的没什么可写的
+    if previous is not None and entry == previous and not new_tags:
+        return Plan(
+            entry=entry,
+            raw=raw,
+            keys=new_keys,
+            keys_changed=key_recorded,
+            changes=[],
+            new_tags=[],
+            key_recorded=key_recorded,
+            unchanged=True,
+            message=f"Update online market: {plugin_id} v{manifest['version']}",
+        )
 
     new_raw = _replace_plugin(raw, entry)
     if new_tags:
@@ -993,6 +992,15 @@ def self_test() -> None:
         pass
     else:
         raise AssertionError("同 versionCode 不同内容应当拒绝")
+
+    # 同版本只改标签 / 精选：也要写进去
+    tagged = plan_update(raw, index, {package.manifest["id"]: package.key_sha256},
+                         _sample_package(version="1.0.1", code=13, sha="0" * 64),
+                         "https://e.com/old.zip", "", ["新标签"], False)
+    assert not tagged.unchanged
+    assert json.loads(tagged.raw)["plugins"][0]["tags"] == ["新标签"]
+    assert json.loads(tagged.raw)["plugins"][0]["featured"] is False
+    assert json.loads(tagged.raw)["tags"] == ["示例", "模板", "新标签"]
 
     # 版本回退：拒绝
     try:
