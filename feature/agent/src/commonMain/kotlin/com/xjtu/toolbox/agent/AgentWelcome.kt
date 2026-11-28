@@ -319,7 +319,8 @@ private fun ChainShowcase(honored: Set<AgentCapability>, onAsk: (String) -> Unit
             ) {
                 IconTile(c.icon, c.tint, 30.dp)
                 Spacer(Modifier.height(10.dp))
-                Text(c.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 2, lineHeight = 20.sp)
+                // 卡片宽度固定 176dp，字号放大后两行也放不下标题，末尾给省略号（#622）
+                Text(c.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 2, lineHeight = 20.sp, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(6.dp))
                 // 用到的几步收成一行小字，卡片不再被竖排的三步撑高
                 Text(
@@ -433,7 +434,15 @@ private fun BriefCard(lines: List<BriefLine>, onAsk: (String) -> Unit) {
             ) {
                 Icon(line.icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
                 Spacer(Modifier.width(14.dp))
-                Text(line.label, fontSize = 13.sp, color = muted, maxLines = 1, modifier = Modifier.width(52.dp))
+                // 标签列固定 52dp（三行长标签要对齐），字号放大后放不下就给省略号（#622）
+                Text(
+                    line.label,
+                    fontSize = 13.sp,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(52.dp),
+                )
                 Text(
                     line.value,
                     fontSize = 14.sp,

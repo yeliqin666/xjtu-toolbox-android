@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.SessionExpiredFailure
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +68,8 @@ class AttendanceViewModel(
                 val next = fetch(requested)
                 saved[TERM_KEY] = next.termBh
                 mutable.value = next
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (e is SessionExpiredFailure) eventChannel.send(AttendanceEvent.AuthExpired)
                 else mutable.update { it.copy(error = FriendlyError.of(e, "加载考勤")) }
@@ -87,6 +90,8 @@ class AttendanceViewModel(
         // 打卡流水只是原始刷卡数据，拉不到不影响其它栏
         val streams = try {
             source.getStreams(term?.startDate.orEmpty(), term?.endDate.orEmpty())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (e is SessionExpiredFailure) throw e
             emptyList()
@@ -94,6 +99,8 @@ class AttendanceViewModel(
         // 请假接口学校可能单独关停（回「功能暂未上线」），不能拖垮考勤记录
         val leaves = try {
             Result.success(source.getLeavePage().records)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (e is SessionExpiredFailure) throw e
             Result.failure(e)
@@ -120,6 +127,8 @@ class AttendanceViewModel(
                 }
                 eventChannel.send(AttendanceEvent.Message(if (action == LeaveAction.WITHDRAW) "请假申请已撤回" else "已提交销假申请"))
                 load()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (e is SessionExpiredFailure) eventChannel.send(AttendanceEvent.AuthExpired)
                 else eventChannel.send(AttendanceEvent.Message(FriendlyError.of(e, "操作")))

@@ -452,6 +452,13 @@ jobs:
           git tag -d "$TAG" 2>/dev/null || true
           git push origin ":refs/tags/$TAG" 2>/dev/null || true
 
+      # artifact 只留 90 天，版本用得更久：mapping 压缩后（约 200MB → 13MB）随 Release 永久留档。
+      - name: Compress R8 mapping for release
+        if: github.ref == 'refs/heads/main'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gzip -9 -c app/build/outputs/mapping/release/mapping.txt > "mapping-$VERSION.txt.gz"
+
       - name: Create GitHub Release
         id: gh_release
         if: github.ref == 'refs/heads/main'
@@ -459,7 +466,9 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
-          files: app/build/outputs/apk/release/app-release.apk
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            mapping-${{ steps.version.outputs.version }}.txt.gz
           generate_release_notes: true
           make_latest: true
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}

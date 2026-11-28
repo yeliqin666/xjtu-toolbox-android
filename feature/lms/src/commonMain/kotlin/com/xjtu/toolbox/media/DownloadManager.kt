@@ -91,7 +91,7 @@ class DownloadManager(
             val cameraLabel = when (videoInfo.cameraType) {
                 "instructor" -> "教师直播"
                 "encoder" -> "电脑屏幕"
-                else -> videoInfo.cameraType
+                else -> sanitizeFileName(videoInfo.cameraType)
             }
             val fileName = "${safeActivityTitle}_${cameraLabel}.mp4"
             // `File(downloadDir, safeCourseName)` 的等价物：目录名为空时就是根本身（不留一条多余的 `/`）
@@ -291,11 +291,12 @@ class DownloadManager(
         )
     }
 
-    /** 清理文件名中的非法字符。 */
+    /** 清理文件名中的非法字符；全由点组成的名字（`.`、`..`）换成下划线，否则拼成目录会落到 downloadRoot 之外。 */
     private fun sanitizeFileName(name: String): String {
-        return name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val cleaned = name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
             .replace(Regex("\\s+"), " ")
             .trim()
+        return if (cleaned.isNotEmpty() && cleaned.all { it == '.' }) "_" else cleaned
     }
 }
 

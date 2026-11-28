@@ -341,7 +341,10 @@ object ZyxfApi {
                 if (!resp.isSuccessful) return null
                 val body = resp.body ?: return null
                 if (body.contentLength() > maxBytes) return null
-                link.name to body.bytes()
+                // 分块传输不报长度：多缓冲一个字节判超限，别整包 bytes()
+                val source = body.source()
+                if (source.request(maxBytes + 1)) return null
+                link.name to source.readByteArray()
             }
         }.onFailure { Log.w(TAG, "readBytes failed: $fileId", it) }.getOrNull()
     }
