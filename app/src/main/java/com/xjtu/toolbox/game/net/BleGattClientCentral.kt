@@ -72,6 +72,7 @@ class BleGattClientCentral(private val context: Context) {
         var pendingWriteAck: CompletableDeferred<Boolean>? = null
         var writeChar: BluetoothGattCharacteristic? = null
         var negotiatedMtu = BleGattIds.DEFAULT_ATT_MTU
+        var nextOutMsgId = 0
         var gattRef: BluetoothGatt? = null
 
         val callback = object : BluetoothGattCallback() {
@@ -162,7 +163,18 @@ class BleGattClientCentral(private val context: Context) {
             override suspend fun send(line: String) = writeLock.withLock {
                 val char = writeChar ?: return@withLock
                 val bytes = line.toByteArray(Charsets.UTF_8)
-                val fragments = BleFraming.fragment(0, bytes, negotiatedMtu)
+                // 每条消息一个 msgId：恒用 0 的话，一旦丢过片，残留的半成品会和下一条消息
+                // （恰好片数相同时）拼在一起，静默拼出一条坏报文。
+                val msgId = nextOutMsgId
+                nextOutMsgId = (nextOutMsgId + 1) and 0xFF
+                val fragments = try {
+                    BleFraming.fragment(msgId, bytes, negotiatedMtu)
+                } catch (_: IllegalArgumentException) {
+                    // 装不下就不发：发一半对方只会拼出被砍断的 JSON，然后当噪声丢掉，
+                    // 表现成"对方忽然不理我"。关掉通道，让心跳把会话判成断开。
+                    close()
+                    return@withLock
+                }
                 for (fragment in fragments) {
                     val ack = CompletableDeferred<Boolean>()
                     pendingWriteAck = ack
@@ -177,7 +189,12 @@ class BleGattClientCentral(private val context: Context) {
                         @Suppress("DEPRECATION")
                         gattRef?.writeCharacteristic(char) == true
                     }
-                    if (!ok2) break
+                    if (!ok2) {
+                        // 写调用失败 = 链路已不可用。关掉通道让会话立刻判死，
+                        // 而不是让 send 正常返回、上层以为这条消息发出去了。
+                        close()
+                        return@withLock
+                    }
                     withTimeoutOrNull(2_000) { ack.await() }
                 }
             }

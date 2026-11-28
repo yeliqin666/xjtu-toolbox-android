@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.game.net
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -52,6 +53,18 @@ class BleFramingTest {
         for (f in fragments.dropLast(1)) {
             assertNull(reassembler.feed(f))
         }
+    }
+
+    @Test
+    fun `超过 255 片应当报错而不是悄悄截断`() {
+        val maxChunk = 23 - BleFraming.HEADER_SIZE
+        val limit = maxChunk * BleFraming.MAX_FRAGMENTS
+        // 刚好装得下：切满 255 片，一片不少。
+        assertEquals(BleFraming.MAX_FRAGMENTS, BleFraming.fragment(1, ByteArray(limit), mtu = 23).size)
+        // 多一个字节就该报错。以前这里 coerceIn(1, 255)，后面那截被静默丢掉，
+        // 对方拼出一条缺尾巴的报文、解码失败后当噪声忽略，表现成"对方忽然不理我"。
+        val error = runCatching { BleFraming.fragment(1, ByteArray(limit + 1), mtu = 23) }.exceptionOrNull()
+        assertTrue("超限应当抛 IllegalArgumentException，实际是 $error", error is IllegalArgumentException)
     }
 
     @Test

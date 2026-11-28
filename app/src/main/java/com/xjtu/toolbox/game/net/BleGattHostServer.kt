@@ -206,7 +206,14 @@ class BleGattHostServer(private val context: Context) {
             val bytes = line.toByteArray(Charsets.UTF_8)
             val msgId = nextOutMsgId
             nextOutMsgId = (nextOutMsgId + 1) and 0xFF
-            val fragments = BleFraming.fragment(msgId, bytes, negotiatedMtu)
+            val fragments = try {
+                BleFraming.fragment(msgId, bytes, negotiatedMtu)
+            } catch (_: IllegalArgumentException) {
+                // 装不下就不发（见 BleFraming 的说明）：关掉通道让心跳把会话判成断开，
+                // 而不是发一半让对方拼出被砍断的报文。
+                close()
+                return@withLock
+            }
             for (fragment in fragments) {
                 val ack = CompletableDeferred<Boolean>()
                 pendingNotifyAck = ack
@@ -219,7 +226,13 @@ class BleGattHostServer(private val context: Context) {
                     @Suppress("DEPRECATION")
                     gattServer?.notifyCharacteristicChanged(device, char, false) == true
                 }
-                if (!sent) break
+                if (!sent) {
+                    // 发送调用本身失败说明链路已经不可用。这里必须关掉通道，不能只是 break：
+                    // send 正常返回，上层会以为 hello_ack 已经送达、照常进 Playing 开棋盘，
+                    // 而对方其实什么都没收到，只能在握手超时后放弃。
+                    close()
+                    return@withLock
+                }
                 // 等这一片真正发出去（onNotificationSent）再发下一片：GATT 同一时刻只能有一个
                 // 未完成的操作，不排队会互相踩踏、丢片。
                 kotlinx.coroutines.withTimeoutOrNull(2_000) { ack.await() }

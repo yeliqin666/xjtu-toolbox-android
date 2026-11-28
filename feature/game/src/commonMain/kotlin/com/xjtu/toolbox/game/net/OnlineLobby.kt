@@ -79,7 +79,7 @@ interface OnlineLobby {
     fun Content(
         state: OnlineLobbyState,
         kind: GameKind,
-        /** 房主开房时的规则参数（围棋的路数等）；加入方从房主的 hello 里拿，不看这个。 */
+        /** 房主开房时的规则参数（围棋的路数等）；加入方从房主的 hello_ack 里拿，不看这个。 */
         ruleParam: String?,
         onSessionReady: (session: OnlineGameSession, amHost: Boolean, hostFirst: Boolean, ruleParam: String?) -> Unit,
         onCancel: () -> Unit,

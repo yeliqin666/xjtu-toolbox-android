@@ -1,16 +1,21 @@
 package com.xjtu.toolbox.game.net
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,7 +76,7 @@ class OnlineGameSessionTest {
     }
 
     @Test
-    fun `口令不对，房主拒绝并断开`() = runBlocking {
+    fun `口令不对，加入方在挑战这一步就不认对面是房主`() = runBlocking {
         val (hostT, guestT) = connectedPair()
         val host = OnlineGameSession(
             OnlineRole.HOST, "TOKEN-RIGHT", GameKind.GOMOKU, ruleParam = null,
@@ -84,10 +89,169 @@ class OnlineGameSessionTest {
         host.start()
         guest.start()
 
+        // 两边口令不一样，房主算出的挑战证明加入方验不过——它必须当场断开，而不是硬着头皮往下走。
         withTimeout(5_000) {
-            val hostState = host.state.first { it is OnlineConnState.Disconnected }
-            assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("口令"))
+            val guestState = guest.state.first { it is OnlineConnState.Disconnected }
+            assertTrue((guestState as OnlineConnState.Disconnected).reason.contains("冒充"))
         }
+        delay(200)
+        assertTrue("没验过口令，房主不能进对局", host.state.value is OnlineConnState.Handshaking)
+    }
+
+    @Test
+    fun `房主在对方证明自己之前不发口令也不发对局参数`() = runBlocking {
+        // 房主这一侧只坐着一个"抢先连上 GATT 的第三台设备"：它不知道口令，只能瞎猜。
+        val fromGuest = Channel<String>(Channel.UNLIMITED)
+        val toGuest = Channel<String>(Channel.UNLIMITED)
+        val host = OnlineGameSession(
+            OnlineRole.HOST, "REAL-TOKEN", GameKind.GOMOKU, ruleParam = "{\"size\":19}",
+            hostFirst = false, transport = FakeTransport(outbound = toGuest, inbound = fromGuest), scope = scope,
+        )
+        host.start()
+        // 没人说话之前，房主一个字节都不主动发
+        delay(200)
+        assertTrue("房主不能主动发消息", toGuest.tryReceive().isFailure)
+
+        // 打个招呼：房主可以回挑战，但挑战里除了证明什么都不能有——
+        // 尤其不能有口令，也不能有棋盘大小这种还没到该给的时候的参数。
+        fromGuest.send(NetCodec.encode(NetCodec.hello(HandshakeAuth.newNonce(), GameKind.GOMOKU)))
+        val challenge = withTimeout(5_000) { toGuest.receive() }
+        assertFalse("挑战里不能有口令", challenge.contains("REAL-TOKEN"))
+        assertFalse("对方还没证明自己，不能把对局参数给它", challenge.contains("size"))
+        assertTrue("只是发了挑战，不能算握手完成", host.state.value is OnlineConnState.Handshaking)
+
+        // 答不上来（证明是编的）就该被拒。
+        fromGuest.send(NetCodec.encode(NetCodec.auth("00".repeat(32))))
+        val hostState = withTimeout(5_000) { host.state.first { it is OnlineConnState.Disconnected } }
+        assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("口令"))
+        // 拒绝包里也不能夹带对局参数
+        val rejection = toGuest.tryReceive().getOrNull()
+        if (rejection != null) assertFalse(rejection.contains("size"))
+    }
+
+    @Test
+    fun `加入方不会把口令交给冒充房主的设备`() = runBlocking {
+        // 加入方只按服务 UUID 找房主，而这个 UUID 是公开广播的——对面完全可能是一台伪造的外设。
+        // 所以它发出去的第一包只能是"我要连"，不能带任何用口令算出来的东西。
+        val guestToHost = Channel<String>(Channel.UNLIMITED)
+        val hostToGuest = Channel<String>(Channel.UNLIMITED)
+        val guest = OnlineGameSession(
+            OnlineRole.GUEST, "REAL-TOKEN", GameKind.GOMOKU, ruleParam = null,
+            hostFirst = true, transport = FakeTransport(outbound = guestToHost, inbound = hostToGuest), scope = scope,
+        )
+        guest.start()
+
+        val hello = withTimeout(5_000) { guestToHost.receive() }
+        assertFalse("口令本身不能出现在链路上", hello.contains("REAL-TOKEN"))
+        assertTrue("至少要带上自己的 nonce", hello.contains("nonce"))
+
+        // 假房主不知道该出示什么：它拿不到真口令，只能编一段挑战。
+        // 加入方验不过就必须断开，绝不能把棋盘打开——那样用户会对着一台不存在的对手下完一整盘。
+        hostToGuest.send(
+            NetCodec.encode(
+                NetCodec.challenge(
+                    nonce = HandshakeAuth.newNonce(),
+                    proof = HandshakeAuth.challengeProof("GUESSED-TOKEN", "whatever", "whatever2"),
+                ),
+            ),
+        )
+
+        val state = withTimeout(5_000) { guest.state.first { it !is OnlineConnState.Handshaking } }
+        assertTrue("假房主不能把加入方带进 Playing", state is OnlineConnState.Disconnected)
+        assertTrue((state as OnlineConnState.Disconnected).reason.contains("冒充"))
+        // 假房主塞进来的东西一条也不能生效
+        assertNull(guest.resolvedRuleParam)
+        assertTrue(guest.resolvedHostFirst)
+    }
+
+    @Test
+    fun `加入方从 hello_ack 拿到房主的规则参数和先后手`() = runBlocking {
+        val (hostT, guestT) = connectedPair()
+        val host = OnlineGameSession(
+            OnlineRole.HOST, "TOKEN1", GameKind.GO, ruleParam = "{\"size\":19}",
+            hostFirst = false, transport = hostT, scope = scope,
+        )
+        val guest = OnlineGameSession(
+            OnlineRole.GUEST, "TOKEN1", GameKind.GO, ruleParam = null,
+            hostFirst = true, transport = guestT, scope = scope,
+        )
+        host.start()
+        guest.start()
+
+        withTimeout(5_000) {
+            host.state.first { it is OnlineConnState.Playing }
+            guest.state.first { it is OnlineConnState.Playing }
+            assertEquals("{\"size\":19}", guest.resolvedRuleParam)
+            assertFalse("先后手由房主决定，不能停在占位值 true 上", guest.resolvedHostFirst)
+        }
+    }
+
+    @Test
+    fun `握手没完成就收到着法直接断开`() = runBlocking {
+        val fromGuest = Channel<String>(Channel.UNLIMITED)
+        val toGuest = Channel<String>(Channel.UNLIMITED)
+        val host = OnlineGameSession(
+            OnlineRole.HOST, "TOKEN1", GameKind.GOMOKU, ruleParam = null,
+            hostFirst = true, transport = FakeTransport(outbound = toGuest, inbound = fromGuest), scope = scope,
+        )
+        host.start()
+        // 绕过握手直接来一步棋。要是让它记进 moveLog，后面对方的正常着法会全部被当成跳号。
+        fromGuest.send(NetCodec.encode(NetCodec.move(1, "7,7")))
+
+        val hostState = withTimeout(5_000) { host.state.first { it is OnlineConnState.Disconnected } }
+        assertTrue((hostState as OnlineConnState.Disconnected).reason.contains("握手"))
+    }
+
+    @Test
+    fun `已开下的对局忽略重复和迟到的握手包`() = runBlocking {
+        val guestToHost = Channel<String>(Channel.UNLIMITED)
+        val hostToGuest = Channel<String>(Channel.UNLIMITED)
+        val host = OnlineGameSession(
+            OnlineRole.HOST, "TOKEN1", GameKind.GOMOKU, ruleParam = "{\"size\":9}",
+            hostFirst = true, transport = FakeTransport(outbound = hostToGuest, inbound = guestToHost), scope = scope,
+        )
+        val guest = OnlineGameSession(
+            OnlineRole.GUEST, "TOKEN1", GameKind.GOMOKU, ruleParam = null,
+            hostFirst = true, transport = FakeTransport(outbound = guestToHost, inbound = hostToGuest), scope = scope,
+        )
+        host.start()
+        guest.start()
+        withTimeout(5_000) {
+            host.state.first { it is OnlineConnState.Playing }
+            guest.state.first { it is OnlineConnState.Playing }
+        }
+        assertEquals("{\"size\":9}", guest.resolvedRuleParam)
+
+        // 1) 往**房主**重发一条 hello：对方早就验过了，口令也消费了。
+        //    没有"Playing 之后忽略握手包"这道门，房主会重新发挑战、把状态搅乱。
+        guestToHost.send(NetCodec.encode(NetCodec.hello(HandshakeAuth.newNonce(), GameKind.GOMOKU)))
+        delay(200)
+        assertTrue("迟到的 hello 不能把正在下的对局搅乱", host.state.value is OnlineConnState.Playing)
+
+        // 2) 往**加入方**重发一条参数不同的 hello_ack。证明是编的也无所谓——门禁在验证明之前就该拦住它，
+        //    否则房主下发的规则参数和先后手会被改写，两边按不同的盘开局。
+        hostToGuest.send(
+            NetCodec.encode(
+                NetCodec.helloAck(ok = true, proof = "00".repeat(32), rule = "{\"size\":19}", hostFirst = false),
+            ),
+        )
+        delay(200)
+        assertTrue("迟到的 hello_ack 不能让加入方掉线", guest.state.value is OnlineConnState.Playing)
+        assertEquals("已确认的规则参数不能被改写", "{\"size\":9}", guest.resolvedRuleParam)
+        assertTrue("已确认的先后手不能被改写", guest.resolvedHostFirst)
+
+        // 3) 对局还得能正常走：会话语义没被这两条迟到包破坏。
+        // events 没有 replay：必须先把订阅建好再发。用 UNDISPATCHED 让 collect 在挂起前就完成订阅，
+        // 否则 runBlocking 的线程在 sendLocalMove 之前没有真正的挂起点，订阅协程还没跑，这一步就被漏掉。
+        val received = java.util.concurrent.CopyOnWriteArrayList<OnlineGameEvent>()
+        val collectJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            guest.events.collect { received.add(it) }
+        }
+        host.sendLocalMove("7,7")
+        withTimeout(5_000) {
+            while (received.none { it is OnlineGameEvent.RemoteMove }) yield()
+        }
+        collectJob.cancel()
     }
 
     @Test

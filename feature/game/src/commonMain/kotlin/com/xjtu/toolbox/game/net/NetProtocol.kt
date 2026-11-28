@@ -6,6 +6,11 @@ import kotlinx.serialization.Serializable
 /** 协议里所有消息的类型标识。 */
 object NetMsgType {
     const val HELLO = "hello"
+    /** 房主的挑战：nonce + 证明"我知道口令"，加入方据此排掉冒充房主的外设。 */
+    const val CHALLENGE = "challenge"
+    /** 加入方对挑战的应答：证明"我知道口令"，且对着房主刚给的 nonce 算，抓包重放不出去。 */
+    const val AUTH = "auth"
+    /** 房主的确认：对局参数 + 证明（参数进 MAC，中继改不了）。 */
     const val HELLO_ACK = "hello_ack"
     const val MOVE = "move"
     const val UNDO_REQ = "undo_req"
@@ -32,13 +37,18 @@ object NetMsgType {
 @Serializable
 data class NetEnvelope(
     val type: String = "",
-    // hello
-    val token: String? = null,
+    // 握手四步（见 [HandshakeAuth] 的说明）：hello → challenge → auth → hello_ack。
+    // **口令本身永远不上链路**，每一步传的都是"用口令算出来的证明"，且必须绑对方刚给的随机数。
+    // 曾经这里是明文口令，问题不止被动嗅探：加入方按服务 UUID 认房主，而这个 UUID 是公开广播的，
+    // 谁伪造一台同 UUID 的外设，加入方就把口令送给谁，对方随后能拿着它去连真房主冒充对手。
+    val nonce: String? = null,
+    val proof: String? = null,
     val game: String? = null,
+    // hello_ack：房主确认后才下发对局参数——加入方扫二维码时只知道连接方式和口令，
+    // 棋种之外的规则参数（围棋路数等）和先后手只能由房主告知。这两个字段都在 [NetEnvelope.proof] 里。
     val rule: String? = null,
     val hostFirst: Boolean? = null,
-    // hello_ack（token 在这里回传一遍，房主据此核实"接进来的确实是拿到同一份二维码的那台设备"，
-    // 而不是恰好先连上 socket/GATT 的第三台设备——见 OnlineGameSession 里 hostToken 的用法）
+    // hello_ack 的结果位；[reason] 是失败时能直接展示给用户的一句话。
     val ok: Boolean? = null,
     val reason: String? = null,
     // move
@@ -56,11 +66,35 @@ object NetCodec {
     fun decode(line: String): NetEnvelope? =
         runCatching { AppJson.decodeFromString<NetEnvelope>(line) }.getOrNull()?.takeIf { it.type.isNotEmpty() }
 
-    fun hello(token: String, game: GameKind, rule: String?, hostFirst: Boolean) =
-        NetEnvelope(NetMsgType.HELLO, token = token, game = game.wireId, rule = rule, hostFirst = hostFirst)
+    /** 第 1 步：加入方打招呼，只带自己的 nonce 和棋种，不含任何凭据。 */
+    fun hello(nonce: String, game: GameKind) =
+        NetEnvelope(NetMsgType.HELLO, nonce = nonce, game = game.wireId)
 
-    fun helloAck(ok: Boolean, token: String? = null, reason: String? = null) =
-        NetEnvelope(NetMsgType.HELLO_ACK, ok = ok, token = token, reason = reason)
+    /** 第 2 步：房主给新鲜挑战，并用证明告诉加入方"我确实知道口令"。 */
+    fun challenge(nonce: String, proof: String) =
+        NetEnvelope(NetMsgType.CHALLENGE, nonce = nonce, proof = proof)
+
+    /** 第 3 步：加入方对着房主的 nonce 作答。 */
+    fun auth(proof: String) = NetEnvelope(NetMsgType.AUTH, proof = proof)
+
+    /**
+     * 第 4 步：房主下发对局参数。[proof] 把参数一起盖住，加入方验不过就不采用。
+     * 失败时 [ok]=false 且不带证明（拒绝的理由给一句能显示的话即可，不含任何秘密）。
+     */
+    fun helloAck(
+        ok: Boolean,
+        proof: String? = null,
+        rule: String? = null,
+        hostFirst: Boolean? = null,
+        reason: String? = null,
+    ) = NetEnvelope(
+        NetMsgType.HELLO_ACK,
+        ok = ok,
+        proof = proof,
+        rule = rule,
+        hostFirst = hostFirst,
+        reason = reason,
+    )
 
     fun move(seq: Int, code: String) = NetEnvelope(NetMsgType.MOVE, seq = seq, move = code)
 

@@ -138,7 +138,7 @@ object OnlineController {
             role = OnlineRole.GUEST,
             token = payload.token,
             gameKind = kind,
-            // 规则参数、先后手都由房主在 hello 里给，握手完成后从 session.resolved* 读
+            // 规则参数、先后手都由房主在 hello_ack 里给，握手完成后从 session.resolved* 读
             ruleParam = null,
             hostFirst = true,
             transport = transport,
